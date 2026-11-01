@@ -57,13 +57,14 @@
     "react-dom": "^19.3.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "tsx": "^4.23.15"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm --filter \"@rightkit/media-gen-ui^...\" run build && node --test \"src/tests/*.test.mjs\""
+    "test": "pnpm --filter \"@rightkit/media-gen-ui^...\" run build && node --import tsx --test \"src/tests/*.test.mjs\""
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

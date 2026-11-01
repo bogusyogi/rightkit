@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 
 // Drift guard: every model the browser mock lists must carry the engine's label, kind and est_usd
-// exactly as the Rust provider tables state them (crates/genright-gen/src/providers/*.rs).
+// exactly as the Rust provider tables state them (crates/rightkit-media-gen/src/providers/*.rs).
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -17,7 +17,7 @@ function mockRows() {
 }
 
 function engineSource() {
-  const dir = new URL('../../crates/genright-gen/src/providers/', import.meta.url);
+  const dir = new URL('../../../../crates/rightkit-media-gen/src/providers/', import.meta.url);
   return readdirSync(dir)
     .filter((f) => f.endsWith('.rs'))
     .map((f) => readFileSync(new URL(f, dir), 'utf8'))

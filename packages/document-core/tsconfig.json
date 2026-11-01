@@ -20,6 +20,9 @@
     "rewriteRelativeImportExtensions": true,
     "types": [
       "node"
+    ],
+    "customConditions": [
+      "development"
     ]
   },
   "include": [

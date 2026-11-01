@@ -1,0 +1,653 @@
+{
+  "_meta": {
+    "version": "1.1.0",
+    "source": "tools/pipelines/video/create.mjs animateImage plus falai.js/wavespeed.js buildInput accepted controls",
+    "notes": [
+      "Reference inputs stay in the VideoReferencePicker unless the provider exposes a generation-param reference slot such as last_image or mask_image.",
+      "Only provider-accepted fields for the called wrapper route are exposed as generation params."
+    ]
+  },
+  "common_fields": {
+    "prompt": {
+      "type": "string",
+      "required": true,
+      "max_length": 4000,
+      "_note": "Studio prompt/composer input; final render uses composed_prompt and shot_contract."
+    },
+    "aspect": {
+      "type": "enum",
+      "required": true,
+      "enum": ["9:16", "1:1", "16:9"],
+      "default": "9:16"
+    }
+  },
+  "models": {
+    "veo3-i2v": {
+      "fields": {
+        "aspect": {
+          "type": "enum",
+          "required": true,
+          "enum": ["auto", "9:16", "16:9"],
+          "default": "9:16"
+        },
+        "duration": {
+          "type": "integer",
+          "required": true,
+          "enum": [4, 6, 8],
+          "default": 4,
+          "_format": "seconds"
+        },
+        "resolution": {
+          "type": "enum",
+          "enum": ["720p", "1080p", "4k"],
+          "default": "720p"
+        },
+        "seed": {
+          "type": "integer",
+          "supported": true,
+          "_note": "fal Veo seed; optional reproducibility control."
+        },
+        "withAudio": {
+          "type": "boolean",
+          "default": false,
+          "_provider_field": "generate_audio",
+          "_note": "fal generate_audio; default false preserves the existing external-audio pipeline cost guard."
+        },
+        "negative_prompt": {
+          "type": "string",
+          "max_length": 500,
+          "_note": "Raw fal Veo negative_prompt. Shot-contract negative prompts remain the primary gate; use this for provider-level suppression when needed."
+        },
+        "auto_fix": {
+          "type": "boolean",
+          "default": false
+        },
+        "safety_tolerance": {
+          "type": "enum",
+          "enum": ["1", "2", "3", "4", "5", "6"],
+          "default": "2"
+        }
+      },
+      "generation_param_fields": ["withAudio", "seed", "negative_prompt", "auto_fix", "safety_tolerance"],
+      "cost_per_second_by_resolution_audio": {
+        "noAudio": { "720p": 0.2, "1080p": 0.2, "4k": 0.6 },
+        "withAudio": { "720p": 0.4, "1080p": 0.4, "4k": 0.8 }
+      }
+    },
+    "veo3-flf": {
+      "fields": {
+        "aspect": {
+          "type": "enum",
+          "required": true,
+          "enum": ["auto", "9:16", "16:9"],
+          "default": "9:16"
+        },
+        "duration": {
+          "type": "integer",
+          "required": true,
+          "enum": [4, 6, 8],
+          "default": 4,
+          "_format": "seconds"
+        },
+        "resolution": {
+          "type": "enum",
+          "enum": ["720p", "1080p", "4k"],
+          "default": "720p"
+        },
+        "seed": {
+          "type": "integer",
+          "supported": true,
+          "_note": "fal Veo seed; optional reproducibility control."
+        },
+        "withAudio": {
+          "type": "boolean",
+          "default": false,
+          "_provider_field": "generate_audio",
+          "_note": "fal generate_audio; default false preserves the existing external-audio pipeline cost guard."
+        },
+        "negative_prompt": {
+          "type": "string",
+          "max_length": 500,
+          "_note": "Raw fal Veo negative_prompt. Shot-contract negative prompts remain the primary gate; use this for provider-level suppression when needed."
+        },
+        "auto_fix": {
+          "type": "boolean",
+          "default": false
+        },
+        "safety_tolerance": {
+          "type": "enum",
+          "enum": ["1", "2", "3", "4", "5", "6"],
+          "default": "2"
+        }
+      },
+      "generation_param_fields": ["withAudio", "seed", "negative_prompt", "auto_fix", "safety_tolerance"],
+      "cost_per_second_by_resolution_audio": {
+        "noAudio": { "720p": 0.2, "1080p": 0.2, "4k": 0.6 },
+        "withAudio": { "720p": 0.4, "1080p": 0.4, "4k": 0.8 }
+      }
+    },
+    "veo3-ref": {
+      "fields": {
+        "aspect": {
+          "type": "enum",
+          "required": true,
+          "enum": ["9:16", "16:9"],
+          "default": "9:16"
+        },
+        "duration": {
+          "type": "integer",
+          "required": true,
+          "enum": [8],
+          "default": 8,
+          "_format": "seconds"
+        },
+        "resolution": {
+          "type": "enum",
+          "enum": ["720p", "1080p", "4k"],
+          "default": "720p"
+        },
+        "withAudio": {
+          "type": "boolean",
+          "default": false,
+          "_provider_field": "generate_audio",
+          "_note": "fal generate_audio; default false preserves the existing external-audio pipeline cost guard."
+        },
+        "auto_fix": {
+          "type": "boolean",
+          "default": false
+        },
+        "safety_tolerance": {
+          "type": "enum",
+          "enum": ["1", "2", "3", "4", "5", "6"],
+          "default": "2"
+        }
+      },
+      "generation_param_fields": ["withAudio", "auto_fix", "safety_tolerance"],
+      "cost_per_second_by_resolution_audio": {
+        "noAudio": { "720p": 0.2, "1080p": 0.2, "4k": 0.6 },
+        "withAudio": { "720p": 0.4, "1080p": 0.4, "4k": 0.8 }
+      }
+    },
+    "veo3-fast-flf": {
+      "fields": {
+        "aspect": {
+          "type": "enum",
+          "required": true,
+          "enum": ["auto", "9:16", "16:9"],
+          "default": "9:16"
+        },
+        "duration": {
+          "type": "integer",
+          "required": true,
+          "enum": [4, 6, 8],
+          "default": 4,
+          "_format": "seconds"
+        },
+        "resolution": {
+          "type": "enum",
+          "enum": ["720p", "1080p", "4k"],
+          "default": "720p"
+        },
+        "seed": {
+          "type": "integer",
+          "supported": true,
+          "_note": "fal Veo seed; optional reproducibility control."
+        },
+        "withAudio": {
+          "type": "boolean",
+          "default": false,
+          "_provider_field": "generate_audio",
+          "_note": "fal generate_audio; default false preserves the existing external-audio pipeline cost guard."
+        },
+        "negative_prompt": {
+          "type": "string",
+          "max_length": 500,
+          "_note": "Raw fal Veo negative_prompt. Shot-contract negative prompts remain the primary gate; use this for provider-level suppression when needed."
+        },
+        "auto_fix": {
+          "type": "boolean",
+          "default": false
+        },
+        "safety_tolerance": {
+          "type": "enum",
+          "enum": ["1", "2", "3", "4", "5", "6"],
+          "default": "2"
+        }
+      },
+      "generation_param_fields": ["withAudio", "seed", "negative_prompt", "auto_fix", "safety_tolerance"],
+      "cost_per_second_by_resolution_audio": {
+        "noAudio": { "720p": 0.1, "1080p": 0.1, "4k": 0.3 },
+        "withAudio": { "720p": 0.2, "1080p": 0.2, "4k": 0.4 }
+      }
+    },
+    "veo3-lite-flf": {
+      "fields": {
+        "aspect": {
+          "type": "enum",
+          "required": true,
+          "enum": ["auto", "9:16", "16:9"],
+          "default": "9:16"
+        },
+        "duration": {
+          "type": "integer",
+          "required": true,
+          "enum": [8],
+          "default": 8,
+          "_format": "seconds"
+        },
+        "resolution": {
+          "type": "enum",
+          "enum": ["720p", "1080p"],
+          "default": "720p"
+        },
+        "seed": {
+          "type": "integer",
+          "supported": true,
+          "_note": "fal Veo seed; optional reproducibility control."
+        },
+        "withAudio": {
+          "type": "boolean",
+          "default": false,
+          "_provider_field": "generate_audio",
+          "_note": "fal generate_audio; default false preserves the existing external-audio pipeline cost guard."
+        },
+        "negative_prompt": {
+          "type": "string",
+          "max_length": 500,
+          "_note": "Raw fal Veo negative_prompt. Shot-contract negative prompts remain the primary gate; use this for provider-level suppression when needed."
+        },
+        "auto_fix": {
+          "type": "boolean",
+          "default": false
+        },
+        "safety_tolerance": {
+          "type": "enum",
+          "enum": ["1", "2", "3", "4", "5", "6"],
+          "default": "2"
+        }
+      },
+      "generation_param_fields": ["withAudio", "seed", "negative_prompt", "auto_fix", "safety_tolerance"],
+      "cost_per_second_by_resolution_audio": {
+        "noAudio": { "720p": 0.025, "1080p": 0.025 },
+        "withAudio": { "720p": 0.05, "1080p": 0.05 }
+      }
+    },
+    "kling-3-pro": {
+      "omit_common_fields": ["aspect"],
+      "fields": {
+        "duration": {
+          "type": "integer",
+          "required": true,
+          "enum": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+          "default": 5,
+          "_format": "seconds"
+        },
+        "sound": {
+          "type": "boolean",
+          "default": false,
+          "_provider_field": "sound",
+          "_note": "WaveSpeed sound generation costs 1.5x. Keep off unless explicitly needed."
+        },
+        "negative_prompt": {
+          "type": "string",
+          "max_length": 500
+        },
+        "cfg_scale": {
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "default": 0.5
+        },
+        "shot_type": {
+          "type": "enum",
+          "enum": ["customize", "intelligent"],
+          "default": "customize"
+        },
+        "multi_prompt": {
+          "type": "object",
+          "supported": true,
+          "default": [],
+          "_note": "Provider accepts an array of multi-shot prompt objects."
+        },
+        "element_list": {
+          "type": "object",
+          "supported": true,
+          "default": [],
+          "_note": "Provider accepts an array of element reference objects."
+        }
+      },
+      "generation_param_fields": ["sound", "negative_prompt", "cfg_scale", "shot_type", "multi_prompt", "element_list"],
+      "cost_per_second_usd": 0.112,
+      "cost_per_second_with_sound_usd": 0.168
+    },
+    "seedance-2-fast": {
+      "fields": {
+        "aspect": {
+          "type": "enum",
+          "required": true,
+          "enum": ["16:9", "9:16", "4:3", "3:4", "1:1", "21:9"],
+          "default": "9:16"
+        },
+        "duration": {
+          "type": "integer",
+          "required": true,
+          "min": 4,
+          "max": 15,
+          "default": 5,
+          "_format": "seconds"
+        },
+        "resolution": {
+          "type": "enum",
+          "enum": ["480p", "720p", "1080p"],
+          "default": "720p"
+        },
+        "generate_audio": {
+          "type": "boolean",
+          "default": false,
+          "_provider_field": "generate_audio",
+          "_note": "WaveSpeed Seedance defaults native audio on. Media Console explicitly sends false unless the operator opts in."
+        },
+        "enable_web_search": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "generation_param_fields": ["generate_audio", "enable_web_search"],
+      "cost_per_second_by_resolution": { "480p": 0.1, "720p": 0.18, "1080p": 0.5 }
+    },
+    "seedance-2-std": {
+      "fields": {
+        "aspect": {
+          "type": "enum",
+          "required": true,
+          "enum": ["16:9", "9:16", "4:3", "3:4", "1:1", "21:9"],
+          "default": "9:16"
+        },
+        "duration": {
+          "type": "integer",
+          "required": true,
+          "min": 4,
+          "max": 15,
+          "default": 5,
+          "_format": "seconds"
+        },
+        "resolution": {
+          "type": "enum",
+          "enum": ["480p", "720p", "1080p"],
+          "default": "720p"
+        },
+        "generate_audio": {
+          "type": "boolean",
+          "default": false,
+          "_provider_field": "generate_audio",
+          "_note": "WaveSpeed Seedance defaults native audio on. Media Console explicitly sends false unless the operator opts in."
+        },
+        "enable_web_search": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "generation_param_fields": ["generate_audio", "enable_web_search"],
+      "cost_per_second_by_resolution": { "480p": 0.12, "720p": 0.24, "1080p": 0.6 }
+    },
+    "happy-horse": {
+      "omit_common_fields": ["aspect"],
+      "fields": {
+        "duration": {
+          "type": "integer",
+          "required": true,
+          "enum": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+          "default": 5,
+          "_format": "seconds"
+        },
+        "resolution": {
+          "type": "enum",
+          "enum": ["720p", "1080p"],
+          "default": "720p"
+        },
+        "seed": {
+          "type": "integer",
+          "min": 0,
+          "max": 2147483647,
+          "supported": true
+        }
+      },
+      "generation_param_fields": ["seed"],
+      "cost_per_second_by_resolution": { "720p": 0.14, "1080p": 0.28 }
+    },
+    "wan-ultra": {
+      "omit_common_fields": ["aspect"],
+      "fields": {
+        "duration": {
+          "type": "integer",
+          "required": true,
+          "enum": [5, 8],
+          "default": 5,
+          "_format": "seconds"
+        },
+        "resolution": {
+          "type": "enum",
+          "required": true,
+          "enum": ["480p"],
+          "default": "480p",
+          "locked": true,
+          "_note": "Resolution is fixed by the Wan ultra endpoint."
+        },
+        "negative_prompt": {
+          "type": "string",
+          "max_length": 500
+        },
+        "last_image": {
+          "type": "string",
+          "_note": "Optional URL for first-last-frame guidance."
+        },
+        "seed": {
+          "type": "integer",
+          "supported": true
+        }
+      },
+      "generation_param_fields": ["negative_prompt", "last_image", "seed"],
+      "cost_per_second_usd": 0.01
+    },
+    "wan-hd": {
+      "omit_common_fields": ["aspect"],
+      "fields": {
+        "duration": {
+          "type": "integer",
+          "required": true,
+          "enum": [5, 8],
+          "default": 5,
+          "_format": "seconds"
+        },
+        "resolution": {
+          "type": "enum",
+          "required": true,
+          "enum": ["720p"],
+          "default": "720p",
+          "locked": true,
+          "_note": "Resolution is fixed by the Wan HD endpoint."
+        },
+        "negative_prompt": {
+          "type": "string",
+          "max_length": 500
+        },
+        "last_image": {
+          "type": "string",
+          "_note": "Optional URL for first-last-frame guidance."
+        },
+        "seed": {
+          "type": "integer",
+          "supported": true
+        }
+      },
+      "generation_param_fields": ["negative_prompt", "last_image", "seed"],
+      "cost_per_second_usd": 0.02
+    },
+    "infinitetalk": {
+      "omit_common_fields": ["aspect"],
+      "fields": {
+        "resolution": {
+          "type": "enum",
+          "enum": ["480p", "720p"],
+          "default": "480p"
+        },
+        "seed": {
+          "type": "integer",
+          "supported": true
+        },
+        "mask_image": {
+          "type": "string",
+          "_note": "Optional URL for the region mask; the provider does not accept full-video duration or aspect controls."
+        }
+      },
+      "generation_param_fields": ["seed", "mask_image"],
+      "cost_per_second_by_resolution": { "480p": 0.03, "720p": 0.06 }
+    },
+    "heygen-avatar-video": {
+      "upload_owner": "backend",
+      "fields": {
+        "aspect": {
+          "type": "enum",
+          "required": true,
+          "enum": ["auto", "9:16", "16:9", "1:1"],
+          "default": "auto"
+        },
+        "duration": {
+          "type": "integer",
+          "required": true,
+          "min": 1,
+          "max": 300,
+          "default": 5,
+          "_format": "seconds"
+        },
+        "resolution": {
+          "type": "enum",
+          "enum": ["720p", "1080p"],
+          "default": "1080p"
+        }
+      },
+      "generation_param_fields": [],
+      "cost_per_second_usd": 0.0667
+    },
+    "heygen-lipsync-speed": {
+      "upload_owner": "backend",
+      "fields": {
+        "aspect": {
+          "type": "enum",
+          "required": true,
+          "enum": ["auto", "9:16", "16:9", "1:1"],
+          "default": "auto"
+        },
+        "duration": {
+          "type": "integer",
+          "required": true,
+          "min": 1,
+          "max": 300,
+          "default": 5,
+          "_format": "seconds"
+        },
+        "enable_caption": {
+          "type": "boolean",
+          "default": false
+        },
+        "keep_the_same_format": {
+          "type": "boolean",
+          "default": true
+        },
+        "enable_dynamic_duration": {
+          "type": "boolean",
+          "default": true
+        },
+        "disable_music_track": {
+          "type": "boolean",
+          "default": false
+        },
+        "enable_speech_enhancement": {
+          "type": "boolean",
+          "default": false
+        },
+        "enable_watermark": {
+          "type": "boolean",
+          "default": false
+        },
+        "start_time": {
+          "type": "number",
+          "min": 0,
+          "max": 3600
+        },
+        "end_time": {
+          "type": "number",
+          "min": 0,
+          "max": 3600
+        },
+        "fps_mode": {
+          "type": "enum",
+          "enum": ["vfr", "cfr", "passthrough"],
+          "default": "passthrough"
+        }
+      },
+      "generation_param_fields": ["enable_caption", "keep_the_same_format", "enable_dynamic_duration", "disable_music_track", "enable_speech_enhancement", "enable_watermark", "start_time", "end_time", "fps_mode"],
+      "cost_per_second_usd": 0.0333
+    },
+    "heygen-lipsync-precision": {
+      "upload_owner": "backend",
+      "fields": {
+        "aspect": {
+          "type": "enum",
+          "required": true,
+          "enum": ["auto", "9:16", "16:9", "1:1"],
+          "default": "auto"
+        },
+        "duration": {
+          "type": "integer",
+          "required": true,
+          "min": 1,
+          "max": 300,
+          "default": 5,
+          "_format": "seconds"
+        },
+        "enable_caption": {
+          "type": "boolean",
+          "default": false
+        },
+        "keep_the_same_format": {
+          "type": "boolean",
+          "default": true
+        },
+        "enable_dynamic_duration": {
+          "type": "boolean",
+          "default": true
+        },
+        "disable_music_track": {
+          "type": "boolean",
+          "default": false
+        },
+        "enable_speech_enhancement": {
+          "type": "boolean",
+          "default": false
+        },
+        "enable_watermark": {
+          "type": "boolean",
+          "default": false
+        },
+        "start_time": {
+          "type": "number",
+          "min": 0,
+          "max": 3600
+        },
+        "end_time": {
+          "type": "number",
+          "min": 0,
+          "max": 3600
+        },
+        "fps_mode": {
+          "type": "enum",
+          "enum": ["vfr", "cfr", "passthrough"],
+          "default": "passthrough"
+        }
+      },
+      "generation_param_fields": ["enable_caption", "keep_the_same_format", "enable_dynamic_duration", "disable_music_track", "enable_speech_enhancement", "enable_watermark", "start_time", "end_time", "fps_mode"],
+      "cost_per_second_usd": 0.0667
+    }
+  }
+}

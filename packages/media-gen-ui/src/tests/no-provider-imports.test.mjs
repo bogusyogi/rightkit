@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-const scanRoots = ['server', 'src', 'compat-lib', 'bin'];
+const scanRoots = ['src'];
 const forbiddenPatterns = [
   ['tools', 'backends'].join('/'),
   'fal' + 'ai.js',

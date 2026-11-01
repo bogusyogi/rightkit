@@ -51,7 +51,7 @@ describe("SettingsModal D0 contract", () => {
 
   it("keeps the section title and actions visible", () => {
     expect(settingsModalSource).toContain('id="settings-modal-title"');
-    expect(settingsModalSource).toContain('ariaLabel="App settings"');
+    expect(settingsModalSource).toContain("ariaLabel={`${hostAppName()} settings`}");
   });
 
   it("prevents concurrent save, discard, retry, close, and dismissal during reload", () => {

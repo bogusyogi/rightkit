@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 
 const typesPath = fileURLToPath(new URL("./types.ts", import.meta.url));
 const sessionsPermissionsPath = fileURLToPath(
-  new URL("@rightkit/agent-ui-core/lib/daemon/sessions-permissions", import.meta.url),
+  new URL("../../../../agent-ui-core/src/lib/daemon/sessions-permissions.ts", import.meta.url),
 );
 const importSessionTabPath = fileURLToPath(new URL("./tabs/ImportSessionTab.tsx", import.meta.url));
 const importSessionTabTestPath = fileURLToPath(

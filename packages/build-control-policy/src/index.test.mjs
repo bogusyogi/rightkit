@@ -229,7 +229,7 @@ test('github-actions-only public repositories deny every local dynamic lane', as
     ];
     for (const command of commands) {
       assert.match(githubActionsOnlyViolation(command, { cwd: nested, environment: {} }), /^github-actions-only:/, command);
-      assert.equal(claudeHookDecision({ cwd: nested, environment: {}, tool_input: { command } }).hookSpecificOutput.permissionDecision, 'deny', command);
+      assert.equal(claudeHookDecision({ platform: 'darwin', cwd: nested, environment: {}, tool_input: { command } }).hookSpecificOutput.permissionDecision, 'deny', command);
     }
   } finally {
     await rm(root, { recursive: true, force: true });
