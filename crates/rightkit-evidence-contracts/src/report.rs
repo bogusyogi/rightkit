@@ -347,6 +347,20 @@ pub fn position_anchor(
     }
 }
 
+/// Inputs to [`position_anchor_canonical`].
+#[derive(Debug, Clone, Copy)]
+pub struct CanonicalAnchorParams<'a> {
+    pub path: &'a str,
+    pub start: u32,
+    pub end: u32,
+    pub claimed_hash: Option<&'a str>,
+    pub bytes: Option<&'a [u8]>,
+    pub diff: Option<DiffTag>,
+    pub side: SourceSide,
+    pub repository: Option<&'a str>,
+    pub snapshot_key: Option<&'a str>,
+}
+
 /// Positions an anchor exactly as [`position_anchor`] & additionally builds
 /// canonical byte-exact evidence (see `source_anchor`) when positioning
 /// succeeds against the scoped bytes. A failed position yields `None`
@@ -354,16 +368,19 @@ pub fn position_anchor(
 /// byte range covers the anchored lines' content in the original bytes
 /// (BOM excluded from line 1 content, CRLF retained between lines).
 pub fn position_anchor_canonical(
-    path: &str,
-    start: u32,
-    end: u32,
-    claimed_hash: Option<&str>,
-    bytes: Option<&[u8]>,
-    diff: Option<DiffTag>,
-    side: SourceSide,
-    repository: Option<&str>,
-    snapshot_key: Option<&str>,
+    params: CanonicalAnchorParams<'_>,
 ) -> (Anchor, Option<SourceAnchorEvidence>) {
+    let CanonicalAnchorParams {
+        path,
+        start,
+        end,
+        claimed_hash,
+        bytes,
+        diff,
+        side,
+        repository,
+        snapshot_key,
+    } = params;
     let anchor = position_anchor(path, start, end, claimed_hash, bytes, diff);
     if anchor.failed() {
         return (anchor, None);
@@ -574,9 +591,8 @@ pub fn derive_status(inputs: &StatusInputs<'_>) -> StatusDecision {
         ReportStatus::Incomplete
     } else if inputs.findings.iter().any(|finding| {
         !inputs.advisory.contains(finding.id.as_str()) && finding.confidence != Confidence::Possible
-    }) {
-        ReportStatus::Findings
-    } else if inputs.base == ReportStatus::Findings && !inputs.allow_possible_demotion {
+    }) || (inputs.base == ReportStatus::Findings && !inputs.allow_possible_demotion)
+    {
         ReportStatus::Findings
     } else {
         ReportStatus::Clean
@@ -1413,17 +1429,17 @@ mod v2_tests {
     #[test]
     fn canonical_positioning_builds_agreeing_evidence_and_round_trips() {
         use crate::source_anchor::{validate_evidence_against_bytes, AnchorValidation};
-        let (anchor, evidence) = position_anchor_canonical(
-            "src/a.rs",
-            2,
-            3,
-            None,
-            Some(SOURCE),
-            Some(DiffTag::InDiff),
-            crate::source_anchor::SourceSide::Selected,
-            Some("repo"),
-            Some("snap"),
-        );
+        let (anchor, evidence) = position_anchor_canonical(CanonicalAnchorParams {
+            path: "src/a.rs",
+            start: 2,
+            end: 3,
+            claimed_hash: None,
+            bytes: Some(SOURCE),
+            diff: Some(DiffTag::InDiff),
+            side: crate::source_anchor::SourceSide::Selected,
+            repository: Some("repo"),
+            snapshot_key: Some("snap"),
+        });
         assert_eq!(anchor.state, AnchorState::InDiff);
         let evidence = evidence.expect("resolved position carries canonical evidence");
         assert_eq!(evidence.lines, anchor.range);
@@ -1433,17 +1449,17 @@ mod v2_tests {
             AnchorValidation::Validated
         );
         // A failed position never invents canonical evidence.
-        let (failed, none) = position_anchor_canonical(
-            "src/a.rs",
-            99,
-            99,
-            None,
-            Some(SOURCE),
-            None,
-            crate::source_anchor::SourceSide::Selected,
-            None,
-            None,
-        );
+        let (failed, none) = position_anchor_canonical(CanonicalAnchorParams {
+            path: "src/a.rs",
+            start: 99,
+            end: 99,
+            claimed_hash: None,
+            bytes: Some(SOURCE),
+            diff: None,
+            side: crate::source_anchor::SourceSide::Selected,
+            repository: None,
+            snapshot_key: None,
+        });
         assert!(failed.failed());
         assert!(none.is_none());
 

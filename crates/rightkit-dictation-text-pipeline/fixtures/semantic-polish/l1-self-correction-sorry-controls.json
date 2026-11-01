@@ -1,0 +1,22 @@
+{
+  "schema": "heardright.semantic_polish_fixture.v1",
+  "id": "l1-self-correction-sorry-controls",
+  "lane": "L1",
+  "cases": [
+    {
+      "kind": "replacement",
+      "source": "Find it on Site A, sorry, on Site B.",
+      "target": "Find it on Site B."
+    },
+    {
+      "kind": "apology",
+      "source": "I'm sorry, but the PDF is ready.",
+      "target": "I'm sorry, but the PDF is ready."
+    },
+    {
+      "kind": "quoted_text",
+      "source": "The note says \"video, sorry, PDF\".",
+      "target": "The note says \"video, sorry, PDF\"."
+    }
+  ]
+}

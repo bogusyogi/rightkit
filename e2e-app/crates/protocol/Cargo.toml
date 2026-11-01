@@ -1,0 +1,21 @@
+[package]
+name = "rke2e-protocol"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+publish = false
+
+[features]
+default = []
+# QA and dev only (never in default): compiles `rightkit_daemon::mode`'s test capability so rightkit-qa can bind this app's
+# data root to an isolated directory. The release switch scan refuses a release build whose graph enables it.
+test-mode = ["rightkit-daemon/test-mode"]
+
+[dependencies]
+# Shared RightKit crates: exact registry pins (rightkit-versions.json `registry`).
+# rightkit-job-queue: the serve contract's error types (JobError, JobResult).
+rightkit-job-queue = { path = "../../../crates/rightkit-job-queue", default-features = false }
+# rightkit-daemon: the release-or-test decision and the roots every store must come through (M6).
+rightkit-daemon = { path = "../../../crates/rightkit-daemon" }
+# rightkit-fs: owner-only directory creation (M8).
+rightkit-fs = { path = "../../../crates/rightkit-fs", features = ["fs"] }

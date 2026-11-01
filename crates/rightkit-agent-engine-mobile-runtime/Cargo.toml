@@ -1,0 +1,80 @@
+[package]
+name = "rightkit-agent-engine-mobile-runtime"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Agent engine mobile runtime: in-process engine host for platforms without fork/exec (iOS), with journal, FFI-friendly session API and portable tool profile"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_agent_engine_mobile_runtime"
+path = "src/lib.rs"
+# `staticlib` is what an iOS app links; `rlib` keeps the crate usable from Rust tests and hosts.
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol"}
+rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy"}
+rightkit-agent-engine-core = {version = "0.1.0", path = "../rightkit-agent-engine-core", default-features = false}
+rightkit-agent-tools = {version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"]}
+rightkit-llm = {version = "0.3.2", path = "../rightkit-llm", features = ["agent_providers"]}
+rightkit-agent-engine-history = {version = "0.1.0", path = "../rightkit-agent-engine-history"}
+rightkit-memory = {version = "0.1.0", path = "../rightkit-memory"}
+rightkit-mcp = {version = "0.7.2", path = "../rightkit-mcp", features = ["agent_mcp"]}
+rightkit-agent-host-traits = {version = "0.1.0", path = "../rightkit-agent-host-traits"}
+rightkit-agent-orchestration = {version = "0.1.1", path = "../rightkit-agent-orchestration", default-features = false}
+async-trait = {version = "0.1"}
+serde = {version = "1", features = ["derive"]}
+serde_json = {version = "1"}
+tokio = {version = "1", default-features = false, features = ["rt-multi-thread", "sync", "time", "macros"]}
+url = {version = "2"}
+git2 = {version = "0.21.0", default-features = false, features = ["vendored-libgit2"]}
+rightkit-http = {version = "0.3.9", default-features = false, features = ["async"], path = "../rightkit-http"}
+rightkit-fs = {version = "0.4.9", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs"}
+rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto"}
+rightkit-job-queue = {version = "0.5.1", default-features = false, path = "../rightkit-job-queue"}
+wuff = {version = "0.2.9"}
+
+[features]
+default = []
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0
+
+[dev-dependencies]
+tempfile = {version = "3"}

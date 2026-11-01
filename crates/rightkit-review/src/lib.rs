@@ -28,15 +28,24 @@
 //! Product delivery QA uses [`qa`] for severity-aware checks & persisted reports,
 //! plus [`delivery`] for pure decode/probe/caption rules. These APIs preserve
 //! existing content-pipeline verdict & declared-hold semantics.
+//!
+//! Code review (feature `code`): `code_review` adjudicates independent
+//! provider judgments over candidate findings, normalizes them and issues
+//! receipts; `minimize` (feature `minimize`) builds and verifies minimal-diff
+//! review receipts against a host-supplied policy asset.
 
 #![forbid(unsafe_code)]
 
 mod binding;
+#[cfg(feature = "code")]
+pub mod code_review;
 pub mod delivery;
 mod error;
 mod extension;
 mod judge;
 pub mod ladder;
+#[cfg(feature = "minimize")]
+pub mod minimize;
 pub mod qa;
 mod record;
 mod repair;

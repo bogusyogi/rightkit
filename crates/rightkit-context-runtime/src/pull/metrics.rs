@@ -1,0 +1,170 @@
+//! Planner metrics: rolling latency ring + last-fallback snapshot.
+//!
+//! Used by `/plan_context` and surfaced (without repository content) via
+//! `/health`. The lock is acquired only briefly when recording or reading —
+//! the rolling windows are bounded (256 samples), so the snapshot is O(N).
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+const LATENCY_WINDOW: usize = 256;
+
+pub struct PlannerLatency {
+    samples: Mutex<[u64; LATENCY_WINDOW]>,
+    index: Mutex<usize>,
+    count: AtomicU64,
+}
+
+impl Default for PlannerLatency {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PlannerLatency {
+    pub fn new() -> Self {
+        Self {
+            samples: Mutex::new([0u64; LATENCY_WINDOW]),
+            index: Mutex::new(0),
+            count: AtomicU64::new(0),
+        }
+    }
+
+    /// Record a single sample (microseconds). Cheap: one mutex lock + one
+    /// atomic increment. Bounded — older samples roll out of the window.
+    pub fn record(&self, elapsed: Duration) {
+        let us = elapsed.as_micros().min(u64::MAX as u128) as u64;
+        let (mut samples, mut index) = (self.samples.lock().unwrap(), self.index.lock().unwrap());
+        samples[*index] = us;
+        *index = (*index + 1) % LATENCY_WINDOW;
+        self.count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Returns `(count, p50_us, p95_us)`. If fewer than 2 samples exist,
+    /// percentiles reflect whatever is on hand (and `count` is honest).
+    pub fn snapshot(&self) -> (u64, u64, u64) {
+        let count = self.count.load(Ordering::Relaxed);
+        let (samples, _index) = (self.samples.lock().unwrap(), self.index.lock().unwrap());
+        let observed = count.min(LATENCY_WINDOW as u64) as usize;
+        if observed == 0 {
+            return (0, 0, 0);
+        }
+        let mut sorted: Vec<u64> = samples[..observed].to_vec();
+        sorted.sort_unstable();
+        let p50 = sorted[(observed.saturating_sub(1) * 50 / 100).min(observed - 1)];
+        let p95 = sorted[(observed.saturating_sub(1) * 95 / 100).min(observed - 1)];
+        (count, p50, p95)
+    }
+}
+
+#[derive(Default)]
+pub struct LastFallback {
+    inner: Mutex<LastFallbackInner>,
+}
+
+#[derive(Default, Clone)]
+struct LastFallbackInner {
+    reason: String,
+    mode: String,
+    provider_status: String,
+    at_unix: i64,
+}
+
+impl LastFallback {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn record(&self, reason: &str, mode: &str, provider_status: &str) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let mut inner = self.inner.lock().unwrap();
+        inner.reason.clear();
+        inner.reason.push_str(reason);
+        inner.mode.clear();
+        inner.mode.push_str(mode);
+        inner.provider_status.clear();
+        inner.provider_status.push_str(provider_status);
+        inner.at_unix = now;
+    }
+
+    pub fn snapshot(&self) -> LastFallbackSnapshot {
+        let inner = self.inner.lock().unwrap().clone();
+        LastFallbackSnapshot {
+            reason: inner.reason,
+            mode: inner.mode,
+            provider_status: inner.provider_status,
+            at_unix: inner.at_unix,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LastFallbackSnapshot {
+    pub reason: String,
+    pub mode: String,
+    pub provider_status: String,
+    pub at_unix: i64,
+}
+
+/// Content-free native federation failure taxonomy.  These values are stable
+/// telemetry labels, not planner decisions or provider content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FederationMetricStatus {
+    Success,
+    Partial,
+    Unavailable,
+    Timeout,
+    Stale,
+    Incoherent,
+    Unauthorized,
+    Malformed,
+    EmptyComplete,
+    Cancellation,
+}
+
+impl FederationMetricStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Partial => "partial",
+            Self::Unavailable => "unavailable",
+            Self::Timeout => "timeout",
+            Self::Stale => "stale",
+            Self::Incoherent => "incoherent",
+            Self::Unauthorized => "unauthorized",
+            Self::Malformed => "malformed",
+            Self::EmptyComplete => "empty_complete",
+            Self::Cancellation => "cancellation",
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct FederationMetrics {
+    counts: Mutex<std::collections::BTreeMap<String, u64>>,
+}
+
+impl FederationMetrics {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn record(&self, status: FederationMetricStatus) {
+        let mut counts = self.counts.lock().unwrap();
+        *counts.entry(status.as_str().to_owned()).or_default() += 1;
+    }
+
+    pub fn snapshot(&self) -> std::collections::BTreeMap<String, u64> {
+        self.counts.lock().unwrap().clone()
+    }
+}
+
+impl LastFallbackSnapshot {
+    pub fn is_set(&self) -> bool {
+        !self.reason.is_empty() || !self.mode.is_empty()
+    }
+}

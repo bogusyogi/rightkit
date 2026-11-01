@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 (unreleased)
+
+- Feature `agent_config` (+ `agent_config-host-env`, `agent_config-test-mode`): agent host configuration, state root, workspace trust store and permissions config moved from CodeRight `coderight-config`; the state folder name is set with `agent_config::set_app_name`.
+
 ## 0.3.0 — 2026-10-20
 
 PK04-5. Release note: this changes a public enum, so it publishes as the next MINOR (0.3.0), not a patch, and `rightkit-tauri-shell`'s optional `rightkit-app-settings` requirement is raised to it in the same group.

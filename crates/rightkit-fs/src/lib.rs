@@ -81,6 +81,10 @@ pub mod plain;
 #[cfg(feature = "fs")]
 pub mod private;
 #[cfg(feature = "fs")]
+pub mod private_cached;
+#[cfg(feature = "app-dirs")]
+pub mod profile_home;
+#[cfg(feature = "fs")]
 pub mod publish_dir;
 #[cfg(feature = "fs")]
 pub mod replaced;

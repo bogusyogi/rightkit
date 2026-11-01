@@ -485,3 +485,45 @@ test("[windows.identity negative] not Windows, inputs present, or no declaration
   assert.equal(await stageWindowsIdentityOnce(identityArgs(skippedWrite, identityDouble(skippedWrite, { skipped: "present", extra: ["src-tauri/windows/identity/dist/x"] }))), false);
   refused(skippedWrite, /was written although the identity build reported a skip/);
 });
+
+test("[package restage] the package stage may stage the sidecars again for the package triple only through a valid receipt naming every file with its digest; anything else touching a staged entry is refused", { skip: POSIX_SIM }, async (t) => {
+  const { STAGE_SIDECAR_CONTRACT } = await import("./stage-sidecar.mjs");
+  const receipt = "src-tauri/binaries/stage-sidecar.json";
+  const universal = "src-tauri/binaries/eng-universal-apple-darwin";
+  const validReceipt = (target, files) => JSON.stringify({ schema: 1, contract: STAGE_SIDECAR_CONTRACT, target, stagedAt: "2026-11-01T00:00:00.000Z", files: files.map(([p, body]) => ({ name: "eng", path: p, sha256: sha256(body), sizeBytes: body.length, kind: "cargo-bin", externalBin: true })), skipped: [] }) + "\n";
+  const setup = async () => {
+    const fx = await fixture(t);
+    assert.equal(await stageSidecarsOnce(stageArgs(fx, stagingDouble(fx))), true, fx.lines.join("\n"));
+    assert.equal((await closeSnapshotStage({ o: fx.o, ds: fx.ds, root: fx.repo, stage: "compile", step: "compile" })).ok, true, fx.lines.join("\n"));
+    return fx;
+  };
+  // Positive: the host slice is replaced by the universal one and the receipt says so.
+  let fx = await setup();
+  fx.rm(`src-tauri/binaries/eng-${triple}`);
+  fx.write(universal, "universal-bytes");
+  fx.write(receipt, validReceipt("universal-apple-darwin", [[universal, "universal-bytes"]]));
+  const ok = await closeSnapshotStage({ o: fx.o, ds: fx.ds, root: fx.repo, stage: "package", step: "package" });
+  assert.equal(ok.ok, true, fx.lines.join("\n"));
+  assert.deepEqual(ok.entries.filter((e) => e.kind === "staged").map((e) => [e.path, e.producer.stage]).sort(), [[universal, "package"], [receipt, "package"]].sort());
+  // The same restaging in the compile stage is refused: only the package stage builds for another triple.
+  fx = await setup();
+  fx.write(universal, "universal-bytes");
+  fx.write(receipt, validReceipt("universal-apple-darwin", [[universal, "universal-bytes"]]));
+  assert.equal((await closeSnapshotStage({ o: fx.o, ds: fx.ds, root: fx.repo, stage: "compile", step: "compile" })).ok, false);
+  // A staged file changed with no receipt rewrite is refused.
+  fx = await setup();
+  fx.write(`src-tauri/binaries/eng-${triple}`, "swapped");
+  assert.equal((await closeSnapshotStage({ o: fx.o, ds: fx.ds, root: fx.repo, stage: "package", step: "package" })).ok, false);
+  assert.match(fx.lines.join("\n"), /is a staged sidecar output and changed/);
+  // A receipt whose digest does not match the file on disk is refused.
+  fx = await setup();
+  fx.write(universal, "other-bytes");
+  fx.write(receipt, validReceipt("universal-apple-darwin", [[universal, "universal-bytes"]]));
+  assert.equal((await closeSnapshotStage({ o: fx.o, ds: fx.ds, root: fx.repo, stage: "package", step: "package" })).ok, false);
+  assert.match(fx.lines.join("\n"), /does not have the digest/);
+  // An invalid receipt is refused.
+  fx = await setup();
+  fx.write(receipt, '{"schema":2}\n');
+  assert.equal((await closeSnapshotStage({ o: fx.o, ds: fx.ds, root: fx.repo, stage: "package", step: "package" })).ok, false);
+  assert.match(fx.lines.join("\n"), /not a valid stage-sidecar receipt/);
+});

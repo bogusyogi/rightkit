@@ -2131,7 +2131,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "libc",
  "sha2",
@@ -2140,7 +2140,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -2153,7 +2153,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "half",
  "ort",
@@ -2229,7 +2229,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "rusqlite"

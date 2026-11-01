@@ -96,3 +96,42 @@ impl ReadinessRow {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constructors_set_verdict_state_and_fix() {
+        let ready = ReadinessRow::ready("db", "Database", "ok");
+        assert_eq!(ready.verdict, ReadinessVerdict::Pass);
+        assert_eq!(ready.state, ReadinessState::Ready);
+        assert!(ready.fix.is_empty());
+
+        let blocked = ReadinessRow::blocked("k", "Key", "missing", "add a key");
+        assert_eq!(blocked.verdict, ReadinessVerdict::Block);
+        assert_eq!(blocked.state, ReadinessState::Blocked);
+        assert_eq!(blocked.fix, "add a key");
+
+        let unavailable = ReadinessRow::unavailable("u", "Util", "offline");
+        assert_eq!(unavailable.verdict, ReadinessVerdict::Warn);
+        assert_eq!(unavailable.state, ReadinessState::Unavailable);
+
+        let warn = ReadinessRow::warn("w", "Warn", "slow", "retry");
+        assert_eq!(warn.verdict, ReadinessVerdict::Warn);
+        assert_eq!(warn.state, ReadinessState::Degraded);
+        assert_eq!(warn.fix, "retry");
+    }
+
+    #[test]
+    fn snapshot_serialises_camel_case_enums() {
+        let snapshot = ReadinessSnapshot {
+            verdict: ReadinessVerdict::Warn,
+            rows: vec![ReadinessRow::degraded("d", "Degraded", "partial")],
+        };
+        let value = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(value["verdict"], "warn");
+        assert_eq!(value["rows"][0]["state"], "degraded");
+        assert_eq!(value["rows"][0]["id"], "d");
+    }
+}

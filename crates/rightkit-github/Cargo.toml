@@ -15,9 +15,9 @@ path = "src/lib.rs"
 
 [dependencies]
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", features = ["tokio"] }
-rightkit-credentials = { version = "0.4.2", path = "../rightkit-credentials" }
+rightkit-credentials = { version = "0.4.3", path = "../rightkit-credentials" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
-rightkit-fs = { version = "0.4.8", path = "../rightkit-fs", features = ["fs", "lock", "json", "digest", "transaction"] }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", features = ["fs", "lock", "json", "digest", "transaction"] }
 rightkit-http = { version = "0.3.9", path = "../rightkit-http", features = ["gzip", "untrusted", "async"] }
 rightkit-oauth = { version = "0.10.0", path = "../rightkit-oauth", default-features = false, features = ["secrets", "system-sources"] }
 serde = { version = "1", features = ["derive"] }

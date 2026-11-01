@@ -1,0 +1,12 @@
+{
+  "schema": "heardright.semantic_polish_fixture.v1",
+  "id": "l1-self-correction-sorry",
+  "lane": "L1",
+  "source": "I reviewed the video or sorry the PDF.",
+  "target": "I reviewed the PDF.",
+  "required_behaviors": [
+    "treat or sorry as a replacement cue",
+    "remove superseded video wording and correction cue",
+    "preserve final PDF wording"
+  ]
+}

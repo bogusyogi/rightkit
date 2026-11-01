@@ -21,6 +21,9 @@
 //       { built: "heardright-engine" },                            // another executable of the same compile output (same profile directory)
 //       { built: "heardright-engine", optional: true },            // ... absent is allowed
 //       { from: "src-tauri/resources", to: "resources" },          // a file or tree of the snapshot (a list names fallbacks: the first that exists)
+//       { from: "src-tauri/fonts", to: "fonts", resource: true, platforms: ["mac"] },  // `platforms` (mac, win) limits an entry to those hosts
+//       { from: "src-tauri/resources", to: ".", resource: true },  // ... into the app's RESOURCE directory, as an install has it: beside the exe on
+//                                                                  //     Windows, `Contents/Resources` of the bundle rightkit-qa makes on macOS
 //       { from: ["src-tauri/binaries/heardright-engine-aarch64-apple-darwin"], to: "heardright-engine" },
 //     ],
 //   }
@@ -29,6 +32,10 @@
 // (test-command.mjs runSuites), and the shell and `built` entries are then found in THOSE suites' output directories, never the release compile's. When a
 // sign step is among them, the shell and every `built` entry are staged from its signed copies (rightkit#1303), and one it did not sign is refused.
 // Without `build` the shell is looked for in the compile outputs the gate hands over.
+// On macOS rightkit-qa wraps the stashed shell in a bundle and carries the staged layout into it (control.rs make_bundle): every entry beside the
+// shell goes to `Contents/MacOS` (where an install keeps its externalBin sidecars), and the `Resources/` directory a `resource: true` entry is
+// staged into goes to `Contents/Resources` (where Tauri's resource_dir() points in an install). On Windows the shell runs in place, its
+// resource directory is its own directory, so a `resource: true` entry is staged beside it.
 // `from` stays inside the snapshot app root (links resolved), `to` stays beside the shell. Scenario state (a seeded settings.json) is the scenario's
 // own `write_file` step inside the runner's isolated data directory, not this layout. Every file staged is digested into the receipt.
 import crypto from "node:crypto";
@@ -46,14 +53,17 @@ export const STASH_DIR = ".rightkit-qa-bin";
 export const DEV_PROFILES = Object.freeze(["release-iterate", "debug", "dev"]);
 
 const LAYOUT_KEYS = new Set(["binary", "beside", "build"]);
-const BESIDE_KEYS = new Set(["built", "from", "to", "optional"]);
+const BESIDE_KEYS = new Set(["built", "from", "to", "optional", "resource", "platforms"]);
+const LAYOUT_PLATFORMS = new Set(["mac", "win"]);
+/** The directory beside a macOS shell that rightkit-qa's bundle maps to `Contents/Resources` (rightkit-qa control.rs MAC_RESOURCES_DIR). */
+export const MAC_RESOURCES_DIR = "Resources";
 const BARE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 
 const fail = (code, message) => Object.assign(new Error(`${code}: ${message}`), { code });
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const sha256Of = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const insideOrSame = (child, parent) => { const rel = path.relative(parent, child); return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel)); };
-const cleanRel = (value) => (typeof value === "string" && value && !path.isAbsolute(value) && !/^[A-Za-z]:/.test(value) && !value.replaceAll("\\", "/").split("/").includes("..") ? value.replaceAll("\\", "/").replace(/\/+$/, "") : null);
+const cleanRel = (value) => (typeof value === "string" && value && !path.isAbsolute(value) && !/^[A-Za-z]:/.test(value) && !value.replaceAll("\\", "/").split("/").includes("..") ? value.replaceAll("\\", "/").replace(/\/+$/, "") || "." : null);
 
 /** Problems with a `qa.layout` declaration, all at once; empty when it is well formed. */
 export function validateQaLayout(layout) {
@@ -78,8 +88,11 @@ export function validateQaLayout(layout) {
     }
     if (item.to !== undefined && cleanRel(item.to) === null) problems.push(`${at}.to must be a relative path beside the binary, without ..`);
     if (item.optional !== undefined && typeof item.optional !== "boolean") problems.push(`${at}.optional must be a boolean`);
-    const to = hasBuilt ? (cleanRel(item.to) ?? item.built) : cleanRel(item.to);
-    if (to) { if (tos.has(to)) problems.push(`${at} stages ${to} a second time`); tos.add(to); }
+    if (item.resource !== undefined && (item.resource !== true || !hasFrom)) problems.push(`${at}.resource must be true and only with from`);
+    if (item.platforms !== undefined && (!Array.isArray(item.platforms) || !item.platforms.length || item.platforms.some((p) => !LAYOUT_PLATFORMS.has(p)))) problems.push(`${at}.platforms must be a non-empty list of ${[...LAYOUT_PLATFORMS].join(", ")}`);
+    const to = hasBuilt ? (cleanRel(item.to) ?? item.built) : item.resource ? `${MAC_RESOURCES_DIR}/${cleanRel(item.to)}` : cleanRel(item.to);
+    // Several `from` entries may fill one directory (a file both would write is refused when staged); a built executable is staged once.
+    if (to && hasBuilt) { if (tos.has(to)) problems.push(`${at} stages ${to} a second time`); tos.add(to); }
   });
   return problems;
 }
@@ -126,6 +139,11 @@ function copyTree(from, to, entries, relBase) {
   }
   if (!meta.isFile()) throw fail("RK_QA_LAYOUT_KIND", `${from} is neither a file nor a directory`);
   fs.mkdirSync(path.dirname(to), { recursive: true });
+  // Two entries filling one directory may not write the same file with other bytes.
+  if (fs.existsSync(to)) {
+    if (sha256Of(fs.readFileSync(to)) !== sha256Of(fs.readFileSync(from))) throw fail("RK_QA_LAYOUT_COLLISION", `${relBase} is staged twice with different bytes (${from})`);
+    return; // the same bytes, already staged and recorded
+  }
   fs.copyFileSync(from, to);
   fs.chmodSync(to, meta.mode & 0o777);
   entries.push({ path: relBase, sha256: sha256Of(fs.readFileSync(to)), bytes: meta.size });
@@ -187,6 +205,7 @@ export function stageQaLayout({ layout, snapshotAppRoot, qaConfigFile, runsRoot,
     fs.chmodSync(binary, 0o755);
     const evidence = { source: shell.file, ...(signed ? { signed: true } : {}), binary: { name: path.basename(binary), sha256: sha256Of(fs.readFileSync(binary)) }, qaConfig: { sha256: sha256Of(fs.readFileSync(configFile)) }, beside: [] };
     for (const item of layout.beside ?? []) {
+      if (Array.isArray(item.platforms) && !item.platforms.includes(platform)) continue;
       const optional = item.optional === true;
       if (item.built !== undefined) {
         const from = path.join(shell.profileDir, exeName(item.built, platform));
@@ -199,7 +218,9 @@ export function stageQaLayout({ layout, snapshotAppRoot, qaConfigFile, runsRoot,
       const pick = options.map((rel) => path.join(sourceRoot, rel)).find((file) => fs.existsSync(file));
       if (!pick) { if (optional) continue; throw fail("RK_QA_LAYOUT_MISSING", `layout source ${options.join(" or ")} does not exist in the snapshot`); }
       if (!insideOrSame(fs.realpathSync.native(pick), sourceRoot)) throw fail("RK_QA_LAYOUT_ESCAPE", `layout source ${pick} resolves outside the app root`);
-      const toName = cleanRel(item.to);
+      const rel = cleanRel(item.to);
+      // A resource goes to the app's resource directory: `Resources/` (Contents/Resources of the macOS bundle) on macOS, beside the shell on Windows.
+      const toName = item.resource && platform === "mac" ? path.posix.join(MAC_RESOURCES_DIR, rel) : rel;
       copyTree(pick, path.join(besideDir, toName), evidence.beside, toName);
     }
     evidence.beside.sort((a, b) => a.path.localeCompare(b.path));

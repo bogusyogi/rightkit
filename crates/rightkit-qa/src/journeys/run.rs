@@ -1760,7 +1760,6 @@ fn gather_scenarios(
         let tier_budget = m_ref.budget.as_ref().and_then(|b| b.kind(&j.tier));
         let wsw = pool::world_workspace(ws_ref, template_ref, world, g)
             .map_err(|e| format!("the scenario world could not be built: {}", e.0))?;
-        control::token::write_file(&world.control_token_file).map_err(|e| e.0)?;
         let runtime = json!({
             "config": cfg.config_path.to_string_lossy(),
             "tier": j.tier,

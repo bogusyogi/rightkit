@@ -20,6 +20,8 @@ mod archive_core;
 pub mod rightapps;
 #[cfg(feature = "rightapps")]
 pub use rightapps::RuntimeArtifactClient;
+#[cfg(feature = "agent_local_models")]
+pub mod agent_local_models;
 pub mod archive;
 pub mod disk;
 pub mod download;

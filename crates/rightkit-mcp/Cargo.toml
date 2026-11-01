@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-mcp"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps."
@@ -55,12 +55,22 @@ getrandom = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 ureq = { version = "3.5", default-features = false, features = ["rustls"] }
-rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
-rightkit-http = { version = "0.3.0", path = "../rightkit-http", default-features = false }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
+rightkit-http = { version = "0.3.9", path = "../rightkit-http", default-features = false }
 http = { version = "1", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"], optional = true }
 futures-util = { version = "0.3", optional = true }
 url = "2"
+thiserror = {version = "2", optional = true}
+async-trait = {version = "0.1", optional = true}
+futures = {version = "0.3", optional = true}
+rightkit-credentials = {version = "0.4.3", path = "../rightkit-credentials", optional = true}
+rightkit-oauth = {version = "0.10.0", default-features = false, path = "../rightkit-oauth", optional = true}
+tracing = {version = "0.1", optional = true}
+rightkit-agent-engine-runtime-resources = {version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources", optional = true}
+rightkit-sandbox = {version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"], optional = true}
+rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol", optional = true}
+rightkit-app-settings = {version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config"], optional = true}
 
 [features]
 default = []
@@ -76,11 +86,16 @@ exact-json-ids = ["serde_json/arbitrary_precision"]
 # Test-only seam: `ClientExtensions::address_policy` overrides the HTTP client's address
 # policy. Absent from the default build; enabled for this crate's own tests only.
 testing = []
+agent_mcp-os-keyring = ["agent_mcp", "dep:rightkit-credentials", "dep:rightkit-oauth"]
+agent_mcp-host-env = ["agent_mcp", "rightkit-app-settings/agent_config-host-env"]
+agent_mcp-test-loopback = ["agent_mcp", "rightkit-http/testing", "testing"]
+agent_mcp = ["rightkit-fs/lock", "rightkit-fs/json", "rightkit-fs/transaction", "rightkit-http/gzip", "rightkit-http/untrusted", "rightkit-http/async", "dep:thiserror", "dep:async-trait", "dep:tokio", "tokio/full", "dep:futures", "dep:tracing", "dep:rightkit-agent-engine-runtime-resources", "dep:rightkit-sandbox", "dep:rightkit-agent-engine-protocol", "dep:rightkit-app-settings", "agent_mcp-os-keyring"]
 
 [dev-dependencies]
 tempfile = "3"
 rightkit-mcp = { path = ".", features = ["testing"] }
-tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
+tokio = { version = "1", features = ["full", "macros", "rt-multi-thread", "sync", "time"] }
+rightkit-app-settings = {version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config", "agent_config-host-env", "agent_config-test-mode"]}
 
 [[example]]
 name = "example_server"
@@ -120,3 +135,7 @@ incremental = false
 [profile.test.build-override]
 debug = false
 opt-level = 0
+[[test]]
+name = "agent_mcp_transport_hardening"
+path = "tests/agent_mcp_transport_hardening.rs"
+required-features = ["agent_mcp"]

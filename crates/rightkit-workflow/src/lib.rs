@@ -24,6 +24,10 @@
 //! itself does no I/O beyond the journal file.
 
 pub mod clock;
+#[cfg(feature = "control_plane")]
+pub mod control_plane;
+#[cfg(feature = "control_plane_host")]
+pub mod control_plane_host;
 pub mod controller;
 pub mod driver;
 pub mod error;

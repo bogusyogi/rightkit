@@ -122,7 +122,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -140,7 +140,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "libc",
  "thiserror",

@@ -1,0 +1,53 @@
+[package]
+name = "rightkit-app-host"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.0"
+description = "Host services a desktop app gives RightKit companion crates (state folder, account home, published UI state and settings), installed once per process, with neutral defaults."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_app_host"
+path = "src/lib.rs"
+
+[dependencies]
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["app-dirs"], path = "../rightkit-fs" }
+serde_json = { version = "1" }
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

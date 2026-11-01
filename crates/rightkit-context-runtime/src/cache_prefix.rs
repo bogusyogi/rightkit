@@ -1,0 +1,177 @@
+//! Content-free cache-prefix diagnostics for finalized context packets.
+//!
+//! The digest includes only model-delivered prefix fields. `traceId` and
+//! omissions are deliberately excluded: they are per-turn observability, not
+//! reusable prompt bytes.
+
+use rightkit_context_protocol::{canonical_json_of, digest_str};
+use serde::Serialize;
+use serde_json::{json, Value};
+
+const PREFIX_FIELDS: [&str; 6] = [
+    "schemaVersion",
+    "task",
+    "mode",
+    "budget",
+    "allocations",
+    "providerAccounting",
+];
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachePrefixDiagnosticV1 {
+    pub schema_version: u32,
+    pub prefix_digest: String,
+    pub stable_block_order: Vec<String>,
+    pub block_digests: Vec<CachePrefixBlockV1>,
+    pub metadata_digests: Vec<CachePrefixMetadataV1>,
+    pub volatility_source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_break: Option<CacheBreakAttributionV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachePrefixBlockV1 {
+    pub id: String,
+    pub digest: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachePrefixMetadataV1 {
+    pub field: String,
+    pub digest: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheBreakAttributionV1 {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_field: Option<String>,
+}
+
+/// Deterministically describe this packet's reusable prefix, optionally
+/// attributing its first difference from an exact acknowledged prior packet.
+///
+/// This diagnostic grants no reuse: callers must supply `previous` only from
+/// delivery state's persisted-H10/current-H9 guarded lookup.
+pub fn diagnose_cache_prefix(
+    packet: &Value,
+    acknowledged_previous: Option<&Value>,
+) -> CachePrefixDiagnosticV1 {
+    let blocks = packet
+        .get("blocks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let stable_block_order = blocks.iter().map(block_id).collect();
+    let block_digests = blocks
+        .iter()
+        .map(|block| CachePrefixBlockV1 {
+            id: block_id(block),
+            digest: digest_str(&canonical_json_of(block)),
+        })
+        .collect();
+    let metadata_digests = PREFIX_FIELDS
+        .iter()
+        .map(|field| CachePrefixMetadataV1 {
+            field: (*field).to_string(),
+            digest: digest_str(&canonical_json_of(
+                packet.get(*field).unwrap_or(&Value::Null),
+            )),
+        })
+        .collect();
+    let prefix = json!({
+        "schemaVersion": packet.get("schemaVersion"), "task": packet.get("task"), "mode": packet.get("mode"),
+        "budget": packet.get("budget"), "allocations": packet.get("allocations"),
+        "providerAccounting": packet.get("providerAccounting"), "blocks": blocks,
+    });
+    let cache_break = acknowledged_previous.and_then(|prior| first_break(packet, prior));
+    let volatility_source = match &cache_break {
+        Some(breakage) if breakage.kind == "block" => {
+            format!("block:{}", breakage.block_id.as_deref().unwrap_or("order"))
+        }
+        Some(breakage) => format!(
+            "metadata:{}",
+            breakage.metadata_field.as_deref().unwrap_or("unknown")
+        ),
+        None if acknowledged_previous.is_some()
+            && packet.get("traceId")
+                != acknowledged_previous.and_then(|prior| prior.get("traceId")) =>
+        {
+            "traceId_excluded".to_string()
+        }
+        None => "none".to_string(),
+    };
+    CachePrefixDiagnosticV1 {
+        schema_version: 1,
+        prefix_digest: digest_str(&canonical_json_of(&prefix)),
+        stable_block_order,
+        block_digests,
+        metadata_digests,
+        volatility_source,
+        cache_break,
+    }
+}
+
+fn block_id(block: &Value) -> String {
+    block
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+fn first_break(current: &Value, prior: &Value) -> Option<CacheBreakAttributionV1> {
+    let current_blocks = current
+        .get("blocks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let prior_blocks = prior
+        .get("blocks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for (index, block) in current_blocks.iter().enumerate() {
+        let Some(prior_block) = prior_blocks.get(index) else {
+            return Some(CacheBreakAttributionV1 {
+                kind: "block".into(),
+                block_id: Some(block_id(block)),
+                metadata_field: None,
+            });
+        };
+        if block_id(block) != block_id(prior_block)
+            || canonical_json_of(block) != canonical_json_of(prior_block)
+        {
+            return Some(CacheBreakAttributionV1 {
+                kind: "block".into(),
+                block_id: Some(block_id(block)),
+                metadata_field: None,
+            });
+        }
+    }
+    if current_blocks.len() != prior_blocks.len() {
+        return Some(CacheBreakAttributionV1 {
+            kind: "block".into(),
+            block_id: Some("order".into()),
+            metadata_field: None,
+        });
+    }
+    for field in PREFIX_FIELDS {
+        if canonical_json_of(current.get(field).unwrap_or(&Value::Null))
+            != canonical_json_of(prior.get(field).unwrap_or(&Value::Null))
+        {
+            return Some(CacheBreakAttributionV1 {
+                kind: "metadata".into(),
+                block_id: None,
+                metadata_field: Some(field.into()),
+            });
+        }
+    }
+    None
+}

@@ -8,10 +8,12 @@ pub mod machine;
 pub mod memory;
 pub mod model_store;
 pub mod paths;
+pub mod probe;
 pub mod profiles;
 pub mod provider;
 pub mod roots;
 pub mod runtime;
+pub mod service_host;
 pub mod settings;
 pub mod store;
 

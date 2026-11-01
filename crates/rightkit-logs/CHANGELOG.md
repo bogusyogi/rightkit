@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.7 (unreleased)
+
+- Feature `agent_telemetry`: agent runtime telemetry (resource metrics, turn latency, SQLite op latency, wakeups) moved from CodeRight `coderight-telemetry`.
+
 ## 0.3.6 (unpublished)
 
 - Dependency: `ureq` 3.4 -> 3.5 (minimum version); no source change. (rightkit#1284)

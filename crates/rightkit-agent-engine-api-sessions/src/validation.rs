@@ -37,3 +37,37 @@ pub fn validate_fork_id(id: Option<&str>) -> Result<(), StatusCode> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_id_bounds() {
+        assert!(validate_session_id("abc").is_ok());
+        assert_eq!(validate_session_id("   "), Err(StatusCode::BAD_REQUEST));
+        assert!(validate_session_id(&"a".repeat(128)).is_ok());
+        assert_eq!(
+            validate_session_id(&"a".repeat(129)),
+            Err(StatusCode::BAD_REQUEST)
+        );
+    }
+
+    #[test]
+    fn workspace_root_and_tag_bounds() {
+        assert!(validate_workspace_root("/work").is_ok());
+        assert!(validate_workspace_root("").is_err());
+        assert!(validate_workspace_root(&"p".repeat(1025)).is_err());
+        assert!(validate_tag("release").is_ok());
+        assert!(validate_tag(" ").is_err());
+        assert!(validate_tag(&"t".repeat(65)).is_err());
+    }
+
+    #[test]
+    fn fork_id_is_optional_but_bounded() {
+        assert!(validate_fork_id(None).is_ok());
+        assert!(validate_fork_id(Some("s1")).is_ok());
+        assert!(validate_fork_id(Some("")).is_err());
+        assert!(validate_fork_id(Some(&"x".repeat(129))).is_err());
+    }
+}

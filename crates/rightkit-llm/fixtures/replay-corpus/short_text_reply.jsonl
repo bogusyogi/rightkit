@@ -1,0 +1,3 @@
+{"version": 1, "scenario": "short_text_reply", "recorded_at": "2026-08-10T16:52:54Z", "redacted": true, "provider": "openrouter", "model": "test-model"}
+{"index": 0, "id": "chatcmpl-1", "role": "assistant", "content": "Don", "reasoning_content": null, "tool_call_name": null, "tool_call_arguments_fragment": null, "finish_reason": null}
+{"index": 0, "id": null, "role": null, "content": "e.", "reasoning_content": null, "tool_call_name": null, "tool_call_arguments_fragment": null, "finish_reason": "stop"}

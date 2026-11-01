@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-dictation-runtime",
+  "capabilities": [
+    {
+      "capability": "dictation-runtime",
+      "summary": "Dictation engine runtime: the JSON-RPC sidecar worker (recording, finalize, polish, delivery decisions), speech service, IPC, crash capture and engine paths for a push-to-talk dictation engine.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

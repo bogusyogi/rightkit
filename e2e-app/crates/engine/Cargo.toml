@@ -1,0 +1,101 @@
+[package]
+name = "rke2e-engine"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+publish = false
+
+[[bin]]
+name = "rke2e-engine"
+path = "src/main.rs"
+
+[features]
+default = []
+# QA and dev only (never in default): lets rightkit-qa bind the engine's data root to an isolated directory.
+test-mode = ["rke2e-protocol/test-mode"]
+
+[dependencies]
+rke2e-protocol = { path = "../protocol" }
+# Serves the rightkit-job-queue contract: one command table for the sidecar and the CLI (M3, M4).
+rightkit-job-queue = { path = "../../../crates/rightkit-job-queue", default-features = false, features = ["contract"] }
+# The engine is a process boundary: it installs its own crash hook (M16).
+rightkit-crash = { path = "../../../crates/rightkit-crash", default-features = false }
+# Owners the job store and the serve contract reach through rightkit-job-queue, declared here so the mandatory set sees them:
+# rightkit-db is the job store's SQLite owner (M9); rightkit-sidecar is the framed JSON-line transport (M4).
+rightkit-db = { path = "../../../crates/rightkit-db" }
+rightkit-sidecar = { path = "../../../crates/rightkit-sidecar" }
+# The app CLI contract owner (M22): `contract` prints the manifest; `host::run` replaces the local builder at 0.4.0.
+rightkit-agent-tools = { path = "../../../crates/rightkit-agent-tools", default-features = false }
+serde_json = "1"
+url = "2"
+serde = { version = "1", features = ["derive"] }
+
+# Every other RightKit crate, from source: each is exercised by a real probe (src/probes/<crate>.rs).
+rightkit-agents = { path = "../../../crates/rightkit-agents", features = ["session"] }
+rightkit-align = { path = "../../../crates/rightkit-align" }
+rightkit-asr = { path = "../../../crates/rightkit-asr" }
+rightkit-audio = { path = "../../../crates/rightkit-audio" }
+rightkit-automation = { path = "../../../crates/rightkit-automation" }
+rightkit-browser = { path = "../../../crates/rightkit-browser" }
+rightkit-cache = { path = "../../../crates/rightkit-cache" }
+rightkit-channel-memory = { path = "../../../crates/rightkit-channel-memory" }
+rightkit-compose = { path = "../../../crates/rightkit-compose" }
+rightkit-contracts = { path = "../../../crates/rightkit-contracts" }
+rightkit-crypto = { path = "../../../crates/rightkit-crypto" }
+rightkit-docs = { path = "../../../crates/rightkit-docs" }
+rightkit-embed = { path = "../../../crates/rightkit-embed" }
+rightkit-ffmpeg = { path = "../../../crates/rightkit-ffmpeg" }
+rightkit-file-watch = { path = "../../../crates/rightkit-file-watch" }
+rightkit-fsindex = { path = "../../../crates/rightkit-fsindex" }
+rightkit-google-identity = { path = "../../../crates/rightkit-google-identity" }
+rightkit-hooks = { path = "../../../crates/rightkit-hooks" }
+rightkit-hotkeys = { path = "../../../crates/rightkit-hotkeys" }
+rightkit-identity = { path = "../../../crates/rightkit-identity" }
+rightkit-llm = { path = "../../../crates/rightkit-llm" }
+rightkit-mcp = { path = "../../../crates/rightkit-mcp" }
+rightkit-models = { path = "../../../crates/rightkit-models" }
+rightkit-motion = { path = "../../../crates/rightkit-motion" }
+rightkit-oauth = { path = "../../../crates/rightkit-oauth" }
+rightkit-ocr = { path = "../../../crates/rightkit-ocr" }
+rightkit-onnx = { path = "../../../crates/rightkit-onnx" }
+rightkit-overlay = { path = "../../../crates/rightkit-overlay" }
+rightkit-ownership = { path = "../../../crates/rightkit-ownership" }
+rightkit-pdf = { path = "../../../crates/rightkit-pdf" }
+rightkit-platform-rules = { path = "../../../crates/rightkit-platform-rules" }
+rightkit-playback = { path = "../../../crates/rightkit-playback" }
+rightkit-qa-driver = { path = "../../../crates/rightkit-qa-driver" }
+rightkit-record = { path = "../../../crates/rightkit-record" }
+rightkit-review = { path = "../../../crates/rightkit-review" }
+rightkit-sandbox = { path = "../../../crates/rightkit-sandbox" }
+rightkit-search = { path = "../../../crates/rightkit-search" }
+rightkit-send = { path = "../../../crates/rightkit-send" }
+rightkit-speech-client = { path = "../../../crates/rightkit-speech-client" }
+rightkit-spend = { path = "../../../crates/rightkit-spend" }
+rightkit-sync = { path = "../../../crates/rightkit-sync", features = ["cipher"] }
+rightkit-sync-keys = { path = "../../../crates/rightkit-sync-keys" }
+rightkit-time = { path = "../../../crates/rightkit-time" }
+rightkit-transcript = { path = "../../../crates/rightkit-transcript" }
+rightkit-tts = { path = "../../../crates/rightkit-tts" }
+rightkit-tts-qwen = { path = "../../../crates/rightkit-tts-qwen" }
+rightkit-tts-qwen-sys = { path = "../../../crates/rightkit-tts-qwen-sys" }
+rightkit-typeset = { path = "../../../crates/rightkit-typeset" }
+rightkit-vad = { path = "../../../crates/rightkit-vad" }
+rightkit-vault = { path = "../../../crates/rightkit-vault" }
+rightkit-workflow = { path = "../../../crates/rightkit-workflow" }
+rightkit-app-settings = { path = "../../../crates/rightkit-app-settings" }
+rightkit-child-process = { path = "../../../crates/rightkit-child-process" }
+rightkit-credentials = { path = "../../../crates/rightkit-credentials" }
+rightkit-daemon = { path = "../../../crates/rightkit-daemon" }
+rightkit-device = { path = "../../../crates/rightkit-device", features = ["credentials"] }
+rightkit-fs = { path = "../../../crates/rightkit-fs", features = ["fs"] }
+rightkit-http = { path = "../../../crates/rightkit-http" }
+rightkit-license = { path = "../../../crates/rightkit-license", default-features = false, features = ["client"] }
+rightkit-logs = { path = "../../../crates/rightkit-logs" }
+rightkit-qa = { path = "../../../crates/rightkit-qa" }
+rightkit-tauri-shell = { path = "../../../crates/rightkit-tauri-shell" }
+
+[target.'cfg(target_os = "android")'.dependencies]
+rightkit-android = { path = "../../../crates/rightkit-android" }
+
+[target.'cfg(windows)'.dependencies]
+rightkit-overlay-win = { path = "../../../crates/rightkit-overlay-win" }

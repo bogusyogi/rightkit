@@ -925,7 +925,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "sha2",
 ]
@@ -950,7 +950,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ring"

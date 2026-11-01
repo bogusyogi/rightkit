@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.13 (unreleased)
+
+- Feature `agent_media`: agent media capture/transcode helpers gated by agent policy, moved from CodeRight `coderight-media`.
+
 ## 0.2.11 — unpublished staging
 
 - New (GenRight EXTEND, additive): `quickprobe::probe_file` (bounded: an MP4/MOV is read box by box so only `ftyp` and `moov` are loaded wherever `moov` sits; other formats are read whole up to `PROBE_FILE_MAX_BYTES`, else a `PROBE_PREFIX_BYTES` prefix), `quickprobe::probe_prefix`, `quickprobe::probe_media` and `quickprobe::sniff_mime` (media type by magic bytes for exactly the formats `probe` reads). `size_bytes` is the file's full length for all three. Donor: GenRight `genright-gen/src/media.rs`.

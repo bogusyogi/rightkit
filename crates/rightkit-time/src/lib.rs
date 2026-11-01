@@ -1,4 +1,10 @@
 //! Civil date math, RFC 3339 and HTTP-date formatting. std only.
+//!
+//! Also: [`zones`] (local wall time to UTC for a few tabled zones) and [`stamp`] (system-clock
+//! UTC stamps for logs and file names).
+
+pub mod stamp;
+pub mod zones;
 
 const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS: [&str; 12] = [

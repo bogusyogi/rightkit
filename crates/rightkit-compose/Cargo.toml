@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-compose"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -15,7 +15,15 @@ include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LIC
 name = "rightkit_compose"
 path = "src/lib.rs"
 
+[features]
+default = []
+# Keyless still finishing: composite a PNG logo onto PNG stills and write them under a naming
+# template (`still_finish`). Adds `image` (PNG only) and `rightkit-crypto` (output digests).
+still-finish = ["dep:image", "dep:rightkit-crypto"]
+
 [dependencies]
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2"

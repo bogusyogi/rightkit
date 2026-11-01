@@ -137,7 +137,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "getrandom",
  "rightkit-child-process",
@@ -151,7 +151,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "libc",
  "serde",
@@ -162,7 +162,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "getrandom",
  "libc",

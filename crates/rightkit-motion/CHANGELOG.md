@@ -2,6 +2,8 @@
 
 ## 0.2.0 — unpublished staging (2026-10-18)
 
+- New, additive (GenRight EXTEND, 2026-11-01): `composition`, the composition document a render takes (frames are a pure function of `n / fps`; HTML projects are one `html` layer; the beat template names in `KNOWN_TEMPLATES`), from `genright-engine/src/motion_doc.rs`. Feature `server` (off by default): `project_server`, the loopback HTTP host for one HTML composition project (127.0.0.1 only, `Host` origin check against DNS rebinding, never a path outside the project lexically or through a link, byte ranges for media, `/__hf/log` capture, the deterministic runtime `RUNTIME_JS` injected into the entry page), from `genright-engine/src/motion_server.rs`. GSAP is not bundled: `ProjectServer::start` takes the GSAP build to serve in place of remote GSAP URLs, or `None` to leave them. Adds optional `rightkit-http` 0.3.9 (default features off).
+
 Render and encode owner (rightkit#476, GenRight port; ported from `genright-engine` `motion_service.rs` and `motion_encode.rs`). New feature `encode`; without it the crate is unchanged.
 
 - Dependency `rightkit-transcript` moves from 0.3.0 to 0.4.0 (`Cargo.toml`). The registry's latest `rightkit-motion` is 0.1.0.

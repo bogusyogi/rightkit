@@ -1,0 +1,555 @@
+//! Opt-in API batching probe over independent production hypotheses.
+use super::model::CoreMlParakeet;
+use crate::coreml::{ml_f16, ml_i32, read_f16};
+use objc2::rc::autoreleasepool;
+use rightkit_asr::parakeet_core::tdt_beam::BeamHyp;
+
+type Predictor = (Vec<f32>, Vec<f32>, Vec<f32>);
+
+const MAX_HYP_BATCH_ROWS: usize = 8;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HypothesisBatchMode {
+    Scalar,
+    Predictor,
+    Joint,
+    Both,
+}
+
+impl HypothesisBatchMode {
+    pub(crate) fn batches_predictor(self) -> bool {
+        matches!(self, Self::Predictor | Self::Both)
+    }
+
+    pub(crate) fn batches_joint(self) -> bool {
+        matches!(self, Self::Joint | Self::Both)
+    }
+
+    pub(crate) fn is_batched(self) -> bool {
+        self.batches_predictor() || self.batches_joint()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HypothesisBatchConfig {
+    pub(crate) mode: HypothesisBatchMode,
+    pub(crate) max_rows: Option<usize>,
+}
+
+pub(crate) fn resolve_hypothesis_batch_config(
+    mode_value: Option<&str>,
+    max_rows_value: Option<&str>,
+) -> HypothesisBatchConfig {
+    let mode = match mode_value {
+        Some("predictor") => HypothesisBatchMode::Predictor,
+        Some("joint") => HypothesisBatchMode::Joint,
+        // Unset ships API batching of predictor and joint (beam 2: -8.5% wall,
+        // identical output on 224 clips; docs/experiments/2026-10-01).
+        // `RIGHTKIT_COREML_HYP_BATCH=0` restores the scalar path.
+        Some("1") | None => HypothesisBatchMode::Both,
+        _ => HypothesisBatchMode::Scalar,
+    };
+    let max_rows = max_rows_value
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|&value| value > 0)
+        .map(|value| value.min(MAX_HYP_BATCH_ROWS));
+    HypothesisBatchConfig { mode, max_rows }
+}
+
+pub(crate) fn batch_chunk_size(row_count: usize, max_rows: Option<usize>) -> usize {
+    max_rows.unwrap_or_else(|| row_count.max(1))
+}
+
+#[cfg(test)]
+pub(crate) fn batch_invocation_count(
+    row_count: usize,
+    batching_enabled: bool,
+    max_rows: Option<usize>,
+) -> usize {
+    if row_count == 0 {
+        return 0;
+    }
+    if !batching_enabled {
+        return row_count;
+    }
+    row_count.div_ceil(batch_chunk_size(row_count, max_rows))
+}
+
+/// Rows per tensor call for a bundle's `decoder_batch`: `None` keeps the
+/// batch-1 path (absent or 1).
+fn tensor_rows_per_call(decoder_batch: usize) -> Option<usize> {
+    (decoder_batch >= 2).then_some(decoder_batch)
+}
+
+/// Tensor batch dimension for `live` rows: flexible bundles size to the live
+/// count, fixed bundles always run `n` rows (padding by duplicating the last).
+fn tensor_batch_dim(n: usize, flexible: bool, live: usize) -> usize {
+    if flexible {
+        live
+    } else {
+        n
+    }
+}
+
+/// `[b, width]` row-major, rows beyond `rows.len()` duplicate the last row.
+fn pack_rows(rows: &[&[f32]], b: usize, width: usize) -> Vec<f32> {
+    let mut out = Vec::with_capacity(b * width);
+    for r in 0..b {
+        out.extend_from_slice(&rows[r.min(rows.len() - 1)][..width]);
+    }
+    out
+}
+
+/// LSTM state `[layers, b, hidden]` from per-row `[layers, 1, hidden]` states.
+fn pack_state(rows: &[&[f32]], b: usize, layers: usize, hidden: usize) -> Vec<f32> {
+    let mut out = Vec::with_capacity(layers * b * hidden);
+    for l in 0..layers {
+        for r in 0..b {
+            let row = rows[r.min(rows.len() - 1)];
+            out.extend_from_slice(&row[l * hidden..(l + 1) * hidden]);
+        }
+    }
+    out
+}
+
+/// Inverse of [`pack_state`] for the first `live` rows.
+fn unpack_state(t: &[f32], b: usize, live: usize, layers: usize, hidden: usize) -> Vec<Vec<f32>> {
+    (0..live)
+        .map(|r| {
+            let mut row = Vec::with_capacity(layers * hidden);
+            for l in 0..layers {
+                let at = (l * b + r) * hidden;
+                row.extend_from_slice(&t[at..at + hidden]);
+            }
+            row
+        })
+        .collect()
+}
+
+/// First `live` rows of a `[b, ...]` tensor.
+fn unpack_rows(t: &[f32], b: usize, live: usize) -> Vec<Vec<f32>> {
+    let width = t.len() / b;
+    (0..live)
+        .map(|r| t[r * width..(r + 1) * width].to_vec())
+        .collect()
+}
+
+type DecoderRow<'a> = (i32, &'a [f32], &'a [f32]);
+
+/// Drive decoder rows through `call(b, ids[b], h[pl,b,ph], c[pl,b,ph])`
+/// returning `(g[b,..], h, c)` tensors, chunking by `n`.
+fn decode_rows_tensor<F>(
+    rows: &[DecoderRow],
+    n: usize,
+    flexible: bool,
+    pl: usize,
+    ph: usize,
+    mut call: F,
+) -> Result<Vec<Predictor>, String>
+where
+    F: FnMut(usize, &[i32], &[f32], &[f32]) -> Result<Predictor, String>,
+{
+    let mut out = Vec::with_capacity(rows.len());
+    for chunk in rows.chunks(n) {
+        let b = tensor_batch_dim(n, flexible, chunk.len());
+        let mut ids: Vec<i32> = chunk.iter().map(|r| r.0).collect();
+        ids.resize(b, chunk[chunk.len() - 1].0);
+        let hs: Vec<&[f32]> = chunk.iter().map(|r| r.1).collect();
+        let cs: Vec<&[f32]> = chunk.iter().map(|r| r.2).collect();
+        let (g, h, c) = call(
+            b,
+            &ids,
+            &pack_state(&hs, b, pl, ph),
+            &pack_state(&cs, b, pl, ph),
+        )?;
+        let gs = unpack_rows(&g, b, chunk.len());
+        let hs = unpack_state(&h, b, chunk.len(), pl, ph);
+        let cs = unpack_state(&c, b, chunk.len(), pl, ph);
+        for ((g, h), c) in gs.into_iter().zip(hs).zip(cs) {
+            out.push((g, h, c));
+        }
+    }
+    Ok(out)
+}
+
+/// Drive joint rows `(g, enc)` through `call(b, enc[b,enc_d], g[b,ph])`.
+fn joint_rows_tensor<F>(
+    rows: &[(&[f32], &[f32])],
+    n: usize,
+    flexible: bool,
+    ph: usize,
+    enc_d: usize,
+    mut call: F,
+) -> Result<Vec<Vec<f32>>, String>
+where
+    F: FnMut(usize, &[f32], &[f32]) -> Result<Vec<f32>, String>,
+{
+    let mut out = Vec::with_capacity(rows.len());
+    for chunk in rows.chunks(n) {
+        let b = tensor_batch_dim(n, flexible, chunk.len());
+        let gs: Vec<&[f32]> = chunk.iter().map(|r| r.0).collect();
+        let es: Vec<&[f32]> = chunk.iter().map(|r| r.1).collect();
+        let logits = call(b, &pack_rows(&es, b, enc_d), &pack_rows(&gs, b, ph))?;
+        out.extend(unpack_rows(&logits, b, chunk.len()));
+    }
+    Ok(out)
+}
+
+impl CoreMlParakeet {
+    /// `Some(n)` when the bundle's TextDecoder/Joint are true tensor-batched.
+    pub(crate) fn tensor_batch_rows(&self) -> Option<usize> {
+        tensor_rows_per_call(self.meta.decoder_batch)
+    }
+
+    /// One prediction per `decoder_batch` rows (tensor batching).
+    pub(crate) fn decoder_rows_tensor(
+        &self,
+        n: usize,
+        rows: &[DecoderRow],
+    ) -> Result<Vec<Predictor>, String> {
+        let (pl, ph) = (self.meta.pred_layers, self.meta.pred_hidden);
+        decode_rows_tensor(
+            rows,
+            n,
+            self.meta.decoder_batch_flexible,
+            pl,
+            ph,
+            |b, ids, h, c| {
+                autoreleasepool(|_| {
+                    let ids = ml_i32(&[b, 1], ids)?;
+                    let hin = ml_f16(&[pl, b, ph], h)?;
+                    let cin = ml_f16(&[pl, b, ph], c)?;
+                    let outs = self.dec.predict_multi_shaped(
+                        &[
+                            ("decoder_input_ids", &ids),
+                            ("state_h", &hin),
+                            ("state_c", &cin),
+                        ],
+                        &[&self.g_name, &self.state_h_out, &self.state_c_out],
+                        &[&[b, 1, ph], &[pl, b, ph], &[pl, b, ph]],
+                    )?;
+                    Ok((read_f16(&outs[0]), read_f16(&outs[1]), read_f16(&outs[2])))
+                })
+            },
+        )
+    }
+
+    pub(crate) fn joint_rows_tensor(
+        &self,
+        n: usize,
+        rows: &[(&[f32], &[f32])],
+    ) -> Result<Vec<Vec<f32>>, String> {
+        let ph = self.meta.pred_hidden;
+        joint_rows_tensor(
+            rows,
+            n,
+            self.meta.decoder_batch_flexible,
+            ph,
+            1024,
+            |b, e, g| {
+                autoreleasepool(|_| {
+                    let enc = ml_f16(&[b, 1024], e)?;
+                    let dec = ml_f16(&[b, ph], g)?;
+                    let out = self.joint.predict(
+                        &[("encoder_step", &enc), ("decoder_step", &dec)],
+                        &self.joint_out,
+                    )?;
+                    Ok(read_f16(&out))
+                })
+            },
+        )
+    }
+
+    pub(crate) fn predict_hypotheses(
+        &self,
+        hypotheses: &[&BeamHyp],
+    ) -> Result<Vec<Predictor>, String> {
+        if let Some(n) = self.tensor_batch_rows() {
+            let rows: Vec<DecoderRow> = hypotheses
+                .iter()
+                .map(|h| (h.last_tok, h.h.as_slice(), h.c.as_slice()))
+                .collect();
+            return self.decoder_rows_tensor(n, &rows);
+        }
+        autoreleasepool(|_| {
+            let inputs = hypotheses
+                .iter()
+                .map(|h| {
+                    Ok((
+                        ml_i32(&[1, 1], &[h.last_tok])?,
+                        ml_f16(&[self.meta.pred_layers, 1, self.meta.pred_hidden], &h.h)?,
+                        ml_f16(&[self.meta.pred_layers, 1, self.meta.pred_hidden], &h.c)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let rows: Vec<_> = inputs
+                .iter()
+                .map(|(ids, h, c)| vec![("decoder_input_ids", ids), ("state_h", h), ("state_c", c)])
+                .collect();
+            let outputs = self.dec.predict_feature_batch(
+                &rows,
+                &[&self.g_name, &self.state_h_out, &self.state_c_out],
+            )?;
+            Ok(outputs
+                .iter()
+                .map(|r| (read_f16(&r[0]), read_f16(&r[1]), read_f16(&r[2])))
+                .collect())
+        })
+    }
+    pub(crate) fn predict_hypothesis_joints(
+        &self,
+        inputs: &[(&[f32], &[f32])],
+    ) -> Result<Vec<Vec<f32>>, String> {
+        if let Some(n) = self.tensor_batch_rows() {
+            return self.joint_rows_tensor(n, inputs);
+        }
+        autoreleasepool(|_| {
+            let arrays = inputs
+                .iter()
+                .map(|(g, e)| {
+                    Ok((
+                        ml_f16(&[1, self.meta.pred_hidden], g)?,
+                        ml_f16(&[1, 1024], e)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let rows: Vec<_> = arrays
+                .iter()
+                .map(|(g, e)| vec![("encoder_step", e), ("decoder_step", g)])
+                .collect();
+            let outputs = self
+                .joint
+                .predict_feature_batch(&rows, &[&self.joint_out])?;
+            Ok(outputs.iter().map(|r| read_f16(&r[0])).collect())
+        })
+    }
+    /// Graph/state sanity before corpus probes: different tokens, h/c & frames.
+    /// Returns max differences for projection, recurrent h/c & joint logits.
+    pub fn hypothesis_batch_sanity(&self) -> Result<[f32; 4], String> {
+        let pl = self.meta.pred_layers;
+        let ph = self.meta.pred_hidden;
+        let hypotheses: Vec<_> = (0..5)
+            .map(|i| BeamHyp {
+                h: (0..pl * ph)
+                    .map(|j| ((j + i) % 11) as f32 * 0.001)
+                    .collect(),
+                c: (0..pl * ph)
+                    .map(|j| ((j + i * 3) % 13) as f32 * 0.001)
+                    .collect(),
+                last_tok: if i == 0 { self.meta.blank_id } else { i as i32 },
+                t: i,
+                sym: 0,
+                score: 0.0,
+                hits: Vec::new(),
+            })
+            .collect();
+        let frames: Vec<Vec<f32>> = (0..5)
+            .map(|i| {
+                (0..1024)
+                    .map(|j| ((j + i * 7) % 17) as f32 * 0.01)
+                    .collect()
+            })
+            .collect();
+        let mut maxima = [0.0f32; 4];
+        for count in [1usize, 2, 5] {
+            let refs: Vec<_> = hypotheses[..count].iter().collect();
+            let batch = self.predict_hypotheses(&refs)?;
+            let joint_inputs: Vec<_> = batch
+                .iter()
+                .zip(&frames)
+                .map(|(p, e)| (p.0.as_slice(), e.as_slice()))
+                .collect();
+            let joints = self.predict_hypothesis_joints(&joint_inputs)?;
+            for i in 0..count {
+                let h = &hypotheses[i];
+                let scalar = self.predict_decoder(h.last_tok, &h.h, &h.c, pl, ph)?;
+                let logits = self.predict_joint(&scalar.0, &frames[i], ph, 1024)?;
+                for (k, (left, right)) in [
+                    (&scalar.0, &batch[i].0),
+                    (&scalar.1, &batch[i].1),
+                    (&scalar.2, &batch[i].2),
+                    (&logits, &joints[i]),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    if left.len() != right.len() {
+                        return Err("batch sanity shape mismatch".into());
+                    }
+                    for (&a, &b) in left.iter().zip(right) {
+                        if !a.is_finite() || !b.is_finite() {
+                            return Err("batch sanity nonfinite".into());
+                        }
+                        maxima[k] = maxima[k].max((a - b).abs());
+                    }
+                }
+            }
+        }
+        Ok(maxima)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        batch_chunk_size, batch_invocation_count, decode_rows_tensor, joint_rows_tensor,
+        resolve_hypothesis_batch_config, HypothesisBatchMode,
+    };
+
+    #[test]
+    fn batch_config_resolves_modes_and_capped_row_limit() {
+        assert_eq!(
+            resolve_hypothesis_batch_config(Some("predictor"), None),
+            super::HypothesisBatchConfig {
+                mode: HypothesisBatchMode::Predictor,
+                max_rows: None,
+            }
+        );
+        assert_eq!(
+            resolve_hypothesis_batch_config(Some("joint"), Some("3")),
+            super::HypothesisBatchConfig {
+                mode: HypothesisBatchMode::Joint,
+                max_rows: Some(3),
+            }
+        );
+        assert_eq!(
+            resolve_hypothesis_batch_config(Some("1"), Some("99")),
+            super::HypothesisBatchConfig {
+                mode: HypothesisBatchMode::Both,
+                max_rows: Some(8),
+            }
+        );
+        assert_eq!(
+            resolve_hypothesis_batch_config(Some("unknown"), Some("0")),
+            super::HypothesisBatchConfig {
+                mode: HypothesisBatchMode::Scalar,
+                max_rows: None,
+            }
+        );
+    }
+
+    #[test]
+    fn unset_batch_mode_ships_both_and_zero_is_scalar() {
+        assert_eq!(
+            resolve_hypothesis_batch_config(None, None).mode,
+            HypothesisBatchMode::Both
+        );
+        assert_eq!(
+            resolve_hypothesis_batch_config(Some("0"), None).mode,
+            HypothesisBatchMode::Scalar
+        );
+    }
+
+    #[test]
+    fn batch_chunk_size_and_invocation_count_cover_singletons_and_chunks() {
+        assert_eq!(batch_chunk_size(0, None), 1);
+        assert_eq!(batch_chunk_size(7, None), 7);
+        assert_eq!(batch_chunk_size(7, Some(3)), 3);
+        assert_eq!(batch_invocation_count(0, true, Some(3)), 0);
+        assert_eq!(batch_invocation_count(1, true, None), 1);
+        assert_eq!(batch_invocation_count(1, true, Some(1)), 1);
+        assert_eq!(batch_invocation_count(7, true, Some(3)), 3);
+        assert_eq!(batch_invocation_count(7, false, Some(3)), 7);
+    }
+
+    // Fake tensor model: per-row result depends on the row's token, state and
+    // its own position-free content, so any layout/padding error shows up.
+    fn fake_decoder(
+        pl: usize,
+        ph: usize,
+        b: usize,
+        ids: &[i32],
+        h: &[f32],
+        c: &[f32],
+    ) -> Result<super::Predictor, String> {
+        assert_eq!((ids.len(), h.len(), c.len()), (b, pl * b * ph, pl * b * ph));
+        let mut g = Vec::new();
+        for r in 0..b {
+            for j in 0..ph {
+                g.push(ids[r] as f32 + h[r * ph + j] + 0.5 * c[(b + r) * ph + j]);
+            }
+        }
+        let h2: Vec<f32> = h.iter().map(|x| x + 1.0).collect();
+        let c2: Vec<f32> = c.iter().map(|x| x * 2.0).collect();
+        Ok((g, h2, c2))
+    }
+
+    #[test]
+    fn tensor_batching_matches_per_row_for_fixed_padded_and_flexible() {
+        let (pl, ph) = (2usize, 3usize);
+        let hs: Vec<Vec<f32>> = (0..3)
+            .map(|i| (0..pl * ph).map(|j| (i * 10 + j) as f32).collect())
+            .collect();
+        let cs: Vec<Vec<f32>> = (0..3)
+            .map(|i| (0..pl * ph).map(|j| (i * 7 + j) as f32 * 0.5).collect())
+            .collect();
+        let rows: Vec<_> = (0..3)
+            .map(|i| (i as i32 + 5, hs[i].as_slice(), cs[i].as_slice()))
+            .collect();
+        let single: Vec<_> = rows
+            .iter()
+            .map(|r| {
+                decode_rows_tensor(std::slice::from_ref(r), 1, true, pl, ph, |b, i, h, c| {
+                    fake_decoder(pl, ph, b, i, h, c)
+                })
+                .unwrap()
+                .remove(0)
+            })
+            .collect();
+        for (n, flex, live) in [
+            (2, false, 1),
+            (2, false, 2),
+            (2, false, 3),
+            (4, true, 3),
+            (4, true, 1),
+        ] {
+            let mut calls = 0;
+            let got = decode_rows_tensor(&rows[..live], n, flex, pl, ph, |b, i, h, c| {
+                calls += 1;
+                fake_decoder(pl, ph, b, i, h, c)
+            })
+            .unwrap();
+            assert_eq!(calls, live.div_ceil(n));
+            assert_eq!(
+                got,
+                single[..live].to_vec(),
+                "n={n} flex={flex} live={live}"
+            );
+        }
+    }
+
+    #[test]
+    fn joint_tensor_batching_matches_per_row() {
+        let (ph, enc) = (3usize, 4usize);
+        let model = |b: usize, e: &[f32], g: &[f32]| -> Result<Vec<f32>, String> {
+            assert_eq!((e.len(), g.len()), (b * enc, b * ph));
+            Ok((0..b)
+                .flat_map(|r| {
+                    [
+                        e[r * enc..(r + 1) * enc].iter().sum::<f32>(),
+                        g[r * ph..(r + 1) * ph].iter().sum::<f32>(),
+                    ]
+                })
+                .collect())
+        };
+        let gs: Vec<Vec<f32>> = (0..3).map(|i| vec![i as f32 + 1.0; ph]).collect();
+        let es: Vec<Vec<f32>> = (0..3).map(|i| vec![i as f32 * 2.0 + 0.5; enc]).collect();
+        let rows: Vec<(&[f32], &[f32])> = (0..3)
+            .map(|i| (gs[i].as_slice(), es[i].as_slice()))
+            .collect();
+        let single: Vec<_> = rows
+            .iter()
+            .map(|r| {
+                joint_rows_tensor(std::slice::from_ref(r), 1, true, ph, enc, model)
+                    .unwrap()
+                    .remove(0)
+            })
+            .collect();
+        for (n, flex, live) in [(2, false, 1), (2, false, 3), (4, true, 3)] {
+            assert_eq!(
+                joint_rows_tensor(&rows[..live], n, flex, ph, enc, model).unwrap(),
+                single[..live].to_vec()
+            );
+        }
+    }
+}
