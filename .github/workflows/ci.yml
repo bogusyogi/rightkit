@@ -495,9 +495,19 @@ jobs:
       - name: Class A over the whole commit (every Cargo workspace and pnpm root, not a unit's closure)
         if: ${{ !cancelled() }}
         shell: bash
+        env:
+          npm_config_ignore_scripts: "true"
+          npm_config_ignore_pnpmfile: "true"
+          pnpm_config_ignore_scripts: "true"
+          pnpm_config_ignore_pnpmfile: "true"
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          # The gate's import-effects check installs each exported tree offline from the store: fill it for every committed lockroot first
+          # (the install above is filtered to @rightkit/release...).
+          for lockroot in $(git ls-files -- 'pnpm-lock.yaml' '*/pnpm-lock.yaml' | xargs -n1 dirname); do
+            pnpm --dir "$lockroot" fetch
+          done
           pnpm exec rightkit-gate check --repo . --commit "${{ github.sha }}" --rule-tier release
       # Importing an export executes candidate code: this runs only after every file-only class A step (scans, Cargo.lock/rustfmt, secret scan) passed. Hygiene gates every
       # native shard, so a module that runs at import stops the run before any runner starts.
