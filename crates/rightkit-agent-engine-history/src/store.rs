@@ -15,7 +15,6 @@ pub struct HistoryStore {
     base: PathBuf,
     /// `<workspace>/<state_dir>/history`, the parent of every session's slots.
     root: PathBuf,
-    session: String,
 }
 
 /// A snapshot selected for a transactional restore.
@@ -46,7 +45,6 @@ impl HistoryStore {
         Self {
             base: root.join(&session),
             root,
-            session,
         }
     }
 
