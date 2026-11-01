@@ -1608,12 +1608,14 @@ async function runStages(o, args, root, git, io) {
       // `main --all` compiles. A broker host's stage-sidecar child reaches Cargo through the stage's carrier (carried-cargo.mjs).
       // right-release runs in appRoot (nested apps), so the repository-relative config is handed over absolute (Astra, second pass).
       // On the snapshot route sidecars are staged ONCE per door run by the ledger bookkeeping (attribution diff, immutable staged entries).
+      // rightkit#1331: the declared compile inputs that are the app's web build output are produced in the snapshot before ANY compile reads them,
+      // the sidecar builds included: the broker admits a compile only when every declared input is in the snapshot (HeardRight Mac 2026-11-02:
+      // stage-sidecar's cargo build REJECTED "snapshot admission: tauri-app-next/dist: No such file or directory").
+      if (ok && ds) ok = await stageWebBuildOnce({ o, ds, root, git, appDir, cli, commonDir, commit, tree, stage, executor });
+      // The Windows package-identity MSIX a Tauri app bundles (its release config's windows.identity), produced in the snapshot on Windows only, for the same reason.
+      if (ok && ds) ok = await stageWindowsIdentityOnce({ o, ds, root, git, appDir, cli, commonDir, commit, tree, stage, executor });
       if (ok && ds) ok = await stageSidecarsOnce({ o, ds, root, git, configs: sidecarConfigs, appDir, cli, commonDir, commit, tree, stage, executor });
       else for (const config of ok ? sidecarConfigs : []) if (!await rightRelease(stage, ["stage-sidecar", "--config", path.join(root, config)])) { ok = false; break; }
-      // rightkit#1331: the declared compile inputs that are the app's web build output are produced in the snapshot before the compile reads them.
-      if (ok && ds) ok = await stageWebBuildOnce({ o, ds, root, git, appDir, cli, commonDir, commit, tree, stage, executor });
-      // The Windows package-identity MSIX a Tauri app bundles (its release config's windows.identity), produced in the snapshot on Windows only.
-      if (ok && ds) ok = await stageWindowsIdentityOnce({ o, ds, root, git, appDir, cli, commonDir, commit, tree, stage, executor });
       let compiledDirs = []; let compiledBins = null; let qualifyOwed = [];
       const reportOutputs = (dirs, bins = null) => { compiledDirs = [...dirs]; compiledBins = bins; };
       if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own, classAEarlier: true, snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs, onQualifyOwed: (list) => { qualifyOwed = list; } } : {}) })))({ reportOutputs })) === 0;
