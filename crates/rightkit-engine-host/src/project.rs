@@ -10,6 +10,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use rightkit_app_settings::{FileFormat, NullMeans, OnCorrupt, Schema, Store, StoreOptions};
+use rightkit_timeline::Fps;
 use rightkit_transcript::Transcript;
 use rightkit_video_project::{Access, MediaTools, Project, ProjectError, SourceRecord};
 use serde::Deserialize;
@@ -490,4 +491,19 @@ pub fn renders_list(dir: &Path) -> Result<Value, ProjectError> {
     }
     out.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
     Ok(json!({"renders": out}))
+}
+
+/// `30`, `30000/1001`, or the usual NTSC decimals (`29.97`, `23.976`, `59.94`).
+pub fn parse_fps(text: &str) -> Result<Fps, ProjectError> {
+    let bad = || ProjectError::BadInput(format!("invalid fps {text:?}"));
+    let (num, den) = match text.trim() {
+        "23.976" => (24000, 1001),
+        "29.97" => (30000, 1001),
+        "59.94" => (60000, 1001),
+        t => match t.split_once('/') {
+            Some((n, d)) => (n.parse().map_err(|_| bad())?, d.parse().map_err(|_| bad())?),
+            None => (t.parse().map_err(|_| bad())?, 1),
+        },
+    };
+    Fps::new(num, den).map_err(|_| bad())
 }

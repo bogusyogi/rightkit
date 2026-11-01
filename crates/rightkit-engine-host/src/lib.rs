@@ -28,6 +28,8 @@ pub mod doctor;
 pub mod env;
 #[cfg(feature = "project-cmd")]
 pub mod project;
+#[cfg(feature = "project-cmd")]
+pub mod project_cmd;
 pub mod registry;
 pub mod sidecar;
 pub mod wire;
