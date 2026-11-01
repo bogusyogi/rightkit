@@ -723,6 +723,8 @@ dependencies = [
 name = "rightkit-content-plan"
 version = "0.1.1"
 dependencies = [
+ "rightkit-fs",
+ "rightkit-platform-rules",
  "rightkit-social-analytics",
  "rightkit-social-publish",
  "serde",

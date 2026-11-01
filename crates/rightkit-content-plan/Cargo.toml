@@ -16,6 +16,8 @@ path = "src/lib.rs"
 [dependencies]
 rightkit-social-analytics = { version = "0.1.0", path = "../rightkit-social-analytics" }
 rightkit-social-publish = { version = "0.1.1", path = "../rightkit-social-publish" }
+rightkit-platform-rules = { version = "0.1.0", path = "../rightkit-platform-rules" }
+rightkit-fs = { version = "0.4.8", default-features = false, features = ["digest"], path = "../rightkit-fs" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 
