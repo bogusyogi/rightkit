@@ -7,11 +7,16 @@
 //! - [`membrane`]: Membrane's hook wire types (module status, dispatch result, host response).
 //!
 //! The crate holds no policy: a module decides, this crate only parses, bounds and prints.
+//! The optional `guard` feature adds `guard`, a native policy guard that decides
+//! through the evidence application; its texts and names come from the host
+//! through `guard::set_guard_host`.
 
 #[cfg(feature = "agent_hooks")]
 pub mod agent_hooks;
 pub mod dispatch;
 pub mod event;
+#[cfg(feature = "guard")]
+pub mod guard;
 pub mod membrane;
 pub mod output;
 pub mod receipt;
