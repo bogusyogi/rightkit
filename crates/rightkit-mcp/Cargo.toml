@@ -86,9 +86,9 @@ exact-json-ids = ["serde_json/arbitrary_precision"]
 # Test-only seam: `ClientExtensions::address_policy` overrides the HTTP client's address
 # policy. Absent from the default build; enabled for this crate's own tests only.
 testing = []
-agent_mcp-os-keyring = ["agent_mcp", "dep:rightkit-credentials", "dep:rightkit-oauth", "dep:rightkit-http"]
+agent_mcp-os-keyring = ["agent_mcp", "dep:rightkit-credentials", "dep:rightkit-oauth"]
 agent_mcp-host-env = ["agent_mcp", "rightkit-app-settings/agent_config-host-env"]
-agent_mcp-test-loopback = ["agent_mcp", "dep:rightkit-http", "rightkit-http/testing", "rightkit-mcp/testing"]
+agent_mcp-test-loopback = ["agent_mcp", "rightkit-http/testing", "testing"]
 agent_mcp = ["rightkit-fs/lock", "rightkit-fs/json", "rightkit-fs/transaction", "rightkit-http/gzip", "rightkit-http/untrusted", "rightkit-http/async", "dep:thiserror", "dep:async-trait", "dep:tokio", "tokio/full", "dep:futures", "dep:tracing", "dep:rightkit-agent-engine-runtime-resources", "dep:rightkit-sandbox", "dep:rightkit-agent-engine-protocol", "dep:rightkit-app-settings", "agent_mcp-os-keyring"]
 
 [dev-dependencies]
