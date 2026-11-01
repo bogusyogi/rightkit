@@ -1843,6 +1843,11 @@
       "key": "build-release.mjs::recorded::31bac36c",
       "class": "runtime-only",
       "reason": "a signing receipt written inside the snapshot, decided at the seal from the run's own paths (the next sync replaces the snapshot)"
+    },
+    {
+      "key": "release.mjs::<module>::b1a37752",
+      "class": "runtime-only",
+      "reason": "decided by the door run that started this worker (its snapshot and the config path it was given), not by the app's files or the host"
     }
   ]
 }
