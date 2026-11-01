@@ -4,6 +4,8 @@
 //!   deterministic link ids, the redirect route's id, target and referrer rules, and the campaign and
 //!   link commands over a host-implemented [`links::LinksStore`].
 //!
+//! - [`analytics`]: platform insights pull, observation reads, lineage, and the metric registry and gates,
+//!   over a host-implemented [`analytics::AnalyticsStore`] (which also makes the one HTTP GET).
 //! - [`metric_import`]: manual CSV metric import (preview, commit, list) over a host-implemented
 //!   [`metric_import::MetricImportStore`].
 //! - [`optimise`]: calendar change proposals (the `remake` rule) over a host-implemented
@@ -12,6 +14,7 @@
 //!
 //! The tables and pulling platform metrics belong to the host app.
 
+pub mod analytics;
 pub mod links;
 pub mod metric_import;
 pub mod optimise;

@@ -428,10 +428,12 @@ fn campaign_put(store: &dyn LinksStore, input: Value) -> Result<Value, Fail> {
             None => {
                 match req.expected_revision {
                     None | Some(0) => {}
-                    Some(n) => return Err(conflict(format!(
+                    Some(n) => {
+                        return Err(conflict(format!(
                         "campaign {} does not exist (revision 0); expected_revision {n} is stale",
                         req.campaign_id
-                    ))),
+                    )))
+                    }
                 }
                 let utm_campaign = req
                     .utm_campaign

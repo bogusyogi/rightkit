@@ -2,6 +2,7 @@
 
 ## 0.1.1 (unreleased)
 
+- Added `analytics`: `analytics.pull` (and `pull_with`), `list`, `latest`, `summary`, `lineage_put`, `registry`, `gate` and the metric registry over a host-implemented `AnalyticsStore`, whose `http_get` is the HTTP seam. Additive.
 - Added `protocol` (analytics, metric-import and optimise payload shapes) `metric_import` over a host-implemented `MetricImportStore` and `optimise` over an `OptimiseStore`. Additive.
 - Added `links::LinksStore` and the campaign and link commands (`campaign.put`, `campaign.list`, `link.create`, `link.get`, `link.list`, `link.record_visit`, `link.attribution`); `UtmPolicy::validate`; link payload shapes in `protocol`. Additive.
 
