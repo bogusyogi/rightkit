@@ -3,6 +3,7 @@
 ## 0.10.1 (unpublished)
 
 - Fixed (`userdata::Guard::for_workspace`): a scenario world's home, which the pool creates at `<rightkit-qa>/<run>/worlds/wNNN/home` (`pool::WorldPlan::world`), is accepted as a QA home location. 0.10.0 accepted only a home directly under a `rightkit-qa` directory, so every pooled `ui_launch` refused itself with `not-a-qa-root` and nothing launched (HeardRight source QA). Its QA root is the world directory `wNNN`, which also holds the world's control socket and token file (`pool::world_env`); a home directly under `rightkit-qa` stays its own root. Any other place is still refused. Tests: `a_scenario_world_home_has_its_world_directory_as_the_qa_root`, and `world_workspace_moves_every_profile_path_into_the_world_and_shares_none` runs the launch guard over every path a world hands the app.
+- Fixed (`pool::world_workspace`): the world's control token file (`worlds/wNNN/control.token`, which the world names to every launch as `RIGHTKIT_QA_CONTROL_TOKEN_FILE`) is minted when the world is built, on every runner path. Only the journeys runner wrote it, so a pooled `rightkit-qa run` scenario failed `ui_launch` before spawning the app (`the control token file ... is not usable`). The pool test now runs the launch's token step (`token::named_for_launch` + `token::for_launch`) on the built world.
 
 ## 0.9.2 (unpublished; rightkit#1222)
 

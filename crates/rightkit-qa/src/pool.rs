@@ -624,6 +624,10 @@ pub fn world_workspace(
 ) -> Result<QaWorkspace> {
     create_world_dirs(world)?;
     template.apply(&world.home)?;
+    // The world names its control token file to every launch (`ENV_CONTROL_TOKEN_FILE` is the launch's
+    // `token::ENV_AUTH_FILE`), and a launch reads the file it is named, failing closed: the token is
+    // minted here, where every runner path (suite and journeys) builds its world.
+    crate::control::token::write_file(&world.control_token_file)?;
     let mut env: BTreeMap<String, String> = BTreeMap::new();
     for (k, v) in &ws.env {
         let moved = match Path::new(v).strip_prefix(&ws.home) {
@@ -1215,6 +1219,13 @@ mod tests {
             guard.check_dir(&w.home).unwrap();
             let env: Vec<(String, String)> = w.env.clone().into_iter().collect();
             guard.check_env(&env).unwrap();
+            // The launch's own token step (`control::launch_declared`) reads the file the world names.
+            let named = crate::control::token::named_for_launch(&w.env, &[]);
+            assert_eq!(named.as_deref(), Some(world.control_token_file.as_path()));
+            let (auth, file) =
+                crate::control::token::for_launch(named.as_deref(), &ws.root, "test").unwrap();
+            assert_eq!(auth.len(), 64);
+            assert_eq!(file, world.control_token_file);
             for p in [
                 &world.control_socket,
                 &world.control_token_file,
