@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { compileKeyOf, compileOutputsRecord, compileReuseProblem, outputCensus } from "./gate-stages.mjs";
+import { createHash } from "node:crypto";
+import { compileKeyOf, compileOutputsRecord, compileReuseProblem, compiledBinaries, outputCensus } from "./gate-stages.mjs";
 import { doorFixture, tmpDir } from "./test-support/door-fixture.mjs";
 
 const POSIX_SIM = process.platform === "win32" ? "simulates a Linux host, whose ownership reads ps" : false;
@@ -101,4 +102,33 @@ test("[GB-13] census and reuse helpers: missing directory is not empty; truncate
   assert.equal(outputCensus([a], { limit: 2 }).truncated, true);
   assert.match(compileReuseProblem({ outputs: { ...compileOutputsRecord({ dirs: [a] }), truncated: true } }, {}), /incomplete/);
   assert.notEqual(compileKeyOf({ CARGO_BUILD_TARGET: "x" }), compileKeyOf({}));
+});
+
+test("[rustright#209 item 5] a passed compile records the sha256 of each executable in <dir>/debug, also when its census is truncated", (t) => {
+  const out = path.join(tmpDir(t, "rk-bins-"), "target");
+  fs.mkdirSync(path.join(out, "debug", "deps"), { recursive: true });
+  const exe = process.platform === "win32" ? ".exe" : "";
+  fs.writeFileSync(path.join(out, "debug", `rustright${exe}`), "client-bytes", { mode: 0o755 });
+  fs.writeFileSync(path.join(out, "debug", `rustright-broker${exe}`), "broker-bytes", { mode: 0o755 });
+  fs.writeFileSync(path.join(out, "debug", "rustright.d"), "dep-info", { mode: 0o644 });
+  fs.writeFileSync(path.join(out, "debug", "deps", `inner${exe}`), "not top level", { mode: 0o755 });
+  const sha = (text) => createHash("sha256").update(text).digest("hex");
+  assert.deepEqual(compiledBinaries([out, out]), [
+    { dir: out, name: `rustright${exe}`, size: 12, sha256: sha("client-bytes") },
+    { dir: out, name: `rustright-broker${exe}`, size: 12, sha256: sha("broker-bytes") },
+  ], "top-level executables only: no dep-info, nothing under deps/, each directory once");
+  assert.deepEqual(compiledBinaries([path.join(out, "missing")]), [], "a directory with no debug/ records nothing");
+
+  const truncated = compileOutputsRecord({ dirs: [out], census: (dirs) => ({ dirs, entries: 250001, digest: "d", truncated: true, missing: [] }) });
+  assert.equal(truncated.truncated, true);
+  assert.deepEqual(truncated.binaries.map((b) => b.name), [`rustright${exe}`, `rustright-broker${exe}`], "the binaries are recorded even when the census proves nothing");
+});
+
+test("[rustright#209 item 5] on Windows only a .exe is a binary; on POSIX only a file with an execute bit", () => {
+  const entry = (name) => ({ name, isFile: () => true });
+  const read = () => Buffer.from("x");
+  const win = compiledBinaries(["T"], { platform: "win32", readdir: () => [entry("a.exe"), entry("a.pdb"), entry("b")], stat: () => ({ mode: 0o644, size: 1 }), readFile: read });
+  assert.deepEqual(win.map((b) => b.name), ["a.exe"]);
+  const posix = compiledBinaries(["T"], { platform: "linux", readdir: () => [entry("a"), entry("b.d")], stat: (f) => ({ mode: f.endsWith("a") ? 0o755 : 0o644, size: 1 }), readFile: read });
+  assert.deepEqual(posix.map((b) => b.name), ["a"]);
 });

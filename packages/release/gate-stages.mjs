@@ -230,10 +230,37 @@ export function compileKeyOf(env = {}) {
   return sha256(JSON.stringify(picked));
 }
 
-/** What a passed compile stage records about its outputs: the directories, their census and the key of the compile environment. */
-export function compileOutputsRecord({ dirs = [], env = {}, census = outputCensus }) {
+/** The profile directory a gate compile writes (the dev profile; the install route reads its binaries there). */
+export const COMPILE_PROFILE_DIR = "debug";
+
+/**
+ * The sha256 of every executable file directly in `<dir>/debug/` of each output directory (rustright#209 item 5): the binaries this compile
+ * produced, by their bytes. A census proves nothing once it is truncated (a broker workspace target is tens of GB, past OUTPUT_CENSUS_LIMIT),
+ * but a consumer that installs a binary needs only that binary's bytes to be the compile's. Executable: a regular file with an execute bit on
+ * POSIX, a `.exe` on Windows. Sorted by directory, then name.
+ */
+export function compiledBinaries(dirs = [], { platform = process.platform, readdir = (d) => fs.readdirSync(d, { withFileTypes: true }), stat = (f) => fs.statSync(f), readFile = (f) => fs.readFileSync(f) } = {}) {
+  const out = [];
+  for (const dir of [...new Set(dirs.filter((d) => typeof d === "string" && d))].sort()) {
+    const profile = path.join(dir, COMPILE_PROFILE_DIR);
+    let entries;
+    try { entries = readdir(profile); } catch { continue; }
+    for (const e of entries) {
+      if (!e.isFile()) continue;
+      const file = path.join(profile, e.name);
+      let info;
+      try { info = stat(file); } catch { continue; }
+      if (platform === "win32" ? !/\.exe$/i.test(e.name) : (info.mode & 0o111) === 0) continue;
+      out.push({ dir, name: e.name, size: info.size, sha256: sha256(readFile(file)) });
+    }
+  }
+  return out.sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir.localeCompare(b.dir)));
+}
+
+/** What a passed compile stage records about its outputs: the directories, their census, the binaries' digests and the key of the compile environment. */
+export function compileOutputsRecord({ dirs = [], env = {}, census = outputCensus, binaries = compiledBinaries }) {
   const c = census(dirs);
-  return { dirs: c.dirs, entries: c.entries, digest: c.digest, truncated: c.truncated, key: compileKeyOf(env) };
+  return { dirs: c.dirs, entries: c.entries, digest: c.digest, truncated: c.truncated, binaries: binaries(c.dirs), key: compileKeyOf(env) };
 }
 
 /**
