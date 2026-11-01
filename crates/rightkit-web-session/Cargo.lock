@@ -2249,6 +2249,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sysinfo",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2451,6 +2452,7 @@ dependencies = [
  "rightkit-fs",
  "rightkit-logs",
  "ring",
+ "serde",
  "serde_json",
  "windows",
 ]
@@ -2549,6 +2551,7 @@ dependencies = [
  "rightkit-crypto",
  "rightkit-owner-approvals",
  "rightkit-remote-gateway",
+ "ring",
  "serde_json",
  "tokio",
 ]
