@@ -53,6 +53,31 @@ function codesignReport(file, { run, env, root }) {
   return { identifier: /^Identifier=(.+)$/m.exec(text)?.[1]?.trim(), team: /^TeamIdentifier=(.+)$/m.exec(text)?.[1]?.trim(), adhoc: /^Signature=adhoc$/m.test(text) };
 }
 
+// The QA bundle runs under app.rightkit.qa.<id> with no embedded.provisionprofile, so a provisioning profile bound to the product id cannot apply to it, and
+// AMFI refuses to spawn a bundle that claims a profile-gated entitlement without one (POSIX 163, "Launchd job spawn failed"). Suite (QA) signing therefore
+// drops the profile-gated keys; profile-gated capabilities (iCloud/CloudKit, push) are not exercisable in Mac source QA. Release signing never goes through here.
+const isProfileGatedEntitlement = (key) => key === "com.apple.application-identifier" || key === "com.apple.developer.team-identifier" || key.startsWith("com.apple.developer.") || key === "aps-environment" || key === "keychain-access-groups";
+
+/** The entitlements file to sign `index` with: the original when no key is profile-gated, else a derived plist in signedDir without them. */
+function qaEntitlements({ file, index, signedDir, run, env, root }) {
+  const options = { cwd: root, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true, shell: false };
+  const failed = (why) => refuse("SIGN_ENTITLEMENTS_UNREADABLE", `cannot read the entitlements ${file}: ${why}`, { file });
+  const read = run("plutil", ["-convert", "json", "-o", "-", file], options);
+  if (read?.error || read?.status !== 0) failed(read?.error?.message || output(read).trim() || `plutil exit ${read?.status ?? "unavailable"}`);
+  let parsed;
+  try { parsed = JSON.parse(read.stdout); } catch (cause) { failed(`plutil did not return JSON (${cause.message})`); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) failed("the plist is not a dictionary");
+  const dropped = Object.keys(parsed).filter(isProfileGatedEntitlement);
+  if (!dropped.length) return { file, dropped };
+  const derivedDir = path.join(signedDir, "qa-entitlements");
+  fs.mkdirSync(derivedDir, { recursive: true });
+  const derived = path.join(derivedDir, `${index}.plist`);
+  fs.writeFileSync(derived, JSON.stringify(Object.fromEntries(Object.entries(parsed).filter(([key]) => !isProfileGatedEntitlement(key)))));
+  const write = run("plutil", ["-convert", "xml1", derived], options);
+  if (write?.error || write?.status !== 0) failed(`cannot write ${derived}: ${write?.error?.message || output(write).trim() || `plutil exit ${write?.status ?? "unavailable"}`}`);
+  return { file: derived, dropped };
+}
+
 /** Mac: sign each copy and read it back against the release-shaped identity. Returns one evidence record per file. */
 function signMac({ copies, name, config, appRoot, env, run, deps, identifier, install, signedDir, mainIndex }) {
   const settings = readDevSigningSettings(install, config, { root: appRoot });
@@ -79,6 +104,13 @@ function signMac({ copies, name, config, appRoot, env, run, deps, identifier, in
     const entitlements = (index === mainIndex ? lookupBundlePath(settings.entitlements, ".") : undefined) ?? lookupBundlePath(settings.entitlements, relative);
     return { file: copy.file, ...(id !== undefined ? { identifier: id } : {}), expectedIdentifier: id ?? path.basename(copy.file), ...(entitlements ? { entitlements } : {}) };
   });
+  entries.forEach((entry, index) => {
+    entry.entitlementsDropped = [];
+    if (!entry.entitlements) return;
+    const derived = qaEntitlements({ file: entry.entitlements, index, signedDir, run, env, root: appRoot });
+    entry.entitlements = derived.file;
+    entry.entitlementsDropped = derived.dropped;
+  });
   const signOne = deps.signOne ?? ((args) => runMacCodesignCommands([args], { env, run, cwd: appRoot })[0]);
   const inspect = deps.inspect ?? ((command, args) => {
     const result = run(command, args, { cwd: appRoot, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true, shell: false });
@@ -86,7 +118,7 @@ function signMac({ copies, name, config, appRoot, env, run, deps, identifier, in
     return output(result);
   });
   let records;
-  try { records = signMacosEntries(entries.map(({ expectedIdentifier: _derived, ...entry }) => entry), { identity: signing.identity, signOne, inspect, bundle: signedDir }); }
+  try { records = signMacosEntries(entries.map(({ expectedIdentifier: _derived, entitlementsDropped: _dropped, ...entry }) => entry), { identity: signing.identity, signOne, inspect, bundle: signedDir }); }
   catch (cause) { refuse("SIGN_FAILED", `${name}: ${cause.message}`, { cause }); }
   return records.map((record, index) => {
     const entry = entries[index];
@@ -100,7 +132,7 @@ function signMac({ copies, name, config, appRoot, env, run, deps, identifier, in
     catch (error) { if (!(error instanceof MacosDevelopmentSigningError)) throw error; refuse("SIGN_REQUIREMENT_MISMATCH", `${copies[index].path}: ${error.message}`, { expected, actual: error.installedRequirement }); }
     // assertStableDesignatedRequirement is silent about an unreadable or cdhash-bound requirement (it has no grants to protect); here either is a refusal.
     if (requirement !== expected) refuse("SIGN_REQUIREMENT_MISMATCH", `${copies[index].path}: the designated requirement could not be read back, or is cdhash-bound, instead of ${JSON.stringify(expected)}`, { expected });
-    return { platform: "mac", file: copies[index].path, signed: record.file, sha256Before: record.before.sha256, sha256After: record.after.sha256, identifier: entry.expectedIdentifier, team: report.team, identity: signing.identity, requirement };
+    return { platform: "mac", file: copies[index].path, signed: record.file, sha256Before: record.before.sha256, sha256After: record.after.sha256, identifier: entry.expectedIdentifier, team: report.team, identity: signing.identity, requirement, entitlementsDropped: entry.entitlementsDropped };
   });
 }
 

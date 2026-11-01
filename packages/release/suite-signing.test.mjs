@@ -83,6 +83,59 @@ const stepOf = (f, over = {}) => ({ name: "sign-app", sign: { files: MAC_FILES }
 const run = (f, mac, over = {}) => runSignStep(stepOf(f, { deps: { signingDirectory: f.signingDirectory, resolveSigning: mac.resolveSigning, signOne: mac.signOne, run: mac.run }, ...over }));
 const code = (fn) => { try { fn(); } catch (error) { assert.ok(error instanceof SuiteSigningError, `${error?.constructor?.name}: ${error?.message}`); return error.code; } assert.fail("expected a refusal"); };
 
+// ---- macOS: QA signing drops profile-gated entitlements ----------------------------------------------------------------------------
+
+/** A fake `plutil` over the entitlements `dict`: -convert json prints it; -convert xml1 <file> records the derived file's JSON as "xml1". */
+function withPlutil(mac, dict, { status = 0 } = {}) {
+  const converted = [];
+  return { converted, run: (command, args, options) => {
+    if (command !== "plutil") return mac.run(command, args, options);
+    if (status !== 0) return { status, stdout: "", stderr: "Could not parse plist" };
+    if (args[1] === "json") return { status: 0, stdout: JSON.stringify(dict), stderr: "" };
+    converted.push({ args, content: JSON.parse(fs.readFileSync(args.at(-1), "utf8")) });
+    return { status: 0, stdout: "", stderr: "" };
+  } };
+}
+const entitled = (f) => {
+  fs.writeFileSync(path.join(f.appRoot, "src-tauri", "entitlements.plist"), "<plist/>");
+  return { development: { targets: { mac: { install: { entitlements: { ".": "src-tauri/entitlements.plist" } } } } } };
+};
+
+test("mac QA signing: profile-gated entitlements are dropped into a derived plist; the security key stays; evidence lists the dropped keys", (t) => {
+  const f = fixture(t);
+  const config = entitled(f);
+  const dict = { "com.apple.application-identifier": "6KLGD3LLKF.app.heardright.next", "aps-environment": "development", "com.apple.developer.icloud-container-identifiers": ["iCloud.x"], "com.apple.developer.icloud-services": ["CloudKit"], "com.apple.security.cs.allow-jit": true };
+  const mac = fakeMac();
+  const plutil = withPlutil(mac, dict);
+  const result = run(f, mac, { config, deps: { signingDirectory: f.signingDirectory, resolveSigning: mac.resolveSigning, signOne: mac.signOne, run: plutil.run } });
+  const given = mac.calls[0].args[mac.calls[0].args.indexOf("--entitlements") + 1];
+  assert.notEqual(given, path.join(f.appRoot, "src-tauri", "entitlements.plist"), "a derived file is signed with, not the original");
+  assert.ok(path.relative(result.signedDir, given).split(path.sep)[0] !== "..", "the derived plist lives in the signed directory");
+  assert.equal(plutil.converted.length, 1);
+  assert.deepEqual(plutil.converted[0].content, { "com.apple.security.cs.allow-jit": true });
+  assert.deepEqual(result.evidence[0].entitlementsDropped, ["com.apple.application-identifier", "aps-environment", "com.apple.developer.icloud-container-identifiers", "com.apple.developer.icloud-services"]);
+});
+
+test("mac QA signing: a plist with only security keys is signed as is and drops nothing", (t) => {
+  const f = fixture(t);
+  const config = entitled(f);
+  const mac = fakeMac();
+  const plutil = withPlutil(mac, { "com.apple.security.cs.allow-jit": true, "com.apple.security.device.audio-input": true });
+  const result = run(f, mac, { config, deps: { signingDirectory: f.signingDirectory, resolveSigning: mac.resolveSigning, signOne: mac.signOne, run: plutil.run } });
+  assert.equal(mac.calls[0].args[mac.calls[0].args.indexOf("--entitlements") + 1], path.join(f.appRoot, "src-tauri", "entitlements.plist"));
+  assert.equal(plutil.converted.length, 0);
+  assert.deepEqual(result.evidence[0].entitlementsDropped, []);
+});
+
+test("mac QA signing: an entitlements plist plutil cannot read is refused", (t) => {
+  const f = fixture(t);
+  const config = entitled(f);
+  const mac = fakeMac();
+  const plutil = withPlutil(mac, {}, { status: 1 });
+  assert.equal(code(() => run(f, mac, { config, deps: { signingDirectory: f.signingDirectory, resolveSigning: mac.resolveSigning, signOne: mac.signOne, run: plutil.run } })), "SIGN_ENTITLEMENTS_UNREADABLE");
+  assert.equal(mac.calls.length, 0, "nothing is signed");
+});
+
 // ---- macOS: the identity, derived and read back ----------------------------------------------------------------------------------
 
 test("mac: a main binary is signed as a COPY with the bundle id and the team, read back, and recorded; the source bytes never change", (t) => {
@@ -99,7 +152,7 @@ test("mac: a main binary is signed as a COPY with the bundle id and the team, re
   assert.equal(mac.calls[0].identifier, BUNDLE_ID, "the main binary is signed with the bundle id");
   assert.equal(mac.calls[0].identity, IDENTITY);
   const [evidence] = result.evidence;
-  assert.deepEqual({ ...evidence, signed: undefined, sha256Before: undefined, sha256After: undefined }, { platform: "mac", file: "aarch64-apple-darwin/debug/rightapp", signed: undefined, sha256Before: undefined, sha256After: undefined, identifier: BUNDLE_ID, team: TEAM, identity: IDENTITY, requirement: expectedDesignatedRequirement(BUNDLE_ID, TEAM) });
+  assert.deepEqual({ ...evidence, signed: undefined, sha256Before: undefined, sha256After: undefined }, { platform: "mac", file: "aarch64-apple-darwin/debug/rightapp", signed: undefined, sha256Before: undefined, sha256After: undefined, identifier: BUNDLE_ID, team: TEAM, identity: IDENTITY, requirement: expectedDesignatedRequirement(BUNDLE_ID, TEAM), entitlementsDropped: [] });
   assert.equal(evidence.sha256Before, before);
   assert.equal(evidence.sha256After, sha(result.appBinary));
   assert.notEqual(evidence.sha256Before, evidence.sha256After);
