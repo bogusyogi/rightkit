@@ -6,14 +6,9 @@ fn fake() -> MembraneCli {
     MembraneCli::new(env!("CARGO_BIN_EXE_fake-membrane").into())
 }
 
-/// Test dirs live under D:/scratch when present (disk-hygiene rule).
+/// Test dirs live in the system temp dir.
 fn scratch() -> tempfile::TempDir {
-    let base = Path::new("D:/scratch/membrane-cli");
-    if std::fs::create_dir_all(base).is_ok() {
-        tempfile::Builder::new().tempdir_in(base).unwrap()
-    } else {
-        tempfile::tempdir().unwrap()
-    }
+    tempfile::tempdir().unwrap()
 }
 
 #[test]
