@@ -701,6 +701,17 @@ test("upload refuses when the sealed bytes, the commit or the receipts do not bi
   const rerunReceipts = receipts(rerun.dir, rerun.manifest, { override: { runAttempt: "1" } });
   await run(rerun, rerunReceipts, actionsEnv({ GITHUB_RUN_ATTEMPT: "2", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc }));
   assert.deepEqual(loadSealed({ packDir: rerun.dir, registry: "npm", unitsText: "@rightkit/a", run: { runId: "77", runAttempt: "2" } }).problems, []);
+  // bind's qualification-binding.json (rightkit#1341) rides along only when it names a sealed unit's bytes at the sealed commit
+  const sealedArgs = { packDir: rerun.dir, registry: "npm", unitsText: "@rightkit/a", run: { runId: "77", runAttempt: "2" } };
+  const unitA = rerun.manifest.units[0];
+  const writeBinding = (over) => fs.writeFileSync(path.join(rerun.dir, "qualification-binding.json"), JSON.stringify({ schema: "rk-qualification-binding.v1", unit: unitA.name, version: unitA.version, sha256: unitA.sha256, file: unitA.file, qualification: { commit: rerun.manifest.commit }, ...over }));
+  writeBinding({});
+  assert.deepEqual(loadSealed(sealedArgs).problems, []);
+  for (const over of [{ sha256: "f".repeat(64) }, { unit: "@rightkit/other" }, { schema: "x" }, { qualification: { commit: "c".repeat(40) } }]) {
+    writeBinding(over);
+    assert.match(loadSealed(sealedArgs).problems.join("\n"), /qualification-binding\.json does not bind/, JSON.stringify(over));
+  }
+  fs.rmSync(path.join(rerun.dir, "qualification-binding.json"));
   // wrong commit, branch, repository, unit list
   const ok = receipts(sealed.dir, sealed.manifest);
   await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_SHA: "c".repeat(40), NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /not the dispatched commit/);
