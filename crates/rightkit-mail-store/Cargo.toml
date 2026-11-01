@@ -14,7 +14,7 @@ name = "rightkit_mail_store"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-db = { version = "0.5.3", default-features = false, features = ["bundled", "statement-cache"], path = "../rightkit-db" }
+rightkit-db = { version = "0.5.4", default-features = false, features = ["bundled", "statement-cache"], path = "../rightkit-db" }
 rightkit-search = { version = "0.4.1", default-features = false, path = "../rightkit-search" }
 rightkit-mail = { version = "0.1.1", path = "../rightkit-mail" }
 rightkit-google-apis = { version = "0.1.0", path = "../rightkit-google-apis" }

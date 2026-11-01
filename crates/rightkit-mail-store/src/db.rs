@@ -18,9 +18,6 @@ pub(crate) mod store_lock;
 pub fn db_file() -> String {
     format!("{}.sqlite", crate::host::host().app_slug())
 }
-// Free-space probe shared with compaction (std-only file, also built without the shell).
-#[path = "db/free_space.rs"]
-pub(crate) mod free_space;
 mod pragma_optimize;
 pub(crate) use pragma_optimize::pragma_optimize;
 mod util;
