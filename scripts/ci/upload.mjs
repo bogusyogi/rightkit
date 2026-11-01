@@ -46,6 +46,7 @@ export const TOKEN_VARS = ["NODE_AUTH_TOKEN", "CARGO_REGISTRY_TOKEN"];
 export const PASS_STATUSES = ["pass", "allowed-skips", "allowed-exclusion", "allowed-no-test"];
 const USER_AGENT = `rightkit-publish (https://github.com/${REPOSITORY})`;
 const SAFE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/;
+export const QUALIFICATION_BINDING_FILE = "qualification-binding.json";
 
 export const sha = (algorithm, bytes) => crypto.createHash(algorithm).update(bytes).digest("hex");
 export const integrity = (bytes) => `sha512-${crypto.createHash("sha512").update(bytes).digest("base64")}`;
@@ -178,6 +179,18 @@ export function loadSealed({ packDir, registry, unitsText, run = {} }) {
       const data = fs.readFileSync(full);
       if (sha("sha256", data) !== expected) problems.push(`${unit.name}: ${file} sha256 does not match the manifest; it changed after packing`);
       if (size !== undefined && data.length !== size) problems.push(`${unit.name}: ${file} is ${data.length} bytes, manifest says ${size}`);
+    }
+  }
+  // publish-admission.mjs bind records, beside the sealed bytes, which local qualification they were bound to (rightkit#1341). It is
+  // evidence, never input: it must name a sealed unit, that unit's sealed sha256 and the sealed commit, or the artifact is refused.
+  const bindingFile = path.join(packDir, QUALIFICATION_BINDING_FILE);
+  if (fs.existsSync(bindingFile)) {
+    listed.add(QUALIFICATION_BINDING_FILE);
+    let binding = null;
+    try { binding = JSON.parse(fs.readFileSync(bindingFile, "utf8")); } catch { /* refused below */ }
+    const unit = (manifest.units ?? []).find((u) => u.name === binding?.unit);
+    if (binding?.schema !== "rk-qualification-binding.v1" || !unit || binding.version !== unit.version || binding.sha256 !== unit.sha256 || binding.qualification?.commit !== manifest.commit) {
+      problems.push(`${QUALIFICATION_BINDING_FILE} does not bind a sealed unit's sealed bytes at the sealed commit`);
     }
   }
   for (const file of listFiles(packDir)) {
