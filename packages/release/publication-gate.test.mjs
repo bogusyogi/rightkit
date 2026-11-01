@@ -40,6 +40,14 @@ test('Swift packages need only a macOS receipt', () => {
   assert.match(swift([run('win32')]).missing.join('\n'), /no macOS host run receipt/);
 });
 
+test('direct Linux qualification (#1341) proves its Linux run only, and never satisfies an upload gate', () => {
+  const direct = evidence({ hostPolicy: 'linux-direct', hostPolicyReason: 'GB-29', runs: [run('linux')] });
+  assert.deepEqual(checkPublicationGate({ ...base(direct), directLinux: true }).missing, []);
+  assert.match(checkPublicationGate(base(direct)).missing.join('\n'), /no macOS host run receipt[\s\S]*no Windows host run receipt/);
+  assert.match(checkPublicationGate({ ...base(evidence({ runs: [run('linux')] })), directLinux: true }).missing.join('\n'), /needs linux-direct cargo or npm evidence/);
+  assert.match(checkPublicationGate({ ...base({ ...direct, runs: [run('darwin')] }), directLinux: true }).missing.join('\n'), /no Linux host run receipt/);
+});
+
 const gitFor = ({ head = SHA, dirty = '', known = 'commit', ancestor = true, behind = '3', changed = '' } = {}) => (args) => {
   if (args[0] === 'rev-parse') return head;
   if (args[0] === 'status') return dirty;

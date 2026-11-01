@@ -348,6 +348,8 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
   }
   // GB-29: a Linux origin has no managed volume; its scratch is the gate's own state directory (XDG state), never a Mac path.
   const scratch = platform === "win32" ? "D:\\scratch" : platform === "linux" ? path.join(env.XDG_STATE_HOME || path.join(env.HOME || "/tmp", ".local", "state"), "rightkit", "scratch") : "/Volumes/D/scratch";
+  // The Linux scratch is a gate-owned state directory that may not exist yet; the bundle itself is still created fresh (non-recursive) by the publisher.
+  if (platform === "linux") fs.mkdirSync(scratch, { recursive: true, mode: 0o700 });
   const bundle = path.join(scratch, `rk-unit-${randomBytes(12).toString("hex")}`);
   const argv = ["--local", unit.kind === "npm" ? "--package" : "--crate", unit.name, "--workspace", root, "--qualify-only", "--bundle", bundle];
   const runtimeDir = path.dirname(fileURLToPath(import.meta.url));

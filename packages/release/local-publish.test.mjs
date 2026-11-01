@@ -722,6 +722,7 @@ test('win32: refused without the grant, for npm (Keychain token and signed helpe
   await refused(harness(cargoRoot, 'cargo', { platform: 'win32', localBuildGranted: () => false }).run(), /local-build grant/);
   await refused(harness(cargoRoot, 'cargo', { platform: 'freebsd' }).run(), /darwin-only.*win32-only.*linux-direct.*this host is freebsd/);
   await refused(harness(workspace(), 'npm', { platform: 'linux' }).run(), /npm --local needs the macOS Keychain npm token and runs on the Mac only.*this host is linux/);
+  await refused(harness(cargoRoot, 'cargo', { platform: 'linux' }).run(), /Linux direct origin qualifies only \(--qualify-only\)/);
   assert.equal(fs.existsSync(path.join(cargoRoot, 'release-evidence')), false);
   const npmRoot = workspace();
   const npm = harness(npmRoot, 'npm', { platform: 'win32' });

@@ -177,7 +177,12 @@ export function validatePublicationEvidence({ expected = {}, evidence, artifactB
   if (!SHA.test(String(commit ?? ""))) missing.push("expected commit is not a full 40-character SHA");
   const defaults = requiredHosts(kind);
   let hosts = defaults;
-  if (expected.requiredHosts !== undefined) {
+  // GB-29 (rightkit#1341): a direct Linux qualification bundle proves its own Linux run; Mac and Windows are proved by the publish run's
+  // native verify jobs before upload. Only an explicit caller request with linux-direct evidence selects it; it never satisfies an upload.
+  if (expected.directLinux === true) {
+    if (evidence?.hostPolicy !== "linux-direct" || kind === "swift") missing.push("direct Linux qualification needs linux-direct cargo or npm evidence");
+    hosts = ["linux"];
+  } else if (expected.requiredHosts !== undefined) {
     const requested = expected.requiredHosts;
     if (!(Array.isArray(requested) && requested.length > 0 && new Set(requested).size === requested.length
       && Array.from(requested).every((host) => defaults.includes(host)))) {
@@ -197,7 +202,7 @@ export function validatePublicationEvidence({ expected = {}, evidence, artifactB
     const runs = Array.isArray(evidence.runs) ? evidence.runs : [];
     if (runs.some((run) => run?.batch !== undefined) && !SHA.test(String(tree ?? ""))) missing.push("expected tree is not a full 40-character SHA for batch evidence");
     for (const host of hosts) {
-      const label = host === "darwin" ? "macOS" : "Windows";
+      const label = host === "darwin" ? "macOS" : host === "linux" ? "Linux" : "Windows";
       const matching = runs.filter((run) => run?.host?.os === host);
       if (!matching.length) { missing.push(`no ${label} host run receipt`); continue; }
       // Every run on the host must qualify: a failing run is not masked by a passing run beside it.
@@ -213,7 +218,7 @@ export function validatePublicationEvidence({ expected = {}, evidence, artifactB
 }
 
 // Acquire local source identity and cleanliness, then use the same content validator as CI.
-export function checkPublicationGate({ kind, name, version, packagePath, evidencePath, artifactBytes, git = defaultGit, readFile = (p) => fs.readFileSync(p, "utf8") }) {
+export function checkPublicationGate({ kind, name, version, packagePath, evidencePath, artifactBytes, directLinux = false, git = defaultGit, readFile = (p) => fs.readFileSync(p, "utf8") }) {
   const missing = [];
   const head = git(["rev-parse", "HEAD"], packagePath);
   if (!head || !SHA.test(head)) missing.push(`cannot read current commit SHA for ${packagePath}`);
@@ -230,7 +235,7 @@ export function checkPublicationGate({ kind, name, version, packagePath, evidenc
   // Local publication retains its recorded single-host grant. CI callers own their policy separately.
   const singleHost = (kind === "npm" || kind === "cargo") ? singleHostOfPolicy(evidence) : null;
   const result = validatePublicationEvidence({ expected: { kind, name, version, commit: head, tree,
-    ...(singleHost ? { requiredHosts: [singleHost] } : {}) }, evidence, artifactBytes });
+    ...(directLinux ? { directLinux: true } : singleHost ? { requiredHosts: [singleHost] } : {}) }, evidence, artifactBytes });
   for (const problem of result.missing) {
     if (problem === `evidence commit ${evidence?.commit} != expected commit ${head}`) {
       missing.push(`evidence commit ${evidence.commit} != current HEAD ${head} (${describeCommitMismatch(evidence.commit, head, packagePath, git)})`);
