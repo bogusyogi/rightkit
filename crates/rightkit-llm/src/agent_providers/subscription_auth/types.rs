@@ -220,38 +220,18 @@ impl AuthSignal {
     }
 }
 
-/// Environment access for auth resolution (donor `AuthContext`), injectable
-/// for tests.
+/// Filesystem access for auth resolution (donor `AuthContext`), injectable for tests. It has no
+/// environment accessor: provider credentials never come from the process environment.
 pub trait AuthContext: Send + Sync {
-    fn env<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Option<String>>;
     /// Whether a file exists. Supports a leading `~`.
     fn file_exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, bool>;
 }
 
-/// Default auth context (donor `defaultProviderAuthContext`): environment
-/// variables from the process, file existence on the real filesystem.
+/// Default auth context: file existence on the real filesystem.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ProcessAuthContext;
 
 impl AuthContext for ProcessAuthContext {
-    fn env<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Option<String>> {
-        Box::pin(async move {
-            // The process environment supplies auth values only in `host-env`
-            // and test builds; the mobile runtime resolves none from it.
-            #[cfg(any(test, feature = "agent_providers-host-env"))]
-            {
-                let value = std::env::var(name).ok()?;
-                // Donor keeps the raw value when it has non-whitespace content.
-                (!value.trim().is_empty()).then_some(value)
-            }
-            #[cfg(not(any(test, feature = "agent_providers-host-env")))]
-            {
-                let _ = name;
-                None
-            }
-        })
-    }
-
     fn file_exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, bool> {
         Box::pin(async move { std::path::Path::new(&expand_tilde(path)).exists() })
     }
@@ -266,34 +246,6 @@ pub fn expand_tilde(path: &str) -> String {
         }
     }
     path.to_string()
-}
-
-/// In-memory [`AuthContext`] fake for tests (env map, no filesystem).
-#[derive(Debug, Default, Clone)]
-pub struct EnvMapAuthContext {
-    pub env: BTreeMap<String, String>,
-}
-
-impl EnvMapAuthContext {
-    pub fn new(entries: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>) -> Self {
-        Self {
-            env: entries
-                .into_iter()
-                .map(|(key, value)| (key.into(), value.into()))
-                .collect(),
-        }
-    }
-}
-
-impl AuthContext for EnvMapAuthContext {
-    fn env<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Option<String>> {
-        let value = self.env.get(name).cloned();
-        Box::pin(async move { value })
-    }
-
-    fn file_exists<'a>(&'a self, _path: &'a str) -> BoxFuture<'a, bool> {
-        Box::pin(async move { false })
-    }
 }
 
 /// Result of resolving auth for a model (donor `AuthResult`).

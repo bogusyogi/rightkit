@@ -27,10 +27,12 @@ pub fn provider_key_storage_health() -> ProviderKeyStorageHealth {
 /// surfaces. Never carries the key value itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeySource {
-    /// Value came from a process environment variable.
-    Env,
     /// Value came from the OS keychain.
     Keychain,
+    /// Value came from the process environment on a host with no OS credential store (R4).
+    Environment,
+    /// Value came from `<state root>/.env` on a host with no OS credential store (R4).
+    DotEnv,
     /// No key configured anywhere.
     Missing,
     /// A keychain item exists but this build cannot read it.
@@ -48,8 +50,9 @@ pub enum KeySource {
 impl KeySource {
     pub fn as_str(self) -> &'static str {
         match self {
-            KeySource::Env => "env",
             KeySource::Keychain => "keychain",
+            KeySource::Environment => "environment",
+            KeySource::DotEnv => "dotenv",
             KeySource::Missing => "missing",
             KeySource::Unreadable => "unreadable",
         }
@@ -123,7 +126,7 @@ pub fn status_source<B: KeyStoreBackend>(backend: &B, provider_id: &str) -> KeyS
     // Distinguish "no item" from "item exists but the OS refused us": collapsing both into
     // Missing reported a key the user had definitely saved as never entered.
     match backend.get(SERVICE, provider_id) {
-        Ok(value) if !value.trim().is_empty() => KeySource::Keychain,
+        Ok(value) if !value.trim().is_empty() => backend.found_in(SERVICE, provider_id),
         // An empty stored value is indistinguishable from none.
         Ok(_) | Err(KeyStoreError::NotFound { .. }) => KeySource::Missing,
         // A real error from the keychain (typically errSecAuthFailed /

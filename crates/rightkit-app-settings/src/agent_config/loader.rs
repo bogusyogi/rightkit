@@ -65,7 +65,12 @@ impl ConfigLoader {
 
         // Workspace config (<workspace>/<state-dir>/config.toml).
         let ws_path = workspace.join(".rightkit").join("config.toml");
-        if let Some(cfg) = self.load_layer_file(&ws_path) {
+        if let Some(mut cfg) = self.load_layer_file(&ws_path) {
+            // Rules 13 and 58: a repository's `[hooks]` run commands, so they take effect only
+            // in a trusted workspace.
+            if !crate::agent_config::is_workspace_trusted(workspace) {
+                cfg.hooks = crate::agent_config::HooksConfig::default();
+            }
             layers.push(cfg);
         }
 

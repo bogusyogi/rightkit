@@ -37,6 +37,17 @@ pub trait KeyStoreBackend {
     fn set(&self, service: &str, key: &str, value: &str) -> Result<(), KeyStoreError>;
     fn delete(&self, service: &str, key: &str) -> Result<(), KeyStoreError>;
 
+    /// Where a value this backend can `get` lives, for status views. The OS store answers
+    /// `KeySource::Keychain`; the no-store host answers environment or `.env`
+    /// (`host_credentials::HostKeyStore`).
+    fn found_in(
+        &self,
+        _service: &str,
+        _key: &str,
+    ) -> crate::agent_providers::key_migration::KeySource {
+        crate::agent_providers::key_migration::KeySource::Keychain
+    }
+
     /// Store `value` only when no credential exists yet; `Ok(true)` when this call created it,
     /// `Ok(false)` when one was already there (never replaced). A concurrent writer's value wins and
     /// the caller reads it back. The default is read-then-set; the real store and the in-memory fake
@@ -103,13 +114,13 @@ impl KeyStoreBackend for OsKeyStore {
 #[cfg(feature = "agent_providers-os-keyring")]
 pub struct KeyStore;
 
-/// Kill-switch for every real-keychain touch. Enforced in code: `cfg!(test)`
-/// disables OS keychain access for every cargo test binary, and setting this
-/// env var (e.g. `RIGHTKIT_DISABLE_OS_KEYCHAIN=1`) does the same for non-test
-/// callers such as a locally run daemon. On macOS a cargo test binary has a
-/// fresh hash every build, so each run would otherwise re-trigger the
-/// "wants to use your confidential information" prompt and "Always Allow"
-/// can never stick.
+/// Kill-switch for every real-keychain touch, present in test builds only. `cfg!(test)` disables
+/// OS keychain access for every cargo test binary, and in a `test-mode` build (the e2e daemon
+/// binary) setting this env var (`RIGHTKIT_DISABLE_OS_KEYCHAIN=1`) does the same. A release build
+/// has no such switch. On macOS a cargo test binary has a fresh hash every build, so each run
+/// would otherwise re-trigger the "wants to use your confidential information" prompt and
+/// "Always Allow" can never stick.
+#[cfg(any(test, feature = "agent_providers-test-mode"))]
 pub const DISABLE_ENV: &str = "RIGHTKIT_DISABLE_OS_KEYCHAIN";
 
 /// Whether OS-keychain access is suppressed for this process.
@@ -123,11 +134,17 @@ pub const DISABLE_ENV: &str = "RIGHTKIT_DISABLE_OS_KEYCHAIN";
 /// variables -- so the guarantee belongs in the code that needs it, not in a
 /// build-tool config that may or may not be applied.
 ///
-/// The env var still works for non-test callers (a developer running the
-/// daemon locally who wants no keychain access).
+/// Only `test-mode` builds (which a release build never is) also honour the env var.
 #[cfg(feature = "agent_providers-os-keyring")]
-fn keychain_disabled() -> bool {
-    cfg!(test) || std::env::var_os(DISABLE_ENV).is_some_and(|v| v == "1")
+pub fn keychain_disabled() -> bool {
+    #[cfg(any(test, feature = "agent_providers-test-mode"))]
+    {
+        cfg!(test) || std::env::var_os(DISABLE_ENV).is_some_and(|v| v == "1")
+    }
+    #[cfg(not(any(test, feature = "agent_providers-test-mode")))]
+    {
+        false
+    }
 }
 
 /// Per-call cap for background keychain operations. macOS blocks a keychain
@@ -152,7 +169,7 @@ pub(crate) fn secret_store(service: &str) -> Result<rightkit_credentials::Store,
 fn secret_error(error: rightkit_credentials::Error) -> KeyStoreError {
     match error {
         rightkit_credentials::Error::Guarded { .. } => {
-            KeyStoreError::Keyring(format!("os keychain disabled via {DISABLE_ENV}"))
+            KeyStoreError::Keyring("os keychain disabled for this test build".into())
         }
         other => KeyStoreError::Keyring(other.to_string()),
     }
@@ -410,7 +427,7 @@ mod tests {
             KeyStoreError::NotFound { .. } => {} // real keychain, key absent
             // Under cargo the DISABLE_ENV kill-switch answers before the OS
             // keychain is consulted (.cargo/config.toml).
-            KeyStoreError::Keyring(msg) if msg.contains(DISABLE_ENV) => {}
+            KeyStoreError::Keyring(msg) if msg.contains("os keychain disabled") => {}
             e => panic!("expected NotFound or disabled keychain, got: {e}"),
         }
     }

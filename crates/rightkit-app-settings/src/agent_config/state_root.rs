@@ -124,6 +124,17 @@ pub fn state_root() -> Option<PathBuf> {
     cache.entry(key).or_insert_with(|| open(&suite)).clone()
 }
 
+/// [`state_root`] for the startup path of a process that cannot run without durable state: when the
+/// platform data dir does not resolve it prints the reason and exits with status 2. There is no
+/// fallback location (clean port: a missing state root fails, it never redirects state into the
+/// working directory or the temp dir).
+pub fn state_root_required() -> PathBuf {
+    state_root().unwrap_or_else(|| {
+        eprintln!("cannot continue without a state directory; refusing to fall back");
+        std::process::exit(2)
+    })
+}
+
 /// Whether this process runs against an isolated root (`test-mode` build with
 /// `RIGHTKIT_SUITE_ROOT` set). Always `false` in a release build. Stores that live outside the
 /// state root in production (the database next to the installed executable) use this to stay
@@ -147,4 +158,13 @@ pub fn os_home_dir() -> Option<PathBuf> {
         }
     }
     dirs::home_dir()
+}
+
+/// [`os_home_dir`] for a startup path that needs it: prints the reason and exits with status 2
+/// when the home directory does not resolve, with no working-directory fallback.
+pub fn os_home_dir_required() -> PathBuf {
+    os_home_dir().unwrap_or_else(|| {
+        eprintln!("cannot continue without a home directory; refusing to fall back");
+        std::process::exit(2)
+    })
 }

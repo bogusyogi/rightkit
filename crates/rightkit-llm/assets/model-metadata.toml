@@ -388,3 +388,52 @@ vision = true
 # 1.05M API maximum: https://developers.openai.com/api/docs/models/gpt-6.1-sol
 # CodeRight uses the current native model-cache context value (272K) as the
 # effective window; this is below the published API maximum.
+
+[[model]]
+slug = "anthropic/claude-opus-5-5"
+prompt_per_m = 4.00
+completion_per_m = 20.00
+context_window_tokens = 1000000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 3
+tool_schema_class = "openai-tools"
+vision = true
+# Source: Claude API reference model table (cached 2026-10-06), not re-fetched
+# from https://platform.claude.com/docs/en/about-claude/pricing this pass:
+# $4/$20 per MTok, 1M context, 128K output.
+
+[[model]]
+slug = "anthropic/claude-sonnet-5-5"
+prompt_per_m = 2.00
+completion_per_m = 10.00
+context_window_tokens = 1000000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 3
+tool_schema_class = "openai-tools"
+vision = true
+# Source: Claude API reference model table (cached 2026-10-06), not re-fetched
+# from https://platform.claude.com/docs/en/about-claude/pricing this pass:
+# $2/$10 per MTok, 1M context, 128K output.
+
+[[model]]
+slug = "anthropic/claude-haiku-5-5"
+prompt_per_m = 0.10
+completion_per_m = 0.50
+context_window_tokens = 1000000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "cheap"
+reasoning = 2
+tool_schema_class = "openai-tools"
+vision = true
+# Source: Claude API reference model table (cached 2026-10-06), not re-fetched
+# from https://platform.claude.com/docs/en/about-claude/pricing this pass:
+# $0.10/$0.50 per MTok for prompts up to 100K tokens
+# ($0.50/$2.50 beyond; this row carries the base rate), 1M context, 128K output.

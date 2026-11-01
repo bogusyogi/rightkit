@@ -353,8 +353,7 @@ impl TokenStore for KeychainTokenStore {
 }
 
 /// Open the OS credential store for the subscription sign-ins. Real-keychain access is
-/// suppressed under `cargo test` and by `RIGHTKIT_DISABLE_OS_KEYCHAIN=1`
-/// (see `crate::agent_providers::keystore`).
+/// suppressed in test builds only (see `crate::agent_providers::keystore`).
 pub fn open_subscription_store() -> Result<Store, KeyStoreError> {
     crate::agent_providers::keystore::secret_store(SUBSCRIPTION_KEYCHAIN_SERVICE)
 }

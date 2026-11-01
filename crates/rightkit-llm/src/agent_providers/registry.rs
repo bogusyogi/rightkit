@@ -2,10 +2,8 @@
 
 use std::collections::HashMap;
 
-/// How a route's provider is authenticated/billed. ENG-88: distinct from a
-/// plain API key or interactive OAuth, a `TokenPlan` route draws down a
-/// pre-purchased quota (see [`crate::agent_providers::token_plan_auth`]) rather than being
-/// billed per call.
+/// How a route's provider is authenticated. MiniMax is endpoint plus key like every provider
+/// without a reusable sign-in, so there is no quota-drawing mode.
 ///
 /// `Default` is `ApiKey` so every pre-existing [`ModelRoute`] built via
 /// [`ModelRoute::new`] — which does not mention auth mode — keeps its prior,
@@ -15,7 +13,6 @@ pub enum AuthMode {
     #[default]
     ApiKey,
     OAuth,
-    TokenPlan,
 }
 
 /// A single provider route that maps a model name to an API endpoint.
@@ -40,7 +37,7 @@ pub struct ModelRoute {
 
 impl ModelRoute {
     /// Create a new `ModelRoute`. Auth mode defaults to [`AuthMode::ApiKey`];
-    /// use [`ModelRoute::with_auth_mode`] to declare `OAuth` or `TokenPlan`.
+    /// use [`ModelRoute::with_auth_mode`] to declare `OAuth`.
     pub fn new(
         name: impl Into<String>,
         provider: impl Into<String>,
@@ -58,10 +55,8 @@ impl ModelRoute {
         }
     }
 
-    /// Builder-style setter for [`AuthMode`], added alongside [`AuthMode`]
-    /// itself so ENG-88 (token-plan billing) can declare a route's auth mode
-    /// without changing the `new()` signature or breaking any existing
-    /// positional call site.
+    /// Builder-style setter for [`AuthMode`], so a route can declare its auth mode without
+    /// changing the `new()` signature or breaking any existing positional call site.
     pub fn with_auth_mode(mut self, auth_mode: AuthMode) -> Self {
         self.auth_mode = auth_mode;
         self
@@ -139,9 +134,9 @@ mod tests {
     }
 
     #[test]
-    fn model_route_with_auth_mode_declares_token_plan() {
-        let route = sample_route("image-caller", 0).with_auth_mode(AuthMode::TokenPlan);
-        assert_eq!(route.auth_mode, AuthMode::TokenPlan);
+    fn model_route_with_auth_mode_declares_oauth() {
+        let route = sample_route("image-caller", 0).with_auth_mode(AuthMode::OAuth);
+        assert_eq!(route.auth_mode, AuthMode::OAuth);
         // Original fields are preserved by the builder.
         assert_eq!(route.name, "image-caller");
     }

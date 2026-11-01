@@ -1,51 +1,33 @@
-//! `ra-018` decomposition: API key credential resolution (keychain, environment fallback) —
+//! `ra-018` decomposition: API key credential resolution (credential store, or environment and `.env` on a no-store host) —
 //! moved out of `client.rs`.
 //! See `.audit/20260901-daemon-deep-r3/architect/decomposition-plans.md`.
 
-/// Load an API key: the OS keychain first, then an environment variable as a
-/// last-resort fallback. Never logs the key value.
-///
-/// Order matters, and it used to be the other way round (Adrian, 2026-08-04).
-/// With env first, a variable exported years ago in a shell profile silently
-/// outranked the key the user had just typed into Settings: Settings would
-/// report "Saved securely", Remove would appear to do nothing, and every
-/// request kept going out under the stale env key. Keys entered in the app are
-/// the source of truth; the env var stays only for headless/CI runs where there
-/// is no keychain to write to.
+/// Load a provider API key where this host keeps it (providers R4). With an OS credential store
+/// the key is the stored one and the environment is not read. On a host with no store the key is
+/// the process environment's, then `<state root>/.env`, both read into memory once at start
+/// ([`crate::agent_providers::host_credentials`]). Without an OS credential store feature (the
+/// mobile runtime passes its key in `RuntimeConfig`) there is nothing to read. Never logs the key
+/// value.
 pub fn load_api_key(provider_id: &str) -> Option<String> {
-    // Without an OS keychain there is no store to consult, so the env var is
-    // the only source. A host that supplies its key directly (the mobile
-    // runtime passes it in `RuntimeConfig`) never reaches this at all.
     #[cfg(feature = "agent_providers-os-keyring")]
-    if let Some(value) = load_api_key_from_store(provider_id) {
-        return Some(value);
+    {
+        let host = crate::agent_providers::host_credentials::host();
+        if host.has_store() {
+            load_api_key_from_store(provider_id)
+        } else {
+            // A refused `.env` is reported by the broker and the host's doctor and set-key
+            // commands; here it leaves the key absent.
+            host.provider_key(provider_id)
+                .ok()
+                .flatten()
+                .map(|found| found.value)
+        }
     }
-    env_api_key(provider_id)
-}
-
-/// The environment fallback, used only when nothing is stored.
-#[cfg(not(any(test, feature = "agent_providers-host-env")))]
-pub fn env_api_key(_provider_id: &str) -> Option<String> {
-    // The mobile runtime takes its key from the host app, never the environment.
-    None
-}
-
-#[cfg(any(test, feature = "agent_providers-host-env"))]
-pub fn env_api_key(provider_id: &str) -> Option<String> {
-    let env_vars: &[&str] = match provider_id {
-        "openai" => &["OPENAI_API_KEY"],
-        "commandcode" => &["COMMAND_CODE_API_KEY", "COMMANDCODE_API_KEY"],
-        "openrouter" => &["OPENROUTER_API_KEY"],
-        "opencode" | "opencode-go" => &["OPENCODE_API_KEY"],
-        "minimax" => &["MINIMAX_API_KEY"],
-        "tinyfish" => &["TINYFISH_API_KEY"],
-        _ => return None,
-    };
-    env_vars.iter().find_map(|env_var| {
-        let value = std::env::var(env_var).ok()?;
-        let trimmed = value.trim();
-        (!trimmed.is_empty()).then(|| trimmed.to_string())
-    })
+    #[cfg(not(feature = "agent_providers-os-keyring"))]
+    {
+        let _ = provider_id;
+        None
+    }
 }
 
 #[cfg(feature = "agent_providers-os-keyring")]
@@ -139,7 +121,7 @@ pub fn delete_account_key_with(
 #[cfg(feature = "agent_providers-os-keyring")]
 pub fn store_account_key(account_id: &str, key: &str) -> Result<(), KeyStoreError> {
     store_account_key_with(
-        &crate::agent_providers::keystore::OsKeyStore,
+        &crate::agent_providers::host_credentials::HostKeyStore::current(),
         account_id,
         key,
     )
@@ -147,17 +129,26 @@ pub fn store_account_key(account_id: &str, key: &str) -> Result<(), KeyStoreErro
 
 #[cfg(feature = "agent_providers-os-keyring")]
 pub fn load_account_key(account_id: &str) -> Result<Option<String>, KeyStoreError> {
-    load_account_key_with(&crate::agent_providers::keystore::OsKeyStore, account_id)
+    load_account_key_with(
+        &crate::agent_providers::host_credentials::HostKeyStore::current(),
+        account_id,
+    )
 }
 
 #[cfg(feature = "agent_providers-os-keyring")]
 pub fn account_key_present(account_id: &str) -> Result<bool, KeyStoreError> {
-    account_key_present_with(&crate::agent_providers::keystore::OsKeyStore, account_id)
+    account_key_present_with(
+        &crate::agent_providers::host_credentials::HostKeyStore::current(),
+        account_id,
+    )
 }
 
 #[cfg(feature = "agent_providers-os-keyring")]
 pub fn delete_account_key(account_id: &str) -> Result<(), KeyStoreError> {
-    delete_account_key_with(&crate::agent_providers::keystore::OsKeyStore, account_id)
+    delete_account_key_with(
+        &crate::agent_providers::host_credentials::HostKeyStore::current(),
+        account_id,
+    )
 }
 
 #[cfg(test)]
