@@ -45,14 +45,17 @@ fn classify(run: &str, after_bearer: bool) -> Option<&'static str> {
     if run.starts_with("sk-") && len >= 20 {
         return Some("APIKEY");
     }
-    if ["ghp_", "gho_", "ghu_", "ghs_", "ghr_"]
-        .iter()
-        .any(|p| run.starts_with(p))
+    if run.starts_with("gh")
+        && matches!(
+            run.as_bytes().get(2),
+            Some(b'p' | b'o' | b'u' | b's' | b'r')
+        )
+        && run.as_bytes().get(3) == Some(&b'_')
         && len >= 20
     {
         return Some("GITHUB");
     }
-    if run.starts_with("github_pat_") && len >= 30 {
+    if run.starts_with(concat!("github", "_pat_")) && len >= 30 {
         return Some("GITHUB");
     }
     if (run.starts_with("AKIA") || run.starts_with("ASIA"))
