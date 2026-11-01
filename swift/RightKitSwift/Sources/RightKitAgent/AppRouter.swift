@@ -19,18 +19,18 @@ import UniformTypeIdentifiers
 public final class AppRouter {
     public enum Route: Equatable, Sendable {
         /// Selector view, optionally retaining the workspace to return to.
-        case selector(returnTo: CodeRightDeepLinkWorkspaceEntry?)
+        case selector(returnTo: DeepLinkWorkspaceEntry?)
         /// Connected workspace, recreated when its identity changes.
-        case workspace(CodeRightDeepLinkWorkspaceEntry)
+        case workspace(DeepLinkWorkspaceEntry)
     }
 
     public private(set) var route: Route
 
     /// Files handed to the app before a composer is mounted.
-    public var pendingExternalAttachments: [CodeRightDeepLinkPendingAttachment] = []
+    public var pendingExternalAttachments: [DeepLinkPendingAttachment] = []
 
     public init() {
-        if let current = CodeRightDeepLinkWorkspaceHistory.shared.current() {
+        if let current = DeepLinkWorkspaceHistory.shared.current() {
             route = .workspace(current)
         } else {
             route = .selector(returnTo: nil)
@@ -47,7 +47,7 @@ public final class AppRouter {
         let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
             ?? "application/octet-stream"
         pendingExternalAttachments.append(
-            CodeRightDeepLinkPendingAttachment(
+            DeepLinkPendingAttachment(
                 filename: url.lastPathComponent,
                 contentType: mime,
                 data: data
@@ -62,20 +62,20 @@ public final class AppRouter {
         apiURL: URL? = nil
     ) {
         let displayName = name ?? workspaceId
-        CodeRightDeepLinkWorkspaceHistory.shared.touch(
+        DeepLinkWorkspaceHistory.shared.touch(
             workspaceId: workspaceId,
             name: displayName,
             appURL: appURL?.absoluteString,
             apiURL: apiURL?.absoluteString
         )
-        let entry = CodeRightDeepLinkWorkspaceEntry(
+        let entry = DeepLinkWorkspaceEntry(
             workspaceId: workspaceId,
             name: displayName,
             lastUsed: Date(),
             appURL: appURL?.absoluteString,
             apiURL: apiURL?.absoluteString
         )
-        CodeRightDeepLinkWorkspaceHistory.shared.setCurrent(entry)
+        DeepLinkWorkspaceHistory.shared.setCurrent(entry)
         route = .workspace(entry)
     }
 
@@ -90,7 +90,7 @@ public final class AppRouter {
 
     /// Disconnect and clear the current workspace.
     public func disconnect() {
-        CodeRightDeepLinkWorkspaceHistory.shared.setCurrent(nil)
+        DeepLinkWorkspaceHistory.shared.setCurrent(nil)
         route = .selector(returnTo: nil)
     }
 

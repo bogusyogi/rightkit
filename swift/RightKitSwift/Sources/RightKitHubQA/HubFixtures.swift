@@ -26,10 +26,10 @@ public enum HubFixtures {
     }
 
     /// A notch bridge that serves the canned notch state and records commands.
-    public static func notch() -> any PulseNotchBridge { FixtureNotchBridge(state: notchState()) }
+    public static func notch() -> any NotchBridge { FixtureNotchBridge(state: notchState()) }
 }
 
-final class FixtureNotchBridge: PulseNotchBridge, @unchecked Sendable {
+final class FixtureNotchBridge: NotchBridge, @unchecked Sendable {
     private let lock = NSLock()
     private let stateData: Data?
     private var commands: [Data] = []

@@ -11,7 +11,7 @@ import SwiftUI
  networking remain owned by the host app.
  */
 
-public extension CodeRightToolInteractionsPort {
+public extension ToolInteractionsPort {
     /// Blocking response panel for command/file approvals, structured
     /// questions, and plan review. The parent owns transport and feeds result
     /// actions back through `ApprovalReducer`.

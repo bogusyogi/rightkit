@@ -45,10 +45,10 @@ public struct TranscriptExportWriter {
 
     @discardableResult
     public func write(
-        input: any CodeRightTranscriptExportInput,
-        format: CodeRightTranscriptExportFormat
+        input: any TranscriptExportInput,
+        format: TranscriptExportFormat
     ) throws -> CodeRightTranscriptShareFile {
-        let artifact = try CodeRightTranscriptExportFormatter.artifact(from: input, format: format)
+        let artifact = try TranscriptExportFormatter.artifact(from: input, format: format)
         // Keep donor's path-boundary guard even though formatter filenames are
         // already restricted to basename-safe characters.
         let filename = URL(fileURLWithPath: artifact.filename).lastPathComponent

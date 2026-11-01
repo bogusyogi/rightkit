@@ -111,7 +111,7 @@ public final class DeepLinkLifecycle {
         }
 
         if let workspaceHint,
-           let entry = CodeRightDeepLinkWorkspaceHistory.shared.entries()
+           let entry = DeepLinkWorkspaceHistory.shared.entries()
             .first(where: { $0.workspaceId == workspaceHint }),
            let appRouter,
            case .workspace(let active) = appRouter.route,

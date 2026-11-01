@@ -10,7 +10,7 @@ import SwiftUI
  JCodeMobile view or Theme type is linked.
  */
 
-public extension CodeRightToolInteractionsPort {
+public extension ToolInteractionsPort {
     /// Compact, expandable tool lifecycle card. The call id belongs to the
     /// parent row, so SwiftUI preserves expanded state across live updates.
     struct ToolCallCard: View {

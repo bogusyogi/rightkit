@@ -30,14 +30,14 @@ public struct TranscriptActivityShareSheet: UIViewControllerRepresentable {
 /// Reusable donor-shaped share menu. Integration only needs to provide a
 /// snapshot; session/network lifecycle remains outside this port.
 public struct TranscriptExportMenu: View {
-    private let input: any CodeRightTranscriptExportInput
+    private let input: any TranscriptExportInput
     private let writer: TranscriptExportWriter
     @State private var shareFile: CodeRightTranscriptShareFile?
     @State private var exportFailure: ExportFailure?
     @State private var exportInProgress = false
 
     public init(
-        input: any CodeRightTranscriptExportInput,
+        input: any TranscriptExportInput,
         directory: URL = FileManager.default.temporaryDirectory,
         fileManager: FileManager = .default
     ) {
@@ -78,7 +78,7 @@ public struct TranscriptExportMenu: View {
         }
     }
 
-    private func export(_ format: CodeRightTranscriptExportFormat) {
+    private func export(_ format: TranscriptExportFormat) {
         exportFailure = nil
         exportInProgress = true
         defer { exportInProgress = false }
