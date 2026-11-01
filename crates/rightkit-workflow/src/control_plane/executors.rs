@@ -18,7 +18,7 @@
 //! ## Adapter contract
 //!
 //! 1. **One manifest in, one [`NodeOutput`] out.** The adapter receives an
-//!    immutable [`ContextManifest`](crate::control_plane::context::ContextManifest). It must
+//!    immutable [`ContextManifest`]. It must
 //!    never mutate the manifest, never log secret values, and never
 //!    persist raw transcript content.
 //! 2. **Honor the budget.** If the adapter exhausts

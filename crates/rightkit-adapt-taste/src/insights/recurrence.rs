@@ -291,8 +291,7 @@ impl RecurrenceOutcomeLedgerV1 {
     pub fn should_reopen(&self, issue_id: &str, mitigation_version: &str) -> bool {
         self.outcomes_for(issue_id, mitigation_version)
             .into_iter()
-            .rev()
-            .next()
+            .next_back()
             .is_some_and(|outcome| outcome.is_reopen_signal())
     }
 
@@ -304,8 +303,7 @@ impl RecurrenceOutcomeLedgerV1 {
     ) -> bool {
         self.outcomes_for_baseline(issue_id, mitigation_version, baseline_version)
             .into_iter()
-            .rev()
-            .next()
+            .next_back()
             .is_some_and(|outcome| outcome.is_reopen_signal())
     }
 

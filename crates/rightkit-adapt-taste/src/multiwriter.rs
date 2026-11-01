@@ -60,6 +60,7 @@ pub struct WriterRequestV1 {
 pub type DurableWriterRequestV1 = WriterRequestV1;
 
 impl WriterRequestV1 {
+    #[allow(clippy::too_many_arguments)] // established public constructor; a params struct would break callers
     pub fn new(
         repository_id: impl Into<String>,
         scope_id: impl Into<String>,

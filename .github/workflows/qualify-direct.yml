@@ -63,8 +63,16 @@ jobs:
       matrix:
         unit: ${{ fromJSON(needs.plan.outputs.units) }}
     steps:
-      - name: Free runner disk for crate builds
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      # Deleting these trees took 60-120 s of each 210-270 s job (runs 41324657453, 41325170872). Each tree is deleted in
+      # parallel in the background while setup runs; the gate step waits for every deletion before it compiles anything.
+      - name: Free runner disk for crate builds (background)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/disk-free"
+          for d in /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; do
+            n=$(basename "$d")
+            nohup sh -c "sudo rm -rf '$d'; echo \$? > '$RUNNER_TEMP/disk-free/$n.done'" > /dev/null 2>&1 &
+          done
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -117,6 +125,15 @@ jobs:
           echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"
       # The snapshot route (not the hosted-checkout route): the gate builds the commit's snapshot, as on any Linux host, so the
       # archive it qualifies carries no .cargo_vcs_info.json and equals publish.yml's pack.
+      - name: Wait for the runner disk to be freed
+        run: |
+          set -euo pipefail
+          for n in dotnet android ghc CodeQL; do
+            for _ in $(seq 1 600); do [ -f "$RUNNER_TEMP/disk-free/$n.done" ] && break; sleep 1; done
+            test -f "$RUNNER_TEMP/disk-free/$n.done" || { echo "::error::freeing $n did not finish"; exit 1; }
+            test "$(cat "$RUNNER_TEMP/disk-free/$n.done")" = 0 || { echo "::error::freeing $n failed"; exit 1; }
+          done
+          df -h / | tail -1
       - name: Qualify the unit (Linux direct origin)
         id: gate
         env:

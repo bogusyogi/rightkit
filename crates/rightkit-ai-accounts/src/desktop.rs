@@ -22,6 +22,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(any(target_os = "macos", windows))]
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -533,6 +534,7 @@ impl Launch {
         }
     }
 
+    #[cfg(any(target_os = "macos", windows))]
     fn apply_env(&self, command: &mut Command) {
         command.env_remove("CLAUDE_CONFIG_DIR");
         // Foundation finds an app's folders through CFFIXED_USER_HOME before HOME: inherited from a
@@ -594,6 +596,8 @@ impl Launch {
 
     #[cfg(not(any(target_os = "macos", windows)))]
     fn start(&self) -> Result<(), String> {
+        // No launcher on this platform; the request is still fully formed.
+        let _ = (&self.exe, &self.args, &self.env);
         Err("unsupported".into())
     }
 }

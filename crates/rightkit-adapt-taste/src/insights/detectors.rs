@@ -794,10 +794,10 @@ pub fn detect_verification_theatre(events: &[TranscriptEventV1]) -> Vec<FailureE
             && patterns().actual_test_result.is_match(&event.text)
         {
             weak_call = None;
-        } else if allowed_assistant_claim(event)
-            && patterns().assistant_success.is_match(&event.text)
-            && weak_call.is_some()
-        {
+        } else if let (true, Some(weak_idx)) = (
+            allowed_assistant_claim(event) && patterns().assistant_success.is_match(&event.text),
+            weak_call,
+        ) {
             return vec![FailureEpisodeV1::new(
                 "verification_theatre",
                 Severity::High,
@@ -805,7 +805,7 @@ pub fn detect_verification_theatre(events: &[TranscriptEventV1]) -> Vec<FailureE
                 "verification-theatre",
                 "assistant used self-authored output as verification evidence",
                 "",
-                &[&events[weak_call.expect("checked")], event],
+                &[&events[weak_idx], event],
             )];
         }
     }

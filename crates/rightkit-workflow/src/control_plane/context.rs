@@ -541,7 +541,7 @@ impl ContextBuilder {
         Ok(self)
     }
 
-    /// Consume the builder, validate [`Constant`] hashes one last time,
+    /// Consume the builder, validate `Constant` hashes one last time,
     /// compute the canonical content hash, and return the immutable
     /// [`ContextManifest`].
     pub fn build(mut self) -> Result<ContextManifest, ContextError> {

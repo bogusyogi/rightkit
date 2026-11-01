@@ -14,7 +14,8 @@ name = "rightkit_ai_accounts"
 path = "src/lib.rs"
 
 [features]
-# Test seams for journeys and QA builds: the env overrides read behind this feature (never in a release build).
+default = []
+# Test builds only: `RIGHTKIT_TEST_CLAUDE_RUNNING` overrides the running-Claude probe. Off in every release build.
 test-overrides = []
 
 [dependencies]

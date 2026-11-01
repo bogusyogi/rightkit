@@ -231,6 +231,8 @@ export function installSnapshotDependencies({ checkout, snapshot, commit, tree, 
       const relative = path.relative(base, path.resolve(base, selected)).split(path.sep).join("/");
       const actual = manifests.get(fold(relative));
       const owner = nearestLock(fold(relative));
+      // A package under an install root that commits no pnpm-lock.yaml has nothing to install from: not an error here (the root loop below records it as skipped and the pnpm-lockfile scan judges it).
+      if (actual !== undefined && owner === undefined && [...installRoots].some((r) => !r || fold(relative) === r || fold(relative).startsWith(`${r}/`))) continue;
       if (actual === undefined || owner === undefined || !installRoots.has(owner) || /[*?\[\]{}!^()\\]/.test(actual) || actual.includes("...")) throw new CheckError(`dependency package ${selected} is not an exact committed manifest directory owned by an install root`);
       if (!selectedByRoot.has(owner)) selectedByRoot.set(owner, new Set());
       selectedByRoot.get(owner).add(actual);

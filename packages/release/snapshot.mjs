@@ -27,8 +27,8 @@
 // unreadable processes, build-ownership.mjs).
 //
 // Exclusion: one sync per snapshot at a time (`<root>/<repo-key>.lock`, re-checked before every write and before the verdict).
-// It narrows, but cannot close, the window in which two processes both replace one stale lock; host-wide build ownership held
-// from before the sync through the stage (joint plan step 4) is the exclusion builds rely on, and the broker re-verifies the tree.
+// It narrows, but cannot close, the window in which two processes both replace one stale lock; the per-repository build ownership
+// record held from before the sync through the stage (joint plan step 4) closes it, and the broker re-verifies the tree.
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -949,11 +949,11 @@ export function snapshotCommand(o, args, deps = {}) {
     // The managed root exists (the gate never creates it) and the root is private, BEFORE build ownership is taken: taking it
     // creates directories of its own, and must never be what brings a missing managed root into being.
     guardRoot(root, managedRoot, { device: o.device });
-    // A sync replaces snapshot bytes, so it runs only under the host's build ownership, taken before the first write (joined when
+    // A sync replaces snapshot bytes, so it runs only under the repository's build ownership, taken before the first write (joined when
     // this gate already holds it); a verify only reads.
     if (!verify) {
       const repo = repositoryOf(o.cwd);
-      ownership = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot }), stage: "snapshot", snapshot: path.join(root, repo.key), commit: resolveCommit(repo.checkout, rev).commit, platform: o.platform, env: o.env });
+      ownership = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: repo.key }), stage: "snapshot", snapshot: path.join(root, repo.key), commit: resolveCommit(repo.checkout, rev).commit, platform: o.platform, env: o.env });
     }
     const r = verify ? verifySnapshot({ checkout: o.cwd, rev, root, managedRoot, device: o.device, ...(envAt >= 0 ? { environment: { expected: args[envAt + 1], compute: deps.environmentDigest } } : {}) })
       : syncSnapshot({ checkout: o.cwd, rev, root, managedRoot, device: o.device });

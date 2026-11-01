@@ -146,7 +146,7 @@ test("real broker: every carried shape of the table is sent to the real broker a
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-cc-"))); t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   const checkout = path.join(root, "checkout"); const snapshot = path.join(rb.dataRoot, "snapshots", "0123456789abcdef");
   writeTree(checkout, WORKSPACES); writeTree(snapshot, WORKSPACES);
-  const own = acquireBuildOwnership({ file: path.join(root, "build-ownership", "owner.json"), platform: "darwin", probe: probe(), lease: () => { throw new Error("no lease query expected"); }, env: {}, exportEnv: false, stage: "compile", snapshot });
+  const own = acquireBuildOwnership({ file: path.join(root, "build-ownership", "0123456789abcdef", "owner.json"), platform: "darwin", probe: probe(), lease: () => { throw new Error("no lease query expected"); }, env: {}, exportEnv: false, stage: "compile", snapshot });
   const marks = [];
   const section = brokerSection({
     controlRoot: rb.controlRoot, commit: COMMIT, snapshot: { path: snapshot, expectedTree: COMMIT.tree }, declaredInputs: [], handle: own.handle, pins: { host: "host-1", keyId: "0".repeat(64), publicKey: "04".padEnd(130, "0"), brokerDigest: "b".repeat(64) },

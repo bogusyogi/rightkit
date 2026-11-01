@@ -73,7 +73,7 @@ function fixture(t, files = { "Cargo.toml": "[workspace]\n", "src/lib.rs": "pub 
   git(repo, "init", "-q", "-b", "main");
   write(repo, files);
   const commit = commitAll(repo);
-  // Each fixture's root has a parent of its own, so the owner record derived beside it (ownershipFile beside: root) is its own too:
+  // Each fixture's root has a parent of its own, so the owner record derived beside it (ownershipFile beside: root, per repository key) is its own too:
   // one test's kept or stale record can never make a later test busy.
   const root = path.join(tmp(t, "rk-snap-own-"), "root");
   fs.mkdirSync(root, { mode: 0o700 });
@@ -152,10 +152,10 @@ test("§1 root: no environment variable relocates the Mac/Dell root; the one-tim
   const configFile = noConfig(t);
   assert.equal(snapshotRoot({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_TEST_RUN: "zzz", XDG_STATE_HOME: "/s" }, home: "/home/a", configFile }), "/s/rightkit/snapshots");
   assert.equal(snapshotRoot({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_TEST_RUN: "zzz", RIGHTKIT_SNAPSHOT_ROOT: "/data/snaps" }, home: "/home/a", configFile: hostConfig(t, { snapshotRoot: "/data/real" }) }), "/data/real");
-  // And the owner record, derived from the root, follows the same fixed path.
-  const owner = (env) => ownershipFile({ platform: "darwin", env, home: "/Users/a" });
+  // And the owner record, per repository key, follows the same fixed path.
+  const owner = (env) => ownershipFile({ platform: "darwin", env, home: "/Users/a", repository: "0123456789abcdef" });
   assert.equal(owner({ RIGHTKIT_SNAPSHOT_TEST_RUN: "zzz" }), owner({}));
-  assert.equal(owner({}), "/Volumes/D/.rightkit-managed/build-ownership/owner.json");
+  assert.equal(owner({}), "/Volumes/D/.rightkit-managed/build-ownership/0123456789abcdef/owner.json");
 });
 
 test("§1 root durability: a sibling named like `..x` is inside scratch or temp, not outside (a path is outside only as `..` or `..<sep>…`)", (t) => {
@@ -211,7 +211,7 @@ test("snapshot CLI: an injected snapshotRoot is the root, and the environment is
   const f = fixture(t);
   const out = [], err = [];
   const env = { ...process.env, RIGHTKIT_SNAPSHOT_ROOT: "/Volumes/D/scratch/never", RIGHTKIT_SNAPSHOT_TEST_RUN: "x/../y" };
-  const code = snapshotCommand({ cwd: f.repo, env, platform: process.platform, snapshotRoot: f.root, out: (m) => out.push(m), err: (m) => err.push(m), acquireOwnership: (q) => { assert.equal(q.snapshot, f.dir); assert.equal(q.file, path.join(path.dirname(f.root), "build-ownership", "owner.json")); return { handle: "h", joined: false, reclaimed: null, release: () => ({ released: true }) }; } }, ["--commit", f.commit, "--json"]);
+  const code = snapshotCommand({ cwd: f.repo, env, platform: process.platform, snapshotRoot: f.root, out: (m) => out.push(m), err: (m) => err.push(m), acquireOwnership: (q) => { assert.equal(q.snapshot, f.dir); assert.equal(q.file, path.join(path.dirname(f.root), "build-ownership", repoKey(keyPath(f.repo)), "owner.json")); return { handle: "h", joined: false, reclaimed: null, release: () => ({ released: true }) }; } }, ["--commit", f.commit, "--json"]);
   assert.equal(code, 0, err.join("\n"));
   assert.equal(JSON.parse(out.at(-1)).path, f.dir);
   // Without the injection the root is the host's: on Linux the host configuration file's (here a scratch root: refused before anything
@@ -924,7 +924,7 @@ test("5.08 snapshot --verify exits 0 on a fresh sync and 1 for each tamper: a by
   commitAll(f.repo, "run.sh");
   const c = canLink ? commitLink(f.repo, "src/alias.rs", "lib.rs") : git(f.repo, "rev-parse", "HEAD");
   const out = [], err = [];
-  // Build ownership is not this test's subject (rows 5.19 to 5.21 are): a stub keeps a host-wide hold out of the verdict.
+  // Build ownership is not this test's subject (rows 5.19 to 5.21 are): a stub keeps a build-ownership hold out of the verdict.
   const io = { cwd: f.repo, env: process.env, snapshotRoot: f.root, out: (m) => out.push(m), err: (m) => err.push(m), acquireOwnership: () => ({ handle: "h", joined: false, reclaimed: null, release: () => ({ released: true }) }) };
   const cli = (...a) => { out.length = 0; err.length = 0; return main(["snapshot", ...a], io); };
   assert.equal(await cli("--commit", c), 0, err.join("\n"));
@@ -1136,7 +1136,7 @@ test("5.12 the killed gate's ownership stays held while its recorded child survi
   write(f.repo, { "a.rs": "a2\n", "b.rs": "b2\n", "c.rs": "c2\n" });
   const second = commitAll(f.repo, "all change");
   syncSnapshot({ checkout: f.repo, rev: first, root: f.root });
-  const file = ownershipFile({ platform: process.platform, beside: f.root });
+  const file = ownershipFile({ platform: process.platform, beside: f.root, repository: repoKey(keyPath(f.repo)) });
   const killed = await killedSync(t, { repo: f.repo, rev: second, root: f.root, dir: f.dir, killAfter: 2, ownershipFile: file });
   const handle = JSON.parse(fs.readFileSync(file, "utf8")).handle;
   assert.ok(handle, "the killed gate's owner record is still there");
