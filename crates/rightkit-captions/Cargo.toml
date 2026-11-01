@@ -21,6 +21,11 @@ rightkit-typeset = { version = "0.1.0", path = "../rightkit-typeset" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 
+# rightkit-typeset's citationberg 0.7.0 pins quick-xml 0.38.4 (RUSTSEC-2026-0194, RUSTSEC-2026-0195); a [patch] does not reach
+# dependents, so every workspace that links rightkit-typeset carries the same vendored fix (vendor/citationberg/VENDORED.md).
+[patch.crates-io]
+citationberg = { path = "../../vendor/citationberg" }
+
 [workspace]
 
 # Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
