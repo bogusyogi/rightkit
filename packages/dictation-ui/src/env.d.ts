@@ -34,7 +34,10 @@ interface Window {
 }
 
 declare module "@rightkit-host/legal/legal-manifest.json" {
-  const manifest: unknown;
+  const manifest: {
+    documents: Array<{ id: string; role: string; title: string; publicUrl: string; version?: string; sha256?: string; [key: string]: unknown }>;
+    [key: string]: unknown;
+  };
   export default manifest;
 }
 declare module "@rightkit-host/legal/legal-manifest.json?raw" {
@@ -42,7 +45,7 @@ declare module "@rightkit-host/legal/legal-manifest.json?raw" {
   export default text;
 }
 declare module "@rightkit-host/src/generated/legal-contract.json" {
-  const contract: { acceptanceVersion: string; [key: string]: unknown };
+  const contract: { acceptanceVersion: string; materialSha256: string; [key: string]: unknown };
   export default contract;
 }
 declare module "@rightkit-host/package.json" {
@@ -53,4 +56,11 @@ declare module "@rightkit-host/package.json" {
 declare module "@rightkit-host/legal/*.md?raw" {
   const text: string;
   export default text;
+}
+
+declare module "virtual:rightkit-legal" {
+  export const LEGAL_DOCUMENTS: readonly { title: string; content: string }[];
+  export const LEGAL_VERSION: string;
+  export const LEGAL_DOCUMENTS_HASH: string;
+  export const LEGAL_RECEIPT_DOCUMENTS: readonly { id: string; role: string; version: string; sha256: string; treatment: string; material: boolean }[];
 }

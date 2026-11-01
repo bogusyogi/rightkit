@@ -64,7 +64,7 @@ export function selectedFormatsVerified(
 
 /** One UTI row: identifier → current preferred handler (verified from LaunchServices). */
 export function describeHandler(handler: MarkdownUtiHandlerStatus): string {
-  const target = handler.viewrightIsPreferred
+  const target = handler.hostIsPreferred
     ? hostAppName()
     : (handler.preferredHandler ?? "no handler");
   return `${handler.uti} → ${target}`;
@@ -79,7 +79,7 @@ function formatStatus(
 
 export function formatOwnership(status: FileAssociationFormatStatus): string {
   if (status.allSet) return hostAppName();
-  const preferred = status.handlers.filter((handler) => handler.viewrightIsPreferred).length;
+  const preferred = status.handlers.filter((handler) => handler.hostIsPreferred).length;
   if (preferred > 0) return `${preferred}/${status.handlers.length} ${hostAppName()}`;
   return "Other app";
 }

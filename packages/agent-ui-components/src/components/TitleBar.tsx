@@ -71,7 +71,7 @@ export default function TitleBar(props: TitleBarProps) {
   const isMac = platform === "macos";
   return (
     // biome-ignore lint/a11y/useSemanticElements: a <fieldset> is the semantic twin, but this is a display: contents wrapper and fieldset's form-control rendering is not guaranteed to honour that in every webview (WebView2, WKWebView); the group role and name are what assistive tech reads.
-    <div role="group" aria-label=`${hostAppName()} window controls` className="contents">
+    <div role="group" aria-label={`${hostAppName()} window controls`} className="contents">
       <Titlebar
         platform={platform}
         startWidth="auto"

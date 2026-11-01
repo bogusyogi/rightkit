@@ -113,7 +113,7 @@ function viewRightSections(onHistoryPurged?: () => void): SettingsSection[] {
       icon: ICONS.files,
       visible: () => showFileAssociations,
       render: () => (
-        <Body subtitle=`Choose which document formats open in ${hostAppName()} by default.`>
+        <Body subtitle={`Choose which document formats open in ${hostAppName()} by default.`}>
           <FileAssociationsSection />
         </Body>
       ),
@@ -137,7 +137,7 @@ function viewRightSections(onHistoryPurged?: () => void): SettingsSection[] {
       order: 400,
       icon: ICONS.theme,
       render: () => (
-        <Body subtitle=`Choose the surfaces and accents used across ${hostAppName()}.`>
+        <Body subtitle={`Choose the surfaces and accents used across ${hostAppName()}.`}>
           <ThemeSection />
         </Body>
       ),
@@ -173,7 +173,7 @@ function viewRightSections(onHistoryPurged?: () => void): SettingsSection[] {
       order: 700,
       icon: ICONS.privacy,
       render: () => (
-        <Body subtitle=`Choose what ${hostAppName()} remembers on this device.`>
+        <Body subtitle={`Choose what ${hostAppName()} remembers on this device.`}>
           <PrivacySection onHistoryPurged={onHistoryPurged} />
         </Body>
       ),

@@ -166,8 +166,8 @@ export default function SettingsModal(props: SettingsModalProps) {
   return (
     <>
       <ModalShell
-        label=`${hostAppName()} settings`
-        ariaLabel=`${hostAppName()} settings`
+        label={`${hostAppName()} settings`}
+        ariaLabel={`${hostAppName()} settings`}
         width={960}
         onClose={attemptClose}
         // Veto: Escape and backdrop route through attemptClose (discard guard or close), and the

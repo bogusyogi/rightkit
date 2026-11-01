@@ -96,7 +96,7 @@ export function UpdatesPanel() {
         <SettingRow
           id="updates.auto"
           label="Automatic update checks"
-          description=`Look for new releases while ${hostAppName()} is running. Installs always wait for you.`
+          description={`Look for new releases while ${hostAppName()} is running. Installs always wait for you.`}
         >
           <Toggle
             label="Automatic update checks"

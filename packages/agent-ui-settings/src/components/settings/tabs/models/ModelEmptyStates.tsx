@@ -42,7 +42,7 @@ export function ModelSettingsEmptyState({ onOpenWorkspace }: { onOpenWorkspace: 
         <ModelEmptyStep
           label="2"
           title="Load roles"
-          detail=`${hostAppName()} reads role defaults from the workspace.`
+          detail={`${hostAppName()} reads role defaults from the workspace.`}
         />
         <ModelEmptyStep
           label="3"

@@ -508,7 +508,7 @@ function Batch({ voices, presets, models, configured, engine, setProblem }: { vo
           </div>
           <div>
             <label htmlFor="v-batch-out">Output folder</label>
-            <Input id="v-batch-out" value={outDir} onChange={(e) => setOutDir(e.target.value)} placeholder=`Default: inside the ${hostAppName()} data folder` />
+            <Input id="v-batch-out" value={outDir} onChange={(e) => setOutDir(e.target.value)} placeholder={`Default: inside the ${hostAppName()} data folder`} />
           </div>
         </div>
         {voice?.provider === 'local' ? (

@@ -7,7 +7,7 @@ import legalManifest from "@rightkit-host/legal/legal-manifest.json";
 import legalContract from "@rightkit-host/src/generated/legal-contract.json";
 import { hostAppName } from "../appName";
 
-const manifest = assertLegalManifest(legalManifest as LegalManifest);
+const manifest = assertLegalManifest(legalManifest as unknown as LegalManifest);
 
 /**
  * the host app facts for the suite legal gate, sourced from legal/legal-manifest.json

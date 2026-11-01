@@ -16,7 +16,7 @@ import LinkComputerPanel from "./LinkComputerPanel";
  * the install-consent card, and the unlocked-feature list. A change the section makes reaches the
  * app through the owner's change event (`useLicenseState` restarts the daemon for it).
  */
-export const licenseTabSection = licenseSection({
+export const licenseTabSection: ReturnType<typeof licenseSection> = licenseSection({
   client: licenseClient,
   // Suppress bridge consumption BEFORE the seat is freed, so a launch cannot instantly
   // re-activate this device from the shared bridge.

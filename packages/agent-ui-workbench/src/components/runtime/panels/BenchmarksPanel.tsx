@@ -189,7 +189,7 @@ export function BenchmarksPanel({
       {!rows.length ? (
         <RuntimeEmpty
           title="No benchmark evidence yet"
-          body=`Role and ${hostAppName()} internal task-pack runs appear here after \`/benchmarks\`, the legacy \`/terminal-bench run\` command, or the benchmark API records validation evidence.`
+          body={`Role and ${hostAppName()} internal task-pack runs appear here after \`/benchmarks\`, the legacy \`/terminal-bench run\` command, or the benchmark API records validation evidence.`}
         />
       ) : null}
       {rows.map((r) => {

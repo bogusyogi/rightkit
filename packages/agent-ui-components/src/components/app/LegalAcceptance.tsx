@@ -98,7 +98,7 @@ export default function LegalAcceptance() {
             </span>
           </div>
         }
-        dbaLine=`If none applies, close ${hostAppName()} or contact legal@damnedventures.com.`
+        dbaLine={`If none applies, close ${hostAppName()} or contact legal@damnedventures.com.`}
       />
 
       {/* Silent audit anchor: keeps the acceptance version visibly wired to what this screen

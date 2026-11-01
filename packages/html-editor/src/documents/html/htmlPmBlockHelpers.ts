@@ -16,7 +16,7 @@ const inlineNodes = htmlVisualSchema.spec.nodes.update("doc", {
   ...htmlVisualSchema.spec.nodes.get("doc"),
   content: "inline*",
 });
-export const htmlInlineSchema = new Schema({
+export const htmlInlineSchema: Schema = new Schema({
   nodes: inlineNodes,
   marks: htmlVisualSchema.spec.marks,
 });

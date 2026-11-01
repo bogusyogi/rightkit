@@ -86,7 +86,7 @@ function LiveUrlPreview({ web, documentPath }: { web: WebDocument; documentPath:
       />
       {blockedOwnOrigin ? (
         <PreviewMessage
-          title=`${hostAppName()} cannot frame itself`
+          title={`${hostAppName()} cannot frame itself`}
           body="Open a different localhost app or port."
         />
       ) : width ? (

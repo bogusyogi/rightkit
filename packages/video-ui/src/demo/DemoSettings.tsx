@@ -66,7 +66,7 @@ export function DemoSettings() {
         <SettingRow
           id="demo-enabled"
           label="Allow agent demos"
-          description=`Off by default. When on, an agent you run on this computer can ask to drive one app while ${hostAppName()} records that app's window. You approve every session. Nothing leaves this computer.`
+          description={`Off by default. When on, an agent you run on this computer can ask to drive one app while ${hostAppName()} records that app's window. You approve every session. Nothing leaves this computer.`}
         >
           <Toggle label="Allow agent demos" checked={status.enabled} onChange={(v) => void run(() => demoSetEnabled(v))} />
         </SettingRow>
@@ -79,7 +79,7 @@ export function DemoSettings() {
 
       {status.enabled && (
         <SettingsGroup title="Permissions">
-          <SettingRow id="demo-permissions" label="Accessibility and Screen Recording" description=`${hostAppName()} needs both to drive and record another app. It never asks by itself.`>
+          <SettingRow id="demo-permissions" label="Accessibility and Screen Recording" description={`${hostAppName()} needs both to drive and record another app. It never asks by itself.`}>
             <Button
               size="sm"
               variant="secondary"

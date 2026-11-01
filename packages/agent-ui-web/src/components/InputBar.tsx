@@ -184,7 +184,7 @@ export function InputBar({ onClear }: InputBarProps) {
             onChange={handleInputChange}
             onKeyDown={onKey}
             onPaste={handlePaste}
-            placeholder=`Message ${hostAppName()}… (Enter to send)`
+            placeholder={`Message ${hostAppName()}… (Enter to send)`}
             rows={3}
             disabled={busy}
           />

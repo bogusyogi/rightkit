@@ -840,7 +840,7 @@ export default function AppBody({
                       workspaceRoot={workbenchProps.workspaceRoot}
                     />
                   ) : (
-                    <UnavailableDock label=`Connect ${hostAppName()} to manage bots.` />
+                    <UnavailableDock label={`Connect ${hostAppName()} to manage bots.`} />
                   )}
                 </DockPanel>
               ) : effectiveRightPanelTab === "browser" ? (

@@ -1620,7 +1620,7 @@ export default function ComposerIsland(props: ComposerIslandProps) {
                       </fieldset>
 
                       <fieldset
-                        aria-label=`Native ${hostAppName()}`
+                        aria-label={`Native ${hostAppName()}`}
                         className="m-0 border-0 border-t border-line p-0 pt-1"
                       >
                         {/* Native is not a separate row above this list — choosing one

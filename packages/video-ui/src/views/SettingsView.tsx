@@ -325,11 +325,11 @@ function HostSection({ ctx }: { ctx: SettingsContext }) {
   useEffect(check, []);
   return (
     <SettingsGroup>
-      <SettingRow id="genright-path" label="Engine location" description=`Path to the ${hostAppName()} engine; empty means auto-detect.` stacked>
+      <SettingRow id="genright-path" label="Engine location" description={`Path to the ${hostAppName()} engine; empty means auto-detect.`} stacked>
         <span className="cr-settings-chips">
           <Input
             className="cr-settings-path"
-            aria-label=`${hostAppName()} engine path`
+            aria-label={`${hostAppName()} engine path`}
             value={path}
             placeholder="Auto-detect"
             onChange={(e) => setPath(e.target.value)}
@@ -364,7 +364,7 @@ function HostSection({ ctx }: { ctx: SettingsContext }) {
       <SettingRow id="genright-budget" label="Budget" description="Optional spend cap (USD) for generation jobs.">
         <Input
           className="cr-settings-num"
-          aria-label=`${hostAppName()} budget (USD)`
+          aria-label={`${hostAppName()} budget (USD)`}
           type="number"
           min={0}
           step={1}

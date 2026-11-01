@@ -83,7 +83,6 @@ export * from "./settings/themes";
 export * from "./state/bridgeEvents";
 export * from "./state/browserQa";
 export * from "./state/browserQaDocx";
-export * from "./state/browserQaLicense";
 export * from "./state/browserQaPdf";
 export * from "./state/browserQaText";
 export * from "./state/diagnostics";

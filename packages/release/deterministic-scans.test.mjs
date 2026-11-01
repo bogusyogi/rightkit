@@ -118,6 +118,26 @@ test("writeTscProject: maps each sibling's dist-typed exports to its committed s
   assert.throws(() => writeTscProject({ contentRoot: root, packageDir: path.join(root, "packages/a"), workspace: ["packages/b"], tmpdir: realpathTmp(t, "rk-tscproj-out-") }), /packages\/b\/package\.json/);
 });
 
+test("tsc project: a subpath pattern export maps onto the same pattern in src, and types under one export condition are read", (t) => {
+  const root = realpathTmp(t, "rk-tscproj-pattern-");
+  const put = (rel, body) => { mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); writeFileSync(path.join(root, rel), body); };
+  put("packages/a/package.json", JSON.stringify({ name: "@x/a" })); put("packages/a/tsconfig.json", "{}");
+  put("packages/b/package.json", JSON.stringify({ name: "@x/b", exports: {
+    "./*": { types: "./dist/*.d.ts", import: "./dist/*.js" },
+    "./testing": { development: { types: "./dist/testing.d.ts", import: "./dist/testing.js" }, default: null },
+  } }));
+  put("packages/b/src/testing.ts", "");
+  const made = writeTscProject({ contentRoot: root, packageDir: path.join(root, "packages/a"), workspace: ["packages/a", "packages/b"], tmpdir: realpathTmp(t, "rk-tscproj-out-") });
+  t.after(() => rmSync(made.dir, { recursive: true, force: true }));
+  const { paths } = JSON.parse(readFileSync(made.file, "utf8")).compilerOptions;
+  assert.deepEqual(paths["@x/b/*"], ["src/*.ts", "src/*.tsx", "src/*/index.ts", "src/*/index.tsx"].map((f) => path.join(root, "packages/b", f)));
+  assert.deepEqual(paths["@x/b/testing"], [path.join(root, "packages/b/src/testing.ts")], "a development-only subpath maps through its condition's types");
+  put("packages/c/package.json", JSON.stringify({ name: "@x/c", exports: { "./*": { types: "./dist/*.d.ts" } } }));
+  assert.throws(() => writeTscProject({ contentRoot: root, packageDir: path.join(root, "packages/a"), workspace: ["packages/c"], tmpdir: realpathTmp(t, "rk-tscproj-out-") }), /@x\/c exports \.\/\* with types \.\/dist\/\*\.d\.ts, and packages\/c\/src does not exist/);
+  put("packages/d/package.json", JSON.stringify({ name: "@x/d", exports: { "./*/x": { types: "./dist/*/x.d.ts" } } })); put("packages/d/src/k.ts", "");
+  assert.throws(() => writeTscProject({ contentRoot: root, packageDir: path.join(root, "packages/a"), workspace: ["packages/d"], tmpdir: realpathTmp(t, "rk-tscproj-out-") }), /only one trailing \* pattern maps to src/);
+});
+
 test("runner: a tsc row checks through the generated project, which exists while tsc runs and is gone after; a project that cannot be built fails the row by name", async (t) => {
   const root = realpathTmp(t, "rk-tscrun-");
   const put = (rel, body) => { mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); writeFileSync(path.join(root, rel), body); };

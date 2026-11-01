@@ -157,7 +157,7 @@ export default function ApiKeysPanel({
         placeholder="gsk_..."
         signupLink="https://console.groq.com/login"
         keyLink="https://console.groq.com/keys"
-        note=`Groq gives individuals a free tier. ${hostAppName()} sends polish requests to a fast open model on your own Groq quota. Sign up, create a key, and paste it back here.`
+        note={`Groq gives individuals a free tier. ${hostAppName()} sends polish requests to a fast open model on your own Groq quota. Sign up, create a key, and paste it back here.`}
       />
       <div
         aria-live="polite"

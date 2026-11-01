@@ -297,7 +297,7 @@ export function OpenUrlDialog({
     <ActionDialog
       title="Open URL"
       ariaLabel="Open URL"
-      description=`Open a localhost preview, web URL, or local file in a ${hostAppName()} tab.`
+      description={`Open a localhost preview, web URL, or local file in a ${hostAppName()} tab.`}
       onClose={onCancel}
       width={460}
       slots={{ ...DIALOG_SLOTS, footer: `mt-5 ${DIALOG_SLOTS.footer}` }}

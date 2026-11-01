@@ -191,7 +191,7 @@ export default function LspTab({
         ) : (
           <OfflinePanel
             title="No workspace LSP overrides."
-            action=`${hostAppName()} will use PATH discovery and the local symbol fallback.`
+            action={`${hostAppName()} will use PATH discovery and the local symbol fallback.`}
           />
         )}
       </div>
