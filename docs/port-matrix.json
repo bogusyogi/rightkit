@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T09:29:58Z",
-  "rightkitHead": "dfdd84f",
+  "generatedAt": "2026-11-01T09:30:10Z",
+  "rightkitHead": "dcdc6b4",
   "legend": [
     {
       "state": "adopted",
@@ -21342,7 +21342,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-agent-orchestration",
       "toMoveFrom": {},
       "cells": {
@@ -21679,7 +21679,7 @@
       "private": false,
       "source": "0.3.1",
       "registry": "0.3.0",
-      "staged": "0.3.0",
+      "staged": "0.3.1",
       "dir": "crates/rightkit-agent-tools",
       "toMoveFrom": {},
       "cells": {
@@ -21825,7 +21825,7 @@
       "private": false,
       "source": "0.2.1",
       "registry": "0.2.0",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-agents",
       "toMoveFrom": {},
       "cells": {
@@ -26517,7 +26517,7 @@
       "private": false,
       "source": "0.2.1",
       "registry": "0.2.0",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-hooks",
       "toMoveFrom": {},
       "cells": {

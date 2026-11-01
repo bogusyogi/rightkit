@@ -26,7 +26,7 @@ Capabilities: 192 (58 with fingerprints, 134 declaration-only). Internal owners 
 | agent-host-traits | `rightkit-agent-host-traits` | none | declaration-only | 0 | rightkit-agent-host-traits: staged 0.1.0, not published |
 | agent-memory | `rightkit-memory` | none | declaration-only | 0 | rightkit-memory: staged 0.1.0, not published |
 | agent-mobile-runtime | `rightkit-agent-engine-mobile-runtime` | none | declaration-only | 0 | rightkit-agent-engine-mobile-runtime: staged 0.1.0, not published |
-| agent-orchestration | `rightkit-agent-orchestration` | none | declaration-only | 0 | rightkit-agent-orchestration: staged 0.1.0, not published |
+| agent-orchestration | `rightkit-agent-orchestration` | none | declaration-only | 0 | rightkit-agent-orchestration: staged 0.1.1, not published |
 | agent-orchestration-handoff | `rightkit-agent-orchestration-handoff` | none | declaration-only | 0 | rightkit-agent-orchestration-handoff: staged 0.1.0, not published |
 | agent-plugins | `rightkit-agent-plugins` | none | declaration-only | 0 | rightkit-agent-plugins: staged 0.1.0, not published |
 | agent-policy | `rightkit-agent-policy` | none | declaration-only | 0 | rightkit-agent-policy: staged 0.1.0, not published |
