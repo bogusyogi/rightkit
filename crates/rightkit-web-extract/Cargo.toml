@@ -1,9 +1,9 @@
 [package]
 name = "rightkit-web-extract"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Article extraction without transport: readable-text parsing, title and redirect resolution, blocked-page detection, BM25 fit filtering, and extraction-ladder decisions."
+description = "Article extraction with an optional rightkit-http transport: readable-text parsing, title and redirect resolution, blocked-page detection, BM25 fit filtering, and extraction-ladder decisions."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
@@ -13,7 +13,12 @@ include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENS
 name = "rightkit_web_extract"
 path = "src/lib.rs"
 
+[features]
+# `transport` module: `HttpNet`, an `ArticleNet` over rightkit-http's strict public-web policy.
+transport = ["dep:rightkit-http"]
+
 [dependencies]
+rightkit-http = { version = "0.3.9", path = "../rightkit-http", optional = true }
 regex = { version = "1.13.1" }
 scraper = { version = "0.27" }
 serde = { version = "1.0.229", features = ["derive"] }

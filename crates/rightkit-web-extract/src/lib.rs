@@ -23,6 +23,8 @@ pub mod net;
 pub mod parse;
 pub mod tls;
 pub mod tls_ffi;
+#[cfg(feature = "transport")]
+pub mod transport;
 
 pub use fetch::{ArticleFetcher, ThreadsScrapeError};
 pub use parse::{article_extract_from_html, readable_text};
