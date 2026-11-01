@@ -46,7 +46,6 @@
     "@rightkit/platform-ui": "link:../packages/platform-ui",
     "@rightkit/react-shell": "link:../packages/react-shell",
     "@rightkit/settings-ui": "link:../packages/settings-ui",
-    "@rightkit/sync-worker": "link:../packages/sync-worker",
     "@rightkit/tauri": "link:../packages/tauri",
     "@rightkit/tauri-shell": "link:../packages/tauri-shell",
     "@rightkit/theme": "link:../packages/theme",

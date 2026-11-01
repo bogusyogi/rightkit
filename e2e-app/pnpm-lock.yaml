@@ -209,9 +209,6 @@ importers:
       '@rightkit/settings-ui':
         specifier: link:../packages/settings-ui
         version: link:../packages/settings-ui
-      '@rightkit/sync-worker':
-        specifier: link:../packages/sync-worker
-        version: link:../packages/sync-worker
       '@rightkit/tauri':
         specifier: link:../packages/tauri
         version: link:../packages/tauri
