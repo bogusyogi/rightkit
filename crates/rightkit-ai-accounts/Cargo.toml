@@ -13,6 +13,10 @@ include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENS
 name = "rightkit_ai_accounts"
 path = "src/lib.rs"
 
+[features]
+# Test seams for journeys and QA builds: the env overrides read behind this feature (never in a release build).
+test-overrides = []
+
 [dependencies]
 rightkit-app-host = { version = "0.1.0", path = "../rightkit-app-host" }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest"], path = "../rightkit-fs" }
@@ -20,6 +24,7 @@ rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 sysinfo = { version = "=0.39.6" }
+thiserror = { version = "2" }
 
 [workspace]
 
