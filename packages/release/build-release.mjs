@@ -392,10 +392,13 @@ try {
   // already staged (stage-sidecar) would resolve crates from another cargo home (`--frozen` cannot fetch them) and rebuild the staged bytes
   // (HeardRight Windows package, 2026-11-01: STAGE_SIDECAR_CATALOG_UNREADABLE, then "a staged entry is immutable for the door run").
   if (splitSource && !managedCargoTarget) {
-    for (const name of ["CARGO_HOME", "CARGO_TARGET_DIR", "RUSTC_WRAPPER", "SCCACHE_DIR", "SCCACHE_BASEDIRS", "SCCACHE_CACHE_SIZE", "SCCACHE_IGNORE_SERVER_IO_ERROR"]) {
+    for (const name of ["CARGO_HOME", "RUSTC_WRAPPER", "SCCACHE_DIR", "SCCACHE_BASEDIRS", "SCCACHE_CACHE_SIZE", "SCCACHE_IGNORE_SERVER_IO_ERROR"]) {
       if (typeof process.env[name] === "string" && process.env[name] !== "") env[name] = process.env[name];
       else delete env[name];
     }
+    // The target only when the gate bound one process-wide: with several workspaces on a direct POSIX host the gate's per-call wrapper binds
+    // each and hands no CARGO_TARGET_DIR, and the target bridge below still needs Cache V2's.
+    if (typeof process.env.CARGO_TARGET_DIR === "string" && path.isAbsolute(process.env.CARGO_TARGET_DIR)) env.CARGO_TARGET_DIR = process.env.CARGO_TARGET_DIR;
   }
   if (cacheMode !== "shared") delete env.RIGHT_RELEASE_CACHE_OWNER;
   if (cacheMode === "shared" && env.RIGHT_RELEASE_CACHE_OWNER !== "rightkit-v2") fail("shared cache ownership token was not configured");
