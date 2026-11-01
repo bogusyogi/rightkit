@@ -14,6 +14,12 @@ name = "rightkit_launcher"
 path = "src/lib.rs"
 
 [dependencies]
+serde = { version = "1.0" }
+serde_json = { version = "1.0" }
+
+[target.'cfg(windows)'.dependencies]
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Threading", "Win32_UI_Shell"] }
 
 [workspace]
 
