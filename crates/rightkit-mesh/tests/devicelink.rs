@@ -4,6 +4,7 @@ use rightkit_device_link_types::{
     CheckKey, DevicePlatform, EndorsementBatch, OwnerSig, PairedDevice, Redemption,
 };
 use rightkit_mesh::devicelink::circle::{EndorsementBatchExt, RedemptionExt, circle_pairing_id};
+use rightkit_mesh::devicelink::policy::authorize;
 use rightkit_mesh::devicelink::{DeviceIdentity, LinkError, RegistryStore, device_id_for_key};
 
 fn temp_registry(tag: &str) -> std::path::PathBuf {
@@ -116,4 +117,17 @@ fn a_redemption_signs_a_fixed_layout() {
     redemption.redeemed_at_ms = 6;
     assert_ne!(first, redemption.signing_input());
     assert!(!redemption.is_guest());
+}
+
+#[test]
+fn chat_policy_needs_an_owner_proof_or_a_reversible_grant() {
+    let id = DeviceIdentity::from_seed(&[4u8; 32], DevicePlatform::Linux, None).expect("id");
+    let mut rec = record(&id);
+    assert!(authorize(&rec, 10).is_err(), "pairing alone grants nothing");
+    rec.grants = vec![rightkit_device_link_types::EffectClass::Reversible];
+    assert_eq!(authorize(&rec, 10), Ok("grant"));
+    rec.grants_expire_at_ms = Some(5);
+    assert!(authorize(&rec, 10).is_err(), "an expired grant is refused");
+    rec.admit = true;
+    assert_eq!(authorize(&rec, 10), Ok("owner"));
 }

@@ -18,6 +18,7 @@
 //!   file.
 //! * `link`: the service: registry mutations, revocation, resume tickets, per-request check,
 //!   and the [`ReplayStore`] seam that makes request redelivery idempotent.
+//! * `policy`: whether a paired computer may use chat here, and by which rule.
 //! * `relay_admit`: relay admission for a guest with no direct path: bootstrap key, key proof,
 //!   admission file.
 //! * `wire`: canonical byte encoding, hex and randomness helpers.
@@ -30,6 +31,7 @@ pub mod identity;
 pub mod join_token;
 pub mod link;
 pub mod pairing;
+pub mod policy;
 pub mod registry;
 pub mod relay_admit;
 pub mod transport;
