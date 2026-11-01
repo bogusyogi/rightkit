@@ -22,6 +22,7 @@
 
 pub mod cli;
 pub mod data_folder;
+pub mod doctor;
 pub mod registry;
 pub mod sidecar;
 pub mod wire;
