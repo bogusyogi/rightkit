@@ -14,6 +14,8 @@ pub(crate) fn test_temp_dir() -> std::path::PathBuf {
 }
 
 pub mod api;
+pub mod avatars;
+pub mod balances;
 pub mod capabilities;
 pub mod catalogue;
 pub mod credentials;
