@@ -65,6 +65,17 @@ pub trait Host: Send + Sync + 'static {
         "RightKitClip".to_string()
     }
 
+    /// Lower-case executable names whose copies are never kept.
+    fn excluded_apps(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// A copy was just stored under `id`.
+    fn copied(&self, _id: &str) {}
+
+    /// The stored history changed (the application may refresh counts).
+    fn store_changed(&self) {}
+
     /// Records an informational event with `fields`. Never called with clipboard content.
     fn log_info(&self, _event: &str, _fields: &[(&str, &str)]) {}
 }
@@ -115,5 +126,29 @@ pub(crate) fn app_version() -> String {
 pub(crate) fn log_info(event: &str, fields: &[(&str, &str)]) {
     if let Some(host) = HOST.get() {
         host.log_info(event, fields);
+    }
+}
+
+pub(crate) fn excluded_apps() -> Vec<String> {
+    HOST.get()
+        .map_or_else(Vec::new, |host| host.excluded_apps())
+}
+
+#[cfg(windows)]
+pub(crate) fn log_error(op: &str, error: &windows::core::Error, ctx: &str) {
+    log_info(ctx, &[("operation", op), ("error", &error.message())]);
+}
+
+#[cfg(windows)]
+pub(crate) fn copied(id: &str) {
+    if let Some(host) = HOST.get() {
+        host.copied(id);
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn store_changed() {
+    if let Some(host) = HOST.get() {
+        host.store_changed();
     }
 }

@@ -12,6 +12,8 @@ pub mod fileicon;
 #[cfg(windows)]
 pub mod glyphs;
 #[cfg(windows)]
+pub mod process;
+#[cfg(windows)]
 pub mod raii;
 #[cfg(windows)]
 pub mod surface;
