@@ -114,7 +114,6 @@ use super::link::{can_admit, revoke_record};
 use super::registry::{PairedDevice, PairedState, RedeemedPairing, Registry};
 use super::wire::{Enc, random, unhex};
 use super::{CLOCK_SKEW_MS, DEVICE_LINK_SCHEMA_VERSION, DeviceLink, LinkError, PAIRING_TTL_MS};
-use rightkit_owner_approvals::approval_sig::{self, OwnerCheckProof};
 use rightkit_crypto::sha256;
 use rightkit_device_link_types::DeviceRef;
 pub use rightkit_device_link_types::circle::{
@@ -122,6 +121,7 @@ pub use rightkit_device_link_types::circle::{
     MEMBER_CLASS_MEMBER, OwnerSig, Redemption, TokenGrant, secret_hash,
 };
 use rightkit_fs::digest::hex;
+use rightkit_owner_approvals::approval_sig::{self, OwnerCheckProof};
 
 const MEMBERS_DOMAIN: &str = "pulse-link/circle-members/v1";
 const INTRODUCTION_DOMAIN: &str = "pulse-link/circle-introduction/v1";
