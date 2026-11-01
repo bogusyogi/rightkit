@@ -124,6 +124,8 @@ jobs:
             packages/release/qa-journeys-prebuilt.mjs
             packages/release/qa-snapshot.mjs
             packages/release/qualification-verify.mjs
+            packages/release/direct-origin.mjs
+            packages/release/qa-layout.mjs
             packages/release/recipe-build.mjs
             packages/release/release-cache-mode.mjs
             packages/release/release-checks.mjs
@@ -159,6 +161,8 @@ jobs:
             scripts/ci/publish-admission.mjs
             packages/release/pack-digest.mjs
             packages/release/qualification-verify.mjs
+            packages/release/direct-origin.mjs
+            packages/release/qa-layout.mjs
             packages/release/swap-helper-bundle.mjs
             scripts/ci/supplemental-proof.mjs
             ci/linux-required.json

@@ -30,6 +30,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { SWAP_HELPER_ARCHIVE_BIN, SWAP_HELPER_ARCHIVE_RECEIPT, exclusionsFor, npmContentDigest } from "../../packages/release/pack-digest.mjs";
 import { ATTESTED_STAGES, enrolledPins, verifyQualificationReceipts } from "../../packages/release/qualification-verify.mjs";
+import { RIGHTKIT_REPOSITORY, verifyDirectOrigin } from "../../packages/release/direct-origin.mjs";
 import { SWAP_HELPER_PACKAGE } from "../../packages/release/swap-helper-bundle.mjs";
 
 export const ADMISSION_SCHEMA = "rk-publish-admission.v2";
@@ -116,10 +117,13 @@ export async function admit({ env, git, runGate, fetchImpl = fetch, policy }) {
   requireThat(/^[1-9][0-9]*$/.test(env.GITHUB_RUN_ID ?? "") && /^[1-9][0-9]*$/.test(env.GITHUB_RUN_ATTEMPT ?? ""), "no run id or attempt");
   const sha = env.GITHUB_SHA, registry = env.REGISTRY, units = words(env.UNITS);
   requireThat(["npm", "crates"].includes(registry) && units.length > 0 && new Set(units).size === units.length, "admission needs a registry and distinct units");
-  // One door (Adrian, 2026-10-27): only the broker-admitted dispatch of rightkit-gate --to release is admitted, and only with the
-  // gate's qualification receipt for this commit and unit. Hosted self-admission (class A here, no local compile or qualify) is retired.
-  requireThat(env.ADMISSION === "broker", "admission must be broker: hosted self-admission is retired; publish through rightkit-gate --to release");
-  requireThat(REQUEST_ID.test(env.REQUEST_ID ?? ""), "broker admission needs the broker's request id (correlation only; it grants nothing)");
+  // One door, two origins (GATE-CONTRACT: "on dell and mac, via broker / on linux no broker"; Adrian, 2026-11-01, rightkit#1341).
+  // broker: rightkit-gate --to release on a broker-managed Mac or Dell, with the broker's signed receipts for compile and package.
+  // direct: a Linux origin (GB-29) running the gate direct; its qualification carries a direct-origin record re-derived below.
+  // Hosted self-admission (no local compile or qualify at all) stays retired.
+  requireThat(env.ADMISSION === "broker" || env.ADMISSION === "direct", "admission must be broker or direct: hosted self-admission is retired; publish through rightkit-gate");
+  if (env.ADMISSION === "direct") requireThat(!env.REQUEST_ID, "direct admission carries no broker request id");
+  else requireThat(REQUEST_ID.test(env.REQUEST_ID ?? ""), "broker admission needs the broker's request id (correlation only; it grants nothing)");
   const qualification = readQualificationInput(env.QUALIFICATION, { sha, registry, units });
   if (registry === "npm") requireThat(units.every((unit) => HOSTED_UNIT.test(unit)), "npm units must be @rightkit/* packages");
   // The full gate first: a red or partial check admits nothing, whatever the registry says.
@@ -135,6 +139,22 @@ export async function admit({ env, git, runGate, fetchImpl = fetch, policy }) {
   }
   const allow = Object.fromEntries(Object.entries(ALLOW_INPUTS).map(([key, name]) => [key, sorted(words(env[name]))]));
   for (const [key, list] of Object.entries(allow)) for (const item of list) requireThat(granted[key].has(item), `${POLICY_KEYS[key]} names ${item}, which the committed exception policy does not grant`);
+  if (env.ADMISSION === "direct") {
+    // A direct Linux origin: no broker receipt exists. Its direct-origin record is re-derived against what this run knows from the
+    // dispatched commit (repository, commit, real tree, unit and committed version, registry) and against the qualification's own
+    // artifact digests, which the bind step then holds to the sealed archive this run packs.
+    const raw = JSON.parse(env.QUALIFICATION);
+    requireThat(raw.executor === "direct", "direct admission needs a qualification written by a direct origin");
+    const tree = String(git("rev-parse", `${sha}^{tree}`)).trim();
+    const unit = { kind: qualification.unit.kind, name: qualification.unit.name, version: versions[qualification.unit.name] };
+    try {
+      qualification.directOrigin = verifyDirectOrigin(raw.directOrigin, { repository: RIGHTKIT_REPOSITORY, commit: sha, tree, unit, registry, ...(unit.kind === "npm" ? { contentSha256: qualification.contentSha256 } : { artifactSha256: qualification.artifactSha256 }) });
+    } catch (error) { refuse(error.message); }
+    qualification.directOrigin.executor = { kind: "direct", platform: "linux" };
+    qualification.unattested = ["check", "compile", "package", "qualify"];
+    requireThat(qualification.unit.version === versions[qualification.unit.name], `the qualification receipt qualified ${qualification.unit.name}@${qualification.unit.version}, the committed version is ${versions[qualification.unit.name]}`);
+    return { schema: ADMISSION_SCHEMA, mode: "direct", requestId: "", repository: REPOSITORY, sourceSha: sha, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, qualification, registry, units, versions, allow, gate };
+  }
   // Authenticate it (after the cheap scope and version checks above): unsigned booleans admit nothing.
   qualification.provenance = verifyQualificationReceipts(env.QUALIFICATION, { sha, git });
   // The check and qualify stages run in the gate's own process with no broker job, so no signed receipt can exist for them: their `ok`
@@ -238,12 +258,17 @@ export function verifyAdmissionReceipt(receipt, { repository, sourceSha, runId, 
   requireThat(receipt.versions && same(sorted(Object.keys(receipt.versions)), sorted(names)) && units.every((unit) => receipt.versions[unit.name] === unit.version), "receipt versions differ from the sealed versions");
   const gate = receipt.gate;
   requireThat(gate && same(Object.keys(gate).sort(), ["classAFiles", "classAScans", "command", "exit", "rules"]) && gate.exit === 0 && gate.command === `rightkit-gate check --commit ${sourceSha} --rule-tier release` && Number.isInteger(gate.rules) && gate.rules > 0 && Number.isInteger(gate.classAScans) && gate.classAScans > 0, "receipt carries no passed gate for this commit");
-  requireThat(receipt.mode === "broker", "unknown admission mode: only broker admission exists");
-  requireThat(REQUEST_ID.test(receipt.requestId), "broker receipt carries no valid request id");
+  requireThat(receipt.mode === "broker" || receipt.mode === "direct", "unknown admission mode: only broker and direct admission exist");
+  if (receipt.mode === "direct") requireThat(receipt.requestId === "", "direct receipt carries a broker request id");
+  else requireThat(REQUEST_ID.test(receipt.requestId), "broker receipt carries no valid request id");
   // The qualification the admission checked must name this commit, one of the sealed units and its sealed version.
   const q = receipt.qualification;
   requireThat(q && q.schema === QUALIFICATION_SCHEMA && q.commit === sourceSha && /^[0-9a-f]{64}$/.test(q.artifactSha256 ?? ""), "receipt carries no qualification for this commit");
   requireThat(units.some((unit) => unit.name === q.unit?.name && unit.version === q.unit?.version), "receipt qualification names no sealed unit at its sealed version");
+  if (receipt.mode === "direct") {
+    requireThat(/^[0-9a-f]{64}$/.test(q.directOrigin?.candidate ?? "") && q.directOrigin?.executor?.kind === "direct" && q.directOrigin?.executor?.platform === "linux", "direct receipt carries no verified direct Linux origin");
+    return receipt;
+  }
   requireThat(ATTESTED_STAGES.every((stage) => Array.isArray(q.provenance?.[stage]) && q.provenance[stage].length > 0), "receipt qualification carries no verified broker provenance for its compile and package stages");
   return receipt;
 }
