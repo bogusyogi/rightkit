@@ -1,0 +1,557 @@
+apiVersion: coderight.dev/v1alpha1
+kind: Workflow
+metadata:
+  id: github_issue_to_draft_pr
+  name: Trusted GitHub issue to verified draft pull request
+  description: Admit a trusted issue event, plan and implement in an isolated worktree, verify independently, and optionally create a draft pull request.
+  tags: [github, coding, review, reference]
+spec:
+  enabled: false
+  inputs:
+    repository:
+      type: string
+      required: true
+      description: owner/name repository identity admitted by the authenticated trigger or operator.
+    issueNumber:
+      type: integer
+      required: true
+      minimum: 1
+      maximum: 2147483647
+    eventAction:
+      type: string
+      required: true
+      default: manual
+    trustedLabel:
+      type: string
+      required: true
+      default: coderight-ready
+    baseBranch:
+      type: string
+      required: true
+      default: main
+    headSha:
+      type: string
+      required: true
+      format: git-sha
+    allowDraftPr:
+      type: boolean
+      required: true
+      default: false
+  budgets:
+    maxRuntimeSeconds: 21600
+    maxCostUsd: 40
+    maxTokens: 2000000
+    maxToolCalls: 2500
+    maxParallelNodes: 4
+    maxArtifactsBytes: 2147483648
+    maxEffects: 3
+  capabilities:
+    filesystem: workspace-write
+    network: ["https://github.com", "https://api.github.com"]
+    tools: [read_file, write_file, shell, git, github_read, github_write, test_runner]
+    secrets: [GITHUB_TOKEN]
+    effects: [push-branch, draft-pull-request, review-notification]
+  triggers:
+    - id: manual_run
+      type: manual
+      enabled: false
+      overlap: forbid
+      misfire: skip
+      versionPolicy: pinned
+      concurrencyKey: "github:${inputs.repository}:${inputs.issueNumber}"
+    - id: trusted_issue_event
+      type: github
+      enabled: false
+      event: issues
+      filter: "event.action == 'labeled' && event.label == inputs.trustedLabel"
+      overlap: queue
+      misfire: skip
+      versionPolicy: latestPublishedAtOccurrence
+      concurrencyKey: "github:${event.repository}:${event.issue.number}"
+  nodes:
+    - id: admit_issue
+      kind: transform
+      dependsOn: []
+      runtime: deterministic
+      bounds: &small_bounds
+        maxRuntimeSeconds: 60
+        maxTokens: 1000
+        maxToolCalls: 0
+        maxOutputBytes: 262144
+      retry: &no_retry
+        maxAttempts: 1
+        retryOn: []
+        backoff: none
+        baseDelaySeconds: 0
+      inputs:
+        repository: "${inputs.repository}"
+        issueNumber: "${inputs.issueNumber}"
+        action: "${inputs.eventAction}"
+        label: "${inputs.trustedLabel}"
+        headSha: "${inputs.headSha}"
+      outputSchema: schema://github/issue-admission-v1
+      claims:
+        - id: issue_admitted
+          statement: Repository, event action, label, workspace trust, exact head, and policy permit bounded processing.
+          evidence: [artifact]
+      completion: "output.admitted == true"
+      config:
+        allowedActions: [manual, labeled]
+        requireTrustedWorkspace: true
+
+    - id: capture_issue_context
+      kind: agent
+      dependsOn: [admit_issue]
+      runtime: native
+      role: github_context_collector
+      bounds: &agent_bounds
+        maxRuntimeSeconds: 900
+        maxTokens: 80000
+        maxToolCalls: 150
+        maxOutputBytes: 33554432
+      retry: &transient_retry
+        maxAttempts: 3
+        retryOn: [transientProvider, transientNetwork, executorUnavailable, leaseLost]
+        backoff: exponential
+        baseDelaySeconds: 5
+      inputs:
+        repository: "${inputs.repository}"
+        issueNumber: "${inputs.issueNumber}"
+      outputSchema: schema://github/issue-context-v1
+      claims:
+        - id: issue_context_captured
+          statement: Issue metadata and discussion are captured with provenance and remain untrusted data.
+          evidence: [artifact, source]
+      completion: "output.repository == inputs.repository && output.issueNumber == inputs.issueNumber"
+      config:
+        maxComments: 200
+        maxBytes: 8388608
+
+    - id: inspect_repository
+      kind: agent
+      dependsOn: [capture_issue_context]
+      runtime: native
+      role: repository_investigator
+      bounds: *agent_bounds
+      retry: *transient_retry
+      inputs:
+        repository: "${inputs.repository}"
+        baseBranch: "${inputs.baseBranch}"
+        headSha: "${inputs.headSha}"
+        issue: "${nodes.capture_issue_context.output.artifact}"
+      outputSchema: schema://github/repository-inspection-v1
+      claims:
+        - id: repository_inspected
+          statement: Instructions, architecture, relevant symbols, tests, exact head, and risk classification are captured without mutation.
+          evidence: [artifact, command]
+          independentReview: true
+      completion: "output.inspectedHead == inputs.headSha && output.readOnly == true"
+      config:
+        maxFiles: 20000
+        maxContentBytes: 67108864
+
+    - id: plan_change
+      kind: agent
+      dependsOn: [inspect_repository]
+      runtime: conductor
+      role: technical_architect
+      bounds: *agent_bounds
+      retry: *transient_retry
+      inputs:
+        issue: "${nodes.capture_issue_context.output.artifact}"
+        inspection: "${nodes.inspect_repository.output.artifact}"
+      outputSchema: schema://github/change-plan-v1
+      claims:
+        - id: plan_traceable
+          statement: Planned files, symbols, constraints, risks, acceptance tests, and capabilities trace to the admitted issue and repository evidence.
+          evidence: [artifact, source]
+          independentReview: true
+      completion: "output.unresolvedScopeQuestions == 0 && output.acceptanceTests != []"
+      config:
+        maxFiles: 100
+        maxSteps: 100
+
+    - id: review_plan
+      kind: agent
+      dependsOn: [plan_change]
+      runtime: claude
+      role: independent_plan_reviewer
+      bounds: *agent_bounds
+      retry: *transient_retry
+      inputs:
+        issue: "${nodes.capture_issue_context.output.artifact}"
+        inspection: "${nodes.inspect_repository.output.artifact}"
+        plan: "${nodes.plan_change.output.artifact}"
+      outputSchema: schema://review/verdict-v1
+      claims:
+        - id: plan_reviewed
+          statement: Issue fidelity, architecture, scope, security, testability, and capability request were reviewed independently.
+          evidence: [review]
+      completion: "output.verdict in ['accepted','repair','rejected']"
+      config:
+        maxFindings: 100
+
+    - id: repair_plan
+      kind: agent
+      dependsOn: [review_plan]
+      runtime: codex
+      role: plan_repairer
+      bounds: *agent_bounds
+      retry: *no_retry
+      inputs:
+        plan: "${nodes.plan_change.output.artifact}"
+        findings: "${nodes.review_plan.output.findings}"
+      outputSchema: schema://github/change-plan-v1
+      claims:
+        - id: plan_repaired
+          statement: Accepted review findings are resolved or explicitly rejected with evidence.
+          evidence: [artifact, review]
+          independentReview: true
+      completion: "nodes.review_plan.output.verdict != 'repair' || output.progress == true"
+      when: "nodes.review_plan.output.verdict == 'repair'"
+      config:
+        maxRepairRounds: 2
+        noProgressCutoff: 1
+
+    - id: approve_high_risk_plan
+      kind: approval
+      dependsOn: [review_plan, repair_plan]
+      runtime: deterministic
+      bounds: *small_bounds
+      retry: *no_retry
+      inputs:
+        plan: "${coalesce(nodes.repair_plan.output, nodes.plan_change.output)}"
+        risk: "${coalesce(nodes.repair_plan.output.risk, nodes.plan_change.output.risk)}"
+        capabilities: "${workflow.effectiveCapabilities}"
+      outputSchema: schema://workflow/approval-v1
+      claims: []
+      completion: "inputs.risk != 'high' || output.state in ['approved','rejected','expired']"
+      when: "coalesce(nodes.repair_plan.output.risk, nodes.plan_change.output.risk) == 'high'"
+      config:
+        bind: [workflowVersionHash, inputHash, planHash, capabilityHash]
+        expiresSeconds: 43200
+        oneShot: true
+
+    - id: prepare_worktree
+      kind: transform
+      dependsOn: [approve_high_risk_plan]
+      runtime: deterministic
+      bounds: *small_bounds
+      retry: *no_retry
+      inputs:
+        repository: "${inputs.repository}"
+        baseBranch: "${inputs.baseBranch}"
+        headSha: "${inputs.headSha}"
+        issueNumber: "${inputs.issueNumber}"
+      outputSchema: schema://github/worktree-v1
+      claims:
+        - id: worktree_isolated
+          statement: An isolated branch/worktree is pinned to the exact admitted head and has a recorded baseline fingerprint.
+          evidence: [artifact, command]
+      completion: "output.headSha == inputs.headSha && output.isolated == true"
+      config:
+        branchPattern: "coderight/issue-${inputs.issueNumber}-${run.shortId}"
+        protectMainCheckout: true
+
+    - id: implement_change
+      kind: agent
+      dependsOn: [prepare_worktree]
+      runtime: codex
+      role: code_implementer
+      bounds:
+        maxRuntimeSeconds: 7200
+        maxTokens: 800000
+        maxToolCalls: 1200
+        maxOutputBytes: 134217728
+      retry: *transient_retry
+      inputs:
+        issue: "${nodes.capture_issue_context.output.artifact}"
+        inspection: "${nodes.inspect_repository.output.artifact}"
+        plan: "${coalesce(nodes.repair_plan.output.artifact, nodes.plan_change.output.artifact)}"
+        worktree: "${nodes.prepare_worktree.output}"
+      outputSchema: schema://github/implementation-result-v1
+      claims:
+        - id: implementation_matches_plan
+          statement: Mutations and reported completion correspond to the accepted plan and isolated worktree.
+          evidence: [artifact, diff]
+          independentReview: true
+      completion: "output.worktreeId == nodes.prepare_worktree.output.id && output.changedFiles <= 100"
+      config:
+        maxSubagents: 8
+        maxDelegationDepth: 2
+
+    - id: collect_changes
+      kind: transform
+      dependsOn: [implement_change]
+      runtime: deterministic
+      bounds: *small_bounds
+      retry: *no_retry
+      inputs:
+        worktree: "${nodes.prepare_worktree.output}"
+        implementation: "${nodes.implement_change.output}"
+      outputSchema: schema://github/change-inventory-v1
+      claims:
+        - id: change_inventory_authoritative
+          statement: Changed files, diff, mutations, untracked files, baseline, and resulting head/workspace fingerprint are authoritative.
+          evidence: [artifact, diff, command]
+      completion: "output.baselineHead == inputs.headSha && output.inventoryComplete == true"
+      config:
+        includeUntracked: true
+        maxDiffBytes: 134217728
+
+    - id: run_verification
+      kind: agent
+      dependsOn: [collect_changes]
+      runtime: native
+      role: deterministic_verifier
+      bounds:
+        maxRuntimeSeconds: 7200
+        maxTokens: 120000
+        maxToolCalls: 500
+        maxOutputBytes: 134217728
+      retry: *no_retry
+      inputs:
+        plan: "${coalesce(nodes.repair_plan.output.artifact, nodes.plan_change.output.artifact)}"
+        worktree: "${nodes.prepare_worktree.output}"
+        changes: "${nodes.collect_changes.output.artifact}"
+      outputSchema: schema://github/verification-report-v1
+      claims:
+        - id: checks_bound_to_head
+          statement: Formatter, linter, build, tests, and security checks are recorded with command identity, result, output artifact, and exact tested head.
+          evidence: [command, artifact]
+          independentReview: true
+      completion: "output.testedHead == output.currentHead && output.requiredChecksAccountedFor == true"
+      config:
+        allowShellFromPlanOnly: true
+        maxCommands: 100
+
+    - id: review_change
+      kind: agent
+      dependsOn: [run_verification]
+      runtime: claude
+      role: independent_code_reviewer
+      bounds: *agent_bounds
+      retry: *transient_retry
+      inputs:
+        issue: "${nodes.capture_issue_context.output.artifact}"
+        plan: "${coalesce(nodes.repair_plan.output.artifact, nodes.plan_change.output.artifact)}"
+        changes: "${nodes.collect_changes.output.artifact}"
+        verification: "${nodes.run_verification.output.artifact}"
+      outputSchema: schema://review/verdict-v1
+      claims:
+        - id: code_reviewed
+          statement: Issue fidelity, diff, tests, security, regression risk, and unsupported completion claims were reviewed independently.
+          evidence: [review, diff, command]
+      completion: "output.verdict in ['accepted','repair','rejected']"
+      config:
+        maxFindings: 200
+
+    - id: repair_change
+      kind: agent
+      dependsOn: [review_change]
+      runtime: codex
+      role: code_repairer
+      bounds:
+        maxRuntimeSeconds: 5400
+        maxTokens: 500000
+        maxToolCalls: 800
+        maxOutputBytes: 134217728
+      retry: *no_retry
+      inputs:
+        worktree: "${nodes.prepare_worktree.output}"
+        findings: "${nodes.review_change.output.findings}"
+        changes: "${nodes.collect_changes.output.artifact}"
+      outputSchema: schema://github/implementation-result-v1
+      claims:
+        - id: code_repair_traceable
+          statement: Accepted review findings are resolved or explicitly rejected with evidence and changed-workspace progress.
+          evidence: [artifact, diff, review]
+          independentReview: true
+      completion: "nodes.review_change.output.verdict != 'repair' || output.progress == true"
+      when: "nodes.review_change.output.verdict == 'repair'"
+      config:
+        maxRepairRounds: 2
+        noProgressCutoff: 1
+
+    - id: reverify_change
+      kind: agent
+      dependsOn: [repair_change]
+      runtime: native
+      role: deterministic_verifier
+      bounds: *agent_bounds
+      retry: *no_retry
+      inputs:
+        worktree: "${nodes.prepare_worktree.output}"
+        repair: "${nodes.repair_change.output}"
+        originalVerification: "${nodes.run_verification.output.artifact}"
+      outputSchema: schema://github/verification-report-v1
+      claims:
+        - id: repaired_head_verified
+          statement: Affected required checks were rerun and bind to the repaired exact head.
+          evidence: [command, artifact]
+          independentReview: true
+      completion: "nodes.review_change.output.verdict != 'repair' || output.testedHead == output.currentHead"
+      when: "nodes.review_change.output.verdict == 'repair'"
+      config:
+        rerunAffectedAndRequired: true
+
+    - id: final_signoff
+      kind: agent
+      dependsOn: [review_change, reverify_change]
+      runtime: conductor
+      role: completion_arbiter
+      bounds: *agent_bounds
+      retry: *no_retry
+      inputs:
+        issue: "${nodes.capture_issue_context.output.artifact}"
+        plan: "${coalesce(nodes.repair_plan.output.artifact, nodes.plan_change.output.artifact)}"
+        changes: "${nodes.collect_changes.output.artifact}"
+        verification: "${coalesce(nodes.reverify_change.output.artifact, nodes.run_verification.output.artifact)}"
+        review: "${nodes.review_change.output}"
+      outputSchema: schema://workflow/final-signoff-v1
+      claims:
+        - id: change_ready_for_draft_pr
+          statement: Scope, exact head, diff, required checks, review findings, budgets, and residual risks are explicitly accounted for.
+          evidence: [artifact, review, diff, command]
+          independentReview: true
+      completion: "output.verdict in ['accepted','explicitPartial','rejected']"
+      config:
+        requireExactHead: true
+        requireResidualRisks: true
+
+    - id: approve_draft_pr
+      kind: approval
+      dependsOn: [final_signoff]
+      runtime: deterministic
+      bounds: *small_bounds
+      retry: *no_retry
+      inputs:
+        signoff: "${nodes.final_signoff.output}"
+        head: "${nodes.final_signoff.output.verifiedHead}"
+        repository: "${inputs.repository}"
+        allowDraftPr: "${inputs.allowDraftPr}"
+      outputSchema: schema://workflow/approval-v1
+      claims: []
+      completion: "inputs.allowDraftPr == false || output.state in ['approved','rejected','expired']"
+      when: "inputs.allowDraftPr == true && nodes.final_signoff.output.verdict == 'accepted'"
+      config:
+        bind: [workflowVersionHash, inputHash, planHash, diffHash, verificationHash, capabilityHash, effectRequestHash]
+        expiresSeconds: 43200
+        oneShot: true
+
+    - id: push_branch
+      kind: effect
+      dependsOn: [approve_draft_pr]
+      runtime: effect
+      bounds:
+        <<: *small_bounds
+        maxEffects: 1
+      retry: *no_retry
+      inputs:
+        worktree: "${nodes.prepare_worktree.output}"
+        verifiedHead: "${nodes.final_signoff.output.verifiedHead}"
+        approval: "${nodes.approve_draft_pr.output}"
+      outputSchema: schema://effect/receipt-v1
+      claims:
+        - id: branch_push_reconciled
+          statement: The exact verified head is confirmed pushed, failed, or explicitly uncertain with reconciliation state.
+          evidence: [receipt, command]
+      completion: "output.state in ['confirmed','failed','outcomeUnknown']"
+      when: "inputs.allowDraftPr == true && nodes.approve_draft_pr.output.state == 'approved'"
+      effect:
+        adapter: git
+        operation: pushBranch
+        destination: "git://${inputs.repository}/${nodes.prepare_worktree.output.branch}"
+        payload: "${nodes.final_signoff.output.verifiedHead}"
+        idempotencyKey: "push:${inputs.repository}:${nodes.prepare_worktree.output.branch}:${nodes.final_signoff.output.verifiedHead}"
+        reconcile: "resolve remote branch head and compare with verified head before retry"
+        maxAttempts: 2
+        approvalRequired: true
+
+    - id: create_draft_pr
+      kind: effect
+      dependsOn: [push_branch]
+      runtime: effect
+      bounds:
+        <<: *small_bounds
+        maxEffects: 1
+      retry: *no_retry
+      inputs:
+        repository: "${inputs.repository}"
+        issueNumber: "${inputs.issueNumber}"
+        baseBranch: "${inputs.baseBranch}"
+        branchReceipt: "${nodes.push_branch.output}"
+        signoff: "${nodes.final_signoff.output}"
+      outputSchema: schema://effect/receipt-v1
+      claims:
+        - id: draft_pr_reconciled
+          statement: A draft PR for the exact verified head is confirmed, failed, or explicitly uncertain with reconciliation state.
+          evidence: [receipt]
+      completion: "output.state in ['confirmed','failed','outcomeUnknown']"
+      when: "nodes.push_branch.output.state == 'confirmed'"
+      effect:
+        adapter: github
+        operation: createDraftPullRequest
+        destination: "github://${inputs.repository}/pulls"
+        payload: "${nodes.final_signoff.output.draftPullRequestPayload}"
+        idempotencyKey: "draft-pr:${inputs.repository}:${inputs.baseBranch}:${nodes.final_signoff.output.verifiedHead}:${nodes.final_signoff.output.prBodyHash}"
+        reconcile: "lookup open and closed pull requests by repository base head verified SHA and idempotency marker before retry"
+        maxAttempts: 2
+        approvalRequired: true
+
+    - id: assemble_delivery
+      kind: transform
+      dependsOn: [final_signoff, create_draft_pr]
+      runtime: deterministic
+      bounds: *small_bounds
+      retry: *no_retry
+      inputs:
+        issue: "${nodes.capture_issue_context.output.artifact}"
+        plan: "${coalesce(nodes.repair_plan.output.artifact, nodes.plan_change.output.artifact)}"
+        worktree: "${nodes.prepare_worktree.output}"
+        changes: "${nodes.collect_changes.output.artifact}"
+        verification: "${coalesce(nodes.reverify_change.output.artifact, nodes.run_verification.output.artifact)}"
+        review: "${nodes.review_change.output}"
+        signoff: "${nodes.final_signoff.output}"
+        branch: "${nodes.push_branch.output}"
+        pullRequest: "${nodes.create_draft_pr.output}"
+      outputSchema: schema://github/delivery-v1
+      claims:
+        - id: delivery_accounted
+          statement: Issue, plan, worktree, exact head, diff, checks, review, effects, failures, uncertainty, and residual risks are indexed.
+          evidence: [artifact, receipt, command, diff, review]
+      completion: "output.indexComplete == true"
+
+    - id: notify_review_inbox
+      kind: effect
+      dependsOn: [assemble_delivery]
+      runtime: effect
+      bounds:
+        <<: *small_bounds
+        maxEffects: 1
+      retry:
+        maxAttempts: 3
+        retryOn: [transientNetwork, executorUnavailable]
+        backoff: exponential
+        baseDelaySeconds: 2
+      inputs:
+        delivery: "${nodes.assemble_delivery.output.artifact}"
+      outputSchema: schema://effect/receipt-v1
+      claims:
+        - id: review_item_created
+          statement: A deduplicated deep-linked deliverable or attention item exists or has an explicit delivery failure.
+          evidence: [receipt]
+      completion: "output.state in ['confirmed','failed']"
+      effect:
+        adapter: reviewInbox
+        operation: notify
+        destination: "coderight://review-inbox"
+        payload: "${nodes.assemble_delivery.output.artifact}"
+        idempotencyKey: "github-delivery:${run.id}:${nodes.assemble_delivery.output.contentHash}"
+        reconcile: "lookup attention item by dedupe key"
+        maxAttempts: 3
+        approvalRequired: false
+  completion:
+    expression: "nodes.assemble_delivery.state == 'succeeded' && nodes.final_signoff.output.verdict in ['accepted','explicitPartial'] && effects.allAccountedFor == true"
+    onPartial: allowExplicitPartial
+    residualRisksRequired: true
