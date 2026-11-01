@@ -2190,7 +2190,7 @@
       "files": {
         "Cargo.toml": "6abc3e5e712f47c43449226610a100ce1017303791941cd7a9ea9136c14e1000",
         "README.md": "8713b2189242d102932fe67d652b7a107b09b27797cdba20062cf65536577d4e",
-        "src/main.rs": "f3ba30ae2f3505c0f7ca6f393626c85c9e6b7549356254d0156f1180d342f2e9"
+        "src/main.rs": "eb6fa86adf71c88cd949d26f240cfc287cce528d7ee015b3b7db4d6ca1da9393"
       }
     },
     "rightkit-agent-recipes": {
