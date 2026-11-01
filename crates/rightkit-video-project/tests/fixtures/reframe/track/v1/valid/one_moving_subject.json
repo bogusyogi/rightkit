@@ -1,0 +1,13 @@
+[
+  { "output_ms": 0, "source_id": "cam-a", "observations": [{ "modality": "face", "center_x": 0.15, "center_y": 0.5, "confidence": 0.9 }] },
+  { "output_ms": 200, "source_id": "cam-a", "observations": [{ "modality": "face", "center_x": 0.29, "center_y": 0.5, "confidence": 0.9 }] },
+  { "output_ms": 400, "source_id": "cam-a", "observations": [{ "modality": "face", "center_x": 0.43, "center_y": 0.5, "confidence": 0.9 }] },
+  { "output_ms": 600, "source_id": "cam-a", "observations": [{ "modality": "face", "center_x": 0.57, "center_y": 0.5, "confidence": 0.9 }] },
+  { "output_ms": 800, "source_id": "cam-a", "observations": [{ "modality": "face", "center_x": 0.71, "center_y": 0.5, "confidence": 0.9 }] },
+  { "output_ms": 1000, "source_id": "cam-a", "observations": [{ "modality": "face", "center_x": 0.85, "center_y": 0.5, "confidence": 0.9 }] },
+  { "output_ms": 1200, "source_id": "cam-a", "observations": [{ "modality": "face", "center_x": 0.85, "center_y": 0.5, "confidence": 0.9 }] },
+  { "output_ms": 1400, "source_id": "cam-a", "observations": [{ "modality": "face", "center_x": 0.85, "center_y": 0.5, "confidence": 0.9 }] },
+  { "output_ms": 1600, "source_id": "cam-a", "observations": [{ "modality": "face", "center_x": 0.85, "center_y": 0.5, "confidence": 0.9 }] },
+  { "output_ms": 1800, "source_id": "cam-a", "observations": [{ "modality": "face", "center_x": 0.85, "center_y": 0.5, "confidence": 0.9 }] },
+  { "output_ms": 2000, "source_id": "cam-a", "observations": [{ "modality": "face", "center_x": 0.85, "center_y": 0.5, "confidence": 0.9 }] }
+]

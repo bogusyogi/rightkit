@@ -1551,6 +1551,87 @@
         "README.md": "02b787bd0efe3bfd5db4f45fa2fa34e2ddb1b2bc2e92f479a123eb5f421cab73",
         "src/main.rs": "91d8a63d6af927194ef2fffc9135aaa4330683c471ac2ebb985496ac1a425c32"
       }
+    },
+    "rightkit-mesh": {
+      "pkId": "PK51",
+      "id": "ci/consumers/rightkit-mesh/src/main.rs",
+      "files": {
+        "Cargo.toml": "05e56432f0bd77701fd96135da887d2cd19c963fc85bf656287f0c11a3b6adaf",
+        "README.md": "3adc75dad4484961284b9a5bbd7797fcc36021ed4cf3e6fd74642e398fd68f48",
+        "src/main.rs": "22f7c68ad8e7ca19860d4f53a85274898ea0a229520faac5c18740c47e2f673f"
+      }
+    },
+    "rightkit-timeline": {
+      "pkId": "PK52",
+      "id": "ci/consumers/rightkit-timeline/src/main.rs",
+      "files": {
+        "Cargo.toml": "c05e80e0bc4d058275415f5a609fb3f4bd3e6ebf3341d47b9fdc2dac3aeb136f",
+        "README.md": "35b884cbd32e9418e0346a2e007fda4260081151d62338e6dd839597d36b9ab4",
+        "src/main.rs": "9417c32d67f50400a9834dc9d49115fa20361d3bafee40365eb262f97cf7db63"
+      }
+    },
+    "rightkit-compositor": {
+      "pkId": "PK53",
+      "id": "ci/consumers/rightkit-compositor/src/main.rs",
+      "files": {
+        "Cargo.toml": "147f8f8c642790402a7a250e3631eaedeee97e4cc6381d4eee14f91449acfba6",
+        "README.md": "7fcc16601884e0341fe3e67fe0558e5918f8ce7dfdf9e337501dc3dcb4bde324",
+        "src/main.rs": "79bc79e614cd94ea02191a5e33e76fff6d7d351fdd5c47c9f4909c2197f4e20c"
+      }
+    },
+    "rightkit-color": {
+      "pkId": "PK54",
+      "id": "ci/consumers/rightkit-color/src/main.rs",
+      "files": {
+        "Cargo.toml": "03aaedd78a966fc89b532b3010bec74ad1a99d4142d55a74dcff9c38b63cface",
+        "README.md": "fe188ea0a1a43e8eba739875057cc9f3d8877bd48b1ca29655afcdb9bcec5d67",
+        "src/main.rs": "c2ae972ea5b88052596cfd649b823ed3d93b9f7db9ad31207a14763ff2524cc8"
+      }
+    },
+    "rightkit-captions": {
+      "pkId": "PK55",
+      "id": "ci/consumers/rightkit-captions/src/main.rs",
+      "files": {
+        "Cargo.toml": "d6a3b2dc04e87e5d603dba0126d21db91b2b9f352ec1b10a5f2fcb4652f25c39",
+        "README.md": "7eaddf8cabd60eb235880f5ecc64d8375eced10dbfa96fa4dfaf1a7680d04f9a",
+        "src/main.rs": "27d0f0c1bc20b0c48ce91e1c803716f3f59db6c1303651f6ee57c56bef222c13"
+      }
+    },
+    "rightkit-video-project": {
+      "pkId": "PK56",
+      "id": "ci/consumers/rightkit-video-project/src/main.rs",
+      "files": {
+        "Cargo.toml": "b4e5acc12340b261c8a30f65a8ebb5c9d80a8eddd4ed5c8570ef1da1a65325b6",
+        "README.md": "3058b5ccceccc01df9db1a9160294e2d113b6464ae4b97b92d41fd779f9d6769",
+        "src/main.rs": "fe1691662ebfc75ec77684ee1f42f46491fd402011fde5b95b63803fe3f9a54a"
+      }
+    },
+    "rightkit-autoedit": {
+      "pkId": "PK57",
+      "id": "ci/consumers/rightkit-autoedit/src/main.rs",
+      "files": {
+        "Cargo.toml": "c08c0602685567af068b1cc9e221084f8fecb3b4f19de8258843baf37313ef3b",
+        "README.md": "4d624735601c73cb0dcf9e334975cc497333a32290165ab43caf23eb8207a3a8",
+        "src/main.rs": "055a52c095cb14ee41bcb54422d17cd60f10e9856b3cfea73277646a7ac2f16b"
+      }
+    },
+    "rightkit-reframe": {
+      "pkId": "PK58",
+      "id": "ci/consumers/rightkit-reframe/src/main.rs",
+      "files": {
+        "Cargo.toml": "174acacaeb756855ff0c3e329bc16d2c7b5cafde15d12618d1143fbc8eba6290",
+        "README.md": "375309718b38c6fac678d543e50013cc1b6cd598a4f1c9124912ef70063957a0",
+        "src/main.rs": "d496b52275c2f1d8ff2e810bf8061672f337e100d751165486932271395ba5c7"
+      }
+    },
+    "rightkit-shorts": {
+      "pkId": "PK59",
+      "id": "ci/consumers/rightkit-shorts/src/main.rs",
+      "files": {
+        "Cargo.toml": "fc355f2714d24d56d582638c94ec04d8654c7d528981d00d93ed6690ac8c3373",
+        "README.md": "66ebdb971f0abd4fc4e4bca0e67c6264bd6e9ee1c0873568c73744c694f91c77",
+        "src/main.rs": "b5c4e08aa4ac47506bf22eac31a70e4aa049b2c40fe7d2ef21ef079fb72a33d8"
+      }
     }
   }
 }

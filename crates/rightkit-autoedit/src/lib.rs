@@ -1,0 +1,9 @@
+//! Automatic editing for Right Suite video apps: transcript-driven cuts (retakes, fillers,
+//! silences), the editorial engine, named cut variants of one source, and scoped editing rules
+//! with their resolution matrix. Moved from CutRight (`cutright-cuts`, `-editorial`,
+//! `-variants`, `-rules`).
+
+pub mod cuts;
+pub mod editorial;
+pub mod rules;
+pub mod variants;

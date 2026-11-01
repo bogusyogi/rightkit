@@ -1,0 +1,29 @@
+[
+  {
+    "output_ms": 0,
+    "source_id": "cam-a",
+    "observations": [{ "modality": "face", "center_x": 0.85, "center_y": 0.5, "confidence": 0.9 }],
+    "ocr_boxes": [
+      { "x0": 0.05, "y0": 0.7, "x1": 0.45, "y1": 0.82 },
+      { "x0": 0.05, "y0": 0.85, "x1": 0.6, "y1": 0.95 }
+    ]
+  },
+  {
+    "output_ms": 200,
+    "source_id": "cam-a",
+    "observations": [{ "modality": "face", "center_x": 0.85, "center_y": 0.5, "confidence": 0.9 }],
+    "ocr_boxes": [
+      { "x0": 0.05, "y0": 0.7, "x1": 0.45, "y1": 0.82 },
+      { "x0": 0.05, "y0": 0.85, "x1": 0.6, "y1": 0.95 }
+    ]
+  },
+  {
+    "output_ms": 400,
+    "source_id": "cam-a",
+    "observations": [{ "modality": "face", "center_x": 0.85, "center_y": 0.5, "confidence": 0.9 }],
+    "ocr_boxes": [
+      { "x0": 0.05, "y0": 0.7, "x1": 0.45, "y1": 0.82 },
+      { "x0": 0.05, "y0": 0.85, "x1": 0.6, "y1": 0.95 }
+    ]
+  }
+]

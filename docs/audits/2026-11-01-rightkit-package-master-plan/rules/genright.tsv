@@ -1,0 +1,54 @@
+^workers/blender/archive/	none	DROP	archived one-off Blender lookdev scripts
+^workers/blender/	rightkit-blender-worker	NEW	Blender render worker (Python, runs inside Blender): scene, materials, product registration/review, finish profiles, contract
+^(server|compat-lib|bin)/|scripts/legacy-api	none	DROP	legacy Node Media Console server & runners superseded by Rust studio port (confirm)
+^plugins/	@rightkit/ax	EXTEND	agent plugin evals
+gen/src/providers/local_image|crates/genright-local-image/|engine/src/(local_image_service|probe)	rightkit-local-image	NEW	keyless local image gen: sd.cpp server runtime, memory modes, profiles, job store, artifacts
+gen/src/providers/local_lipsync	rightkit-lipsync	NEW	local Wav2Lip talking-head lip-sync on ONNX
+gen/src/providers/musicgen	rightkit-music-gen	NEW	local MusicGen ONNX music generation
+gen/src/providers/realesrgan	rightkit-upscale	NEW	local Real-ESRGAN image upscale
+gen/src/providers/qts|crates/genright-qts/	rightkit-tts	ADOPT	local Qwen3-TTS voice
+gen/src/(providers/|catalogue|capabilities|routing|jobs|descriptor|fal_storage|api|lib)|studio/src/(balances|avatars)	rightkit-media-gen	NEW	generative media providers (fal, WaveSpeed, Veo/Gemini, OpenAI Images, ElevenLabs, HeyGen avatars, EvoLink, Higgsfield, Muapi, NanoBanana, Replicate, Wan2GP, Blender), model catalogue & facts, routing, durable gen jobs, result descriptors, balances
+gen/src/stock	rightkit-stock-media	NEW	stock & archive acquisition (Pexels, Pixabay, Internet Archive) w/ licence facts
+gen/src/(library|import|provenance|search|store)|core/src/artifacts|engine/src/reference_cmd|protocol/src/asset_facts	rightkit-library	NEW	owned media library: import w/ provenance, asset facts (origin/evidence/rights), FTS search, artifact index
+gen/src/media\.rs	rightkit-media-probe	NEW	pure-Rust media probe (dims, duration, codec)
+gen/src/ledger	rightkit-spend	EXTEND	gen spend ledger GUI+CLI
+gen/src/credentials|protocol/src/keychain	rightkit-credentials	ADOPT	provider API keys
+gen/src/entitlement|engine/src/entitlement|protocol/src/license	rightkit-license	ADOPT	Pro gate & trial
+core/src/discovery	rightkit-daemon	EXTEND	installed suite-app discovery
+core/src/path_policy|protocol/src/roots	rightkit-fs	ADOPT	roots & path policy
+engine/src/brief	rightkit-pipeline	NEW	brief run / delivery envelope handling between suite engines
+engine/src/motion_|studio/src/motion	rightkit-motion	EXTEND	HyperFrames HTML composition render: loopback host, headless Chrome capture, encode
+engine/src/still_finish	rightkit-compose	EXTEND	keyless still finishing composite
+engine/src/(lease|worker)	rightkit-job-queue	EXTEND	caller leases & detached job runners
+engine/src/settings_cmd	rightkit-app-settings	ADOPT	settings get/patch
+protocol/src/approval|studio/src/approvals|src-tauri/src/approval	rightkit-approvals	NEW	approval tokens & cards for paid drafts/deliveries (minted by shell, verified by engine)
+protocol/src/h264	rightkit-ffmpeg	EXTEND	single H.264 encoder rule
+protocol/src/ffmpeg|studio/src/ffmpeg	rightkit-ffmpeg	ADOPT	ffmpeg discovery
+protocol/src/http	rightkit-http	ADOPT	outbound HTTP policy
+protocol/src/model_store	rightkit-models	ADOPT	model store glue
+protocol/src/diag|src-tauri/src/crash	rightkit-logs	ADOPT	diagnostics events
+studio/src/eyes	rightkit-review	EXTEND	human-eyes review gate
+studio/src/model_management/(remote|rental)	rightkit-remote-compute	NEW	rented GPU workers (Vast): register/stage/run lifecycle, time-billed spend
+studio/src/model_management/	rightkit-models	EXTEND	memory-aware governor for heavy local models, hardware fit, install, Blender/Wan2GP/sd.cpp doctor
+studio/src/pipeline_workflows/asr	rightkit-asr	ADOPT	whisper ASR
+studio/src/pipeline_workflows|studio/src/production	rightkit-media-pipeline	NEW	named production pipelines: compose, dubbing w/ retiming, translation w/ terminology, fan-out multi-job steps, finishing handoff, campaign factory
+studio/src/voices	rightkit-voice-library	NEW	voice library: clones, presets, provider voices
+studio/src/	rightkit-prompt-recipes	NEW	prompt contracts & validator, recipe composer & catalogue, characters/LoRA lock, video quality templates, template swap, brand codes, KDP workflow
+crates/genright-e2e/	rightkit-qa	ADOPT	e2e harness & scenarios
+crates/genright-(engine|protocol|studio|gen|core)/(src/(main|main_stdio|main_doctor|commands|cli_media|caller_tag|lib)|tests/|examples/|data/|Cargo)|crates/[^/]+/Cargo\.toml	app-shell	SHELL	engine binary, CLI surface & app contract
+src-tauri/src/agent_tools	rightkit-agent-tools	ADOPT	agent tool profile
+src-tauri/src/(engine_supervisor|runtime_paths)	rightkit-tauri-shell	ADOPT	engine host
+src-tauri/src/license_host	rightkit-license	ADOPT	licence host
+src-tauri/	app-shell	SHELL	tauri entry
+^src/components/MaskBrush|^src/lib/mask-export	@rightkit/media-ui	EXTEND	mask brush & export
+^src/components/(Balances|KeyRow|VastKeyRow|ImportEnvButton)|^src/views/(ModelsPanel|RentalsPanel|RoutePanel|SpendReconcile|Settings|models-panel|route-panel|rentals-logic|route-panel-logic|spend-reconcile|vast-key)|^src/lib/(settings-backend|local-models-backend|model-management|model-select)	@rightkit/settings-ui	EXTEND	API keys, balances, models, rentals, routing & spend reconcile panels
+^src/views/(Onboarding|LegalDocument|LicensePlan|DeviceAllowance|device-allowance)|^src/lib/(onboarding|setup-steps|license)	@rightkit/onboarding	ADOPT	onboarding, legal, licence plan, device allowance
+^src/lib/(app-update|app-update-tauri|logs|platform|shell|theme|windowControls|doctor)	@rightkit/tauri	ADOPT	adapters
+^src/lib/(browser-mock-api|production-mock)|^src/views/.*mock|^src/views/panels/.*mock	@rightkit/qa	EXTEND	browser mock API for UI QA
+^src/components/(ui|icons|ErrorNote|DesktopWorkspace)|^src/lib/(confirm|nav|app-state|engine-error)	@rightkit/react-shell	EXTEND	workspace frame, confirm, nav, error note
+^src/	@rightkit/media-gen-ui	NEW	generation studio UI: generate forms, gallery & library, jobs, recipes & templates, character/quality/video panels, voices, avatars, motion, production, pipelines, KDP, local image chat
+^scripts/(verify-brand|trace-brand)	@rightkit/theme	EXTEND	brand icon verification
+^scripts/	@rightkit/qa	EXTEND	QA browser
+(rustfmt\.toml|\.cargo/|vite\.config\.ts|about\.toml|eslint|deny\.toml|rust-toolchain)	@rightkit/config	NEW	shared presets
+issues\.html	@rightkit/issues-tracker	ADOPT	generated
+.*	app-shell	CONFIG	app manifests

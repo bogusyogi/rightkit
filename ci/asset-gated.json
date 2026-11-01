@@ -3,16 +3,21 @@
   "crates": {
     "rightkit-asr": "Whisper library (RIGHTKIT_WHISPER_LIB), ASR models and audio fixtures",
     "rightkit-audio": "FFmpeg development build",
+    "rightkit-autoedit": "editing FFmpeg (RIGHTKIT_FFMPEG) and a font (RIGHTKIT_FONT) for the variants compare render in tests/variants_variants.rs; a missing build prints SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes it fail",
     "rightkit-automation": "desktop session for the end-to-end tests (e2e_mac, e2e_win)",
     "rightkit-browser": "Chrome for Testing for the end-to-end tests",
+    "rightkit-color": "editing FFmpeg and ffprobe (RIGHTKIT_FFMPEG, RIGHTKIT_FFPROBE) for tests/ffmpeg.rs; a missing build prints SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes it fail",
     "rightkit-ffmpeg": "FFmpeg and ffprobe development builds",
     "rightkit-motion": "ffmpeg binary and encoders for the #[ignore]d tests/encode_e2e.rs (a missing ffmpeg prints SKIP; RIGHTKIT_REQUIRE_ASSETS=1 makes it fail)",
     "rightkit-ocr": "OCR models and the OS recognizer",
     "rightkit-onnx": "ONNX Runtime and model files",
     "rightkit-playback": "FFmpeg binary for the remux end-to-end test (tests/remux_e2e.rs)",
     "rightkit-qa": "FFmpeg binary for the media cross-check (tests/media_ffmpeg.rs); its skip-handling tests also print SKIP markers by design",
+    "rightkit-reframe": "editing FFmpeg and ffprobe (RIGHTKIT_FFMPEG, RIGHTKIT_FFPROBE), ONNX Runtime (RIGHTKIT_ORT_DYLIB, RIGHTKIT_ORT_DIR) and network for the pinned YuNet model in tests/reframe.rs; missing assets print SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes them fail",
+    "rightkit-shorts": "editing FFmpeg and ffprobe (RIGHTKIT_FFMPEG, RIGHTKIT_FFPROBE), a talking-head clip (RIGHTKIT_TALKING_HEAD_CLIP) and a font (RIGHTKIT_FONT) for tests/render.rs; missing assets print SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes it fail. tests/llm.rs has one #[ignore]d live-LLM test.",
     "rightkit-tts": "TTS engine models",
-    "rightkit-vad": "ONNX Runtime and the Silero model"
+    "rightkit-vad": "ONNX Runtime and the Silero model",
+    "rightkit-video-project": "editing FFmpeg and ffprobe (RIGHTKIT_FFMPEG, RIGHTKIT_FFPROBE) and a talking-head clip (RIGHTKIT_TALKING_HEAD_CLIP) for tests/ingest.rs, tests/render_polish.rs and tests/audio_processing_real.rs; missing assets print SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes them fail"
   },
   "npm": {
     "@rightkit/release": "sibling product checkouts (coderight, heardright, scraperight, ...) beside rightkit",

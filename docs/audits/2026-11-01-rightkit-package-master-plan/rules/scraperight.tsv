@@ -1,0 +1,74 @@
+^_mockups/	none	DROP	static design mockups, not shipped code
+^benchmarks/|^scripts/bench/|^scripts/benchmark-	rightkit-bench	NEW	benchmark corpora runner, scoring, receipts & claim gate
+crates/audio/|engine/src/(extraction_audio|extraction_social|carousel|tiktok|x_post|playlist_batch|profile_batch|extraction_images|extraction_carousel|source_auth)\.rs|protocol/src/ytdlp\.rs	rightkit-media-fetch	NEW	yt-dlp download/normalize, playlists & channels, X/TikTok/Instagram post, carousel & image capture
+crates/detect/	rightkit-source-detect	NEW	URL/file job classifier, media-type table, URL & host helpers
+engine/src/(extraction/(article|content_filters|tls_util)|extraction_article_flow)	rightkit-web-extract	NEW	article extraction ladder: native fetch w/ TLS fingerprint, browser render, readability, content filters
+engine/src/enrichment	rightkit-text-enrich	NEW	non-LLM enrichment: keywords, links, source tags, text segmentation
+engine/src/(asr|asr_route|whisper)\.rs|crates/speech/	rightkit-asr	ADOPT	Parakeet/Whisper routing & engines (use rightkit-asr + rightkit-speech-client)
+crates/ocr/|engine/src/extraction_documents\.rs	rightkit-ocr	ADOPT	OS OCR + PP-OCR fallback
+crates/ort_common/|engine/src/runtime_checks\.rs	rightkit-onnx	ADOPT	ORT location policy & readiness
+engine/src/extraction/pdf\.rs	rightkit-pdf	ADOPT	PDF text-layer extraction
+engine/src/extraction/(output|paths)	rightkit-transcript	EXTEND	transcript & article artifact writers, output path naming
+engine/src/extraction\.rs	rightkit-media-fetch	NEW	fetch-pool vs compute-lane split
+crates/store/|engine/src/history\.rs	rightkit-library	NEW	local artifact library: history authority, SQLite FTS index, delete/restore
+engine/src/cloud_sync|src-tauri/src/cloud_sync|src-tauri/src/commands_sync|src-tauri/tests/cloud_sync	rightkit-sync	EXTEND	CloudKit transport, phone-to-Mac queue relay, sync settings & runtime
+engine/src/(queue|queue_jobs|queue_worker|queue_tests|event_sink|main_stdio|main_requests)\.rs	rightkit-job-queue	EXTEND	durable queue w/ fetch pool + single compute lane, quarantine, event sink
+engine/src/main_license\.rs|src-tauri/src/license\.rs|protocol/src/license\.rs	rightkit-license	ADOPT	licence config & headless lookup
+src-tauri/src/pro_bridge\.rs	rightkit-license	EXTEND	Apple-device Pro continuity bridge
+engine/src/(model_migration|model_ops|model_report)\.rs|src-tauri/src/(seeding|engine_paths|runtime_paths|commands_models)\.rs|protocol/src/model_store\.rs	rightkit-models	ADOPT	shared model store ops, migration between suite apps, seeding
+engine/src/net\.rs	rightkit-http	EXTEND	SSRF URL guard for non-rightkit-http transports
+engine/src/browser/	rightkit-browser	ADOPT	CDP browser backend & address pin
+engine/src/playback\.rs|src-tauri/src/playback\.rs	rightkit-playback	ADOPT	compatibility playback
+engine/src/logging\.rs|src-tauri/src/(logging|diagnostics)\.rs	rightkit-logs	ADOPT	structured logging & support bundles
+engine/src/(runtime|runtime_tests)\.rs|protocol/src/(paths|runtime_paths)\.rs	rightkit-fs	ADOPT	engine paths
+protocol/src/persisted\.rs	rightkit-app-settings	ADOPT	persisted settings reader
+engine/src/(main|main_cli|lib)\.rs|engine/examples/|crates/engine/tests/|crates/[a-z_]+/Cargo\.toml|protocol/src/	app-shell	SHELL	engine binary, headless CLI & app wire contract
+src-tauri/src/(auth|auth_cookies|browser|commands_auth|commands_auth_helpers|inapp_sign_in)\.rs	rightkit-web-session	NEW	signed-in web sessions: in-app sign-in webview, cookie import/export, profile dirs
+src-tauri/src/asset_scope\.rs	rightkit-tauri-shell	EXTEND	asset-protocol scope grants
+src-tauri/src/crash_window\.rs	rightkit-crash	ADOPT	renderer crash capture
+src-tauri/src/(engine_supervisor|engine_supervisor_frames)\.rs|src-tauri/tests/engine_supervisor	rightkit-tauri-shell	ADOPT	engine sidecar host
+src-tauri/src/helper_process\.rs	rightkit-child-process	ADOPT	helper process spawn/timeout
+src-tauri/src/commands_release\.rs	@rightkit/app-update	ADOPT	release status & licence client requests
+src-tauri/	app-shell	SHELL	tauri entry & command surface
+crates/scraperight-ui-e2e/|scripts/sidecar-smoke/	rightkit-qa	ADOPT	native UI journeys & engine black-box smoke
+macos-native/ScrapeRightAppleCredentials/	RightKitAppleCredentials	ADOPT	Apple credential CLI helper
+ios-native/ScrapeRight/Extract/(ASREngine|MediaTranscriber)	RightKitSpeech	ADOPT	on-device transcription
+ios-native/ScrapeRight/Extract/	RightKitExtract	NEW	Swift extractors: article, carousel, media URL, PDF, OCR, WebView render, fetch policy
+ios-native/ScrapeRight/Library/	RightKitLibrary	NEW	Swift artifact library & markdown export
+ios-native/ScrapeRight/Models/	RightKitSpeech	ADOPT	shared model install store
+ios-native/ScrapeRight/Pro/|ios-native/Shared/(ProBridge|LicenseEntitlement)	RightKitLicense	ADOPT	licence & Pro continuity config
+ios-native/ScrapeRight/Queue/SourceDetect	rightkit-source-detect	NEW	Swift port of detect; replace with UniFFI binding
+ios-native/ScrapeRight/Queue/	RightKitImportQueue	EXTEND	universal serial job queue & runner
+ios-native/ScrapeRight/Send/	RightKitSend	NEW	Swift binding/UI over rightkit-send (receive scratchpad, clipboard offer)
+ios-native/ScrapeRight/Sync/|ios-native/Shared/CloudSync/	RightKitCloudSync	ADOPT	app sync adapter/codec on RightKitCloudSync
+ios-native/ScrapeRight/Theme/	@rightkit/theme	EXTEND	Swift brand tokens generated from brand.json
+ios-native/ScrapeRight/Views/SettingsView	RightKitUI	EXTEND	SwiftUI settings sections
+ios-native/ScrapeRight/Views/	RightKitLibraryUI	NEW	SwiftUI queue, library, result detail, receive views
+ios-native/ScrapeRightShare/|ios-native/Shared/ShareIntake	RightKitImportQueue	ADOPT	share extension intake
+ios-native/Shared/AppleSyncedCredentialStore	RightKitAppleCredentials	ADOPT	synced credential store
+ios-native/ScrapeRight/Diagnostics	RightKitDiagnostics	ADOPT	diagnostics
+ios-native/ScrapeRight/E2E|ios-native/Tests/	RightKitHubQA	EXTEND	iOS E2E seeds/probes & tests
+ios-native/	app-shell	SHELL	iOS app entry
+^src/components/(PasteBar|DropOverlay|JobCard|JobStatePreview|QueueBoard|QueueView|CategoryIcon|SourcePlatformIcon)|src/lib/(alreadyQueued|categoryDisplay|dropOverlay|jobAnnouncement|jobDisplay|jobState|queueView|playlistUrl|fileFilters|desktopSources)|src/hooks/	@rightkit/queue-ui	NEW	job queue UI: paste bar, drop overlay, job cards, queue board, engine event hook
+^src/components/(DesktopWorkspace|WorkbenchPreview|TranscriptFileActions)|src/views/(Detail|DetailChrome|DetailReader|Library|LibraryList|LibraryToolbar|detailFind)|src/lib/(historyPage|transcript|workbench)|src/views/ClaudeReader\.css	@rightkit/library-ui	NEW	library list, transcript/article reader, find-in-document, workbench
+^src/components/(TitleBar|NavTabs)|src/components/ClaudeDesktop\.css|src/styles\.css|src/lib/(ui|flash|idleTask|requestGate|format|errorMessage)\.ts	@rightkit/react-shell	EXTEND	desktop chrome css, flash/toast, idle task, request gate, formatting
+^src/views/(Settings|SettingsDoctor|SettingsLicense|SettingsRuntime|SettingsUi)|src/views/settings/|src/views/ClaudeSettings\.css	@rightkit/settings-ui	EXTEND	runtime/doctor sections & prefs
+^src/views/onboarding/|src/lib/onboardingBackend	@rightkit/onboarding	ADOPT	models intro & setup gate
+^src/legal/	@rightkit/legal	ADOPT	legal config
+^src/lib/(mediaAdapters|mediaSelection)	@rightkit/media-ui	ADOPT	media player adapters
+^src/lib/(license|updateAuth)\.ts	@rightkit/license	ADOPT	licence client
+^src/lib/modelStore\.ts	@rightkit/settings-ui	ADOPT	models section client
+^src/lib/(logs|notify|platform|theme|windowSurface)\.ts	@rightkit/tauri	ADOPT	adapters over existing RK packages
+^src/lib/ipc/qaMock|src/qa\.css|tests/helpers/	@rightkit/qa	EXTEND	mock IPC for UI QA
+^src/generated/	@rightkit/theme	ADOPT	generated brand css
+^src/(App|main|mountApp)\.tsx|src/contract\.ts|src/lib/ipc/|src/vite-env|index\.html	app-shell	SHELL	app composition & IPC contract
+tests/(already|category|desktop|drop|engine|image|job|media-kind|playlist|queue)	@rightkit/queue-ui	NEW	tests
+tests/(detail|library|transcript)	@rightkit/library-ui	NEW	tests
+tests/(legal)	@rightkit/legal-ui	ADOPT	tests
+tests/(media-player|media-selection)	@rightkit/media-ui	ADOPT	tests
+tests/	@rightkit/react-shell	EXTEND	shell/theme/platform/update tests
+scripts/(build-third-party-licenses|generate-npm-license-appendix|sync-legal)	@rightkit/legal	ADOPT	legal notices
+scripts/(bundled-asset-sizes|check-bundled-assets|prepare-runtime|fetch-ocr-assets|verify-macos-release)	@rightkit/release	EXTEND	bundled runtime staging & artifact verification
+scripts/	@rightkit/qa	EXTEND	QA capture, visual diff, evidence, test inventory, isolation
+(deny\.toml|rust-toolchain\.toml|\.cargo/|vite\.config\.ts|about\.toml)	@rightkit/config	NEW	shared toolchain/lint/vite presets
+.*	app-shell	CONFIG	app manifests & release config

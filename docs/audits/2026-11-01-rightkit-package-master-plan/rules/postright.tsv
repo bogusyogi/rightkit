@@ -1,0 +1,82 @@
+# --- publish core & platform adapters
+engine/src/publish/http\.rs	rightkit-http	ADOPT	one-request HTTP layer already on rightkit-http
+engine/src/publish/quota\.rs|protocol/src/publish\.rs	rightkit-social-publish	NEW	per-account quota pacing & publish job wire types
+engine/src/publish/	rightkit-social-publish	NEW	durable publish job phase machine + platform adapters (X, Bluesky, Mastodon, Threads, Instagram, Facebook, LinkedIn, Pinterest, TikTok, YouTube)
+engine/src/api_versions\.rs	rightkit-platform-rules	EXTEND	pinned platform API versions & sunset dates
+(engine|protocol)/src/accounts\.rs|(engine|protocol)/src/deletion\.rs	rightkit-social-accounts	NEW	connected platform accounts, readiness, platform data-deletion requests
+(engine|protocol)/src/(analytics|metric_import|optimise)\.rs	rightkit-social-analytics	NEW	analytics pull/store, manual metric import, calendar optimisation proposals
+(engine|protocol)/src/(automation|inbox)\.rs	rightkit-social-inbox	NEW	signed webhook inbox & keyword-comment DM automation
+(engine|protocol)/src/backup\.rs	rightkit-db	EXTEND	SQLite store backup, verify & restore
+engine/src/calendar_time\.rs	rightkit-time	EXTEND	local wall time -> UTC for calendars (tz-aware)
+(engine|protocol)/src/calendar\.rs	rightkit-content-calendar	NEW	brief & calendar entry cache, proposals
+(engine|protocol)/src/(channels|memory)\.rs	rightkit-channel-memory	EXTEND	channel store & channel memory document (schema already in RK)
+(engine|protocol)/src/content\.rs	rightkit-library	NEW	reusable media records with occurrence ids & expiry
+(engine|protocol)/src/contracts_io\.rs	rightkit-contracts	EXTEND	contract.check & delivery envelope IO at app boundary
+engine/src/daemon_host\.rs	rightkit-daemon	EXTEND	headless server role (scheduler, public listener, remote host)
+(engine|protocol)/src/heartbeat\.rs	rightkit-daemon	ADOPT	heartbeat record already owned by rightkit-daemon
+(engine|protocol)/src/(digest|reddit_reader)\.rs	rightkit-research	NEW	dated research digests & source readers (Reddit)
+(engine|protocol)/src/dispatch\.rs	rightkit-pipeline	NEW	dispatch of content briefs to another engine as external process
+engine/src/doctor\.rs	rightkit-doctor	NEW	capability health probes behind doctor command
+(engine|protocol)/src/drafting\.rs	rightkit-agents	EXTEND	headless drafting via installed Claude/Codex CLI
+(engine|protocol)/src/(drafts|variants|hook_test)\.rs	rightkit-content-briefs	NEW	typed briefs, platform variants, hook tests, manual drafts
+(engine|protocol)/src/gate\.rs	rightkit-text-gate	NEW	deterministic text quality/approval gate with policy revisions
+(engine|protocol)/src/links\.rs	rightkit-link-tracking	NEW	campaigns, tracked short links & visit records
+(engine|protocol)/src/(acquisition|proof)\.rs	rightkit-content-proof	NEW	acquisition chain gates & claim/proof semantics
+engine/src/review_surface\.rs	rightkit-review	EXTEND	phone review & pause surface over daemon
+engine/src/runtime\.rs	rightkit-fs	ADOPT	data root & private store dirs
+engine/src/settings\.rs	rightkit-app-settings	ADOPT	settings get/patch for settings-ui
+(engine|protocol)/src/spend\.rs	rightkit-spend	EXTEND	app spend layer over rightkit-spend ledger
+protocol/src/schema\.rs	rightkit-job-queue	EXTEND	per-command request/response schema validation
+engine/src/(main|commands)\.rs|protocol/src/lib\.rs|crates/(engine|protocol)/Cargo\.toml	app-shell	SHELL	engine binary & command table composition
+engine/assets/	rightkit-content-proof	NEW	engine data assets (catalogues)
+# --- mock platform (QA)
+mock-platform/src/json\.rs	serde_json	DROP	hand-rolled JSON; use serde_json
+mock-platform/src/(server|http)\.rs	rightkit-qa	ADOPT	mock server already rightkit-qa MockServer
+mock-platform/src/(fake_engine|fake_llm_cli)\.rs	rightkit-qa	EXTEND	fake editor engine & fake Claude/Codex CLI
+mock-platform/	rightkit-social-mock	NEW	deterministic mock of social platform APIs + webhooks for QA
+tests/mock-platform/	rightkit-qa	EXTEND	fake CLI scripts
+crates/tools/	@rightkit/release	EXTEND	manifest-consistency gate checks
+# --- tests follow their package
+tests/scenarios[^/]*/(publish|cost|secrets)	rightkit-social-publish	NEW	tests
+tests/scenarios[^/]*/(accounts)	rightkit-social-accounts	NEW	tests
+tests/scenarios[^/]*/(analytics|metric|optimise)	rightkit-social-analytics	NEW	tests
+tests/scenarios[^/]*/(dm|inbox)	rightkit-social-inbox	NEW	tests
+tests/scenarios[^/]*/(acquisition|proof)	rightkit-content-proof	NEW	tests
+tests/scenarios[^/]*/(brief|drafts|hook|text)	rightkit-content-briefs	NEW	tests
+tests/scenarios[^/]*/(calendar)	rightkit-content-calendar	NEW	tests
+tests/scenarios[^/]*/(channel)	rightkit-channel-memory	EXTEND	tests
+tests/scenarios[^/]*/(content)	rightkit-library	NEW	tests
+tests/scenarios[^/]*/(contracts)	rightkit-contracts	EXTEND	tests
+tests/scenarios[^/]*/(daemon|heartbeat)	rightkit-daemon	EXTEND	tests
+tests/scenarios[^/]*/(digest|reddit)	rightkit-research	NEW	tests
+tests/scenarios[^/]*/(dispatch)	rightkit-pipeline	NEW	tests
+tests/scenarios[^/]*/(drafting)	rightkit-agents	EXTEND	tests
+tests/scenarios[^/]*/(links)	rightkit-link-tracking	NEW	tests
+tests/scenarios[^/]*/(spend)	rightkit-spend	EXTEND	tests
+tests/scenarios[^/]*/(store)	rightkit-db	EXTEND	tests
+tests/scenarios[^/]*/(settings)	rightkit-app-settings	ADOPT	tests
+tests/scenarios[^/]*/(engine|sidecar)	rightkit-job-queue	ADOPT	engine contract tests (stay as app conformance via rightkit-qa)
+tests/scenarios-ui	rightkit-qa	ADOPT	UI scenarios run by rightkit-qa
+tests/fixtures/channels	rightkit-channel-memory	EXTEND	fixtures
+crates/e2e/	rightkit-qa	ADOPT	scenario gate harness (thin runner over rightkit-qa suite)
+# --- desktop shell
+src-tauri/src/diagnostics\.rs	rightkit-logs	ADOPT	renderer diagnostics host
+src-tauri/	app-shell	SHELL	tauri entry & engine wiring on rightkit-tauri-shell
+^src/screens/(Accounts|PublishJobs|Pacing|Failures|Inbox|Threads)Screen	@rightkit/social-ui	NEW	accounts, publish jobs, pacing, failures, inbox, DM threads screens
+^src/screens/(Analytics|Campaigns|Links)Screen	@rightkit/social-ui	NEW	analytics, campaigns & links screens
+^src/screens/(Calendar|Briefs|TypedBriefs|Drafts|Digests|HookTests|TextGate|ChannelMemory|Suggestions|Content|Approvals)Screen	@rightkit/content-ui	NEW	content planning screens
+^src/screens/SpendScreen	@rightkit/settings-ui	EXTEND	spend allowances panel
+^src/screens/StoreHealthScreen	@rightkit/settings-ui	EXTEND	store health/diagnostics panel
+^src/screens/SettingsScreen	@rightkit/settings-ui	ADOPT	settings panel
+^src/screens/labels\.ts|src/components/	@rightkit/content-ui	NEW	shared labels & scope select
+^src/data/(money|time)\.ts	@rightkit/i18n	EXTEND	money micro-units & instant formatting
+^src/data/mock/	@rightkit/social-client	NEW	typed mock data source for UI QA
+^src/data/	@rightkit/social-client	NEW	TS client & types for social/content engine commands (generate from Rust)
+^src/hooks/|src/router\.ts|src/operator\.css	@rightkit/react-shell	EXTEND	useAsync, state router, operator layout css
+^src/lib/	@rightkit/tauri	ADOPT	thin adapters over existing RK packages
+^src/brand\.css	@rightkit/theme	ADOPT	generated
+^src/(App|Startup|main)\.tsx|src/styles\.css|src/vite-env|index\.html	app-shell	SHELL	app composition
+scripts/check-release-pin	@rightkit/release	ADOPT	release pin check
+issues\.html	@rightkit/issues-tracker	ADOPT	generated
+(deny\.toml|rust-toolchain\.toml|\.cargo/|vite\.config\.ts)	@rightkit/config	NEW	shared toolchain/lint/vite presets
+.*\.toml$|.*\.mjs$	app-shell	CONFIG	app manifests & release config

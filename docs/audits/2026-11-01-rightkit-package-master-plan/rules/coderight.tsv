@@ -1,0 +1,87 @@
+bins/coderight/src/(api_skills|api_plugins|api_recipes|command_registry|custom_commands|skill_loop)	app-shell	SHELL	skill/plugin/recipe routes & command registry (call Legion skills crates)
+crates/daemon-client/src/ssh_tunnel	none	DROP	unused ssh tunnel (deletion held)
+crates/daemon-client/	rightkit-daemon	EXTEND	daemon client: app discovery, connect
+bins/coderight/tests/	rightkit-agent-server	NEW	route contract & e2e tests
+bins/coderight/src/main_runtime_(interactive_session|session_host|run_session)	rightkit-agent-engine	NEW	interactive & headless session host
+bins/coderight/src/main_runtime_vendor_turn	rightkit-agents	EXTEND	vendor turn
+bins/coderight/src/main_runtime_(server|daemon)	rightkit-agent-server	NEW	server & daemon client runtime
+^(handoff|dogfood)/|^qa/	rightkit-qa	EXTEND	terminal/PTY/ConPTY capture & reconcile, dogfood harness, soak runner
+apps/coderight-ios/Vendor/WasmKit/	WasmKit	VENDOR-KEEP	vendored WasmKit: use SwiftPM dependency
+^tools/	@rightkit/theme	EXTEND	design token extraction & context tools
+crates/tui/|bins/coderight/src/(tui_|goal_terminal)	rightkit-terminal-ui	NEW	terminal UI toolkit: composer, transcript, wrapping, panes, markdown render, image input, render metrics
+crates/(engine|history|tasks|runtime_middleware|runtime_resources|attention|protocol|api_[a-z]+|cli|storage)/|bins/coderight/src/(code_mode_context|context_status|host_retained_context|rehydrate|rollout_store|trajectory|journal|session_tool_catalog|plan_exit|pre_gate|observation|async_inbox_feed|store_write|evo_db|run_origin_storage)	rightkit-agent-engine	NEW	agent loop, edit history & diffs, task graph, runtime middleware & bounded resources, attention, session storage, context folds/rehydrate, trajectory journal, wire protocol
+crates/mobile_runtime/	rightkit-agent-engine	NEW	embedded agent runtime for fork-less hosts (iOS)
+crates/tools/	rightkit-agent-tools	EXTEND	coding tool suite: fs read/edit, shell, search, git, LSP, web, browser, MCP bridge, media
+crates/orchestration/|bins/coderight/src/(orchestrator|agent_roster|cli_delegation)	rightkit-agent-orchestration	NEW	multi-agent coordination: subagents, teams, delegation, roster
+crates/(workflow|workflow_host)/|bins/coderight/src/workflow/|bins/coderight/src/api_workflows/	rightkit-workflow	EXTEND	autonomous workflow control plane: runs, leases, fences, node executors
+crates/(driver_host|acp)/|bins/coderight/src/(acp/|api_drivers|driver_host_runtime|codex_client_version|vendor_mcp_pipe|native_transcript_exporter)	rightkit-agents	EXTEND	vendor coding drivers (Claude Code, Codex, Cursor, Cline, Grok, ACP), resumable NDJSON & JSON-RPC transports, login routes
+crates/(providers|router)/|bins/coderight/src/(provider_client|provider_setup|model_policy|router_seam|background_provider|api_provider_auth|inference_runtime)	rightkit-llm	EXTEND	provider clients, replay, heuristic model routing, provider setup presets, local inference runtime
+crates/mcp/|bins/coderight/src/(mcp_server|api_mcp)	rightkit-mcp	ADOPT	MCP client/server
+crates/(policy|coderight-legion-policy)/|bins/coderight/src/(api_permissions|audit)	rightkit-agent-policy	NEW	pure permission decision engine, destructive-action guard, policy packs, audit
+crates/hooks/|bins/coderight/src/(hooks|hooks_management)	rightkit-hooks	EXTEND	lifecycle hook bus & runner
+crates/(skills|plugins|recipes)/|bins/coderight/src/(api_skills|api_plugins|api_recipes|skill_loop|custom_commands|command_registry)	legion	DROP	delete: CodeRight uses the installed Legion (skill manifests & trigger DSL, plugin marketplace & loader, recipes, custom commands)
+crates/learning/|bins/coderight/src/(learning/|api_adapt|adapt_application_host|daemon_self_review|background_review_adapter)	rightkit-adapt	NEW	post-session learning pipeline
+crates/(memory|coderight-memory-backend|coderight-membrane-cli)/|bins/coderight/src/(membrane_binding|memory|api_memory|api_memright|api_membrane|blueprint_)	rightkit-memory	NEW	adaptive memory retrieval & backend (over context engine)
+crates/specs/|bins/coderight/src/api_specs	rightkit-specs	NEW	spec-governed artifacts & coverage
+crates/skeletonization/	rightkit-repo-graph	NEW	tree-sitter skeletonization
+crates/config/|bins/coderight/src/(api_settings|api_session_config)	rightkit-app-settings	EXTEND	layered TOML config & hot reload
+crates/(daemon_core|daemon_runtime)/|bins/coderight/src/(daemon/|daemon_state)	rightkit-daemon	EXTEND	daemon lifecycle, local services, presence
+crates/execution/|bins/coderight/src/(api_execution|api_environments|api_worktree_pool|inline_shell_runner)	rightkit-sandbox	EXTEND	execution backends, environments, worktree pool
+crates/local_models/|bins/coderight/src/api_local_models	rightkit-models	ADOPT	local model cookbook
+crates/media/	rightkit-ffmpeg	ADOPT	media tool adapters
+crates/telemetry/	rightkit-logs	ADOPT	telemetry
+crates/ort_common/	rightkit-onnx	ADOPT	ORT adapters
+crates/remote/|bins/coderight/src/(telegram|api_remote|remote)	rightkit-bot-messaging	NEW	remote access: Telegram bot, web auth, remote gateway
+bins/coderight/src/(github_app|github_signin)	rightkit-github	NEW	GitHub App: auth, webhooks, PR/issue ops
+bins/coderight/src/(scheduler|api_schedules|api_triggers)	rightkit-scheduler	NEW	cron schedules & triggers for agent runs
+bins/coderight/src/api_browser_workspace	rightkit-browser	EXTEND	browser workspace for agents
+bins/coderight/src/api_benchmarks	rightkit-bench	NEW	agent benchmarks
+bins/coderight/src/(doctor)	rightkit-doctor	NEW	doctor dimensions & probes
+bins/coderight/src/(license|auth|onboarding|startup)	rightkit-license	ADOPT	licence & auth
+bins/coderight/src/(http_client)	rightkit-http	ADOPT	http
+bins/coderight/src/api_fs_watch	rightkit-file-watch	ADOPT	fs watch
+bins/coderight/src/(api_notifications)	rightkit-tauri-shell	ADOPT	notifications
+bins/coderight/src/api_lsp	rightkit-agent-tools	EXTEND	LSP API
+bins/coderight/src/api_	rightkit-agent-server	NEW	agent daemon HTTP API: sessions, runtime, contract/OpenAPI, tool invocations, run changes, health, workspace, teams, coordination
+bins/coderight/	app-shell	SHELL	CLI definitions, main runtime, interactive session host
+^engine/tests/	rightkit-agent-server	NEW	installed matrix & engine tests
+^engine/	app-shell	CONFIG	engine workspace
+apps/coderight-tauri/src-tauri/src/(ssh_tunnel)	none	DROP	unused ssh tunnel (deletion held)
+apps/coderight-tauri/src-tauri/src/(native_oauth|token_store)	rightkit-oauth	ADOPT	oauth & tokens
+apps/coderight-tauri/src-tauri/src/(license_host|pro_bridge)	rightkit-license	ADOPT	licence
+apps/coderight-tauri/src-tauri/src/(legal_host)	@rightkit/legal	ADOPT	legal
+apps/coderight-tauri/src-tauri/src/(logs)	rightkit-logs	ADOPT	logs
+apps/coderight-tauri/src-tauri/src/(daemon_lifecycle|app_discovery)	rightkit-daemon	ADOPT	daemon lifecycle
+apps/coderight-tauri/src-tauri/src/(stream_transport)	rightkit-sidecar	EXTEND	stream transport
+apps/coderight-tauri/src-tauri/src/(desktop_shell|native_windows|window_state|update_host|notifications|onboarding|ipc_policy)	rightkit-tauri-shell	ADOPT	shell
+apps/coderight-tauri/src-tauri/src/agent_room	rightkit-agent-orchestration	NEW	agent room
+apps/coderight-tauri/src/components/(MiniChatApp)	none	DROP	unreachable mini chat
+apps/coderight-tauri/src/(components/(PersistentTerminal|TerminalPane)|hooks/usePersistentTerminal)	@rightkit/terminal-ui	NEW	xterm terminal pane
+apps/coderight-tauri/src/(components/(onboarding)|OnboardingApp)	@rightkit/onboarding	ADOPT	onboarding
+apps/coderight-tauri/src/(components/(nativeWindows|TitleBar|Sidebar|CommandPalette|ConfirmDialog|PaneErrorBoundary|PaneLoading|Icon|TaskSwitcherOverlay)|hooks/(palette|useConfirmationDialog)|styles/|i18n/)	@rightkit/react-shell	EXTEND	shell chrome, palette, pane boundaries, i18n
+apps/coderight-tauri/src/components/(VoiceConversation)|apps/coderight-tauri/src/hooks/(useVoiceConversation|useMicRecorder)	@rightkit/dictation-ui	NEW	voice conversation
+apps/coderight-tauri/src/components/(ComputerUsePanel|browser)/|apps/coderight-tauri/src/hooks/browser	@rightkit/agent-ui	NEW	computer-use & browser panels
+apps/coderight-tauri/src/(App|main)\.tsx|apps/coderight-tauri/src/(qaBuild|vite-env|test-node|index)	app-shell	SHELL	app entry
+apps/coderight-tauri/src/	@rightkit/agent-ui	NEW	agent workbench UI: chat timeline, composer, sessions, runtime/goals/memory/review panels, approvals, plugins/skills, orchestration, bots, environments, state stores
+apps/coderight-tauri/qa-e2e/	rightkit-qa	ADOPT	e2e
+apps/coderight-tauri/scripts/(check-(contrast|locked|motion|target-size|a11y)|gen-dark-theme)	@rightkit/theme	EXTEND	contrast/a11y/theme gates
+apps/coderight-tauri/scripts/(generate-daemon-openapi|check-daemon|check-openapi|check-protocol)	rightkit-agent-server	NEW	OpenAPI client codegen & contract checks
+apps/coderight-tauri/scripts/	@rightkit/qa	EXTEND	QA & surface checks
+apps/coderight-tauri/	app-shell	SHELL	tauri app
+apps/coderight-web/	@rightkit/agent-ui	NEW	remote web client
+apps/coderight-ios/CodeRight/(Account|License|Purchases)/	RightKitLicense	ADOPT	account, licence, purchases
+apps/coderight-ios/CodeRight/(Pairing)/	rightkit-mesh	NEW	pairing
+apps/coderight-ios/CodeRight/(Dictation)/	RightKitSpeech	ADOPT	dictation
+apps/coderight-ios/CodeRight/(Updates)/	RightKitUpdate	ADOPT	updates
+apps/coderight-ios/CodeRight/(Diagnostics|Feedback|Analytics|Debug)/	RightKitDiagnostics	ADOPT	diagnostics
+apps/coderight-ios/CodeRight/(Storage)/	RightKitFS	ADOPT	storage
+apps/coderight-ios/CodeRight/(Networking|CallbackURL)/	RightKitHTTP	ADOPT	networking
+apps/coderight-ios/CodeRight/(Widgets)/	RightKitLiveActivity	EXTEND	widgets
+apps/coderight-ios/CodeRight/(Theme)/	@rightkit/theme	EXTEND	Swift tokens
+apps/coderight-ios/CodeRight/LocalRuntime/(GitHub|Cloudflare|LocalFlyio|CloudForge|CloudEndpoint|LocalGit|LocalPullRequest|LocalClone)	rightkit-github	NEW	Swift forge connectors: GitHub, Cloudflare, Fly.io, git, PRs
+apps/coderight-ios/CodeRight/(LocalRuntime|Porting|Approvals|CommandPalette|Views|Models|Recovery|Routing|Sharing|TextChecking|Usage|Demo)/	RightKitAgent	NEW	Swift agent client: local runtime bridge, chat library, code editor, diff walkthrough, plan review, markdown rendering, approvals
+apps/coderight-ios/(Tests|UITests)/	RightKitHubQA	EXTEND	iOS tests
+apps/coderight-ios/	app-shell	SHELL	iOS app entry
+^scripts/	@rightkit/release	EXTEND	repo scripts
+(rustfmt\.toml|\.cargo/|vite\.config\.ts|about\.toml|eslint|deny\.toml|rust-toolchain)	@rightkit/config	NEW	shared presets
+.*	app-shell	CONFIG	app manifests

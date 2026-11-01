@@ -1,0 +1,22 @@
+[
+  { "output_ms": 0, "source_id": "cam-a", "observations": [
+    { "modality": "face", "center_x": 0.5, "center_y": 0.5, "confidence": 0.95 },
+    { "modality": "body_hands", "center_x": 0.1, "center_y": 0.5, "confidence": 0.8 }
+  ] },
+  { "output_ms": 200, "source_id": "cam-a", "observations": [
+    { "modality": "face", "center_x": 0.5, "center_y": 0.5, "confidence": 0.95 },
+    { "modality": "body_hands", "center_x": 0.34, "center_y": 0.5, "confidence": 0.8 }
+  ] },
+  { "output_ms": 400, "source_id": "cam-a", "observations": [
+    { "modality": "face", "center_x": 0.5, "center_y": 0.5, "confidence": 0.95 },
+    { "modality": "body_hands", "center_x": 0.58, "center_y": 0.5, "confidence": 0.8 }
+  ] },
+  { "output_ms": 600, "source_id": "cam-a", "observations": [
+    { "modality": "face", "center_x": 0.5, "center_y": 0.5, "confidence": 0.95 },
+    { "modality": "body_hands", "center_x": 0.82, "center_y": 0.5, "confidence": 0.8 }
+  ] },
+  { "output_ms": 800, "source_id": "cam-a", "observations": [
+    { "modality": "face", "center_x": 0.5, "center_y": 0.5, "confidence": 0.95 },
+    { "modality": "body_hands", "center_x": 0.9, "center_y": 0.5, "confidence": 0.8 }
+  ] }
+]

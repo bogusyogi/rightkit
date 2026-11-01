@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-mesh",
+  "capabilities": [
+    {
+      "capability": "device-mesh",
+      "summary": "Paired-device mesh: iroh live sessions, end-to-end encrypted mailbox, sync reconciliation and capped relayed transfers. Product-neutral; the host supplies identity and trust (PeerTrust).; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

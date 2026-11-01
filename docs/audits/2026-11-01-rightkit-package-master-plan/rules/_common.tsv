@@ -1,0 +1,3 @@
+(^|/)docs/	none	NOTCODE	documentation pages
+(^|/)legal/.*\.html$|THIRD_PARTY.*\.html$	none	NOTCODE	generated third-party notices (each app ships its own; produced by @rightkit/legal)
+(^|/)node_modules/	none	NOTCODE	vendored deps

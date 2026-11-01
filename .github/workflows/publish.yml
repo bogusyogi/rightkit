@@ -7,16 +7,16 @@ on:
   workflow_dispatch:
     inputs:
       admission:
-        description: Who admitted this request; only broker (RustRight rightkit-dispatch on a managed host, carrying rightkit-gate's qualification receipt). Hosted self-admission is retired.
+        description: "Who admitted this request: broker (RustRight rightkit-dispatch on a managed Mac or Dell, with rightkit-gate's qualification receipt and signed broker receipts) or direct (rightkit-gate on a Linux origin, no broker, with its qualification receipt and direct-origin record; rightkit#1341). Hosted self-admission is retired."
         type: choice
-        options: [broker]
+        options: [broker, direct]
         default: broker
         required: true
       request_id:
-        description: Broker request correlation ID (not signed authority)
+        description: Broker request correlation ID (not signed authority); empty for direct admission
         type: string
         default: ""
-        required: true
+        required: false
       expected_sha:
         description: Full commit SHA admitted by broker
         type: string
@@ -77,7 +77,8 @@ jobs:
           test "$RK_EXPECTED_SHA" = "$GITHUB_SHA"
           case "$RK_ADMISSION" in
             broker) [[ "$RK_REQUEST_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]] ;;
-            *) echo "::error::only broker admission (rightkit-gate --to release) publishes; hosted self-admission is retired"; exit 1 ;;
+            direct) test -z "$RK_REQUEST_ID" ;;
+            *) echo "::error::only broker (Mac, Dell) or direct (Linux) admission through rightkit-gate publishes; hosted self-admission is retired"; exit 1 ;;
           esac
           test -n "$RK_QUALIFICATION"
       - name: Refuse anything but main of a public repository

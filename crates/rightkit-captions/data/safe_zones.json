@@ -1,0 +1,46 @@
+{
+  "schema": "cutright.caption-safe-zones.v1",
+  "note": "Percent margins from each frame edge plus permille exclusion rectangles (x,y,w,h of the frame) where the platform overlays its own UI. Values approximate the published creator safe-zone guides; captions are placed outside them.",
+  "platforms": [
+    {
+      "id": "youtube", "name": "YouTube (16:9)", "width": 1920, "height": 1080,
+      "top_pct": 5, "bottom_pct": 10, "left_pct": 5, "right_pct": 5,
+      "exclusions": [
+        { "name": "player controls and progress bar", "x": 0, "y": 900, "w": 1000, "h": 100 },
+        { "name": "channel watermark", "x": 880, "y": 760, "w": 120, "h": 140 }
+      ]
+    },
+    {
+      "id": "youtube-shorts", "name": "YouTube Shorts (9:16)", "width": 1080, "height": 1920,
+      "top_pct": 8, "bottom_pct": 22, "left_pct": 5, "right_pct": 5,
+      "exclusions": [
+        { "name": "top search and camera icons", "x": 0, "y": 0, "w": 1000, "h": 80 },
+        { "name": "right action rail (like, dislike, comment, share, remix)", "x": 860, "y": 440, "w": 140, "h": 440 },
+        { "name": "bottom title, channel and subscribe", "x": 0, "y": 780, "w": 1000, "h": 220 }
+      ]
+    },
+    {
+      "id": "instagram-reels", "name": "Instagram Reels (9:16)", "width": 1080, "height": 1920,
+      "top_pct": 12, "bottom_pct": 22, "left_pct": 6, "right_pct": 6,
+      "exclusions": [
+        { "name": "top header", "x": 0, "y": 0, "w": 1000, "h": 120 },
+        { "name": "right action rail (like, comment, share, audio)", "x": 850, "y": 480, "w": 150, "h": 420 },
+        { "name": "bottom username, caption and audio", "x": 0, "y": 780, "w": 1000, "h": 220 }
+      ]
+    },
+    {
+      "id": "tiktok", "name": "TikTok (9:16)", "width": 1080, "height": 1920,
+      "top_pct": 10, "bottom_pct": 25, "left_pct": 6, "right_pct": 6,
+      "exclusions": [
+        { "name": "top following and search bar", "x": 0, "y": 0, "w": 1000, "h": 100 },
+        { "name": "right action rail (profile, like, comment, share)", "x": 830, "y": 440, "w": 170, "h": 440 },
+        { "name": "bottom handle, description and sound", "x": 0, "y": 750, "w": 1000, "h": 250 }
+      ]
+    },
+    {
+      "id": "generic-square", "name": "Generic 1:1", "width": 1080, "height": 1080,
+      "top_pct": 5, "bottom_pct": 8, "left_pct": 5, "right_pct": 5,
+      "exclusions": []
+    }
+  ]
+}

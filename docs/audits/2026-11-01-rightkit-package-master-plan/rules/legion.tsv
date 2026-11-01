@@ -1,0 +1,25 @@
+crates/legion-runtime/src/(l5_skills|p9_skills|l6_designer_checks|p8_designer)	legion	LEGION	skill & designer checks
+bins/legion/src/commands/(audit|verify)|bins/legion-dev/src/audit_	rightkit-code-audit	NEW	audit/verify commands & audit bench
+bins/legion/src/commands/(setup|bind|script)	legion	LEGION	host setup, binding & script projection
+bins/legion-dev/src/generators/	legion	LEGION	catalog & inventory generators
+^skills/|^agents/|^doctrine/|^hooks/|^packs/|^src/(roster|registry/skills)	legion	LEGION	agent skill packs & doctrine (architect, audit, council, designer, iOS/macOS/Android dev, marketing, SEO, research, writing, etc.)
+crates/legion-audit/src/wf_port|crates/legion-runtime/src/wf_port	rightkit-workflow	EXTEND	workflow port (scenario/state machine runtime)
+crates/legion-audit/|crates/legion-provider-sdk/|^qualification/|^evals/|^src/registry/|^src/schemas/|^schemas/|^engine/tests/	rightkit-code-audit	NEW	repository audit engine: native providers (security, architecture, data, frontend, platform), DAG & scheduler, evidence issuers, findings history, review runtime, provider SDK, rule registry & qualification corpora
+crates/legion-runtime/	rightkit-work-router	NEW	capability routing runtime: plan, route, task, budget, grant, escalation, delivery, inventories, platform layers, skills/designer checks
+crates/legion-(policy|policy-model|rules)/	rightkit-agent-policy	NEW	policy model, rules & enforcement
+crates/legion-review/|crates/legion-minimize/	rightkit-review	EXTEND	independent review & minimal-diff review
+crates/legion-research/	rightkit-research	NEW	research pipeline (sources, claims, evidence)
+crates/legion-handoff/	rightkit-agent-orchestration	NEW	handoff packets, continuity gate, live state
+crates/legion-(host|harness|catalog|topology)/|^src/lib/host|^packaging/	legion	LEGION	capability catalog & frontmatter, host detection/projection into Claude Code/Codex/AGENTS.md, plugin marketplace install
+crates/legion-(contracts|effects|decisions|report|arcane|application)/|^src/packages/contracts	rightkit-evidence	NEW	contracts, effect execution & receipts, decision store, evidence/SARIF/HTML reports, certification & governance lifecycle
+crates/legion-apple/	rightkit-apple-ops	NEW	Apple ops: App Store Connect API & upload, build analysis, preflight, profiling, SwiftUI traces
+bins/legion-mcp/	rightkit-mcp	ADOPT	stdio MCP transport
+bins/legion-hook/	rightkit-hooks	EXTEND	hook binary
+bins/	app-shell	SHELL	legion CLI & dev generators
+xtask/	@rightkit/release	EXTEND	xtask build/verify tasks
+^engine/	app-shell	CONFIG	engine workspace
+^scripts/(release)	@rightkit/release	EXTEND	release scripts
+^scripts/	@rightkit/qa	EXTEND	CI gates, validators, fixtures, python tool locks
+^(src|tests|migration|release|references)/	legion	LEGION	host projection scripts, guard, tests
+(rustfmt\.toml|\.cargo/|vite\.config\.ts|about\.toml|eslint|deny\.toml|rust-toolchain)	@rightkit/config	NEW	shared presets
+.*	app-shell	CONFIG	app manifests

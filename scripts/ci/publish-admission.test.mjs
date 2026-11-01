@@ -626,3 +626,31 @@ test("RA-21: every file a closure module reads at load time is in the sparse lis
   }
   assert.deepEqual(missing, [], "the sparse checkout omits files a closure module reads at load time");
 });
+
+// rightkit#1341: a Linux origin runs the gate direct (GATE-CONTRACT: "on dell and mac, via broker / on linux no broker"); its qualification
+// carries a direct-origin record (GB-29) that the admission re-derives against the dispatched commit. Mac and Dell stay broker-only.
+test("direct admission (#1341): a Linux origin's re-derived direct-origin record is admitted; a non-Linux, edited, mis-bound or broker-shaped record, a request id, or a broker qualification refuse", async () => {
+  const { buildDirectOrigin, directStageEvidence, RIGHTKIT_REPOSITORY } = await import("../../packages/release/direct-origin.mjs");
+  const unit = { kind: "npm", name: "@rightkit/release", version: "0.6.7" };
+  const artifact = { artifactSha256: "d".repeat(64), contentSha256: CONTENT };
+  const record = (over = {}) => buildDirectOrigin({ repository: RIGHTKIT_REPOSITORY, commit: SHA, tree: TREE, unit, registry: "npm", platform: "linux", artifact,
+    stages: { compile: directStageEvidence({ stage: "compile", commit: SHA, tree: TREE, command: "cargo build" }), package: directStageEvidence({ stage: "package", commit: SHA, tree: TREE, command: "pnpm pack", outputSha256: artifact.artifactSha256 }) }, ...over });
+  const directQual = (directOrigin = record(), over = {}) => ({ schema: QUALIFICATION_SCHEMA, commit: SHA, tree: TREE, runtime: "r".repeat(64), executor: "direct", unit, stages: { check: { ok: true }, compile: { ok: true }, package: { ok: true }, qualify: { ok: true } },
+    artifactSha256: artifact.artifactSha256, contentSha256: CONTENT, contentExcluded: HELPER_PATHS, directOrigin, ...over });
+  const directEnv = (q = directQual(), extra = {}) => ({ ...brokerEnv({ ADMISSION: "direct", REQUEST_ID: "" }), QUALIFICATION: JSON.stringify(q), ...extra });
+  const receipt = await admit({ env: directEnv(), git: git(), runGate: greenGate(), fetchImpl: npm(["0.6.6"]), policy: policy() });
+  assert.equal(receipt.mode, "direct");
+  assert.equal(receipt.requestId, "");
+  assert.equal(receipt.qualification.directOrigin.candidate, record().candidate);
+  const expected = { repository: "bogusyogi/rightkit", sourceSha: SHA, runId: "77", runAttempt: "1", registry: "npm", units: [{ name: "@rightkit/release", version: "0.6.7" }], allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] } };
+  assert.equal(verifyAdmissionReceipt(receipt, expected), receipt);
+  assert.throws(() => verifyAdmissionReceipt({ ...receipt, requestId: "req-1" }, expected), /direct receipt carries a broker request id/);
+  for (const [label, env, pattern] of [
+    ["a request id", directEnv(directQual(), { REQUEST_ID: "req-1" }), /direct admission carries no broker request id/],
+    ["a broker qualification", directEnv(qual()), /needs a qualification written by a direct origin/],
+    ["a Mac record", directEnv(directQual(record({ platform: "darwin" }))), /RK_DIRECT_ORIGIN_REFUSED/],
+    ["an edited record", directEnv(directQual({ ...record(), candidate: "0".repeat(64) })), /RK_DIRECT_ORIGIN_REFUSED/],
+    ["another tree", directEnv(directQual(buildDirectOrigin({ repository: RIGHTKIT_REPOSITORY, commit: SHA, tree: "e".repeat(40), unit, registry: "npm", platform: "linux", artifact, stages: { compile: directStageEvidence({ stage: "compile", commit: SHA, tree: "e".repeat(40), command: "x" }), package: directStageEvidence({ stage: "package", commit: SHA, tree: "e".repeat(40), command: "y", outputSha256: artifact.artifactSha256 }) } }))), /RK_DIRECT_ORIGIN_REFUSED/],
+    ["a broker-shaped record", directEnv(directQual({ ...record(), signature: "s" })), /RK_DIRECT_ORIGIN_REFUSED/],
+  ]) await assert.rejects(admit({ env, git: git(), runGate: greenGate(), fetchImpl: npm(["0.6.6"]), policy: policy() }), pattern, label);
+});

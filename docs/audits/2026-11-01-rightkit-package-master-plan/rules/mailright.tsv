@@ -1,0 +1,54 @@
+src-tauri/src/agent/(approval|tests/approval)|engine_api/approvals|commands/agent_approvals	rightkit-approvals	NEW	user approval cards for agent send/forward/delete/attach
+src/lib/ipc/agentApprovals	@rightkit/agent-ui	NEW	approval IPC client
+src-tauri/src/agent/|engine_api/(agents|approvals)|commands/agent	rightkit-agent-gateway	NEW	paired external agents over local daemon: method registry, gate, approval cards (send/forward/delete/attach), audit log, untrusted-content contract, redaction
+src-tauri/src/app_lock	rightkit-app-lock	NEW	app lock: OS-auth verification, serialized lock/unlock transitions, DB gate
+src-tauri/src/(db_compaction|wal_checkpoint)|src-tauri/src/db/(migration_backup|migration_gate|pragma_optimize|gate_tests|open_tests)|src-tauri/src/db_gate|commands/(compaction|db_health)	rightkit-db	EXTEND	compaction w/ rowid verify, background WAL checkpoints, verified pre-migration backup, migration gate, lock-order gate
+src-tauri/src/(fts_rebuild_job)|src-tauri/src/db/fts_	rightkit-search	EXTEND	HTML->indexable text, FTS5 maintenance & background rebuild
+src-tauri/src/semantic_job|engine_api/semantic|commands/semantic	rightkit-embed	EXTEND	background semantic indexing job
+src-tauri/src/(ai|translate)\.rs|src-tauri/src/ai/|engine_api/ai	rightkit-llm	EXTEND	BYOK AI actions & translation providers
+src-tauri/src/(gmail|google|calendar|drive|people|tasks|meet|filters|mail_settings|labels|drafts|attachments|oauth)(\.rs|/)|engine_api/(creds|calendar|drive|people|tasks|workspace)	rightkit-google-apis	NEW	Google Workspace clients: Gmail sync/history/batch/MIME/compose/labels/filters/vacation/drafts, Calendar, Drive, People/Contacts, Tasks, Meet, budgets & backoff
+src-tauri/src/(db|db_schema|db_schema_v21|db_sync_apply|sync|trust|webimg|attach_cache|safety)(\.rs|/)|engine_api/	rightkit-mail	NEW	provider-neutral local mail mirror: schema, outbox & pending ops, sync apply/rollups, recipients, risk/trust signals, remote-image proxy & tracker blocking, attachment cache, engine method groups
+src-tauri/src/core_ipc/	rightkit-sidecar	EXTEND	process engine split: core child owning DB, IPC transport, event pump, supervision, trust boundary
+src-tauri/src/runtime/	rightkit-service-host	NEW	runtime service lifecycle, health snapshot, event hub w/ debounce bridge, lock budgets, repo bundle
+src-tauri/src/(perf_proof|benchmarks\.rs|bin/)	rightkit-bench	NEW	SQLite perf proof & probes, load driver
+src-tauri/src/beta_creds_export	none	DROP	one-off dev tool
+src-tauri/src/(crash)\.rs	rightkit-crash	ADOPT	panic capture
+src-tauri/src/(diag|logs)\.rs	rightkit-logs	ADOPT	redaction & renderer logs
+src-tauri/src/credential_store	rightkit-credentials	ADOPT	OS credential store
+src-tauri/src/(settings_host)|commands/settings	rightkit-app-settings	ADOPT	UI preference store
+src-tauri/src/pro_gate|commands/(license|pro)	rightkit-license	ADOPT	licence gate & device identity
+commands/legal	@rightkit/legal	ADOPT	legal acceptance host
+src-tauri/src/utc_stamp	rightkit-time	ADOPT	UTC stamps
+src-tauri/src/(blocking|downloads|windows_security)	rightkit-fs	EXTEND	downloads folder, blocking helper, Windows ACL hardening
+src-tauri/src/test_root	rightkit-qa	EXTEND	process-wide test sandbox
+src-tauri/src/(build_info|desktop|shell_plugin|startup_error)|commands/(build_identity|runtime_health)	rightkit-tauri-shell	ADOPT	build identity, tray, shell plugin, startup error window
+src-tauri/engine/src/doctor	rightkit-doctor	NEW	doctor report
+src-tauri/engine/src/test_root	rightkit-qa	EXTEND	test sandbox
+src-tauri/engine/	rightkit-daemon	EXTEND	generic app CLI client over running app: arg parsing, error envelope & exit codes, pairing key, link
+src-tauri/(src|core)/|src-tauri/build\.rs|src-tauri/tests/	app-shell	SHELL	tauri entry, setup, command surface
+qa/	rightkit-qa	ADOPT	native e2e journeys
+workers/waitlist/	@rightkit/waitlist-worker	NEW	Cloudflare waitlist worker
+^src/components/(AgentApproval)|src/hooks/useAgentApprovals|src/lib/(agentFile|approvalQueue)|src/views/SettingsAgents	@rightkit/agent-ui	NEW	agent approval cards, pairing & audit views
+^src/components/(AppLockOverlay)	@rightkit/react-shell	EXTEND	app lock overlay
+^src/components/(Legal)|src/lib/legal	@rightkit/legal-ui	ADOPT	legal gate
+^src/components/AttachmentPdfPreview|src/lib/attachmentPdf	@rightkit/pdf-ui	ADOPT	pdf preview
+^src/components/(TitleBar|ErrorBoundary|FindBar|ShortcutHelpOverlay|Icons|AppOverlays|AppSearchTopbar)|src/hooks/(dialog|useDialog|useKeyboardShortcuts|useAppSwitcherShortcuts|useReaderFindProvider)|src/lib/(debounce|deferredRefresh|perfMonitor|telemetry|sound|shortcuts)	@rightkit/react-shell	EXTEND	error boundary, find bar, shortcut registry & help overlay, dialogs, perf monitor
+^src/views/(Calendar|Contacts|Drive|Tasks|Meet|driveFileGlyph)|src/views/nav/|src/hooks/useDrive|src/lib/(calendarUtils|vcard)	@rightkit/workspace-ui	NEW	calendar grid & event forms, contacts, drive browser & preview, tasks, meet
+^src/views/Settings|src/views/settingsSections|src/hooks/useSettings|src/lib/(settingsBackend|settingsServices|settingsWriteQueue|preferences)	@rightkit/settings-ui	EXTEND	mail/compose/privacy/storage/semantic/shortcut sections, write queue
+^src/lib/(license|update|theme|platform|auth)\.ts	@rightkit/tauri	ADOPT	adapters over existing RK packages
+^src/lib/ipc/qaMock|src/lib/ipc/qaGate	@rightkit/qa	EXTEND	mock IPC data for UI QA
+^src/(components|views|hooks|lib|store|styles)/	@rightkit/mail-ui	NEW	inbox virtual list, reader & sandboxed email frame, compose editor & recipients, search routing/coverage/saved searches, image trust, attachment preview, account switcher, mail store
+^src/	app-shell	SHELL	app composition
+tests/(approvalQueue)	@rightkit/agent-ui	NEW	tests
+tests/(appSwitcher|debounce|deferredRefresh|perfMonitor|telemetry|shortcut|iconOwners|architecture)	@rightkit/react-shell	EXTEND	tests
+tests/(preferences|settings|licenseUpdates|diagnostics)	@rightkit/settings-ui	EXTEND	tests
+tests/(vcard)	@rightkit/workspace-ui	NEW	tests
+tests/(cssOwner|qaInvoke|m2Exceptions)	@rightkit/qa	EXTEND	tests
+tests/	@rightkit/mail-ui	NEW	tests
+scripts/check-theme-contrast	@rightkit/theme	ADOPT	contrast check
+scripts/css-owner-inventory|scripts/qa-|scripts/lib/	@rightkit/qa	EXTEND	css owner inventory, QA journeys
+scripts/fetch-embed-model	rightkit-models	ADOPT	model fetch
+scripts/	@rightkit/legal	ADOPT	legal configs & gates
+(eslint\.config\.js|rustfmt\.toml|\.cargo/|vite\.config\.ts|about\.toml)	@rightkit/config	NEW	shared presets
+issues\.html	@rightkit/issues-tracker	ADOPT	generated
+.*	app-shell	CONFIG	app manifests & release config
