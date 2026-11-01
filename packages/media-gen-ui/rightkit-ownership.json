@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/media-gen-ui",
+  "capabilities": [
+    {
+      "capability": "media-gen-ui",
+      "summary": "Generative media studio UI: generate, jobs, gallery, recipes, voices and production panels.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

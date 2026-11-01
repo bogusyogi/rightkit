@@ -1,0 +1,111 @@
+.model-groups { display: grid; gap: 14px; margin-bottom: 4px; }
+.model-group-title { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+.gen-err { display: grid; gap: 4px; text-align: left; }
+.gen-err-code { margin-right: 6px; font-weight: 600; }
+.gen-err-next { color: var(--ink-2); }
+.media-info { color: var(--ink-3); font-size: 11px; margin-right: auto; }
+.failed-out { min-height: 0; padding: 10px 0; }
+.key-source { color: var(--ink-3); font-size: 11px; }
+
+/* Jobs view: expandable rows, stale reconciliation, asset hashes. */
+.jitem.open .jrow { border-bottom: .5px solid var(--line); }
+.jdetail { padding: 12px; display: grid; gap: 10px; }
+.jmeta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 11.5px; color: var(--ink-3); }
+.jmeta code { font-size: 11px; color: var(--ink-2); }
+.jhashes { display: grid; gap: 4px; }
+.jhash { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 11px; color: var(--ink-3); }
+.jhash code { font-size: 10.5px; }
+.jacts { display: flex; gap: 8px; }
+.jdetail .outs { margin-top: 0; }
+
+/* Provider balances (Settings). */
+.muted { color: var(--ink-3); }
+.balances { margin-top: 0; }
+.balances-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; font-size: 12.5px; }
+.balances-title { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+.balances .kv dd { font-variant-numeric: tabular-nums; }
+.balances .balances-list { margin-top: 0; }
+.balances-row { display: contents; }
+
+/* ===== Generation workspace (Generate.tsx): composer-first layout ===== */
+/* Main column: sticky header, scrolling canvas, settings drawer, pinned
+   composer. Overrides the old scrolling .work + provider card grid. */
+.gen .gen-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.gen-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 10px 24px; border-bottom: .5px solid var(--line); min-height: 52px; }
+.gen-rail-toggle { flex: none; }
+
+/* Model picker (combobox in the header). */
+.mpick { position: relative; margin-left: auto; min-width: 0; max-width: 100%; }
+.mpick-btn { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; text-align: left; }
+.mpick-btn b { font-weight: 500; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.mpick-btn > * { flex: none; }
+.mpick-btn > b { flex: 0 1 auto; }
+.mpick-btn .mpick-price { color: var(--ink-3); font-size: 11.5px; white-space: nowrap; }
+.mpick-btn .mpick-chev { color: var(--ink-3); font-size: 10px; }
+/* Inset on purpose: the list scrolls and clips, so the owner's outside outline (.rk-btn:focus-visible, +1px) would be cut off at the rows. */
+.mpick-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.mpick-search { margin: 8px; flex: none; }
+.mpick-list { max-height: 60vh; overflow-y: auto; padding: 0 5px 5px; }
+.mpick-gt { padding: 8px 9px 3px; font-size: 11px; font-weight: 600; color: var(--ink-3); }
+.mpick-row { display: flex; align-items: center; gap: 8px; width: 100%; justify-content: flex-start; text-align: left; }
+.mpick-row b { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mpick-row .mpick-sub { margin-left: auto; color: var(--ink-3); font-size: 11px; white-space: nowrap; }
+.mpick-row .badge { position: static; flex: none; }
+.mpick-empty { padding: 12px 10px; font-size: 12px; color: var(--ink-3); }
+.mpick-manage { flex: none; border-top: .5px solid var(--line); text-align: left; }
+
+/* Canvas: the only scrolling region in the main column. */
+.gen-canvas { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px 24px; overflow: hidden; }
+.gen-canvas > * { min-height: 0; }
+.gen-canvas .chat { flex: 1; min-height: 0; height: 100%; }
+.gen-canvas .gen-chat .msgs { min-height: 0; }
+.gen-canvas.gen-norail .chat, .gen-chat.solo { grid-template-columns: 1fr; }
+.gen-canvas.gen-norail .convos { display: none; }
+.gen-empty { margin: auto; align-self: center; width: min(520px, 100%); text-align: center; color: var(--ink-2); font-size: 13.5px; }
+.gen-examples { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 14px; }
+.gen-install { flex: 1; display: grid; place-items: center; }
+.gen-install .li-install { width: min(420px, 100%); }
+
+/* Settings drawer opens above the composer, scrolls internally. */
+.gen-drawer { flex: none; max-height: 40vh; overflow-y: auto; padding: 0 24px 10px; }
+.gen-drawer-form { padding: 14px 16px; }
+
+/* Composer pinned to the bottom of the main column. */
+.gen-composer { flex: none; margin: 0 24px 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.gen-composer textarea { width: 100%; min-height: 44px; max-height: 9.5em; field-sizing: content; resize: none; }
+.gen-inputs { display: flex; gap: 8px; }
+/* Input-first drop slots (upscale / lipsync). */
+/* The drop slot is an owner `Card` (flush); `selected` draws the drag-over ring. The wrapper carries the drag handlers. */
+.slot2-drop { flex: 1; min-width: 0; display: flex; }
+.slot2-drop > .slot2 { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 4px 8px; }
+.slot2-hint { color: var(--ink-3); font-size: 12px; flex: none; }
+.slot2-path { flex: 1; min-width: 48px; }
+.slot2-thumb { width: 52px; height: 34px; border-radius: 6px; overflow: hidden; flex: none; background: var(--fill-3); display: grid; place-items: center; }
+.slot2-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.slot2-thumb .mp, .slot2-thumb video { width: 100%; height: 100%; }
+.slot2-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.slot2-meta b { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slot2-meta .slot2-path { font-size: 11px; color: var(--ink-3); }
+.slot2-acts { display: flex; gap: 4px; flex: none; }
+.slot-empty { color: var(--ink-3); font-size: 11px; }
+.gen-compare { display: flex; align-items: center; gap: 10px; padding-top: 2px; }
+.gen-cmp { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.gen-cmp img, .gen-cmp .mp, .gen-cmp video, .gen-cmp .slot-empty { width: 100%; height: 120px; object-fit: contain; background: var(--fill-2); border-radius: 8px; display: grid; place-items: center; overflow: hidden; }
+.gen-cmp img { display: block; }
+.gen-cmp-arrow { color: var(--ink-3); font-size: 14px; flex: none; }
+.gen-inchip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px 3px 3px; border-radius: 8px; background: rgba(255,255,255,.14); max-width: 100%; }
+.gen-inchip img { width: 22px; height: 22px; object-fit: cover; border-radius: 5px; flex: none; }
+.gen-inchip b { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gen-gate { flex: none; background: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.gen-select { display: inline-flex; align-items: center; padding: 0; }
+.gen-mini { width: 86px; }
+.gen-why { color: var(--warn); font-size: 11.5px; }
+.gen-handoff { padding: 8px 10px; font-size: 12px; }
+.gen-refs { display: flex; flex-direction: column; gap: 6px; }
+.gen-refs-head { display: flex; align-items: center; gap: 8px; }
+.gen-refs-head .eyebrow { margin-right: auto; }
+.gen-refs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.gen-refs-list li { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border-radius: 8px; background: var(--fill-2); font-size: 12px; max-width: 100%; }
+.gen-refs-list li span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+.gen-refs-add { display: flex; gap: 8px; }
+.gen-refs-add input { flex: 1; min-width: 0; font-size: 12px; }

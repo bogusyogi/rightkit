@@ -1,0 +1,28 @@
+import type { RuntimeTab } from "./runtimePaneTypes";
+
+export const RUNTIME_TABS: RuntimeTab[] = [
+  "context",
+  "taste",
+  "metrics",
+  "rollouts",
+  "finetuning",
+  "proposals",
+  "compare",
+  "audit",
+  "room",
+  "memory",
+  "messages",
+  "observability",
+  "harness",
+  "specs",
+  "recipes",
+  "teams",
+  "schedules",
+  "triggers",
+  "artifacts",
+  "learning",
+  "benchmarks",
+  "taskgraph",
+  "automations",
+  "inbox",
+];

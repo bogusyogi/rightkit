@@ -1,0 +1,94 @@
+/* Activity timeline. Scoped under .ck-activity; tokens come from styles.css. */
+.ck-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 18px 18px;
+  scroll-padding: 12px;
+}
+.ck-activity :focus-visible { outline: 2px solid var(--rk-focus, var(--rk-accent)); outline-offset: 2px; border-radius: 6px; }
+.ck-activity h2 { margin: 0 0 6px 2px; font-size: 13px; font-weight: 600; color: var(--rk-ink); }
+.ck-activity p { margin: 0; }
+.ck-activity .muted { color: var(--rk-ink-2); font-size: 12px; }
+.ck-activity > * { flex: none; }
+
+.ck-activity-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ck-activity-select { min-width: 140px; }
+
+.ck-activity-day { display: flex; flex-direction: column; min-width: 0; }
+.ck-activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rk-hairline);
+  border-radius: 12px;
+  background: var(--rk-panel, var(--rk-fill-2));
+  overflow: hidden;
+}
+.ck-activity-row {
+  display: grid;
+  grid-template-columns: 74px 112px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  min-width: 0;
+  transition: background-color 120ms ease;
+}
+.ck-activity-row + .ck-activity-row { border-top: 1px solid var(--rk-hairline); }
+.ck-activity-row:hover { background: var(--rk-plane); }
+.ck-activity-row:active { background: color-mix(in srgb, var(--rk-accent) 14%, var(--rk-plane)); }
+
+.ck-activity-time {
+  color: var(--rk-ink-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ck-activity-kind {
+  justify-self: start;
+  padding: 2px 8px;
+  border: 1px solid var(--rk-hairline);
+  border-radius: 999px;
+  color: var(--rk-ink-2);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.ck-activity-summary {
+  min-width: 0;
+  color: var(--rk-ink);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.ck-activity-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px;
+  border: 1px dashed var(--rk-hairline);
+  border-radius: 12px;
+  color: var(--rk-ink);
+  font-size: 13px;
+}
+.ck-activity-error { color: var(--rk-danger, #c0392b); font-size: 12px; }
+.ck-activity-more { display: flex; justify-content: center; }
+.ck-activity-note { padding: 0 2px; }
+
+@media (max-width: 560px) {
+  .ck-activity { padding: 12px 16px 16px; }
+  .ck-activity-row { grid-template-columns: 1fr auto; grid-template-areas: "time kind" "summary summary" "open open"; }
+  .ck-activity-time { grid-area: time; }
+  .ck-activity-kind { grid-area: kind; justify-self: end; }
+  .ck-activity-summary { grid-area: summary; }
+  .ck-activity-row > button { grid-area: open; justify-self: start; }
+}

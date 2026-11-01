@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/agent-ui-workbench",
+  "capabilities": [
+    {
+      "capability": "agent-ui-workbench",
+      "summary": "Workbench and runtime panels for coding-agent UIs.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

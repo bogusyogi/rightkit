@@ -1,0 +1,4 @@
+# Copy to .cargo/config.toml. Fetch git dependencies with the git CLI (libgit2 trips over
+# credential-helper auth on private GitHub hosts).
+[net]
+git-fetch-with-cli = true

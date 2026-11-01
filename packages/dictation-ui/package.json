@@ -1,0 +1,76 @@
+{
+  "name": "@rightkit/dictation-ui",
+  "version": "0.1.0",
+  "description": "Dictation UI: recording pill, microphone and hotkey hooks, voice conversation and dictation pages.",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*.css": "./dist/*.css",
+    "./*.json": "./dist/*.json",
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "dependencies": {
+    "@phosphor-icons/react": "2.1.10",
+    "@rightkit/app-update": "workspace:^",
+    "@rightkit/legal": "workspace:^",
+    "@rightkit/license": "workspace:^",
+    "@rightkit/logs": "workspace:^",
+    "@rightkit/platform-ui": "workspace:^",
+    "@rightkit/react-shell": "workspace:^",
+    "@rightkit/settings-ui": "workspace:^",
+    "@rightkit/theme": "workspace:^",
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-updater": "~2.14.1"
+  },
+  "peerDependencies": {
+    "react": ">=18 <21"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm --filter \"@rightkit/dictation-ui^...\" run build && vitest run"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bogusyogi/rightkit.git",
+    "directory": "packages/dictation-ui"
+  },
+  "packageManager": "pnpm@12.16.1"
+}

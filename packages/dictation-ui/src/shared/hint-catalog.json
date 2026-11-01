@@ -1,0 +1,47 @@
+{
+  "_comment": "Shared hint catalog — single source of truth for pill hint TEXT on BOTH platforms. The container is generic per platform (React WebView pill on Windows via src/pill/HintPopup.tsx; native Swift pill on macOS via macos-native/.../PillModel.swift); both read this file, so add a hint here once and neither renderer hardcodes text. Per entry: `platform` (optional: 'both' (default) | 'windows' | 'macos') controls which pill shows it; `title`/`body` are either a plain string (identical on both) OR an object { \"windows\": \"…\", \"macos\": \"…\" } when the text differs by OS (e.g. keybinds — Ctrl+Shift+Space vs fn+Space). Interactive hints with their own controls (screenshot_prompt buttons, prompt_hint keyword) are NOT here — they are bespoke containers, not plain title/body.",
+  "voice_commands": {
+    "title": "Control by voice",
+    "body": "Say “zephyr stop” or “zephyr send” while recording."
+  },
+  "apple_shortcuts": {
+    "platform": "macos",
+    "title": "Run Shortcuts",
+    "body": "Say “shortcut” and the Shortcut name to run an automation."
+  },
+  "vocabulary": {
+    "title": "Teach names once",
+    "body": "Add vocabulary and “sounds like” aliases for reliable names and terms."
+  },
+  "snippets": {
+    "title": "Speak saved snippets",
+    "body": "Create reusable text snippets and insert them by voice."
+  },
+  "ai_polish": {
+    "title": "Polish and undo",
+    "body": "Use AI polish, then undo or redo from the transcript pill."
+  },
+  "file_transcription": {
+    "title": "Transcribe a file",
+    "body": "Open HeardRight to transcribe an audio or video file."
+  },
+  "groq_key": {
+    "title": "AI polish is Pro",
+    "body": "AI polish sends text to your provider. Add a provider key on Polish to use it."
+  },
+  "mini_clipboard": {
+    "title": "Recent text stays close",
+    "body": "Open History on the pill to copy one of your last three transcripts."
+  },
+  "stop_and_send": {
+    "title": "Paste and send in one go",
+    "body": {
+      "windows": "Press Ctrl+Shift+Space to paste your dictation and send it.",
+      "macos": "Press fn ⇧ Space to paste your dictation and send it."
+    }
+  },
+  "cancel_saved": {
+    "title": "Saved to History",
+    "body": "Find it under the Cancelled tab."
+  }
+}

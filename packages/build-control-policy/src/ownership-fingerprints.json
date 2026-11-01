@@ -4182,6 +4182,83 @@
       ]
     },
     {
+      "package": "@rightkit/agent-ui-approvals",
+      "capability": "agent-ui-approvals",
+      "summary": "Agent approval queue and cards, agent settings, remote approvals, owner PIN and secure-box settings views.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/agent-ui-components",
+      "capability": "agent-ui-components",
+      "summary": "Coding-agent UI components: app frame, chat, composer, review, panels, delivery, remote and usage.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/agent-ui-core",
+      "capability": "agent-ui-core",
+      "summary": "Coding-agent UI core: daemon client, session and transcript types, stores and helpers.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/agent-ui-hooks",
+      "capability": "agent-ui-hooks",
+      "summary": "React hooks for coding-agent UIs: sessions, composer, workspace files, approvals and runtime.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/agent-ui-settings",
+      "capability": "agent-ui-settings",
+      "summary": "Settings panes for coding-agent UIs.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/agent-ui-web",
+      "capability": "agent-ui-web",
+      "summary": "Browser client for a coding-agent daemon: transcript, input bar, diff, model and usage panels.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/agent-ui-workbench",
+      "capability": "agent-ui-workbench",
+      "summary": "Workbench and runtime panels for coding-agent UIs.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "@rightkit/app-update",
       "capability": "update-policy",
       "summary": "Shared runtime update policy helper for Right Suite Tauri apps.",
@@ -4240,6 +4317,28 @@
       ]
     },
     {
+      "package": "@rightkit/config",
+      "capability": "shared-presets",
+      "summary": "Shared presets for desktop apps: TypeScript configs, a Vite base config, a flat ESLint preset and Rust toolchain, cargo-deny, cargo-audit, rustfmt and cargo-about templates.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/dictation-ui",
+      "capability": "dictation-ui",
+      "summary": "Dictation UI: recording pill, microphone and hotkey hooks, voice conversation and dictation pages.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "@rightkit/doc-render",
       "capability": "document-rendering",
       "summary": "Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers.",
@@ -4267,6 +4366,39 @@
       ]
     },
     {
+      "package": "@rightkit/document-core",
+      "capability": "document-core",
+      "summary": "Shared base for the document editors: platform bridge, settings, state, PDF helpers and the format registry.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/document-workspace",
+      "capability": "document-workspace-ui",
+      "summary": "Multi-format document workspace shell: tabs, sidebar, document router, loaders, savers and actions.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/docx-editor",
+      "capability": "docx-editor",
+      "summary": "DOCX editing pane over @eigenpal/docx-editor with a host-owned toolbar, find, print and Markdown export.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "@rightkit/hooks",
       "capability": "lifecycle-hooks",
       "summary": "Neutral lifecycle runtime shared by independently installable agent systems.; declaration-only detection (no precise implementation fingerprint)",
@@ -4274,6 +4406,17 @@
       "detection": "declaration-only",
       "policyNotes": [
         "stdin repair remains P1.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/html-editor",
+      "capability": "html-editor",
+      "summary": "HTML document editor and viewer: ProseMirror editing, sanitising and source view.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
         "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
@@ -4374,6 +4517,17 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "@rightkit/library-ui",
+      "capability": "library-ui",
+      "summary": "Library and queue UI for transcripts and downloads: queue board, job cards, library list, detail reader and history.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {
@@ -4535,6 +4689,39 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "@rightkit/mail-ui",
+      "capability": "mail-ui",
+      "summary": "Mail client UI: inbox, reader, compose editor, recipients, attachments, account switcher and the mail store.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/markdown-editor",
+      "capability": "markdown-editor",
+      "summary": "Markdown and MDX editor: ProseMirror WYSIWYG, source mode, math, diagrams and properties panel.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/media-gen-ui",
+      "capability": "media-gen-ui",
+      "summary": "Generative media studio UI: generate, jobs, gallery, recipes, voices and production panels.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {
@@ -5284,9 +5471,31 @@
       ]
     },
     {
+      "package": "@rightkit/social-ui",
+      "capability": "social-ui",
+      "summary": "Social media management UI: accounts, drafts, approvals and analytics screens with their data layer.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "@rightkit/sync-worker",
       "capability": "sync-worker",
       "summary": "Cloudflare Worker implementing the server side of rightkit-sync-http/1 on D1 and R2; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/system-ui",
+      "capability": "system-ui",
+      "summary": "System monitor views (activity, storage, cleanup, duplicates, drive health, apps, chat) and chart helpers for desktop utility apps.",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -5333,6 +5542,17 @@
       "package": "@rightkit/tauri-shell",
       "capability": "desktop-shell",
       "summary": "Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/terminal-ui",
+      "capability": "terminal-ui-components",
+      "summary": "Persistent terminal pane and its React hook.",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -5473,6 +5693,39 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "@rightkit/video-ui",
+      "capability": "video-ui",
+      "summary": "Video editor UI: timeline, inspector, preview and project views.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/waitlist-worker",
+      "capability": "waitlist-worker",
+      "summary": "Cloudflare Worker that captures waitlist email signups in KV, rate-limits per IP and sends an optional Resend confirmation email.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "@rightkit/workspace-ui",
+      "capability": "workspace-ui",
+      "summary": "Calendar, contacts, drive, tasks and meeting views for workspace-style apps.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {

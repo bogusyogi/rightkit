@@ -15,713 +15,2086 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 164 (138 crates, 26 npm packages).
-- Packages with at least one app pin: 75.
-- App pins: 528. Stale: 64. Ahead of published: 24. Unpublished: 0. Local: 0. Git: 0. Unparsed: 0.
-- Vendored copies of RightKit packages inside app repos: 1.
-- App and package pairs with more than one requirement: 5.
+- Packages in RightKit: 187 (138 crates, 49 npm packages).
+- Packages with at least one app pin: 133.
+- App pins: 1878. Stale: 40. Ahead of published: 103. Unpublished: 96. Local: 1210. Git: 0. Unparsed: 0.
+- Vendored copies of RightKit packages inside app repos: 458.
+- App and package pairs with more than one requirement: 255.
 
 ## Packages
 
 | Package | Registry | Source | Latest published | Apps | App names | Notes |
 |---|---|---|---|---|---|---|
-| `rightkit-adapt` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-adapt` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-adapt-taste` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-engine-api-platform` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-engine-api-sessions` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-engine-api-workflows` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-engine-attention` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-engine-cli` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-engine-history` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-engine-protocol` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-engine-runtime-middleware` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-engine-runtime-resources` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-engine-storage` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-engine-tasks` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-orchestration` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-orchestration-handoff` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-policy` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-tools` | crates.io | 0.3.0 | 0.3.0 | 2 | genright, legion | 1 stale |
+| `rightkit-agent-engine-api-platform` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-agent-engine-api-sessions` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-agent-engine-api-workflows` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-agent-engine-attention` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-agent-engine-cli` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-agent-engine-history` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-agent-engine-protocol` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-agent-engine-runtime-middleware` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-agent-engine-runtime-resources` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-agent-engine-storage` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-agent-engine-tasks` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-agent-orchestration` | crates.io | 0.1.0 | none recorded | 2 | coderight, legion | 2 vendored copies |
+| `rightkit-agent-orchestration-handoff` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
+| `rightkit-agent-policy` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-agent-tools` | crates.io | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-agent-transcript` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agents` | crates.io | 0.2.0 | 0.2.0 | 2 | coderight, legion | 1 stale |
-| `rightkit-align` | private | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-android` | crates.io | 0.3.0 | 0.3.0 | 0 | none | - |
+| `rightkit-agents` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-align` | private | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-android` | crates.io | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-app-manager` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-app-settings` | crates.io | 0.3.0 | 0.3.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `rightkit-asr` | crates.io | 0.3.2 | 0.3.0 | 2 | heardright, scraperight | 1 vendored copy |
-| `rightkit-audio` | crates.io | 0.3.1 | 0.3.1 | 3 | genright, heardright, scraperight | - |
-| `rightkit-autoedit` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-automation` | crates.io | 0.6.2 | 0.6.1 | 1 | heardright | - |
+| `rightkit-app-settings` | crates.io | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-asr` | crates.io | 0.3.2 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-audio` | crates.io | 0.3.1 | 0.3.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-autoedit` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-automation` | crates.io | 0.6.2 | 0.6.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-bench` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-bot-messaging` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-browser` | crates.io | 0.3.7 | 0.3.6 | 4 | coderight, genright, legion, scraperight | 1 stale |
-| `rightkit-cache` | crates.io | 0.2.3 | 0.2.3 | 4 | coderight, legion, mailright, postright | 1 stale |
-| `rightkit-captions` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-channel-memory` | crates.io | 0.2.2 | 0.2.1 | 1 | postright | - |
-| `rightkit-child-process` | crates.io | 0.5.7 | 0.5.7 | 8 | coderight, genright, heardright, legion, mailright, postright, scraperight, viewright | 28 stale |
-| `rightkit-code-audit-provider-sdk` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-color` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-compose` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
-| `rightkit-compositor` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-bot-messaging` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-browser` | crates.io | 0.3.7 | 0.3.6 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-cache` | crates.io | 0.2.3 | 0.2.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-captions` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-channel-memory` | crates.io | 0.2.2 | 0.2.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-child-process` | crates.io | 0.5.7 | 0.5.7 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-code-audit-provider-sdk` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
+| `rightkit-color` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-compose` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 1 ahead of published |
+| `rightkit-compositor` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-context-client` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-core` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-federation` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-protocol` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-provider-sdk` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-contracts` | crates.io | 0.1.8 | 0.1.7 | 2 | genright, postright | - |
-| `rightkit-crash` | crates.io | 0.3.6 | 0.3.6 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `rightkit-credentials` | crates.io | 0.4.2 | 0.4.2 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `rightkit-crypto` | crates.io | 0.1.0 | 0.1.0 | 6 | coderight, genright, heardright, mailright, postright, viewright | - |
-| `rightkit-daemon` | crates.io | 0.5.0 | 0.4.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 5 ahead of published |
-| `rightkit-db` | crates.io | 0.5.3 | 0.5.2 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `rightkit-device` | crates.io | 0.4.0 | 0.4.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `rightkit-dictation-core` | crates.io | 0.2.0 | none recorded | 0 | none | - |
+| `rightkit-contracts` | crates.io | 0.1.8 | 0.1.7 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-crash` | crates.io | 0.3.6 | 0.3.6 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-credentials` | crates.io | 0.4.2 | 0.4.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
+| `rightkit-crypto` | crates.io | 0.1.0 | 0.1.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-daemon` | crates.io | 0.5.0 | 0.4.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale; 4 ahead of published |
+| `rightkit-db` | crates.io | 0.5.3 | 0.5.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-device` | crates.io | 0.4.0 | 0.4.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-dictation-core` | crates.io | 0.2.0 | none recorded | 1 | heardright | 1 vendored copy |
 | `rightkit-disk-cleanup` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-docs` | crates.io | 0.1.3 | 0.1.2 | 0 | none | - |
+| `rightkit-docs` | crates.io | 0.1.3 | 0.1.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-document-workspace` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-embed` | crates.io | 0.6.2 | 0.6.1 | 2 | coderight, mailright | - |
-| `rightkit-evidence` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-evidence-contracts` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-evidence-decisions` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-evidence-effects` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-evidence-governance` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-evidence-report` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-ffmpeg` | crates.io | 0.2.11 | 0.2.10 | 4 | coderight, genright, heardright, scraperight | - |
-| `rightkit-file-watch` | crates.io | 0.4.2 | 0.4.1 | 2 | coderight, viewright | - |
-| `rightkit-fs` | crates.io | 0.4.8 | 0.4.7 | 8 | coderight, genright, heardright, legion, mailright, postright, scraperight, viewright | 1 stale; 9 ahead of published |
-| `rightkit-fsindex` | crates.io | 0.6.0 | 0.5.0 | 0 | none | - |
-| `rightkit-github` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-embed` | crates.io | 0.6.2 | 0.6.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-evidence` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-evidence-contracts` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
+| `rightkit-evidence-decisions` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
+| `rightkit-evidence-effects` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
+| `rightkit-evidence-governance` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
+| `rightkit-evidence-report` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
+| `rightkit-ffmpeg` | crates.io | 0.2.11 | 0.2.10 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale; 4 ahead of published |
+| `rightkit-file-watch` | crates.io | 0.4.2 | 0.4.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-fs` | crates.io | 0.4.8 | 0.4.7 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale; 4 ahead of published |
+| `rightkit-fsindex` | crates.io | 0.6.0 | 0.5.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-github` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-google-apis` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-google-identity` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
-| `rightkit-hooks` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
-| `rightkit-hotkeys` | crates.io | 0.1.2 | 0.1.2 | 1 | heardright | - |
-| `rightkit-http` | crates.io | 0.3.9 | 0.3.8 | 6 | coderight, genright, heardright, mailright, postright, scraperight | - |
-| `rightkit-identity` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
-| `rightkit-job-queue` | crates.io | 0.5.1 | 0.5.1 | 6 | coderight, genright, heardright, mailright, postright, scraperight | - |
-| `rightkit-library` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-license` | crates.io | 0.2.6 | 0.2.5 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 1 ahead of published |
-| `rightkit-llm` | crates.io | 0.3.1 | 0.3.1 | 3 | coderight, heardright, mailright | - |
-| `rightkit-local-gen` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-logs` | crates.io | 0.3.6 | 0.3.5 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
+| `rightkit-google-identity` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-hooks` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 1 ahead of published |
+| `rightkit-hotkeys` | crates.io | 0.1.2 | 0.1.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-http` | crates.io | 0.3.9 | 0.3.8 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-identity` | crates.io | 0.1.0 | 0.1.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-job-queue` | crates.io | 0.5.1 | 0.5.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
+| `rightkit-library` | crates.io | 0.1.0 | none recorded | 1 | genright | 1 vendored copy |
+| `rightkit-license` | crates.io | 0.2.6 | 0.2.5 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-llm` | crates.io | 0.3.1 | 0.3.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-local-gen` | crates.io | 0.1.0 | none recorded | 1 | genright | 1 vendored copy |
+| `rightkit-logs` | crates.io | 0.3.6 | 0.3.5 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-mail` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-mcp` | crates.io | 0.7.1 | 0.7.0 | 1 | coderight | - |
+| `rightkit-mcp` | crates.io | 0.7.1 | 0.7.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-media-fetch` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-media-gen` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-media-pipeline` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-memory` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-media-gen` | crates.io | 0.1.0 | none recorded | 1 | genright | 1 vendored copy |
+| `rightkit-media-pipeline` | crates.io | 0.1.0 | none recorded | 1 | genright | 1 vendored copy |
+| `rightkit-memory` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-memory-core` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-memory-store` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-mesh` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-models` | crates.io | 0.5.2 | 0.5.1 | 5 | coderight, genright, heardright, mailright, scraperight | 2 ahead of published |
-| `rightkit-motion` | crates.io | 0.2.0 | 0.2.0 | 1 | genright | - |
-| `rightkit-oauth` | crates.io | 0.10.0 | 0.10.0 | 2 | coderight, mailright | - |
-| `rightkit-ocr` | crates.io | 0.2.3 | 0.2.3 | 3 | coderight, scraperight, viewright | - |
-| `rightkit-onnx` | crates.io | 0.2.8 | 0.2.7 | 5 | coderight, genright, heardright, mailright, scraperight | - |
-| `rightkit-overlay` | crates.io | 0.2.0 | 0.2.0 | 1 | heardright | - |
-| `rightkit-overlay-win` | crates.io | 0.1.0 | 0.1.0 | 1 | heardright | - |
-| `rightkit-ownership` | crates.io | 0.4.3 | 0.4.2 | 1 | legion | 1 stale |
-| `rightkit-pdf` | crates.io | 0.3.4 | 0.3.3 | 1 | viewright | - |
-| `rightkit-pipeline` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-platform-rules` | crates.io | 0.1.0 | 0.1.0 | 1 | postright | - |
-| `rightkit-playback` | crates.io | 0.3.0 | 0.3.0 | 1 | scraperight | - |
+| `rightkit-mesh` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-models` | crates.io | 0.5.2 | 0.5.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-motion` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-oauth` | crates.io | 0.10.0 | 0.10.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-ocr` | crates.io | 0.2.3 | 0.2.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-onnx` | crates.io | 0.2.8 | 0.2.7 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-overlay` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-overlay-win` | crates.io | 0.1.0 | 0.1.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-ownership` | crates.io | 0.4.3 | 0.4.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-pdf` | crates.io | 0.3.4 | 0.3.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-pipeline` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-platform-rules` | crates.io | 0.1.0 | 0.1.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-playback` | crates.io | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-privileged-helper` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-qa` | crates.io | 0.10.1 | 0.9.1 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 15 stale; 2 ahead of published |
-| `rightkit-qa-driver` | crates.io | 0.7.0 | 0.7.0 | 0 | none | - |
-| `rightkit-record` | crates.io | 0.3.3 | 0.3.3 | 0 | none | - |
-| `rightkit-reframe` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-remote-compute` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-repo-graph` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-qa` | crates.io | 0.10.1 | 0.9.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-qa-driver` | crates.io | 0.7.0 | 0.7.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-record` | crates.io | 0.3.3 | 0.3.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-reframe` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-remote-compute` | crates.io | 0.1.0 | none recorded | 1 | genright | 1 vendored copy |
+| `rightkit-repo-graph` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-repo-graph-grammars` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-research` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-review` | crates.io | 0.4.0 | 0.4.0 | 1 | postright | - |
-| `rightkit-sandbox` | crates.io | 0.6.1 | 0.6.1 | 2 | coderight, legion | - |
-| `rightkit-search` | crates.io | 0.4.1 | 0.4.0 | 4 | coderight, genright, mailright, scraperight | - |
-| `rightkit-send` | crates.io | 0.3.0 | 0.2.0 | 0 | none | - |
-| `rightkit-shorts` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-sidecar` | crates.io | 0.3.0 | 0.3.0 | 6 | coderight, genright, heardright, mailright, postright, scraperight | - |
+| `rightkit-research` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
+| `rightkit-review` | crates.io | 0.4.0 | 0.4.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 1 ahead of published |
+| `rightkit-sandbox` | crates.io | 0.6.1 | 0.6.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-search` | crates.io | 0.4.1 | 0.4.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-send` | crates.io | 0.3.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-shorts` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-sidecar` | crates.io | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-social-inbox` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-social-publish` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-speech-client` | crates.io | 0.4.1 | 0.4.0 | 2 | heardright, scraperight | 3 ahead of published |
-| `rightkit-spend` | crates.io | 0.2.0 | 0.2.0 | 2 | genright, postright | - |
-| `rightkit-sync` | crates.io | 0.2.2 | 0.2.2 | 2 | heardright, scraperight | - |
-| `rightkit-sync-keys` | private | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-speech-client` | crates.io | 0.4.1 | 0.4.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-spend` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-sync` | crates.io | 0.2.2 | 0.2.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-sync-keys` | private | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-system-monitor` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-tauri-shell` | crates.io | 0.7.0 | 0.6.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 1 ahead of published |
-| `rightkit-terminal-ui` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-text-polish` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-time` | crates.io | 0.1.0 | 0.1.0 | 6 | coderight, genright, heardright, mailright, postright, scraperight | - |
-| `rightkit-timeline` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-transcript` | crates.io | 0.4.0 | 0.4.0 | 3 | genright, heardright, scraperight | - |
-| `rightkit-transcript-library` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-tts` | crates.io | 0.2.3 | 0.2.3 | 1 | genright | - |
-| `rightkit-tts-qwen` | crates.io | 0.2.7 | 0.2.7 | 0 | none | - |
-| `rightkit-tts-qwen-sys` | crates.io | 0.1.2 | 0.1.2 | 0 | none | - |
-| `rightkit-typeset` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
-| `rightkit-vad` | crates.io | 0.1.2 | 0.1.2 | 1 | heardright | - |
-| `rightkit-vault` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
-| `rightkit-video-project` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-voice-commands` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-tauri-shell` | crates.io | 0.7.0 | 0.6.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-terminal-ui` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-text-polish` | crates.io | 0.1.0 | none recorded | 1 | heardright | 1 vendored copy |
+| `rightkit-time` | crates.io | 0.1.0 | 0.1.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-timeline` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-transcript` | crates.io | 0.4.0 | 0.4.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-transcript-library` | crates.io | 0.1.0 | none recorded | 1 | heardright | 1 vendored copy |
+| `rightkit-tts` | crates.io | 0.2.3 | 0.2.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-tts-qwen` | crates.io | 0.2.7 | 0.2.7 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-tts-qwen-sys` | crates.io | 0.1.2 | 0.1.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-typeset` | crates.io | 0.1.0 | 0.1.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-vad` | crates.io | 0.1.2 | 0.1.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-vault` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-video-project` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-voice-commands` | crates.io | 0.1.0 | none recorded | 1 | heardright | 1 vendored copy |
 | `rightkit-web-extract` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-workflow` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
-| `@rightkit/app-update` | npm | 0.4.2 | 0.4.2 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 1 | legion | - |
-| `@rightkit/build-control-policy` | private | 0.1.4-phase1 | none recorded | 0 | none | - |
-| `@rightkit/ci` | npm | 0.3.2 | 0.3.1 | 1 | legion | 1 stale |
-| `@rightkit/doc-render` | npm | 0.2.1 | 0.2.1 | 3 | coderight, scraperight, viewright | - |
-| `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 1 | legion | - |
-| `@rightkit/i18n` | npm | 0.2.0 | 0.2.0 | 1 | coderight | - |
-| `@rightkit/issues-tracker` | npm | 0.1.0 | 0.1.0 | 4 | heardright, mailright, postright, scraperight | - |
-| `@rightkit/legal` | npm | 0.6.3 | 0.6.3 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/legal-ui` | npm | 0.4.1 | 0.4.1 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/license` | npm | 0.3.0 | 0.3.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/logs` | npm | 0.1.6 | 0.1.6 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/media-ui` | npm | 0.3.4 | 0.3.4 | 3 | genright, scraperight, viewright | - |
-| `@rightkit/onboarding` | npm | 0.6.3 | 0.6.3 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/outdated` | npm | 0.3.0 | 0.3.0 | 0 | none | - |
-| `@rightkit/pdf-ui` | npm | 0.2.0 | 0.2.0 | 2 | mailright, viewright | - |
-| `@rightkit/platform-ui` | npm | 0.4.0 | 0.4.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/qa` | npm | 0.6.2 | 0.6.1 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/qa-chrome` | npm | 0.1.12 | 0.1.12 | 8 | coderight, genright, heardright, legion, mailright, postright, scraperight, viewright | 7 stale |
-| `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/release` | npm | 0.6.16 | 0.6.13 | 8 | coderight, genright, heardright, legion, mailright, postright, scraperight, viewright | 7 stale; 1 ahead of published |
-| `@rightkit/settings-ui` | npm | 0.7.0 | 0.7.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/sync-worker` | private | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/tauri` | npm | 0.3.0 | 0.3.0 | 6 | coderight, genright, heardright, mailright, postright, scraperight | - |
-| `@rightkit/tauri-shell` | npm | 0.1.3 | 0.1.3 | 5 | coderight, genright, postright, scraperight, viewright | - |
-| `@rightkit/theme` | npm | 0.3.1 | 0.3.1 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
+| `rightkit-workflow` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `@rightkit/agent-ui-approvals` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/agent-ui-components` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/agent-ui-core` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/agent-ui-hooks` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/agent-ui-settings` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/agent-ui-web` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/agent-ui-workbench` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/app-update` | npm | 0.4.2 | 0.4.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
+| `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 0 | none | 4 vendored copies |
+| `@rightkit/build-control-policy` | private | 0.1.4-phase1 | none recorded | 0 | none | 4 vendored copies |
+| `@rightkit/ci` | npm | 0.3.2 | 0.3.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 8 stale |
+| `@rightkit/config` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/dictation-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/doc-render` | npm | 0.2.1 | 0.2.1 | 0 | none | 4 vendored copies |
+| `@rightkit/document-core` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/document-workspace` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/docx-editor` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 0 | none | 4 vendored copies |
+| `@rightkit/html-editor` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/i18n` | npm | 0.2.0 | 0.2.0 | 0 | none | 4 vendored copies |
+| `@rightkit/issues-tracker` | npm | 0.1.0 | 0.1.0 | 0 | none | 4 vendored copies |
+| `@rightkit/legal` | npm | 0.6.3 | 0.6.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `@rightkit/legal-ui` | npm | 0.4.1 | 0.4.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `@rightkit/library-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/license` | npm | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `@rightkit/logs` | npm | 0.1.6 | 0.1.6 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `@rightkit/mail-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/markdown-editor` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/media-gen-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/media-ui` | npm | 0.3.4 | 0.3.4 | 0 | none | 4 vendored copies |
+| `@rightkit/onboarding` | npm | 0.6.3 | 0.6.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `@rightkit/outdated` | npm | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
+| `@rightkit/pdf-ui` | npm | 0.2.0 | 0.2.0 | 0 | none | 4 vendored copies |
+| `@rightkit/platform-ui` | npm | 0.4.0 | 0.4.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `@rightkit/qa` | npm | 0.6.2 | 0.6.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `@rightkit/qa-chrome` | npm | 0.1.12 | 0.1.12 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `@rightkit/release` | npm | 0.6.16 | 0.6.13 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
+| `@rightkit/settings-ui` | npm | 0.7.0 | 0.7.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `@rightkit/social-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/sync-worker` | private | 0.1.0 | none recorded | 0 | none | 4 vendored copies |
+| `@rightkit/system-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/tauri` | npm | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `@rightkit/tauri-shell` | npm | 0.1.3 | 0.1.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `@rightkit/terminal-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/theme` | npm | 0.3.1 | 0.3.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `@rightkit/video-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/waitlist-worker` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/workspace-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 
 ## Pins
 
 | Package | App | Manifest | Section | Requirement | Latest published | Status |
 |---|---|---|---|---|---|---|
-| `rightkit-agent-tools` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-agent-tools` | legion | `legion/engine/crates/legion-audit/Cargo.toml` | dependencies | `=0.1.2` | 0.3.0 | stale |
-| `rightkit-agents` | coderight | `coderight/engine/crates/driver_host/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
-| `rightkit-agents` | legion | `legion/engine/crates/legion-audit/Cargo.toml` | dependencies | `=0.1.0` | 0.2.0 | stale |
-| `rightkit-app-settings` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-app-settings` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-app-settings` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-app-settings` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-app-settings` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-app-settings` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-app-settings` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-app-settings` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-app-settings` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-app-settings` | scraperight | `scraperight/crates/protocol/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-app-settings` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-app-settings` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-asr` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-asr` | heardright | `heardright/tauri-app-next/heardright-parakeet-core/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-asr` | heardright | `heardright/tauri-app-next/heardright_core/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-asr` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-asr` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-asr` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-audio` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
-| `rightkit-audio` | heardright | `heardright/tauri-app-next/heardright-engine/Cargo.toml` | dev-dependencies | `=0.3.1` | 0.3.1 | current |
-| `rightkit-audio` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
-| `rightkit-audio` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
-| `rightkit-audio` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
-| `rightkit-audio` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
-| `rightkit-audio` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
-| `rightkit-automation` | heardright | `heardright/tauri-app-next/heardright-command-host/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
-| `rightkit-automation` | heardright | `heardright/tauri-app-next/heardright-command-host/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
-| `rightkit-automation` | heardright | `heardright/tauri-app-next/heardright_platform/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
-| `rightkit-automation` | heardright | `heardright/tauri-app-next/heardright_platform/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
-| `rightkit-automation` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
-| `rightkit-browser` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-browser` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-browser` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-browser` | legion | `legion/engine/crates/legion-audit/Cargo.toml` | dependencies | `=0.3.1` | 0.3.6 | stale |
-| `rightkit-browser` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-browser` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-cache` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.2.3` | 0.2.3 | current |
-| `rightkit-cache` | legion | `legion/engine/crates/legion-audit/Cargo.toml` | dependencies | `=0.2.0` | 0.2.3 | stale |
-| `rightkit-cache` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
-| `rightkit-cache` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
-| `rightkit-channel-memory` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.2.1` | 0.2.1 | current |
-| `rightkit-child-process` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | coderight | `coderight/apps/coderight-tauri/src-tauri/crates/daemon-client/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | genright | `genright/crates/genright-qts/Cargo.toml` | dev-dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | heardright | `heardright/tauri-app-next/heardright-command-host/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | heardright | `heardright/tauri-app-next/heardright-model-store/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | heardright | `heardright/tauri-app-next/heardright_platform/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | legion | `legion/engine/bins/legion-dev/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | legion | `legion/engine/bins/legion/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | legion | `legion/engine/crates/legion-audit/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | legion | `legion/engine/xtask/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | scraperight | `scraperight/crates/audio/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-contracts` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.1.7` | 0.1.7 | current |
-| `rightkit-contracts` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.1.7` | 0.1.7 | current |
-| `rightkit-contracts` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.1.7` | 0.1.7 | current |
-| `rightkit-contracts` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.1.7` | 0.1.7 | current |
-| `rightkit-crash` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-crash` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-crash` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-crash` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-crash` | heardright | `heardright/tauri-app-next/heardright-dump-helper/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-crash` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-crash` | heardright | `heardright/tauri-app-next/heardright-telemetry/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-crash` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-crash` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-crash` | mailright | `mailright/src-tauri/engine/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-crash` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-crash` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-crash` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-crash` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-crash` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
-| `rightkit-credentials` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | heardright | `heardright/tauri-app-next/heardright-text-pipeline/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | heardright | `heardright/tauri-app-next/heardright_core/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | mailright | `mailright/src-tauri/engine/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | scraperight | `scraperight/crates/protocol/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-credentials` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
-| `rightkit-crypto` | coderight | `coderight/apps/coderight-tauri/src-tauri/crates/daemon-client/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-crypto` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-crypto` | genright | `genright/crates/genright-e2e/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-crypto` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-crypto` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-crypto` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-crypto` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-crypto` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-crypto` | heardright | `heardright/tauri-app-next/heardright_core/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-crypto` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-crypto` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-crypto` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-crypto` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-daemon` | coderight | `coderight/apps/coderight-tauri/src-tauri/crates/daemon-client/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | heardright | `heardright/tauri-app-next/heardright-app-runtime/Cargo.toml` | dependencies | `=0.5.0` | 0.4.0 | ahead |
-| `rightkit-daemon` | heardright | `heardright/tauri-app-next/heardright-engine/Cargo.toml` | dependencies | `=0.5.0` | 0.4.0 | ahead |
-| `rightkit-daemon` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.5.0` | 0.4.0 | ahead |
-| `rightkit-daemon` | heardright | `heardright/tauri-app-next/heardright_platform/Cargo.toml` | dependencies | `=0.5.0` | 0.4.0 | ahead |
-| `rightkit-daemon` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.5.0` | 0.4.0 | ahead |
-| `rightkit-daemon` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | mailright | `mailright/src-tauri/engine/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | mailright | `mailright/src-tauri/engine/Cargo.toml` | dev-dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | postright | `postright/crates/e2e/Cargo.toml` | dev-dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | postright | `postright/crates/engine/Cargo.toml` | dev-dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | postright | `postright/src-tauri/Cargo.toml` | dev-dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | scraperight | `scraperight/crates/engine/Cargo.toml` | dev-dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | scraperight | `scraperight/src-tauri/Cargo.toml` | dev-dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-daemon` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-db` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.5.2` | 0.5.2 | current |
-| `rightkit-db` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.5.2` | 0.5.2 | current |
-| `rightkit-db` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
-| `rightkit-db` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
-| `rightkit-db` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
-| `rightkit-db` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
-| `rightkit-db` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
-| `rightkit-db` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
-| `rightkit-db` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
-| `rightkit-db` | scraperight | `scraperight/crates/store/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
-| `rightkit-db` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
-| `rightkit-db` | viewright | `viewright/src-tauri/qa-e2e/Cargo.toml` | dev-dependencies | `=0.5.2` | 0.5.2 | current |
-| `rightkit-device` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-device` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-device` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-device` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-device` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-device` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-device` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-device` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-device` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-device` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-embed` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.6.1` | 0.6.1 | current |
-| `rightkit-embed` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
-| `rightkit-ffmpeg` | coderight | `coderight/engine/crates/media/Cargo.toml` | dependencies | `=0.2.10` | 0.2.10 | current |
-| `rightkit-ffmpeg` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.2.10` | 0.2.10 | current |
-| `rightkit-ffmpeg` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.2.10` | 0.2.10 | current |
-| `rightkit-ffmpeg` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.2.10` | 0.2.10 | current |
-| `rightkit-ffmpeg` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.2.10` | 0.2.10 | current |
-| `rightkit-ffmpeg` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.2.10` | 0.2.10 | current |
-| `rightkit-ffmpeg` | heardright | `heardright/tauri-app-next/vendor/rightkit-asr/Cargo.toml` | dev-dependencies | `0.2.3` | 0.2.10 | range ok |
-| `rightkit-ffmpeg` | scraperight | `scraperight/crates/audio/Cargo.toml` | dependencies | `=0.2.10` | 0.2.10 | current |
-| `rightkit-ffmpeg` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.2.10` | 0.2.10 | current |
-| `rightkit-ffmpeg` | scraperight | `scraperight/crates/protocol/Cargo.toml` | dependencies | `=0.2.10` | 0.2.10 | current |
-| `rightkit-file-watch` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.4.1` | 0.4.1 | current |
-| `rightkit-file-watch` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.4.1` | 0.4.1 | current |
-| `rightkit-fs` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | coderight | `coderight/apps/coderight-tauri/src-tauri/crates/daemon-client/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | genright | `genright/crates/genright-core/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | genright | `genright/crates/genright-e2e/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | heardright | `heardright/tauri-app-next/heardright-app-runtime/Cargo.toml` | dependencies | `=0.4.8` | 0.4.7 | ahead |
-| `rightkit-fs` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.4.8` | 0.4.7 | ahead |
-| `rightkit-fs` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dev-dependencies | `=0.4.8` | 0.4.7 | ahead |
-| `rightkit-fs` | heardright | `heardright/tauri-app-next/heardright-model-store/Cargo.toml` | dependencies | `=0.4.8` | 0.4.7 | ahead |
-| `rightkit-fs` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.4.8` | 0.4.7 | ahead |
-| `rightkit-fs` | heardright | `heardright/tauri-app-next/heardright-text-pipeline/Cargo.toml` | dependencies | `=0.4.8` | 0.4.7 | ahead |
-| `rightkit-fs` | heardright | `heardright/tauri-app-next/heardright_core/Cargo.toml` | dependencies | `=0.4.8` | 0.4.7 | ahead |
-| `rightkit-fs` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.4.8` | 0.4.7 | ahead |
-| `rightkit-fs` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dev-dependencies | `=0.4.8` | 0.4.7 | ahead |
-| `rightkit-fs` | legion | `legion/engine/crates/legion-audit/Cargo.toml` | dependencies | `=0.4.3` | 0.4.7 | stale |
-| `rightkit-fs` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | postright | `postright/crates/e2e/Cargo.toml` | dev-dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | postright | `postright/crates/mock-platform/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | scraperight | `scraperight/crates/protocol/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | scraperight | `scraperight/crates/scraperight-ui-e2e/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | viewright | `viewright/src-tauri/Cargo.toml` | build-dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-fs` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
-| `rightkit-hotkeys` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
-| `rightkit-http` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | coderight | `coderight/apps/coderight-tauri/src-tauri/crates/auth/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | coderight | `coderight/apps/coderight-tauri/src-tauri/crates/daemon-client/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | coderight | `coderight/engine/crates/mobile_runtime/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | heardright | `heardright/tauri-app-next/heardright-model-store/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | heardright | `heardright/tauri-app-next/heardright-telemetry/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | postright | `postright/crates/e2e/Cargo.toml` | dev-dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | scraperight | `scraperight/crates/detect/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-http` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
-| `rightkit-job-queue` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-job-queue` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-job-queue` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-job-queue` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-job-queue` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-job-queue` | heardright | `heardright/tauri-app-next/heardright-app-runtime/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-job-queue` | heardright | `heardright/tauri-app-next/heardright-engine/Cargo.toml` | dev-dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-job-queue` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-job-queue` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-job-queue` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-job-queue` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-job-queue` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-job-queue` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-license` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.2.5` | 0.2.5 | current |
-| `rightkit-license` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.2.5` | 0.2.5 | current |
-| `rightkit-license` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.2.5` | 0.2.5 | current |
-| `rightkit-license` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.2.5` | 0.2.5 | current |
-| `rightkit-license` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.2.6` | 0.2.5 | ahead |
-| `rightkit-license` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.2.5` | 0.2.5 | current |
-| `rightkit-license` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.2.5` | 0.2.5 | current |
-| `rightkit-license` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.2.5` | 0.2.5 | current |
-| `rightkit-license` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.2.5` | 0.2.5 | current |
-| `rightkit-license` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.2.5` | 0.2.5 | current |
-| `rightkit-llm` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.1` | 0.3.1 | current |
-| `rightkit-llm` | heardright | `heardright/tauri-app-next/heardright-text-pipeline/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
-| `rightkit-llm` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
-| `rightkit-logs` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | heardright | `heardright/tauri-app-next/heardright-app-runtime/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | heardright | `heardright/tauri-app-next/heardright-command-host/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | heardright | `heardright/tauri-app-next/heardright-telemetry/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | heardright | `heardright/tauri-app-next/heardright-text-pipeline/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | heardright | `heardright/tauri-app-next/heardright_core/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-logs` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
-| `rightkit-mcp` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.7.0` | 0.7.0 | current |
-| `rightkit-models` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | genright | `genright/crates/genright-local-image/Cargo.toml` | dev-dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | genright | `genright/crates/genright-protocol/Cargo.toml` | dev-dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | genright | `genright/crates/genright-qts/Cargo.toml` | dev-dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | genright | `genright/crates/genright-studio/Cargo.toml` | dev-dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | heardright | `heardright/tauri-app-next/heardright-model-store/Cargo.toml` | dependencies | `=0.5.2` | 0.5.1 | ahead |
-| `rightkit-models` | heardright | `heardright/tauri-app-next/heardright-model-store/Cargo.toml` | dev-dependencies | `=0.5.2` | 0.5.1 | ahead |
-| `rightkit-models` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | mailright | `mailright/src-tauri/Cargo.toml` | dev-dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | scraperight | `scraperight/crates/ocr/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | scraperight | `scraperight/crates/ocr/Cargo.toml` | dev-dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | scraperight | `scraperight/crates/speech/Cargo.toml` | dev-dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-models` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-motion` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
-| `rightkit-oauth` | coderight | `coderight/apps/coderight-tauri/src-tauri/crates/auth/Cargo.toml` | dependencies | `=0.10.0` | 0.10.0 | current |
-| `rightkit-oauth` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.10.0` | 0.10.0 | current |
-| `rightkit-oauth` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.10.0` | 0.10.0 | current |
-| `rightkit-ocr` | coderight | `coderight/engine/crates/media/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
-| `rightkit-ocr` | scraperight | `scraperight/crates/ocr/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
-| `rightkit-ocr` | scraperight | `scraperight/crates/ocr/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
-| `rightkit-ocr` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
-| `rightkit-onnx` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | genright | `genright/crates/genright-engine/Cargo.toml` | dev-dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | heardright | `heardright/tauri-app-next/heardright-engine/Cargo.toml` | dev-dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | heardright | `heardright/tauri-app-next/heardright-onnx-asr/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | heardright | `heardright/tauri-app-next/heardright_core/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | heardright | `heardright/tauri-app-next/vendor/rightkit-asr/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | range ok |
-| `rightkit-onnx` | mailright | `mailright/src-tauri/Cargo.toml` | build-dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | scraperight | `scraperight/crates/ocr/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | scraperight | `scraperight/crates/ort_common/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-onnx` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
-| `rightkit-overlay` | heardright | `heardright/tauri-app-next/heardright-command-host/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
-| `rightkit-overlay` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
-| `rightkit-overlay-win` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-ownership` | legion | `legion/engine/crates/legion-audit/Cargo.toml` | dependencies | `=0.3.1` | 0.4.2 | stale |
-| `rightkit-pdf` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
-| `rightkit-pdf` | viewright | `viewright/src-tauri/qa-e2e/Cargo.toml` | dev-dependencies | `=0.3.3` | 0.3.3 | current |
-| `rightkit-platform-rules` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-playback` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-qa` | coderight | `coderight/apps/coderight-tauri/qa-e2e/Cargo.toml` | dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-qa` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-qa` | genright | `genright/crates/genright-e2e/Cargo.toml` | dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-qa` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-qa` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-qa` | heardright | `heardright/tauri-app-next/qa-e2e/Cargo.toml` | dependencies | `=0.10.0` | 0.9.1 | ahead |
-| `rightkit-qa` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.10.0` | 0.9.1 | ahead |
-| `rightkit-qa` | mailright | `mailright/qa/native-e2e/Cargo.toml` | dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-qa` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-qa` | postright | `postright/crates/e2e/Cargo.toml` | dev-dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-qa` | postright | `postright/crates/mock-platform/Cargo.toml` | dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-qa` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-qa` | postright | `postright/src-tauri/Cargo.toml` | dev-dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-qa` | scraperight | `scraperight/crates/scraperight-ui-e2e/Cargo.toml` | dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-qa` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-qa` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-qa` | viewright | `viewright/src-tauri/qa-e2e/Cargo.toml` | dev-dependencies | `=0.9.0` | 0.9.1 | stale |
-| `rightkit-review` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-sandbox` | coderight | `coderight/engine/crates/tools/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
-| `rightkit-sandbox` | legion | `legion/engine/crates/legion-effects/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
-| `rightkit-search` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-search` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-search` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-search` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-sidecar` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-sidecar` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-sidecar` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-sidecar` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-sidecar` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-sidecar` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-sidecar` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-sidecar` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-sidecar` | scraperight | `scraperight/crates/protocol/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-sidecar` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-speech-client` | heardright | `heardright/tauri-app-next/heardright-engine/Cargo.toml` | dev-dependencies | `=0.4.1` | 0.4.0 | ahead |
-| `rightkit-speech-client` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.4.1` | 0.4.0 | ahead |
-| `rightkit-speech-client` | heardright | `heardright/tauri-app-next/heardright_core/Cargo.toml` | dependencies | `=0.4.1` | 0.4.0 | ahead |
-| `rightkit-speech-client` | heardright | `heardright/tauri-app-next/vendor/rightkit-asr/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.0 | range ok |
-| `rightkit-speech-client` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-spend` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
-| `rightkit-spend` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
-| `rightkit-sync` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
-| `rightkit-sync` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
-| `rightkit-sync` | scraperight | `scraperight/crates/protocol/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
-| `rightkit-sync` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
-| `rightkit-tauri-shell` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.6.0` | 0.6.0 | current |
-| `rightkit-tauri-shell` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.6.0` | 0.6.0 | current |
-| `rightkit-tauri-shell` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.7.0` | 0.6.0 | ahead |
-| `rightkit-tauri-shell` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.6.0` | 0.6.0 | current |
-| `rightkit-tauri-shell` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.6.0` | 0.6.0 | current |
-| `rightkit-tauri-shell` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.6.0` | 0.6.0 | current |
-| `rightkit-tauri-shell` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.6.0` | 0.6.0 | current |
-| `rightkit-time` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-time` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-time` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-time` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-time` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-time` | heardright | `heardright/tauri-app-next/heardright_core/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-time` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-time` | mailright | `mailright/src-tauri/Cargo.toml` | build-dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-time` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-time` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-time` | postright | `postright/crates/mock-platform/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-time` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-transcript` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-transcript` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-transcript` | heardright | `heardright/tauri-app-next/vendor/rightkit-asr/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | range ok |
-| `rightkit-transcript` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-transcript` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
-| `rightkit-tts` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
-| `rightkit-vad` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
-| `rightkit-vad` | heardright | `heardright/tauri-app-next/vendor/rightkit-asr/Cargo.toml` | dependencies | `0.1.0` | 0.1.2 | range ok |
-| `rightkit-vad` | heardright | `heardright/tauri-app-next/vendor/rightkit-asr/Cargo.toml` | dev-dependencies | `0.1.0` | 0.1.2 | range ok |
-| `@rightkit/app-update` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
-| `@rightkit/app-update` | genright | `genright/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
-| `@rightkit/app-update` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
-| `@rightkit/app-update` | mailright | `mailright/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
-| `@rightkit/app-update` | postright | `postright/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
-| `@rightkit/app-update` | scraperight | `scraperight/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
-| `@rightkit/app-update` | viewright | `viewright/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
-| `@rightkit/ax` | legion | `legion/package.json` | devDependencies | `0.3.2` | 0.3.2 | current |
-| `@rightkit/ci` | legion | `legion/package.json` | devDependencies | `0.3.0` | 0.3.1 | stale |
-| `@rightkit/doc-render` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.2.1` | 0.2.1 | current |
-| `@rightkit/doc-render` | scraperight | `scraperight/package.json` | dependencies | `0.2.1` | 0.2.1 | current |
-| `@rightkit/doc-render` | viewright | `viewright/package.json` | dependencies | `0.2.1` | 0.2.1 | current |
-| `@rightkit/hooks` | legion | `legion/package.json` | dependencies | `0.1.2` | 0.1.2 | current |
-| `@rightkit/i18n` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.2.0` | 0.2.0 | current |
-| `@rightkit/issues-tracker` | heardright | `heardright/package.json` | devDependencies | `0.1.0` | 0.1.0 | current |
-| `@rightkit/issues-tracker` | mailright | `mailright/package.json` | devDependencies | `0.1.0` | 0.1.0 | current |
-| `@rightkit/issues-tracker` | postright | `postright/package.json` | devDependencies | `0.1.0` | 0.1.0 | current |
-| `@rightkit/issues-tracker` | scraperight | `scraperight/package.json` | devDependencies | `0.1.0` | 0.1.0 | current |
-| `@rightkit/legal` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
-| `@rightkit/legal` | genright | `genright/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
-| `@rightkit/legal` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
-| `@rightkit/legal` | mailright | `mailright/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
-| `@rightkit/legal` | postright | `postright/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
-| `@rightkit/legal` | scraperight | `scraperight/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
-| `@rightkit/legal` | viewright | `viewright/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
-| `@rightkit/legal-ui` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
-| `@rightkit/legal-ui` | genright | `genright/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
-| `@rightkit/legal-ui` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
-| `@rightkit/legal-ui` | mailright | `mailright/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
-| `@rightkit/legal-ui` | postright | `postright/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
-| `@rightkit/legal-ui` | scraperight | `scraperight/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
-| `@rightkit/legal-ui` | viewright | `viewright/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
-| `@rightkit/license` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
-| `@rightkit/license` | genright | `genright/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
-| `@rightkit/license` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
-| `@rightkit/license` | mailright | `mailright/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
-| `@rightkit/license` | postright | `postright/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
-| `@rightkit/license` | scraperight | `scraperight/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
-| `@rightkit/license` | viewright | `viewright/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
-| `@rightkit/logs` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
-| `@rightkit/logs` | genright | `genright/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
-| `@rightkit/logs` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
-| `@rightkit/logs` | mailright | `mailright/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
-| `@rightkit/logs` | postright | `postright/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
-| `@rightkit/logs` | scraperight | `scraperight/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
-| `@rightkit/logs` | viewright | `viewright/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
-| `@rightkit/media-ui` | genright | `genright/package.json` | dependencies | `0.3.4` | 0.3.4 | current |
-| `@rightkit/media-ui` | scraperight | `scraperight/package.json` | dependencies | `0.3.4` | 0.3.4 | current |
-| `@rightkit/media-ui` | viewright | `viewright/package.json` | dependencies | `0.3.4` | 0.3.4 | current |
-| `@rightkit/onboarding` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
-| `@rightkit/onboarding` | genright | `genright/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
-| `@rightkit/onboarding` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
-| `@rightkit/onboarding` | mailright | `mailright/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
-| `@rightkit/onboarding` | postright | `postright/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
-| `@rightkit/onboarding` | scraperight | `scraperight/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
-| `@rightkit/onboarding` | viewright | `viewright/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
-| `@rightkit/pdf-ui` | mailright | `mailright/package.json` | dependencies | `0.2.0` | 0.2.0 | current |
-| `@rightkit/pdf-ui` | viewright | `viewright/package.json` | dependencies | `0.2.0` | 0.2.0 | current |
-| `@rightkit/platform-ui` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
-| `@rightkit/platform-ui` | genright | `genright/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
-| `@rightkit/platform-ui` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
-| `@rightkit/platform-ui` | mailright | `mailright/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
-| `@rightkit/platform-ui` | postright | `postright/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
-| `@rightkit/platform-ui` | scraperight | `scraperight/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
-| `@rightkit/platform-ui` | viewright | `viewright/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
-| `@rightkit/qa` | coderight | `coderight/apps/coderight-tauri/package.json` | devDependencies | `0.6.1` | 0.6.1 | current |
-| `@rightkit/qa` | genright | `genright/package.json` | devDependencies | `0.6.1` | 0.6.1 | current |
-| `@rightkit/qa` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.6.1` | 0.6.1 | current |
-| `@rightkit/qa` | mailright | `mailright/package.json` | devDependencies | `0.6.1` | 0.6.1 | current |
-| `@rightkit/qa` | postright | `postright/package.json` | devDependencies | `0.6.1` | 0.6.1 | current |
-| `@rightkit/qa` | scraperight | `scraperight/package.json` | devDependencies | `0.6.1` | 0.6.1 | current |
-| `@rightkit/qa` | viewright | `viewright/package.json` | devDependencies | `0.6.1` | 0.6.1 | current |
-| `@rightkit/qa-chrome` | coderight | `coderight/apps/coderight-tauri/package.json` | devDependencies | `0.1.11` | 0.1.12 | stale |
-| `@rightkit/qa-chrome` | genright | `genright/package.json` | devDependencies | `0.1.11` | 0.1.12 | stale |
-| `@rightkit/qa-chrome` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.1.12` | 0.1.12 | current |
-| `@rightkit/qa-chrome` | legion | `legion/package.json` | devDependencies | `0.1.8` | 0.1.12 | stale |
-| `@rightkit/qa-chrome` | mailright | `mailright/package.json` | devDependencies | `0.1.11` | 0.1.12 | stale |
-| `@rightkit/qa-chrome` | postright | `postright/package.json` | devDependencies | `0.1.11` | 0.1.12 | stale |
-| `@rightkit/qa-chrome` | scraperight | `scraperight/package.json` | devDependencies | `0.1.11` | 0.1.12 | stale |
-| `@rightkit/qa-chrome` | viewright | `viewright/package.json` | devDependencies | `0.1.11` | 0.1.12 | stale |
-| `@rightkit/react-shell` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
-| `@rightkit/react-shell` | genright | `genright/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
-| `@rightkit/react-shell` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
-| `@rightkit/react-shell` | mailright | `mailright/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
-| `@rightkit/react-shell` | postright | `postright/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
-| `@rightkit/react-shell` | scraperight | `scraperight/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
-| `@rightkit/react-shell` | viewright | `viewright/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
-| `@rightkit/release` | coderight | `coderight/apps/coderight-tauri/package.json` | devDependencies | `0.6.6` | 0.6.13 | stale |
-| `@rightkit/release` | genright | `genright/package.json` | devDependencies | `0.6.6` | 0.6.13 | stale |
-| `@rightkit/release` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.6.16` | 0.6.13 | ahead |
-| `@rightkit/release` | legion | `legion/package.json` | devDependencies | `0.3.0` | 0.6.13 | stale |
-| `@rightkit/release` | mailright | `mailright/package.json` | devDependencies | `0.6.6` | 0.6.13 | stale |
-| `@rightkit/release` | postright | `postright/package.json` | devDependencies | `0.6.6` | 0.6.13 | stale |
-| `@rightkit/release` | scraperight | `scraperight/package.json` | devDependencies | `0.6.6` | 0.6.13 | stale |
-| `@rightkit/release` | viewright | `viewright/package.json` | devDependencies | `0.6.6` | 0.6.13 | stale |
-| `@rightkit/settings-ui` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.7.0` | 0.7.0 | current |
-| `@rightkit/settings-ui` | genright | `genright/package.json` | dependencies | `0.7.0` | 0.7.0 | current |
-| `@rightkit/settings-ui` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.7.0` | 0.7.0 | current |
-| `@rightkit/settings-ui` | mailright | `mailright/package.json` | dependencies | `0.7.0` | 0.7.0 | current |
-| `@rightkit/settings-ui` | postright | `postright/package.json` | dependencies | `0.7.0` | 0.7.0 | current |
-| `@rightkit/settings-ui` | scraperight | `scraperight/package.json` | dependencies | `0.7.0` | 0.7.0 | current |
-| `@rightkit/settings-ui` | viewright | `viewright/package.json` | dependencies | `0.7.0` | 0.7.0 | current |
-| `@rightkit/tauri` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
-| `@rightkit/tauri` | genright | `genright/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
-| `@rightkit/tauri` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
-| `@rightkit/tauri` | mailright | `mailright/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
-| `@rightkit/tauri` | postright | `postright/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
-| `@rightkit/tauri` | scraperight | `scraperight/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
-| `@rightkit/tauri-shell` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.1.3` | 0.1.3 | current |
-| `@rightkit/tauri-shell` | genright | `genright/package.json` | dependencies | `0.1.3` | 0.1.3 | current |
-| `@rightkit/tauri-shell` | postright | `postright/package.json` | dependencies | `0.1.3` | 0.1.3 | current |
-| `@rightkit/tauri-shell` | scraperight | `scraperight/package.json` | dependencies | `0.1.3` | 0.1.3 | current |
-| `@rightkit/tauri-shell` | viewright | `viewright/package.json` | dependencies | `0.1.3` | 0.1.3 | current |
-| `@rightkit/theme` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
-| `@rightkit/theme` | genright | `genright/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
-| `@rightkit/theme` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
-| `@rightkit/theme` | mailright | `mailright/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
-| `@rightkit/theme` | postright | `postright/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
-| `@rightkit/theme` | scraperight | `scraperight/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
-| `@rightkit/theme` | viewright | `viewright/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
+| `rightkit-adapt` | coderight | `coderight/ci/consumers/rightkit-adapt/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-adapt` | coderight | `coderight/crates/rightkit-agent-engine-api-workflows/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-adapt` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-api-platform` | coderight | `coderight/ci/consumers/rightkit-agent-engine-api-platform/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-engine-api-platform` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-api-sessions` | coderight | `coderight/ci/consumers/rightkit-agent-engine-api-sessions/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-engine-api-sessions` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-api-workflows` | coderight | `coderight/ci/consumers/rightkit-agent-engine-api-workflows/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-engine-api-workflows` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-attention` | coderight | `coderight/ci/consumers/rightkit-agent-engine-attention/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-engine-attention` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-cli` | coderight | `coderight/ci/consumers/rightkit-agent-engine-cli/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-engine-cli` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-history` | coderight | `coderight/ci/consumers/rightkit-agent-engine-history/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-engine-history` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-history` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/ci/consumers/rightkit-agent-engine-protocol/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-agent-engine-storage/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-agent-engine-tasks/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-agent-policy/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-bot-messaging/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-hooks/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-mcp/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-scheduler/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-runtime-middleware` | coderight | `coderight/ci/consumers/rightkit-agent-engine-runtime-middleware/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-engine-runtime-middleware` | coderight | `coderight/crates/rightkit-agent-engine-api-integrations/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-runtime-middleware` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-runtime-middleware` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-runtime-resources` | coderight | `coderight/ci/consumers/rightkit-agent-engine-runtime-resources/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-engine-runtime-resources` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-runtime-resources` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-runtime-resources` | coderight | `coderight/crates/rightkit-mcp/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-storage` | coderight | `coderight/ci/consumers/rightkit-adapt/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-engine-storage` | coderight | `coderight/ci/consumers/rightkit-agent-engine-storage/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-engine-storage` | coderight | `coderight/crates/rightkit-adapt/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-storage` | coderight | `coderight/crates/rightkit-agent-engine-api-workflows/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-storage` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-tasks` | coderight | `coderight/ci/consumers/rightkit-agent-engine-tasks/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-engine-tasks` | coderight | `coderight/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-engine-tasks` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-orchestration` | coderight | `coderight/ci/consumers/rightkit-agent-orchestration/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-orchestration` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-orchestration` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-orchestration` | legion | `legion/ci/consumers/rightkit-agent-orchestration/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-orchestration` | legion | `legion/crates/rightkit-evidence-application/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-orchestration-handoff` | legion | `legion/ci/consumers/rightkit-agent-orchestration-handoff/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-policy` | coderight | `coderight/ci/consumers/rightkit-agent-policy/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-agent-policy` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-policy` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-policy` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-policy` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-policy` | coderight | `coderight/crates/rightkit-app-settings/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-policy` | coderight | `coderight/crates/rightkit-bot-messaging/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-policy` | coderight | `coderight/crates/rightkit-ffmpeg/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-policy` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-agent-tools` | coderight | `coderight/ci/consumers/rightkit-agent-tools/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-agent-tools` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-agent-tools` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dev-dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-agent-tools` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-agent-tools` | coderight | `coderight/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-agent-tools` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-agent-tools` | coderight | `coderight/crates/rightkit-agents/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-agent-tools` | coderight | `coderight/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-agent-tools` | genright | `genright/ci/consumers/rightkit-agent-tools/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-agent-tools` | genright | `genright/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-agent-tools` | heardright | `heardright/ci/consumers/rightkit-agent-tools/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-agent-tools` | heardright | `heardright/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-agent-tools` | legion | `legion/ci/consumers/rightkit-agent-tools/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-agent-tools` | legion | `legion/crates/rightkit-code-audit-engine/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-agent-tools` | legion | `legion/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-agents` | coderight | `coderight/ci/consumers/rightkit-agents/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-agents` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.3.0` | 0.2.0 | local |
+| `rightkit-agents` | genright | `genright/ci/consumers/rightkit-agents/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-agents` | heardright | `heardright/ci/consumers/rightkit-agents/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-agents` | legion | `legion/ci/consumers/rightkit-agents/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-agents` | legion | `legion/crates/rightkit-code-audit-engine/Cargo.toml` | dependencies | `0.2.0` | 0.2.0 | local |
+| `rightkit-align` | coderight | `coderight/ci/consumers/rightkit-align/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-align` | genright | `genright/ci/consumers/rightkit-align/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-align` | heardright | `heardright/ci/consumers/rightkit-align/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-align` | legion | `legion/ci/consumers/rightkit-align/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-android` | coderight | `coderight/ci/consumers/rightkit-android/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-android` | genright | `genright/ci/consumers/rightkit-android/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-android` | heardright | `heardright/ci/consumers/rightkit-android/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-android` | legion | `legion/ci/consumers/rightkit-android/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-app-settings` | coderight | `coderight/ci/consumers/rightkit-app-settings/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-app-settings` | coderight | `coderight/crates/rightkit-agent-engine-api-integrations/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-app-settings` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-app-settings` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dev-dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-app-settings` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-app-settings` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dev-dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-app-settings` | coderight | `coderight/crates/rightkit-agents/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-app-settings` | coderight | `coderight/crates/rightkit-agents/Cargo.toml` | dev-dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-app-settings` | coderight | `coderight/crates/rightkit-credentials/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-app-settings` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-app-settings` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | dev-dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-app-settings` | coderight | `coderight/crates/rightkit-mcp/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-app-settings` | coderight | `coderight/crates/rightkit-mcp/Cargo.toml` | dev-dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-app-settings` | coderight | `coderight/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-app-settings` | coderight | `coderight/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-app-settings` | genright | `genright/ci/consumers/rightkit-app-settings/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-app-settings` | genright | `genright/crates/rightkit-credentials/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-app-settings` | genright | `genright/crates/rightkit-local-gen/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-app-settings` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-app-settings` | genright | `genright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-app-settings` | genright | `genright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-app-settings` | heardright | `heardright/ci/consumers/rightkit-app-settings/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-app-settings` | heardright | `heardright/crates/rightkit-credentials/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-app-settings` | heardright | `heardright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-app-settings` | heardright | `heardright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-app-settings` | legion | `legion/ci/consumers/rightkit-app-settings/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-app-settings` | legion | `legion/crates/rightkit-credentials/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-app-settings` | legion | `legion/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-app-settings` | legion | `legion/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-asr` | coderight | `coderight/ci/consumers/rightkit-asr/Cargo.toml` | dependencies | `=0.3.1` | 0.3.0 | ahead |
+| `rightkit-asr` | genright | `genright/ci/consumers/rightkit-asr/Cargo.toml` | dependencies | `=0.3.1` | 0.3.0 | ahead |
+| `rightkit-asr` | heardright | `heardright/ci/consumers/rightkit-asr/Cargo.toml` | dependencies | `=0.3.1` | 0.3.0 | ahead |
+| `rightkit-asr` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-asr` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-asr` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
+| `rightkit-asr` | legion | `legion/ci/consumers/rightkit-asr/Cargo.toml` | dependencies | `=0.3.1` | 0.3.0 | ahead |
+| `rightkit-audio` | coderight | `coderight/ci/consumers/rightkit-audio/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
+| `rightkit-audio` | coderight | `coderight/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.3.1` | 0.3.1 | local |
+| `rightkit-audio` | genright | `genright/ci/consumers/rightkit-audio/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
+| `rightkit-audio` | genright | `genright/crates/rightkit-media-pipeline/Cargo.toml` | dependencies | `0.3.1` | 0.3.1 | local |
+| `rightkit-audio` | genright | `genright/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.3.1` | 0.3.1 | local |
+| `rightkit-audio` | heardright | `heardright/ci/consumers/rightkit-audio/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
+| `rightkit-audio` | heardright | `heardright/crates/rightkit-dictation-engine/Cargo.toml` | dev-dependencies | `0.3.1` | 0.3.1 | local |
+| `rightkit-audio` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dependencies | `0.3.1` | 0.3.1 | local |
+| `rightkit-audio` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.3.1` | 0.3.1 | local |
+| `rightkit-audio` | heardright | `heardright/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.3.1` | 0.3.1 | local |
+| `rightkit-audio` | legion | `legion/ci/consumers/rightkit-audio/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
+| `rightkit-audio` | legion | `legion/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.3.1` | 0.3.1 | local |
+| `rightkit-autoedit` | coderight | `coderight/ci/consumers/rightkit-autoedit/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-autoedit` | coderight | `coderight/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-autoedit` | genright | `genright/ci/consumers/rightkit-autoedit/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-autoedit` | genright | `genright/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-autoedit` | heardright | `heardright/ci/consumers/rightkit-autoedit/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-autoedit` | heardright | `heardright/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-autoedit` | legion | `legion/ci/consumers/rightkit-autoedit/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-autoedit` | legion | `legion/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-automation` | coderight | `coderight/ci/consumers/rightkit-automation/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
+| `rightkit-automation` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.6.0` | 0.6.1 | local |
+| `rightkit-automation` | coderight | `coderight/crates/rightkit-qa-driver/Cargo.toml` | dependencies | `0.6.0` | 0.6.1 | local |
+| `rightkit-automation` | coderight | `coderight/crates/rightkit-qa/Cargo.toml` | dependencies | `0.6.0` | 0.6.1 | local |
+| `rightkit-automation` | coderight | `coderight/crates/rightkit-qa/examples/control-test-app/Cargo.toml` | dependencies | `*` | 0.6.1 | local |
+| `rightkit-automation` | genright | `genright/ci/consumers/rightkit-automation/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
+| `rightkit-automation` | genright | `genright/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.6.0` | 0.6.1 | local |
+| `rightkit-automation` | genright | `genright/crates/rightkit-qa-driver/Cargo.toml` | dependencies | `0.6.0` | 0.6.1 | local |
+| `rightkit-automation` | genright | `genright/crates/rightkit-qa/Cargo.toml` | dependencies | `0.6.0` | 0.6.1 | local |
+| `rightkit-automation` | genright | `genright/crates/rightkit-qa/examples/control-test-app/Cargo.toml` | dependencies | `*` | 0.6.1 | local |
+| `rightkit-automation` | heardright | `heardright/ci/consumers/rightkit-automation/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
+| `rightkit-automation` | heardright | `heardright/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.6.0` | 0.6.1 | local |
+| `rightkit-automation` | heardright | `heardright/crates/rightkit-dictation-command-host/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-automation` | heardright | `heardright/crates/rightkit-dictation-command-host/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-automation` | heardright | `heardright/crates/rightkit-dictation-command-host/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-automation` | heardright | `heardright/crates/rightkit-dictation-engine/Cargo.toml` | dev-dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-automation` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-automation` | heardright | `heardright/crates/rightkit-dictation-text-pipeline/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-automation` | heardright | `heardright/crates/rightkit-qa-driver/Cargo.toml` | dependencies | `0.6.0` | 0.6.1 | local |
+| `rightkit-automation` | heardright | `heardright/crates/rightkit-qa/Cargo.toml` | dependencies | `0.6.0` | 0.6.1 | local |
+| `rightkit-automation` | heardright | `heardright/crates/rightkit-qa/examples/control-test-app/Cargo.toml` | dependencies | `*` | 0.6.1 | local |
+| `rightkit-automation` | legion | `legion/ci/consumers/rightkit-automation/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
+| `rightkit-automation` | legion | `legion/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.6.0` | 0.6.1 | local |
+| `rightkit-automation` | legion | `legion/crates/rightkit-qa-driver/Cargo.toml` | dependencies | `0.6.0` | 0.6.1 | local |
+| `rightkit-automation` | legion | `legion/crates/rightkit-qa/Cargo.toml` | dependencies | `0.6.0` | 0.6.1 | local |
+| `rightkit-automation` | legion | `legion/crates/rightkit-qa/examples/control-test-app/Cargo.toml` | dependencies | `*` | 0.6.1 | local |
+| `rightkit-bot-messaging` | coderight | `coderight/ci/consumers/rightkit-bot-messaging/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-bot-messaging` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-browser` | coderight | `coderight/ci/consumers/rightkit-browser/Cargo.toml` | dependencies | `=0.3.7` | 0.3.6 | ahead |
+| `rightkit-browser` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.3.0` | 0.3.6 | local |
+| `rightkit-browser` | coderight | `coderight/crates/rightkit-qa/Cargo.toml` | dependencies | `0.3.0` | 0.3.6 | local |
+| `rightkit-browser` | genright | `genright/ci/consumers/rightkit-browser/Cargo.toml` | dependencies | `=0.3.7` | 0.3.6 | ahead |
+| `rightkit-browser` | genright | `genright/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.3.0` | 0.3.6 | local |
+| `rightkit-browser` | genright | `genright/crates/rightkit-media-pipeline/Cargo.toml` | dependencies | `0.3.7` | 0.3.6 | local |
+| `rightkit-browser` | genright | `genright/crates/rightkit-qa/Cargo.toml` | dependencies | `0.3.0` | 0.3.6 | local |
+| `rightkit-browser` | heardright | `heardright/ci/consumers/rightkit-browser/Cargo.toml` | dependencies | `=0.3.7` | 0.3.6 | ahead |
+| `rightkit-browser` | heardright | `heardright/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.3.0` | 0.3.6 | local |
+| `rightkit-browser` | heardright | `heardright/crates/rightkit-qa/Cargo.toml` | dependencies | `0.3.0` | 0.3.6 | local |
+| `rightkit-browser` | legion | `legion/ci/consumers/rightkit-browser/Cargo.toml` | dependencies | `=0.3.7` | 0.3.6 | ahead |
+| `rightkit-browser` | legion | `legion/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.3.0` | 0.3.6 | local |
+| `rightkit-browser` | legion | `legion/crates/rightkit-code-audit-engine/Cargo.toml` | dependencies | `0.3.7` | 0.3.6 | local |
+| `rightkit-browser` | legion | `legion/crates/rightkit-qa/Cargo.toml` | dependencies | `0.3.0` | 0.3.6 | local |
+| `rightkit-cache` | coderight | `coderight/ci/consumers/rightkit-cache/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
+| `rightkit-cache` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.2.3` | 0.2.3 | local |
+| `rightkit-cache` | coderight | `coderight/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.2.3` | 0.2.3 | local |
+| `rightkit-cache` | genright | `genright/ci/consumers/rightkit-cache/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
+| `rightkit-cache` | heardright | `heardright/ci/consumers/rightkit-cache/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
+| `rightkit-cache` | legion | `legion/ci/consumers/rightkit-cache/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
+| `rightkit-cache` | legion | `legion/crates/rightkit-code-audit-engine/Cargo.toml` | dependencies | `0.2.3` | 0.2.3 | local |
+| `rightkit-captions` | coderight | `coderight/ci/consumers/rightkit-captions/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-captions` | coderight | `coderight/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-captions` | coderight | `coderight/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-captions` | genright | `genright/ci/consumers/rightkit-captions/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-captions` | genright | `genright/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-captions` | genright | `genright/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-captions` | heardright | `heardright/ci/consumers/rightkit-captions/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-captions` | heardright | `heardright/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-captions` | heardright | `heardright/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-captions` | legion | `legion/ci/consumers/rightkit-captions/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-captions` | legion | `legion/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-captions` | legion | `legion/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-channel-memory` | coderight | `coderight/ci/consumers/rightkit-channel-memory/Cargo.toml` | dependencies | `=0.2.2` | 0.2.1 | ahead |
+| `rightkit-channel-memory` | genright | `genright/ci/consumers/rightkit-channel-memory/Cargo.toml` | dependencies | `=0.2.2` | 0.2.1 | ahead |
+| `rightkit-channel-memory` | heardright | `heardright/ci/consumers/rightkit-channel-memory/Cargo.toml` | dependencies | `=0.2.2` | 0.2.1 | ahead |
+| `rightkit-channel-memory` | legion | `legion/ci/consumers/rightkit-channel-memory/Cargo.toml` | dependencies | `=0.2.2` | 0.2.1 | ahead |
+| `rightkit-child-process` | coderight | `coderight/ci/consumers/rightkit-child-process/Cargo.toml` | dependencies | `=0.5.7` | 0.5.7 | current |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dev-dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-agent-plugins/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-agents/Cargo.toml` | dependencies | `0.5.1` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-browser/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-cache/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-ffmpeg/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-file-watch/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-fsindex/Cargo.toml` | dev-dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-github/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-hooks/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.5.4` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-logs/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-memory/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-oauth/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-pipeline/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-playback/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-qa/Cargo.toml` | dependencies | `0.5.6` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-record/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-sandbox/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-send/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-sync/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-terminal-ui/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-tts/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.5.6` | 0.5.7 | local |
+| `rightkit-child-process` | coderight | `coderight/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.5.7` | 0.5.7 | current |
+| `rightkit-child-process` | genright | `genright/ci/consumers/rightkit-child-process/Cargo.toml` | dependencies | `=0.5.7` | 0.5.7 | current |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-agents/Cargo.toml` | dependencies | `0.5.1` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-approvals/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-browser/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-cache/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-ffmpeg/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-file-watch/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-fsindex/Cargo.toml` | dev-dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.5.4` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-llm/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-local-gen/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-logs/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-media-pipeline/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-oauth/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-pipeline/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-playback/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-qa/Cargo.toml` | dependencies | `0.5.6` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-record/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-remote-compute/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-sandbox/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-send/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-sync/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-tts/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.5.6` | 0.5.7 | local |
+| `rightkit-child-process` | genright | `genright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.5.7` | 0.5.7 | current |
+| `rightkit-child-process` | heardright | `heardright/ci/consumers/rightkit-child-process/Cargo.toml` | dependencies | `=0.5.7` | 0.5.7 | current |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-agents/Cargo.toml` | dependencies | `0.5.1` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-automation/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-browser/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-cache/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-dictation-command-host/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-dictation-models/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-ffmpeg/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-file-watch/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-fsindex/Cargo.toml` | dev-dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.5.4` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-llm/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-logs/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-oauth/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-pipeline/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-playback/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-qa/Cargo.toml` | dependencies | `0.5.6` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-record/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-sandbox/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-send/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-sync/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-tts/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.5.6` | 0.5.7 | local |
+| `rightkit-child-process` | heardright | `heardright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.5.7` | 0.5.7 | current |
+| `rightkit-child-process` | legion | `legion/ci/consumers/rightkit-child-process/Cargo.toml` | dependencies | `=0.5.7` | 0.5.7 | current |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-agents/Cargo.toml` | dependencies | `0.5.1` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-browser/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-cache/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-code-audit-engine/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-evidence-commands/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-ffmpeg/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-file-watch/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-fsindex/Cargo.toml` | dev-dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.5.4` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-llm/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-logs/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-oauth/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-pipeline/Cargo.toml` | dependencies | `0.5.7` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-playback/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-qa/Cargo.toml` | dependencies | `0.5.6` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-record/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-sandbox/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-send/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-sync/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-tts/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.5.6` | 0.5.7 | local |
+| `rightkit-child-process` | legion | `legion/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.5.7` | 0.5.7 | current |
+| `rightkit-code-audit-provider-sdk` | legion | `legion/ci/consumers/rightkit-code-audit-provider-sdk/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-code-audit-provider-sdk` | legion | `legion/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-code-audit-provider-sdk` | legion | `legion/crates/rightkit-code-audit-commands/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-code-audit-provider-sdk` | legion | `legion/crates/rightkit-code-audit-engine/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-code-audit-provider-sdk` | legion | `legion/crates/rightkit-evidence-application/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-code-audit-provider-sdk` | legion | `legion/crates/rightkit-research/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-code-audit-provider-sdk` | legion | `legion/crates/rightkit-review/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-color` | coderight | `coderight/ci/consumers/rightkit-color/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-color` | genright | `genright/ci/consumers/rightkit-color/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-color` | heardright | `heardright/ci/consumers/rightkit-color/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-color` | legion | `legion/ci/consumers/rightkit-color/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-compose` | coderight | `coderight/ci/consumers/rightkit-compose/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-compose` | genright | `genright/ci/consumers/rightkit-compose/Cargo.toml` | dependencies | `=0.2.1` | 0.2.0 | ahead |
+| `rightkit-compose` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.2.1` | 0.2.0 | local |
+| `rightkit-compose` | heardright | `heardright/ci/consumers/rightkit-compose/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-compose` | legion | `legion/ci/consumers/rightkit-compose/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-compositor` | coderight | `coderight/ci/consumers/rightkit-compositor/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-compositor` | genright | `genright/ci/consumers/rightkit-compositor/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-compositor` | heardright | `heardright/ci/consumers/rightkit-compositor/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-compositor` | legion | `legion/ci/consumers/rightkit-compositor/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-contracts` | coderight | `coderight/ci/consumers/rightkit-contracts/Cargo.toml` | dependencies | `=0.1.8` | 0.1.7 | ahead |
+| `rightkit-contracts` | coderight | `coderight/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.1.5` | 0.1.7 | local |
+| `rightkit-contracts` | coderight | `coderight/crates/rightkit-daemon/Cargo.toml` | dev-dependencies | `0.1.5` | 0.1.7 | local |
+| `rightkit-contracts` | coderight | `coderight/crates/rightkit-record/Cargo.toml` | dependencies | `0.1.5` | 0.1.7 | local |
+| `rightkit-contracts` | genright | `genright/ci/consumers/rightkit-contracts/Cargo.toml` | dependencies | `=0.1.8` | 0.1.7 | ahead |
+| `rightkit-contracts` | genright | `genright/crates/rightkit-approvals/Cargo.toml` | dependencies | `0.1.8` | 0.1.7 | local |
+| `rightkit-contracts` | genright | `genright/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.1.5` | 0.1.7 | local |
+| `rightkit-contracts` | genright | `genright/crates/rightkit-daemon/Cargo.toml` | dev-dependencies | `0.1.5` | 0.1.7 | local |
+| `rightkit-contracts` | genright | `genright/crates/rightkit-media-pipeline/Cargo.toml` | dependencies | `0.1.8` | 0.1.7 | local |
+| `rightkit-contracts` | genright | `genright/crates/rightkit-record/Cargo.toml` | dependencies | `0.1.5` | 0.1.7 | local |
+| `rightkit-contracts` | heardright | `heardright/ci/consumers/rightkit-contracts/Cargo.toml` | dependencies | `=0.1.8` | 0.1.7 | ahead |
+| `rightkit-contracts` | heardright | `heardright/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.1.5` | 0.1.7 | local |
+| `rightkit-contracts` | heardright | `heardright/crates/rightkit-daemon/Cargo.toml` | dev-dependencies | `0.1.5` | 0.1.7 | local |
+| `rightkit-contracts` | heardright | `heardright/crates/rightkit-record/Cargo.toml` | dependencies | `0.1.5` | 0.1.7 | local |
+| `rightkit-contracts` | legion | `legion/ci/consumers/rightkit-contracts/Cargo.toml` | dependencies | `=0.1.8` | 0.1.7 | ahead |
+| `rightkit-contracts` | legion | `legion/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.1.5` | 0.1.7 | local |
+| `rightkit-contracts` | legion | `legion/crates/rightkit-daemon/Cargo.toml` | dev-dependencies | `0.1.5` | 0.1.7 | local |
+| `rightkit-contracts` | legion | `legion/crates/rightkit-record/Cargo.toml` | dependencies | `0.1.5` | 0.1.7 | local |
+| `rightkit-crash` | coderight | `coderight/ci/consumers/rightkit-crash/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
+| `rightkit-crash` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.3.6` | 0.3.6 | local |
+| `rightkit-crash` | coderight | `coderight/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.3.0` | 0.3.6 | local |
+| `rightkit-crash` | coderight | `coderight/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.3.4` | 0.3.6 | local |
+| `rightkit-crash` | coderight | `coderight/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
+| `rightkit-crash` | coderight | `coderight/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
+| `rightkit-crash` | genright | `genright/ci/consumers/rightkit-crash/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
+| `rightkit-crash` | genright | `genright/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.3.0` | 0.3.6 | local |
+| `rightkit-crash` | genright | `genright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.3.4` | 0.3.6 | local |
+| `rightkit-crash` | genright | `genright/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
+| `rightkit-crash` | genright | `genright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
+| `rightkit-crash` | heardright | `heardright/ci/consumers/rightkit-crash/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
+| `rightkit-crash` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.3.6` | 0.3.6 | local |
+| `rightkit-crash` | heardright | `heardright/crates/rightkit-dictation-telemetry/Cargo.toml` | dependencies | `0.3.6` | 0.3.6 | local |
+| `rightkit-crash` | heardright | `heardright/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.3.0` | 0.3.6 | local |
+| `rightkit-crash` | heardright | `heardright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.3.4` | 0.3.6 | local |
+| `rightkit-crash` | heardright | `heardright/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
+| `rightkit-crash` | heardright | `heardright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
+| `rightkit-crash` | legion | `legion/ci/consumers/rightkit-crash/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
+| `rightkit-crash` | legion | `legion/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.3.0` | 0.3.6 | local |
+| `rightkit-crash` | legion | `legion/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.3.4` | 0.3.6 | local |
+| `rightkit-crash` | legion | `legion/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
+| `rightkit-crash` | legion | `legion/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
+| `rightkit-credentials` | coderight | `coderight/ci/consumers/rightkit-credentials/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | coderight | `coderight/ci/consumers/rightkit-oauth/Cargo.toml` | dependencies | `=0.4.1` | 0.4.2 | stale |
+| `rightkit-credentials` | coderight | `coderight/ci/consumers/rightkit-vault/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-android/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-device/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-github/Cargo.toml` | dependencies | `0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-google-identity/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-license/Cargo.toml` | dependencies | `0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | dependencies | `0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-mcp/Cargo.toml` | dependencies | `0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-oauth/Cargo.toml` | dependencies | `0.4.1` | 0.4.2 | local |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-record/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-sync-keys/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-vault/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | coderight | `coderight/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | genright | `genright/ci/consumers/rightkit-credentials/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | genright | `genright/ci/consumers/rightkit-oauth/Cargo.toml` | dependencies | `=0.4.1` | 0.4.2 | stale |
+| `rightkit-credentials` | genright | `genright/ci/consumers/rightkit-vault/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | genright | `genright/crates/rightkit-android/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | genright | `genright/crates/rightkit-device/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | genright | `genright/crates/rightkit-google-identity/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | genright | `genright/crates/rightkit-license/Cargo.toml` | dependencies | `0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | genright | `genright/crates/rightkit-oauth/Cargo.toml` | dependencies | `0.4.1` | 0.4.2 | local |
+| `rightkit-credentials` | genright | `genright/crates/rightkit-record/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | genright | `genright/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | genright | `genright/crates/rightkit-sync-keys/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | genright | `genright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | genright | `genright/crates/rightkit-vault/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | genright | `genright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | heardright | `heardright/ci/consumers/rightkit-credentials/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | heardright | `heardright/ci/consumers/rightkit-oauth/Cargo.toml` | dependencies | `=0.4.1` | 0.4.2 | stale |
+| `rightkit-credentials` | heardright | `heardright/ci/consumers/rightkit-vault/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | heardright | `heardright/crates/rightkit-android/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | heardright | `heardright/crates/rightkit-device/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | heardright | `heardright/crates/rightkit-dictation-core/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | heardright | `heardright/crates/rightkit-dictation-text-pipeline/Cargo.toml` | dependencies | `0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | heardright | `heardright/crates/rightkit-google-identity/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | heardright | `heardright/crates/rightkit-license/Cargo.toml` | dependencies | `0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | heardright | `heardright/crates/rightkit-oauth/Cargo.toml` | dependencies | `0.4.1` | 0.4.2 | local |
+| `rightkit-credentials` | heardright | `heardright/crates/rightkit-record/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | heardright | `heardright/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | heardright | `heardright/crates/rightkit-sync-keys/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | heardright | `heardright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | heardright | `heardright/crates/rightkit-vault/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | heardright | `heardright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | legion | `legion/ci/consumers/rightkit-credentials/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | legion | `legion/ci/consumers/rightkit-oauth/Cargo.toml` | dependencies | `=0.4.1` | 0.4.2 | stale |
+| `rightkit-credentials` | legion | `legion/ci/consumers/rightkit-vault/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | legion | `legion/crates/rightkit-android/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | legion | `legion/crates/rightkit-device/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | legion | `legion/crates/rightkit-google-identity/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | legion | `legion/crates/rightkit-license/Cargo.toml` | dependencies | `0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | legion | `legion/crates/rightkit-oauth/Cargo.toml` | dependencies | `0.4.1` | 0.4.2 | local |
+| `rightkit-credentials` | legion | `legion/crates/rightkit-record/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | legion | `legion/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.4.2` | 0.4.2 | local |
+| `rightkit-credentials` | legion | `legion/crates/rightkit-sync-keys/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | legion | `legion/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | legion | `legion/crates/rightkit-vault/Cargo.toml` | dependencies | `0.4.0` | 0.4.2 | local |
+| `rightkit-credentials` | legion | `legion/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-crypto` | coderight | `coderight/ci/consumers/rightkit-crypto/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-adapt/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-agent-engine-storage/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-agent-policy/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-agents/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-bot-messaging/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-github/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-logs/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-sandbox/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-terminal-ui/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-workflow/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | genright | `genright/ci/consumers/rightkit-crypto/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-crypto` | genright | `genright/crates/rightkit-compose/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | genright | `genright/crates/rightkit-local-gen/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | genright | `genright/crates/rightkit-remote-compute/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-crypto` | heardright | `heardright/ci/consumers/rightkit-crypto/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-crypto` | legion | `legion/ci/consumers/rightkit-crypto/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-daemon` | coderight | `coderight/ci/consumers/rightkit-automation/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-daemon` | coderight | `coderight/ci/consumers/rightkit-daemon/Cargo.toml` | dependencies | `=0.5.0` | 0.4.0 | ahead |
+| `rightkit-daemon` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.6.0` | 0.4.0 | local |
+| `rightkit-daemon` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.6.0` | 0.4.0 | local |
+| `rightkit-daemon` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.6.0` | 0.4.0 | local |
+| `rightkit-daemon` | coderight | `coderight/crates/rightkit-app-settings/Cargo.toml` | dependencies | `0.6.0` | 0.4.0 | local |
+| `rightkit-daemon` | coderight | `coderight/crates/rightkit-app-settings/Cargo.toml` | dev-dependencies | `0.6.0` | 0.4.0 | local |
+| `rightkit-daemon` | coderight | `coderight/crates/rightkit-automation/Cargo.toml` | dependencies | `0.6.0` | 0.4.0 | local |
+| `rightkit-daemon` | coderight | `coderight/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.6.0` | 0.4.0 | local |
+| `rightkit-daemon` | coderight | `coderight/crates/rightkit-models/Cargo.toml` | dependencies | `0.6.0` | 0.4.0 | local |
+| `rightkit-daemon` | coderight | `coderight/crates/rightkit-qa-driver/Cargo.toml` | dev-dependencies | `0.6.0` | 0.4.0 | local |
+| `rightkit-daemon` | coderight | `coderight/crates/rightkit-qa/Cargo.toml` | dependencies | `0.6.0` | 0.4.0 | local |
+| `rightkit-daemon` | coderight | `coderight/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.6.0` | 0.4.0 | local |
+| `rightkit-daemon` | coderight | `coderight/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.6.0` | 0.4.0 | local |
+| `rightkit-daemon` | coderight | `coderight/desktop-app-template/crates/protocol/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-daemon` | coderight | `coderight/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-daemon` | coderight | `coderight/spikes/rk2-macos/svc-call/Cargo.toml` | dependencies | `*` | 0.4.0 | local |
+| `rightkit-daemon` | coderight | `coderight/swift/RightKitSwift/native/Cargo.toml` | dependencies | `0.2` | 0.4.0 | stale |
+| `rightkit-daemon` | genright | `genright/ci/consumers/rightkit-automation/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-daemon` | genright | `genright/ci/consumers/rightkit-daemon/Cargo.toml` | dependencies | `=0.5.0` | 0.4.0 | ahead |
+| `rightkit-daemon` | genright | `genright/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | genright | `genright/crates/rightkit-approvals/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | genright | `genright/crates/rightkit-automation/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | genright | `genright/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | genright | `genright/crates/rightkit-local-gen/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | genright | `genright/crates/rightkit-models/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | genright | `genright/crates/rightkit-qa-driver/Cargo.toml` | dev-dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | genright | `genright/crates/rightkit-qa/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | genright | `genright/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | genright | `genright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | genright | `genright/desktop-app-template/crates/protocol/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-daemon` | genright | `genright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-daemon` | genright | `genright/spikes/rk2-macos/svc-call/Cargo.toml` | dependencies | `*` | 0.4.0 | local |
+| `rightkit-daemon` | genright | `genright/swift/RightKitSwift/native/Cargo.toml` | dependencies | `0.2` | 0.4.0 | stale |
+| `rightkit-daemon` | heardright | `heardright/ci/consumers/rightkit-automation/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-daemon` | heardright | `heardright/ci/consumers/rightkit-daemon/Cargo.toml` | dependencies | `=0.5.0` | 0.4.0 | ahead |
+| `rightkit-daemon` | heardright | `heardright/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | heardright | `heardright/crates/rightkit-automation/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | heardright | `heardright/crates/rightkit-dictation-app-runtime/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | heardright | `heardright/crates/rightkit-dictation-engine/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | heardright | `heardright/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | heardright | `heardright/crates/rightkit-models/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | heardright | `heardright/crates/rightkit-qa-driver/Cargo.toml` | dev-dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | heardright | `heardright/crates/rightkit-qa/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | heardright | `heardright/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | heardright | `heardright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | heardright | `heardright/desktop-app-template/crates/protocol/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-daemon` | heardright | `heardright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-daemon` | heardright | `heardright/spikes/rk2-macos/svc-call/Cargo.toml` | dependencies | `*` | 0.4.0 | local |
+| `rightkit-daemon` | heardright | `heardright/swift/RightKitSwift/native/Cargo.toml` | dependencies | `0.2` | 0.4.0 | stale |
+| `rightkit-daemon` | legion | `legion/ci/consumers/rightkit-automation/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-daemon` | legion | `legion/ci/consumers/rightkit-daemon/Cargo.toml` | dependencies | `=0.5.0` | 0.4.0 | ahead |
+| `rightkit-daemon` | legion | `legion/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | legion | `legion/crates/rightkit-automation/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | legion | `legion/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | legion | `legion/crates/rightkit-models/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | legion | `legion/crates/rightkit-qa-driver/Cargo.toml` | dev-dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | legion | `legion/crates/rightkit-qa/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | legion | `legion/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | legion | `legion/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-daemon` | legion | `legion/desktop-app-template/crates/protocol/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-daemon` | legion | `legion/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-daemon` | legion | `legion/spikes/rk2-macos/svc-call/Cargo.toml` | dependencies | `*` | 0.4.0 | local |
+| `rightkit-daemon` | legion | `legion/swift/RightKitSwift/native/Cargo.toml` | dependencies | `0.2` | 0.4.0 | stale |
+| `rightkit-db` | coderight | `coderight/ci/consumers/rightkit-credentials/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
+| `rightkit-db` | coderight | `coderight/ci/consumers/rightkit-db/Cargo.toml` | dependencies | `=0.5.3` | 0.5.2 | ahead |
+| `rightkit-db` | coderight | `coderight/ci/consumers/rightkit-embed/Cargo.toml` | dependencies | `0.5` | 0.5.2 | range ok |
+| `rightkit-db` | coderight | `coderight/ci/consumers/rightkit-spend/Cargo.toml` | dependencies | `0.5` | 0.5.2 | range ok |
+| `rightkit-db` | coderight | `coderight/crates/rightkit-adapt/Cargo.toml` | dependencies | `0.5.3` | 0.5.2 | local |
+| `rightkit-db` | coderight | `coderight/crates/rightkit-agent-engine-storage/Cargo.toml` | dependencies | `0.5.3` | 0.5.2 | local |
+| `rightkit-db` | coderight | `coderight/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.5.3` | 0.5.2 | local |
+| `rightkit-db` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.5.3` | 0.5.2 | local |
+| `rightkit-db` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.5.3` | 0.5.2 | local |
+| `rightkit-db` | coderight | `coderight/crates/rightkit-app-settings/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | coderight | `coderight/crates/rightkit-app-settings/Cargo.toml` | dev-dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | coderight | `coderight/crates/rightkit-credentials/Cargo.toml` | dependencies | `0.5.1` | 0.5.2 | local |
+| `rightkit-db` | coderight | `coderight/crates/rightkit-embed/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | coderight | `coderight/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | coderight | `coderight/crates/rightkit-spend/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | coderight | `coderight/crates/rightkit-spend/Cargo.toml` | dev-dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | coderight | `coderight/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
+| `rightkit-db` | genright | `genright/ci/consumers/rightkit-credentials/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
+| `rightkit-db` | genright | `genright/ci/consumers/rightkit-db/Cargo.toml` | dependencies | `=0.5.3` | 0.5.2 | ahead |
+| `rightkit-db` | genright | `genright/ci/consumers/rightkit-embed/Cargo.toml` | dependencies | `0.5` | 0.5.2 | range ok |
+| `rightkit-db` | genright | `genright/ci/consumers/rightkit-spend/Cargo.toml` | dependencies | `0.5` | 0.5.2 | range ok |
+| `rightkit-db` | genright | `genright/crates/rightkit-app-settings/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | genright | `genright/crates/rightkit-app-settings/Cargo.toml` | dev-dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | genright | `genright/crates/rightkit-credentials/Cargo.toml` | dependencies | `0.5.1` | 0.5.2 | local |
+| `rightkit-db` | genright | `genright/crates/rightkit-embed/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | genright | `genright/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | genright | `genright/crates/rightkit-local-gen/Cargo.toml` | dependencies | `0.5.3` | 0.5.2 | local |
+| `rightkit-db` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.5.3` | 0.5.2 | local |
+| `rightkit-db` | genright | `genright/crates/rightkit-spend/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | genright | `genright/crates/rightkit-spend/Cargo.toml` | dev-dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | genright | `genright/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
+| `rightkit-db` | heardright | `heardright/ci/consumers/rightkit-credentials/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
+| `rightkit-db` | heardright | `heardright/ci/consumers/rightkit-db/Cargo.toml` | dependencies | `=0.5.3` | 0.5.2 | ahead |
+| `rightkit-db` | heardright | `heardright/ci/consumers/rightkit-embed/Cargo.toml` | dependencies | `0.5` | 0.5.2 | range ok |
+| `rightkit-db` | heardright | `heardright/ci/consumers/rightkit-spend/Cargo.toml` | dependencies | `0.5` | 0.5.2 | range ok |
+| `rightkit-db` | heardright | `heardright/crates/rightkit-app-settings/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | heardright | `heardright/crates/rightkit-app-settings/Cargo.toml` | dev-dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | heardright | `heardright/crates/rightkit-credentials/Cargo.toml` | dependencies | `0.5.1` | 0.5.2 | local |
+| `rightkit-db` | heardright | `heardright/crates/rightkit-embed/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | heardright | `heardright/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | heardright | `heardright/crates/rightkit-spend/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | heardright | `heardright/crates/rightkit-spend/Cargo.toml` | dev-dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | heardright | `heardright/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
+| `rightkit-db` | legion | `legion/ci/consumers/rightkit-credentials/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
+| `rightkit-db` | legion | `legion/ci/consumers/rightkit-db/Cargo.toml` | dependencies | `=0.5.3` | 0.5.2 | ahead |
+| `rightkit-db` | legion | `legion/ci/consumers/rightkit-embed/Cargo.toml` | dependencies | `0.5` | 0.5.2 | range ok |
+| `rightkit-db` | legion | `legion/ci/consumers/rightkit-spend/Cargo.toml` | dependencies | `0.5` | 0.5.2 | range ok |
+| `rightkit-db` | legion | `legion/crates/rightkit-app-settings/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | legion | `legion/crates/rightkit-app-settings/Cargo.toml` | dev-dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | legion | `legion/crates/rightkit-credentials/Cargo.toml` | dependencies | `0.5.1` | 0.5.2 | local |
+| `rightkit-db` | legion | `legion/crates/rightkit-embed/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | legion | `legion/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | legion | `legion/crates/rightkit-spend/Cargo.toml` | dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | legion | `legion/crates/rightkit-spend/Cargo.toml` | dev-dependencies | `0.5.0` | 0.5.2 | local |
+| `rightkit-db` | legion | `legion/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.5.2` | 0.5.2 | current |
+| `rightkit-device` | coderight | `coderight/ci/consumers/rightkit-device/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-device` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-device` | coderight | `coderight/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-device` | genright | `genright/ci/consumers/rightkit-device/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-device` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-device` | genright | `genright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-device` | heardright | `heardright/ci/consumers/rightkit-device/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-device` | heardright | `heardright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-device` | legion | `legion/ci/consumers/rightkit-device/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-device` | legion | `legion/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-dictation-core` | heardright | `heardright/ci/consumers/rightkit-dictation-core/Cargo.toml` | dependencies | `=0.2.0` | none recorded | unpublished |
+| `rightkit-dictation-core` | heardright | `heardright/crates/rightkit-dictation-app-runtime/Cargo.toml` | dependencies | `0.2.0` | none recorded | local |
+| `rightkit-dictation-core` | heardright | `heardright/crates/rightkit-dictation-command-host/Cargo.toml` | dependencies | `0.2.0` | none recorded | local |
+| `rightkit-dictation-core` | heardright | `heardright/crates/rightkit-dictation-engine/Cargo.toml` | dependencies | `0.2.0` | none recorded | local |
+| `rightkit-dictation-core` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dependencies | `0.2.0` | none recorded | local |
+| `rightkit-dictation-core` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dev-dependencies | `0.2.0` | none recorded | local |
+| `rightkit-dictation-core` | heardright | `heardright/crates/rightkit-dictation-models/Cargo.toml` | dependencies | `0.2.0` | none recorded | local |
+| `rightkit-dictation-core` | heardright | `heardright/crates/rightkit-dictation-models/Cargo.toml` | dev-dependencies | `0.2.0` | none recorded | local |
+| `rightkit-dictation-core` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.2.0` | none recorded | local |
+| `rightkit-dictation-core` | heardright | `heardright/crates/rightkit-dictation-telemetry/Cargo.toml` | dependencies | `0.2.0` | none recorded | local |
+| `rightkit-dictation-core` | heardright | `heardright/crates/rightkit-dictation-telemetry/Cargo.toml` | dev-dependencies | `0.2.0` | none recorded | local |
+| `rightkit-dictation-core` | heardright | `heardright/crates/rightkit-dictation-text-pipeline/Cargo.toml` | dependencies | `0.2.0` | none recorded | local |
+| `rightkit-dictation-core` | heardright | `heardright/crates/rightkit-dictation-text-pipeline/Cargo.toml` | dev-dependencies | `0.2.0` | none recorded | local |
+| `rightkit-docs` | coderight | `coderight/ci/consumers/rightkit-docs/Cargo.toml` | dependencies | `=0.1.3` | 0.1.2 | ahead |
+| `rightkit-docs` | genright | `genright/ci/consumers/rightkit-docs/Cargo.toml` | dependencies | `=0.1.3` | 0.1.2 | ahead |
+| `rightkit-docs` | heardright | `heardright/ci/consumers/rightkit-docs/Cargo.toml` | dependencies | `=0.1.3` | 0.1.2 | ahead |
+| `rightkit-docs` | legion | `legion/ci/consumers/rightkit-docs/Cargo.toml` | dependencies | `=0.1.3` | 0.1.2 | ahead |
+| `rightkit-embed` | coderight | `coderight/ci/consumers/rightkit-embed/Cargo.toml` | dependencies | `=0.6.2` | 0.6.1 | ahead |
+| `rightkit-embed` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.6.2` | 0.6.1 | local |
+| `rightkit-embed` | genright | `genright/ci/consumers/rightkit-embed/Cargo.toml` | dependencies | `=0.6.2` | 0.6.1 | ahead |
+| `rightkit-embed` | heardright | `heardright/ci/consumers/rightkit-embed/Cargo.toml` | dependencies | `=0.6.2` | 0.6.1 | ahead |
+| `rightkit-embed` | legion | `legion/ci/consumers/rightkit-embed/Cargo.toml` | dependencies | `=0.6.2` | 0.6.1 | ahead |
+| `rightkit-evidence` | coderight | `coderight/ci/consumers/rightkit-evidence/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-evidence` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/ci/consumers/rightkit-evidence-contracts/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-agent-orchestration-handoff/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-code-audit-commands/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-code-audit-engine/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-code-audit-provider-sdk/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-evidence-application/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-evidence-commands/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-evidence-decisions/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-evidence-effects/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-evidence-governance/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-evidence-report/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-hooks/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-policy-rules/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-research/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-review/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-decisions` | legion | `legion/ci/consumers/rightkit-evidence-decisions/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-evidence-decisions` | legion | `legion/crates/rightkit-evidence-commands/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-effects` | legion | `legion/ci/consumers/rightkit-evidence-effects/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-evidence-effects` | legion | `legion/crates/rightkit-code-audit-commands/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-effects` | legion | `legion/crates/rightkit-code-audit-engine/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-effects` | legion | `legion/crates/rightkit-code-audit-provider-sdk/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-governance` | legion | `legion/ci/consumers/rightkit-evidence-governance/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-evidence-governance` | legion | `legion/crates/rightkit-evidence-commands/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-report` | legion | `legion/ci/consumers/rightkit-evidence-report/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-evidence-report` | legion | `legion/crates/rightkit-code-audit-commands/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-report` | legion | `legion/crates/rightkit-code-audit-engine/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-evidence-report` | legion | `legion/crates/rightkit-evidence-application/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-ffmpeg` | coderight | `coderight/ci/consumers/rightkit-ffmpeg/Cargo.toml` | dependencies | `=0.2.11` | 0.2.10 | ahead |
+| `rightkit-ffmpeg` | coderight | `coderight/ci/consumers/rightkit-motion/Cargo.toml` | dependencies | `=0.2.9` | 0.2.10 | stale |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-asr/Cargo.toml` | dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-asr/Cargo.toml` | dev-dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-audio/Cargo.toml` | dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-autoedit/Cargo.toml` | dev-dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-color/Cargo.toml` | dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-color/Cargo.toml` | dev-dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-motion/Cargo.toml` | dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-onnx/Cargo.toml` | dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-onnx/Cargo.toml` | dev-dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-playback/Cargo.toml` | dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-reframe/Cargo.toml` | dev-dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-timeline/Cargo.toml` | dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-vad/Cargo.toml` | dev-dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-video-project/Cargo.toml` | dev-dependencies | `0.3.0` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/ci/consumers/rightkit-ffmpeg/Cargo.toml` | dependencies | `=0.2.11` | 0.2.10 | ahead |
+| `rightkit-ffmpeg` | genright | `genright/ci/consumers/rightkit-motion/Cargo.toml` | dependencies | `=0.2.9` | 0.2.10 | stale |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-asr/Cargo.toml` | dependencies | `0.2.11` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-asr/Cargo.toml` | dev-dependencies | `0.2.3` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-audio/Cargo.toml` | dependencies | `0.2.3` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-autoedit/Cargo.toml` | dev-dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-color/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-color/Cargo.toml` | dev-dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.2.11` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-media-pipeline/Cargo.toml` | dependencies | `0.2.11` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-motion/Cargo.toml` | dependencies | `0.2.9` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-onnx/Cargo.toml` | dependencies | `0.2.11` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-onnx/Cargo.toml` | dev-dependencies | `0.2.11` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-playback/Cargo.toml` | dependencies | `0.2.3` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-reframe/Cargo.toml` | dev-dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-timeline/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-vad/Cargo.toml` | dev-dependencies | `0.2.3` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-video-project/Cargo.toml` | dev-dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/ci/consumers/rightkit-ffmpeg/Cargo.toml` | dependencies | `=0.2.11` | 0.2.10 | ahead |
+| `rightkit-ffmpeg` | heardright | `heardright/ci/consumers/rightkit-motion/Cargo.toml` | dependencies | `=0.2.9` | 0.2.10 | stale |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-asr/Cargo.toml` | dependencies | `0.2.11` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-asr/Cargo.toml` | dev-dependencies | `0.2.3` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-audio/Cargo.toml` | dependencies | `0.2.3` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-autoedit/Cargo.toml` | dev-dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-color/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-color/Cargo.toml` | dev-dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dependencies | `0.2.11` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-motion/Cargo.toml` | dependencies | `0.2.9` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-onnx/Cargo.toml` | dependencies | `0.2.11` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-onnx/Cargo.toml` | dev-dependencies | `0.2.11` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-playback/Cargo.toml` | dependencies | `0.2.3` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-reframe/Cargo.toml` | dev-dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-timeline/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-vad/Cargo.toml` | dev-dependencies | `0.2.3` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-video-project/Cargo.toml` | dev-dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/ci/consumers/rightkit-ffmpeg/Cargo.toml` | dependencies | `=0.2.11` | 0.2.10 | ahead |
+| `rightkit-ffmpeg` | legion | `legion/ci/consumers/rightkit-motion/Cargo.toml` | dependencies | `=0.2.9` | 0.2.10 | stale |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-asr/Cargo.toml` | dependencies | `0.2.11` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-asr/Cargo.toml` | dev-dependencies | `0.2.3` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-audio/Cargo.toml` | dependencies | `0.2.3` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-autoedit/Cargo.toml` | dev-dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-color/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-color/Cargo.toml` | dev-dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-motion/Cargo.toml` | dependencies | `0.2.9` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-onnx/Cargo.toml` | dependencies | `0.2.11` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-onnx/Cargo.toml` | dev-dependencies | `0.2.11` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-playback/Cargo.toml` | dependencies | `0.2.3` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-reframe/Cargo.toml` | dev-dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-timeline/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-vad/Cargo.toml` | dev-dependencies | `0.2.3` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-video-project/Cargo.toml` | dev-dependencies | `0.2.10` | 0.2.10 | local |
+| `rightkit-file-watch` | coderight | `coderight/ci/consumers/rightkit-file-watch/Cargo.toml` | dependencies | `=0.4.2` | 0.4.1 | ahead |
+| `rightkit-file-watch` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.4.2` | 0.4.1 | local |
+| `rightkit-file-watch` | genright | `genright/ci/consumers/rightkit-file-watch/Cargo.toml` | dependencies | `=0.4.2` | 0.4.1 | ahead |
+| `rightkit-file-watch` | heardright | `heardright/ci/consumers/rightkit-file-watch/Cargo.toml` | dependencies | `=0.4.2` | 0.4.1 | ahead |
+| `rightkit-file-watch` | legion | `legion/ci/consumers/rightkit-file-watch/Cargo.toml` | dependencies | `=0.4.2` | 0.4.1 | ahead |
+| `rightkit-fs` | coderight | `coderight/ci/consumers/rightkit-browser/Cargo.toml` | dependencies | `=0.4.6` | 0.4.7 | stale |
+| `rightkit-fs` | coderight | `coderight/ci/consumers/rightkit-fs/Cargo.toml` | dependencies | `=0.4.8` | 0.4.7 | ahead |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-agent-engine-runtime-middleware/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-agent-engine-runtime-resources/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-agent-engine-storage/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-agent-plugins/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-agent-recipes/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-agents/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-app-settings/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-app-settings/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-browser/Cargo.toml` | dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-browser/Cargo.toml` | dev-dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-cache/Cargo.toml` | dependencies | `0.4.2` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-color/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-crash/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.4.6` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-db/Cargo.toml` | dependencies | `0.4.6` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-docs/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-docs/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-embed/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-ffmpeg/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-github/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-http/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-identity/Cargo.toml` | dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.4.2` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-logs/Cargo.toml` | dependencies | `0.4.2` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-mcp/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-mesh/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-models/Cargo.toml` | dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-pdf/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-pdf/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-pipeline/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-playback/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-qa/Cargo.toml` | dependencies | `0.4.4` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-qa/Cargo.toml` | dev-dependencies | `0.4.4` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-sync/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-terminal-ui/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-timeline/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-tts/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-workflow/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | coderight | `coderight/desktop-app-template/crates/protocol/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
+| `rightkit-fs` | coderight | `coderight/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
+| `rightkit-fs` | genright | `genright/ci/consumers/rightkit-browser/Cargo.toml` | dependencies | `=0.4.6` | 0.4.7 | stale |
+| `rightkit-fs` | genright | `genright/ci/consumers/rightkit-fs/Cargo.toml` | dependencies | `=0.4.8` | 0.4.7 | ahead |
+| `rightkit-fs` | genright | `genright/crates/rightkit-app-settings/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-app-settings/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-approvals/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-browser/Cargo.toml` | dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-browser/Cargo.toml` | dev-dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-cache/Cargo.toml` | dependencies | `0.4.2` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-color/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-crash/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.4.6` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-db/Cargo.toml` | dependencies | `0.4.6` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-docs/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-docs/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-embed/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-ffmpeg/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-http/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-identity/Cargo.toml` | dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.4.2` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-library/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-local-gen/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-logs/Cargo.toml` | dependencies | `0.4.2` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-mcp/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-media-pipeline/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-mesh/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-models/Cargo.toml` | dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-pdf/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-pdf/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-pipeline/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-playback/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-qa/Cargo.toml` | dependencies | `0.4.4` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-qa/Cargo.toml` | dev-dependencies | `0.4.4` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-remote-compute/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-sync/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-timeline/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-tts/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | genright | `genright/desktop-app-template/crates/protocol/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
+| `rightkit-fs` | genright | `genright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
+| `rightkit-fs` | heardright | `heardright/ci/consumers/rightkit-browser/Cargo.toml` | dependencies | `=0.4.6` | 0.4.7 | stale |
+| `rightkit-fs` | heardright | `heardright/ci/consumers/rightkit-fs/Cargo.toml` | dependencies | `=0.4.8` | 0.4.7 | ahead |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-app-settings/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-app-settings/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-browser/Cargo.toml` | dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-browser/Cargo.toml` | dev-dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-cache/Cargo.toml` | dependencies | `0.4.2` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-color/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-crash/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.4.6` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-db/Cargo.toml` | dependencies | `0.4.6` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-dictation-app-runtime/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-dictation-core/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dev-dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-dictation-models/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-dictation-text-pipeline/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-docs/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-docs/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-embed/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-ffmpeg/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-http/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-identity/Cargo.toml` | dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.4.2` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-logs/Cargo.toml` | dependencies | `0.4.2` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-mcp/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-mesh/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-models/Cargo.toml` | dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-pdf/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-pdf/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-pipeline/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-playback/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-qa/Cargo.toml` | dependencies | `0.4.4` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-qa/Cargo.toml` | dev-dependencies | `0.4.4` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-sync/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-timeline/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-tts/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | heardright | `heardright/desktop-app-template/crates/protocol/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
+| `rightkit-fs` | heardright | `heardright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
+| `rightkit-fs` | legion | `legion/ci/consumers/rightkit-browser/Cargo.toml` | dependencies | `=0.4.6` | 0.4.7 | stale |
+| `rightkit-fs` | legion | `legion/ci/consumers/rightkit-fs/Cargo.toml` | dependencies | `=0.4.8` | 0.4.7 | ahead |
+| `rightkit-fs` | legion | `legion/crates/rightkit-app-settings/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-app-settings/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-browser/Cargo.toml` | dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-browser/Cargo.toml` | dev-dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-cache/Cargo.toml` | dependencies | `0.4.2` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-code-audit-engine/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-color/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-crash/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.4.6` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-db/Cargo.toml` | dependencies | `0.4.6` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-docs/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-docs/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-embed/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-ffmpeg/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-http/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-identity/Cargo.toml` | dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.4.2` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-logs/Cargo.toml` | dependencies | `0.4.2` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-mcp/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-mesh/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-models/Cargo.toml` | dependencies | `0.4.3` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-pdf/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-pdf/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-pipeline/Cargo.toml` | dependencies | `0.4.8` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-playback/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-qa/Cargo.toml` | dependencies | `0.4.4` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-qa/Cargo.toml` | dev-dependencies | `0.4.4` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-sync/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-timeline/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-tts/Cargo.toml` | dependencies | `0.4.0` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.4.7` | 0.4.7 | local |
+| `rightkit-fs` | legion | `legion/desktop-app-template/crates/protocol/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
+| `rightkit-fs` | legion | `legion/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.4.7` | 0.4.7 | current |
+| `rightkit-fsindex` | coderight | `coderight/ci/consumers/rightkit-fsindex/Cargo.toml` | dependencies | `=0.6.0` | 0.5.0 | ahead |
+| `rightkit-fsindex` | genright | `genright/ci/consumers/rightkit-fsindex/Cargo.toml` | dependencies | `=0.6.0` | 0.5.0 | ahead |
+| `rightkit-fsindex` | heardright | `heardright/ci/consumers/rightkit-fsindex/Cargo.toml` | dependencies | `=0.6.0` | 0.5.0 | ahead |
+| `rightkit-fsindex` | legion | `legion/ci/consumers/rightkit-fsindex/Cargo.toml` | dependencies | `=0.6.0` | 0.5.0 | ahead |
+| `rightkit-github` | coderight | `coderight/ci/consumers/rightkit-github/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-google-identity` | coderight | `coderight/ci/consumers/rightkit-google-identity/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-google-identity` | genright | `genright/ci/consumers/rightkit-google-identity/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-google-identity` | heardright | `heardright/ci/consumers/rightkit-google-identity/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-google-identity` | legion | `legion/ci/consumers/rightkit-google-identity/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-hooks` | coderight | `coderight/ci/consumers/rightkit-hooks/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-hooks` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.3.0` | 0.2.0 | local |
+| `rightkit-hooks` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.3.0` | 0.2.0 | local |
+| `rightkit-hooks` | genright | `genright/ci/consumers/rightkit-hooks/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-hooks` | heardright | `heardright/ci/consumers/rightkit-hooks/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-hooks` | legion | `legion/ci/consumers/rightkit-hooks/Cargo.toml` | dependencies | `=0.3.0` | 0.2.0 | ahead |
+| `rightkit-hotkeys` | coderight | `coderight/ci/consumers/rightkit-hotkeys/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-hotkeys` | genright | `genright/ci/consumers/rightkit-hotkeys/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-hotkeys` | heardright | `heardright/ci/consumers/rightkit-hotkeys/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-hotkeys` | legion | `legion/ci/consumers/rightkit-hotkeys/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-http` | coderight | `coderight/ci/consumers/rightkit-http/Cargo.toml` | dependencies | `=0.3.9` | 0.3.8 | ahead |
+| `rightkit-http` | coderight | `coderight/ci/consumers/rightkit-oauth/Cargo.toml` | dependencies | `0.3` | 0.3.8 | range ok |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.3.9` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-agent-policy/Cargo.toml` | dependencies | `0.3.9` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.3.9` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.3.9` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-bot-messaging/Cargo.toml` | dependencies | `0.3.9` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-daemon/Cargo.toml` | dev-dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-github/Cargo.toml` | dependencies | `0.3.9` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-http/Cargo.toml` | dev-dependencies | `*` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-license/Cargo.toml` | dependencies | `0.3.6` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-license/Cargo.toml` | dev-dependencies | `0.3.6` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | dev-dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-mcp/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-models/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-models/Cargo.toml` | dev-dependencies | `0.3.8` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-oauth/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-oauth/Cargo.toml` | dev-dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-sync/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-sync/Cargo.toml` | dev-dependencies | `*` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-vault/Cargo.toml` | dependencies | `0.3.1` | 0.3.8 | local |
+| `rightkit-http` | coderight | `coderight/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
+| `rightkit-http` | genright | `genright/ci/consumers/rightkit-http/Cargo.toml` | dependencies | `=0.3.9` | 0.3.8 | ahead |
+| `rightkit-http` | genright | `genright/ci/consumers/rightkit-oauth/Cargo.toml` | dependencies | `0.3` | 0.3.8 | range ok |
+| `rightkit-http` | genright | `genright/crates/rightkit-daemon/Cargo.toml` | dev-dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-http/Cargo.toml` | dev-dependencies | `*` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-license/Cargo.toml` | dependencies | `0.3.6` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-license/Cargo.toml` | dev-dependencies | `0.3.6` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-llm/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-llm/Cargo.toml` | dev-dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-local-gen/Cargo.toml` | dependencies | `0.3.9` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-mcp/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-models/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-models/Cargo.toml` | dev-dependencies | `0.3.8` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-motion/Cargo.toml` | dependencies | `0.3.9` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-oauth/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-oauth/Cargo.toml` | dev-dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-sync/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-sync/Cargo.toml` | dev-dependencies | `*` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/crates/rightkit-vault/Cargo.toml` | dependencies | `0.3.1` | 0.3.8 | local |
+| `rightkit-http` | genright | `genright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
+| `rightkit-http` | heardright | `heardright/ci/consumers/rightkit-http/Cargo.toml` | dependencies | `=0.3.9` | 0.3.8 | ahead |
+| `rightkit-http` | heardright | `heardright/ci/consumers/rightkit-oauth/Cargo.toml` | dependencies | `0.3` | 0.3.8 | range ok |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-daemon/Cargo.toml` | dev-dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-dictation-models/Cargo.toml` | dependencies | `0.3.9` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-dictation-telemetry/Cargo.toml` | dependencies | `0.3.9` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-http/Cargo.toml` | dev-dependencies | `*` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-license/Cargo.toml` | dependencies | `0.3.6` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-license/Cargo.toml` | dev-dependencies | `0.3.6` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-llm/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-llm/Cargo.toml` | dev-dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-mcp/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-models/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-models/Cargo.toml` | dev-dependencies | `0.3.8` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-oauth/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-oauth/Cargo.toml` | dev-dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-sync/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-sync/Cargo.toml` | dev-dependencies | `*` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-vault/Cargo.toml` | dependencies | `0.3.1` | 0.3.8 | local |
+| `rightkit-http` | heardright | `heardright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
+| `rightkit-http` | legion | `legion/ci/consumers/rightkit-http/Cargo.toml` | dependencies | `=0.3.9` | 0.3.8 | ahead |
+| `rightkit-http` | legion | `legion/ci/consumers/rightkit-oauth/Cargo.toml` | dependencies | `0.3` | 0.3.8 | range ok |
+| `rightkit-http` | legion | `legion/crates/rightkit-daemon/Cargo.toml` | dev-dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | legion | `legion/crates/rightkit-http/Cargo.toml` | dev-dependencies | `*` | 0.3.8 | local |
+| `rightkit-http` | legion | `legion/crates/rightkit-license/Cargo.toml` | dependencies | `0.3.6` | 0.3.8 | local |
+| `rightkit-http` | legion | `legion/crates/rightkit-license/Cargo.toml` | dev-dependencies | `0.3.6` | 0.3.8 | local |
+| `rightkit-http` | legion | `legion/crates/rightkit-llm/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | legion | `legion/crates/rightkit-llm/Cargo.toml` | dev-dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | legion | `legion/crates/rightkit-mcp/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | legion | `legion/crates/rightkit-models/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | legion | `legion/crates/rightkit-models/Cargo.toml` | dev-dependencies | `0.3.8` | 0.3.8 | local |
+| `rightkit-http` | legion | `legion/crates/rightkit-oauth/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | legion | `legion/crates/rightkit-oauth/Cargo.toml` | dev-dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | legion | `legion/crates/rightkit-sync/Cargo.toml` | dependencies | `0.3.0` | 0.3.8 | local |
+| `rightkit-http` | legion | `legion/crates/rightkit-sync/Cargo.toml` | dev-dependencies | `*` | 0.3.8 | local |
+| `rightkit-http` | legion | `legion/crates/rightkit-vault/Cargo.toml` | dependencies | `0.3.1` | 0.3.8 | local |
+| `rightkit-http` | legion | `legion/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.8` | 0.3.8 | current |
+| `rightkit-identity` | coderight | `coderight/ci/consumers/rightkit-identity/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-identity` | genright | `genright/ci/consumers/rightkit-identity/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-identity` | heardright | `heardright/ci/consumers/rightkit-identity/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-identity` | legion | `legion/ci/consumers/rightkit-identity/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-job-queue` | coderight | `coderight/ci/consumers/rightkit-job-queue/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-job-queue` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-job-queue` | coderight | `coderight/crates/rightkit-pipeline/Cargo.toml` | dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-job-queue` | coderight | `coderight/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.5.0` | 0.5.1 | local |
+| `rightkit-job-queue` | coderight | `coderight/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | coderight | `coderight/desktop-app-template/crates/protocol/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | coderight | `coderight/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | coderight | `coderight/swift/RightKitSwift/native/Cargo.toml` | dependencies | `=0.3.2` | 0.5.1 | stale |
+| `rightkit-job-queue` | genright | `genright/ci/consumers/rightkit-job-queue/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | genright | `genright/crates/rightkit-engine-host/Cargo.toml` | dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-job-queue` | genright | `genright/crates/rightkit-local-gen/Cargo.toml` | dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-job-queue` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-job-queue` | genright | `genright/crates/rightkit-pipeline/Cargo.toml` | dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-job-queue` | genright | `genright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.5.0` | 0.5.1 | local |
+| `rightkit-job-queue` | genright | `genright/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | genright | `genright/desktop-app-template/crates/protocol/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | genright | `genright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | genright | `genright/swift/RightKitSwift/native/Cargo.toml` | dependencies | `=0.3.2` | 0.5.1 | stale |
+| `rightkit-job-queue` | heardright | `heardright/ci/consumers/rightkit-job-queue/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | heardright | `heardright/crates/rightkit-dictation-app-runtime/Cargo.toml` | dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-job-queue` | heardright | `heardright/crates/rightkit-dictation-engine/Cargo.toml` | dev-dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-job-queue` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-job-queue` | heardright | `heardright/crates/rightkit-pipeline/Cargo.toml` | dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-job-queue` | heardright | `heardright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.5.0` | 0.5.1 | local |
+| `rightkit-job-queue` | heardright | `heardright/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | heardright | `heardright/desktop-app-template/crates/protocol/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | heardright | `heardright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | heardright | `heardright/swift/RightKitSwift/native/Cargo.toml` | dependencies | `=0.3.2` | 0.5.1 | stale |
+| `rightkit-job-queue` | legion | `legion/ci/consumers/rightkit-job-queue/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | legion | `legion/crates/rightkit-pipeline/Cargo.toml` | dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-job-queue` | legion | `legion/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.5.0` | 0.5.1 | local |
+| `rightkit-job-queue` | legion | `legion/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | legion | `legion/desktop-app-template/crates/protocol/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | legion | `legion/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-job-queue` | legion | `legion/swift/RightKitSwift/native/Cargo.toml` | dependencies | `=0.3.2` | 0.5.1 | stale |
+| `rightkit-library` | genright | `genright/ci/consumers/rightkit-library/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-license` | coderight | `coderight/ci/consumers/rightkit-license/Cargo.toml` | dependencies | `=0.2.6` | 0.2.5 | ahead |
+| `rightkit-license` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.2.6` | 0.2.5 | local |
+| `rightkit-license` | coderight | `coderight/crates/rightkit-device/Cargo.toml` | dependencies | `0.2.2` | 0.2.5 | local |
+| `rightkit-license` | coderight | `coderight/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.2.5` | 0.2.5 | local |
+| `rightkit-license` | coderight | `coderight/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.2.5` | 0.2.5 | current |
+| `rightkit-license` | genright | `genright/ci/consumers/rightkit-license/Cargo.toml` | dependencies | `=0.2.6` | 0.2.5 | ahead |
+| `rightkit-license` | genright | `genright/crates/rightkit-device/Cargo.toml` | dependencies | `0.2.2` | 0.2.5 | local |
+| `rightkit-license` | genright | `genright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.2.5` | 0.2.5 | local |
+| `rightkit-license` | genright | `genright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.2.5` | 0.2.5 | current |
+| `rightkit-license` | heardright | `heardright/ci/consumers/rightkit-license/Cargo.toml` | dependencies | `=0.2.6` | 0.2.5 | ahead |
+| `rightkit-license` | heardright | `heardright/crates/rightkit-device/Cargo.toml` | dependencies | `0.2.2` | 0.2.5 | local |
+| `rightkit-license` | heardright | `heardright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.2.5` | 0.2.5 | local |
+| `rightkit-license` | heardright | `heardright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.2.5` | 0.2.5 | current |
+| `rightkit-license` | legion | `legion/ci/consumers/rightkit-license/Cargo.toml` | dependencies | `=0.2.6` | 0.2.5 | ahead |
+| `rightkit-license` | legion | `legion/crates/rightkit-device/Cargo.toml` | dependencies | `0.2.2` | 0.2.5 | local |
+| `rightkit-license` | legion | `legion/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.2.5` | 0.2.5 | local |
+| `rightkit-license` | legion | `legion/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.2.5` | 0.2.5 | current |
+| `rightkit-llm` | coderight | `coderight/ci/consumers/rightkit-llm/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
+| `rightkit-llm` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.4.0` | 0.3.1 | local |
+| `rightkit-llm` | coderight | `coderight/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.4.0` | 0.3.1 | local |
+| `rightkit-llm` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.4.0` | 0.3.1 | local |
+| `rightkit-llm` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.4.0` | 0.3.1 | local |
+| `rightkit-llm` | coderight | `coderight/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.4.0` | 0.3.1 | local |
+| `rightkit-llm` | genright | `genright/ci/consumers/rightkit-llm/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
+| `rightkit-llm` | genright | `genright/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.3.1` | 0.3.1 | local |
+| `rightkit-llm` | heardright | `heardright/ci/consumers/rightkit-llm/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
+| `rightkit-llm` | heardright | `heardright/crates/rightkit-dictation-text-pipeline/Cargo.toml` | dependencies | `0.3.1` | 0.3.1 | local |
+| `rightkit-llm` | heardright | `heardright/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.3.1` | 0.3.1 | local |
+| `rightkit-llm` | legion | `legion/ci/consumers/rightkit-llm/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
+| `rightkit-llm` | legion | `legion/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.3.1` | 0.3.1 | local |
+| `rightkit-local-gen` | genright | `genright/ci/consumers/rightkit-local-gen/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-local-gen` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-local-gen` | genright | `genright/crates/rightkit-media-pipeline/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-local-gen` | genright | `genright/crates/rightkit-remote-compute/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-logs` | coderight | `coderight/ci/consumers/rightkit-logs/Cargo.toml` | dependencies | `=0.3.6` | 0.3.5 | ahead |
+| `rightkit-logs` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.4.0` | 0.3.5 | local |
+| `rightkit-logs` | coderight | `coderight/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.4.0` | 0.3.5 | local |
+| `rightkit-logs` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.4.0` | 0.3.5 | local |
+| `rightkit-logs` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.4.0` | 0.3.5 | local |
+| `rightkit-logs` | coderight | `coderight/crates/rightkit-crash/Cargo.toml` | dependencies | `0.4.0` | 0.3.5 | local |
+| `rightkit-logs` | coderight | `coderight/crates/rightkit-crash/Cargo.toml` | dev-dependencies | `0.4.0` | 0.3.5 | local |
+| `rightkit-logs` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | dependencies | `0.4.0` | 0.3.5 | local |
+| `rightkit-logs` | coderight | `coderight/crates/rightkit-logs/Cargo.toml` | dev-dependencies | `*` | 0.3.5 | local |
+| `rightkit-logs` | coderight | `coderight/crates/rightkit-mesh/Cargo.toml` | dependencies | `0.4.0` | 0.3.5 | local |
+| `rightkit-logs` | coderight | `coderight/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.4.0` | 0.3.5 | local |
+| `rightkit-logs` | coderight | `coderight/crates/rightkit-tauri-shell/Cargo.toml` | dev-dependencies | `0.4.0` | 0.3.5 | local |
+| `rightkit-logs` | coderight | `coderight/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
+| `rightkit-logs` | genright | `genright/ci/consumers/rightkit-logs/Cargo.toml` | dependencies | `=0.3.6` | 0.3.5 | ahead |
+| `rightkit-logs` | genright | `genright/crates/rightkit-crash/Cargo.toml` | dependencies | `0.3.4` | 0.3.5 | local |
+| `rightkit-logs` | genright | `genright/crates/rightkit-crash/Cargo.toml` | dev-dependencies | `0.3.4` | 0.3.5 | local |
+| `rightkit-logs` | genright | `genright/crates/rightkit-local-gen/Cargo.toml` | dependencies | `0.3.6` | 0.3.5 | local |
+| `rightkit-logs` | genright | `genright/crates/rightkit-logs/Cargo.toml` | dev-dependencies | `*` | 0.3.5 | local |
+| `rightkit-logs` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.3.6` | 0.3.5 | local |
+| `rightkit-logs` | genright | `genright/crates/rightkit-media-pipeline/Cargo.toml` | dependencies | `0.3.6` | 0.3.5 | local |
+| `rightkit-logs` | genright | `genright/crates/rightkit-mesh/Cargo.toml` | dependencies | `0.3.5` | 0.3.5 | local |
+| `rightkit-logs` | genright | `genright/crates/rightkit-remote-compute/Cargo.toml` | dependencies | `0.3.6` | 0.3.5 | local |
+| `rightkit-logs` | genright | `genright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.3.5` | 0.3.5 | local |
+| `rightkit-logs` | genright | `genright/crates/rightkit-tauri-shell/Cargo.toml` | dev-dependencies | `0.3.5` | 0.3.5 | local |
+| `rightkit-logs` | genright | `genright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
+| `rightkit-logs` | heardright | `heardright/ci/consumers/rightkit-logs/Cargo.toml` | dependencies | `=0.3.6` | 0.3.5 | ahead |
+| `rightkit-logs` | heardright | `heardright/crates/rightkit-crash/Cargo.toml` | dependencies | `0.3.4` | 0.3.5 | local |
+| `rightkit-logs` | heardright | `heardright/crates/rightkit-crash/Cargo.toml` | dev-dependencies | `0.3.4` | 0.3.5 | local |
+| `rightkit-logs` | heardright | `heardright/crates/rightkit-dictation-app-runtime/Cargo.toml` | dependencies | `0.3.6` | 0.3.5 | local |
+| `rightkit-logs` | heardright | `heardright/crates/rightkit-dictation-command-host/Cargo.toml` | dependencies | `0.3.6` | 0.3.5 | local |
+| `rightkit-logs` | heardright | `heardright/crates/rightkit-dictation-core/Cargo.toml` | dependencies | `0.3.6` | 0.3.5 | local |
+| `rightkit-logs` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.3.6` | 0.3.5 | local |
+| `rightkit-logs` | heardright | `heardright/crates/rightkit-dictation-telemetry/Cargo.toml` | dependencies | `0.3.6` | 0.3.5 | local |
+| `rightkit-logs` | heardright | `heardright/crates/rightkit-dictation-text-pipeline/Cargo.toml` | dependencies | `0.3.6` | 0.3.5 | local |
+| `rightkit-logs` | heardright | `heardright/crates/rightkit-logs/Cargo.toml` | dev-dependencies | `*` | 0.3.5 | local |
+| `rightkit-logs` | heardright | `heardright/crates/rightkit-mesh/Cargo.toml` | dependencies | `0.3.5` | 0.3.5 | local |
+| `rightkit-logs` | heardright | `heardright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.3.5` | 0.3.5 | local |
+| `rightkit-logs` | heardright | `heardright/crates/rightkit-tauri-shell/Cargo.toml` | dev-dependencies | `0.3.5` | 0.3.5 | local |
+| `rightkit-logs` | heardright | `heardright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
+| `rightkit-logs` | legion | `legion/ci/consumers/rightkit-logs/Cargo.toml` | dependencies | `=0.3.6` | 0.3.5 | ahead |
+| `rightkit-logs` | legion | `legion/crates/rightkit-crash/Cargo.toml` | dependencies | `0.3.4` | 0.3.5 | local |
+| `rightkit-logs` | legion | `legion/crates/rightkit-crash/Cargo.toml` | dev-dependencies | `0.3.4` | 0.3.5 | local |
+| `rightkit-logs` | legion | `legion/crates/rightkit-logs/Cargo.toml` | dev-dependencies | `*` | 0.3.5 | local |
+| `rightkit-logs` | legion | `legion/crates/rightkit-mesh/Cargo.toml` | dependencies | `0.3.5` | 0.3.5 | local |
+| `rightkit-logs` | legion | `legion/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.3.5` | 0.3.5 | local |
+| `rightkit-logs` | legion | `legion/crates/rightkit-tauri-shell/Cargo.toml` | dev-dependencies | `0.3.5` | 0.3.5 | local |
+| `rightkit-logs` | legion | `legion/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.3.5` | 0.3.5 | current |
+| `rightkit-mcp` | coderight | `coderight/ci/consumers/rightkit-mcp/Cargo.toml` | dependencies | `=0.7.1` | 0.7.0 | ahead |
+| `rightkit-mcp` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.8.0` | 0.7.0 | local |
+| `rightkit-mcp` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.8.0` | 0.7.0 | local |
+| `rightkit-mcp` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.8.0` | 0.7.0 | local |
+| `rightkit-mcp` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dev-dependencies | `0.8.0` | 0.7.0 | local |
+| `rightkit-mcp` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.8.0` | 0.7.0 | local |
+| `rightkit-mcp` | coderight | `coderight/crates/rightkit-mcp/Cargo.toml` | dev-dependencies | `*` | 0.7.0 | local |
+| `rightkit-mcp` | genright | `genright/ci/consumers/rightkit-mcp/Cargo.toml` | dependencies | `=0.7.1` | 0.7.0 | ahead |
+| `rightkit-mcp` | genright | `genright/crates/rightkit-mcp/Cargo.toml` | dev-dependencies | `*` | 0.7.0 | local |
+| `rightkit-mcp` | heardright | `heardright/ci/consumers/rightkit-mcp/Cargo.toml` | dependencies | `=0.7.1` | 0.7.0 | ahead |
+| `rightkit-mcp` | heardright | `heardright/crates/rightkit-mcp/Cargo.toml` | dev-dependencies | `*` | 0.7.0 | local |
+| `rightkit-mcp` | legion | `legion/ci/consumers/rightkit-mcp/Cargo.toml` | dependencies | `=0.7.1` | 0.7.0 | ahead |
+| `rightkit-mcp` | legion | `legion/crates/rightkit-mcp/Cargo.toml` | dev-dependencies | `*` | 0.7.0 | local |
+| `rightkit-media-gen` | genright | `genright/ci/consumers/rightkit-approvals/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-media-gen` | genright | `genright/ci/consumers/rightkit-media-gen/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-media-gen` | genright | `genright/crates/rightkit-approvals/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-media-gen` | genright | `genright/crates/rightkit-media-pipeline/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-media-gen` | genright | `genright/crates/rightkit-remote-compute/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-media-pipeline` | genright | `genright/ci/consumers/rightkit-media-pipeline/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-memory` | coderight | `coderight/ci/consumers/rightkit-memory/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-memory` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-memory` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-mesh` | coderight | `coderight/ci/consumers/rightkit-mesh/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-mesh` | genright | `genright/ci/consumers/rightkit-mesh/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-mesh` | heardright | `heardright/ci/consumers/rightkit-mesh/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-mesh` | legion | `legion/ci/consumers/rightkit-mesh/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-models` | coderight | `coderight/ci/consumers/rightkit-models/Cargo.toml` | dependencies | `=0.5.2` | 0.5.1 | ahead |
+| `rightkit-models` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.6.0` | 0.5.1 | local |
+| `rightkit-models` | coderight | `coderight/crates/rightkit-browser/Cargo.toml` | dependencies | `0.6.0` | 0.5.1 | local |
+| `rightkit-models` | coderight | `coderight/crates/rightkit-onnx/Cargo.toml` | dependencies | `0.6.0` | 0.5.1 | local |
+| `rightkit-models` | coderight | `coderight/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.6.0` | 0.5.1 | local |
+| `rightkit-models` | coderight | `coderight/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.6.0` | 0.5.1 | local |
+| `rightkit-models` | genright | `genright/ci/consumers/rightkit-models/Cargo.toml` | dependencies | `=0.5.2` | 0.5.1 | ahead |
+| `rightkit-models` | genright | `genright/crates/rightkit-browser/Cargo.toml` | dependencies | `0.5.0` | 0.5.1 | local |
+| `rightkit-models` | genright | `genright/crates/rightkit-local-gen/Cargo.toml` | dependencies | `0.5.2` | 0.5.1 | local |
+| `rightkit-models` | genright | `genright/crates/rightkit-local-gen/Cargo.toml` | dev-dependencies | `0.5.2` | 0.5.1 | local |
+| `rightkit-models` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.5.2` | 0.5.1 | local |
+| `rightkit-models` | genright | `genright/crates/rightkit-media-pipeline/Cargo.toml` | dependencies | `0.5.2` | 0.5.1 | local |
+| `rightkit-models` | genright | `genright/crates/rightkit-media-pipeline/Cargo.toml` | dev-dependencies | `0.5.2` | 0.5.1 | local |
+| `rightkit-models` | genright | `genright/crates/rightkit-onnx/Cargo.toml` | dependencies | `0.5.0` | 0.5.1 | local |
+| `rightkit-models` | genright | `genright/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-models` | genright | `genright/crates/rightkit-remote-compute/Cargo.toml` | dependencies | `0.5.2` | 0.5.1 | local |
+| `rightkit-models` | genright | `genright/crates/rightkit-remote-compute/Cargo.toml` | dev-dependencies | `0.5.2` | 0.5.1 | local |
+| `rightkit-models` | genright | `genright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.5.2` | 0.5.1 | local |
+| `rightkit-models` | heardright | `heardright/ci/consumers/rightkit-models/Cargo.toml` | dependencies | `=0.5.2` | 0.5.1 | ahead |
+| `rightkit-models` | heardright | `heardright/crates/rightkit-browser/Cargo.toml` | dependencies | `0.5.0` | 0.5.1 | local |
+| `rightkit-models` | heardright | `heardright/crates/rightkit-dictation-models/Cargo.toml` | dependencies | `0.5.2` | 0.5.1 | local |
+| `rightkit-models` | heardright | `heardright/crates/rightkit-dictation-models/Cargo.toml` | dev-dependencies | `0.5.2` | 0.5.1 | local |
+| `rightkit-models` | heardright | `heardright/crates/rightkit-onnx/Cargo.toml` | dependencies | `0.5.0` | 0.5.1 | local |
+| `rightkit-models` | heardright | `heardright/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-models` | heardright | `heardright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.5.2` | 0.5.1 | local |
+| `rightkit-models` | legion | `legion/ci/consumers/rightkit-models/Cargo.toml` | dependencies | `=0.5.2` | 0.5.1 | ahead |
+| `rightkit-models` | legion | `legion/crates/rightkit-browser/Cargo.toml` | dependencies | `0.5.0` | 0.5.1 | local |
+| `rightkit-models` | legion | `legion/crates/rightkit-onnx/Cargo.toml` | dependencies | `0.5.0` | 0.5.1 | local |
+| `rightkit-models` | legion | `legion/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.5.1` | 0.5.1 | local |
+| `rightkit-models` | legion | `legion/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.5.2` | 0.5.1 | local |
+| `rightkit-motion` | coderight | `coderight/ci/consumers/rightkit-motion/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-motion` | genright | `genright/ci/consumers/rightkit-motion/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-motion` | genright | `genright/crates/rightkit-media-pipeline/Cargo.toml` | dependencies | `0.2.0` | 0.2.0 | local |
+| `rightkit-motion` | heardright | `heardright/ci/consumers/rightkit-motion/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-motion` | legion | `legion/ci/consumers/rightkit-motion/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-oauth` | coderight | `coderight/ci/consumers/rightkit-oauth/Cargo.toml` | dependencies | `=0.10.0` | 0.10.0 | current |
+| `rightkit-oauth` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.10.0` | 0.10.0 | local |
+| `rightkit-oauth` | coderight | `coderight/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.10.0` | 0.10.0 | local |
+| `rightkit-oauth` | coderight | `coderight/crates/rightkit-github/Cargo.toml` | dependencies | `0.10.0` | 0.10.0 | local |
+| `rightkit-oauth` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | dependencies | `0.10.0` | 0.10.0 | local |
+| `rightkit-oauth` | coderight | `coderight/crates/rightkit-mcp/Cargo.toml` | dependencies | `0.10.0` | 0.10.0 | local |
+| `rightkit-oauth` | genright | `genright/ci/consumers/rightkit-oauth/Cargo.toml` | dependencies | `=0.10.0` | 0.10.0 | current |
+| `rightkit-oauth` | genright | `genright/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.10.0` | 0.10.0 | local |
+| `rightkit-oauth` | heardright | `heardright/ci/consumers/rightkit-oauth/Cargo.toml` | dependencies | `=0.10.0` | 0.10.0 | current |
+| `rightkit-oauth` | heardright | `heardright/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.10.0` | 0.10.0 | local |
+| `rightkit-oauth` | legion | `legion/ci/consumers/rightkit-oauth/Cargo.toml` | dependencies | `=0.10.0` | 0.10.0 | current |
+| `rightkit-oauth` | legion | `legion/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.10.0` | 0.10.0 | local |
+| `rightkit-ocr` | coderight | `coderight/ci/consumers/rightkit-ocr/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
+| `rightkit-ocr` | coderight | `coderight/crates/rightkit-ffmpeg/Cargo.toml` | dependencies | `0.2.3` | 0.2.3 | local |
+| `rightkit-ocr` | genright | `genright/ci/consumers/rightkit-ocr/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
+| `rightkit-ocr` | heardright | `heardright/ci/consumers/rightkit-ocr/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
+| `rightkit-ocr` | legion | `legion/ci/consumers/rightkit-ocr/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
+| `rightkit-onnx` | coderight | `coderight/ci/consumers/rightkit-onnx/Cargo.toml` | dependencies | `=0.2.8` | 0.2.7 | ahead |
+| `rightkit-onnx` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.3.0` | 0.2.7 | local |
+| `rightkit-onnx` | coderight | `coderight/crates/rightkit-asr/Cargo.toml` | dependencies | `0.3.0` | 0.2.7 | local |
+| `rightkit-onnx` | coderight | `coderight/crates/rightkit-embed/Cargo.toml` | dependencies | `0.3.0` | 0.2.7 | local |
+| `rightkit-onnx` | coderight | `coderight/crates/rightkit-ocr/Cargo.toml` | dependencies | `0.3.0` | 0.2.7 | local |
+| `rightkit-onnx` | coderight | `coderight/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.3.0` | 0.2.7 | local |
+| `rightkit-onnx` | coderight | `coderight/crates/rightkit-tts-qwen/Cargo.toml` | dependencies | `0.3.0` | 0.2.7 | local |
+| `rightkit-onnx` | coderight | `coderight/crates/rightkit-tts/Cargo.toml` | dependencies | `0.3.0` | 0.2.7 | local |
+| `rightkit-onnx` | coderight | `coderight/crates/rightkit-vad/Cargo.toml` | dependencies | `0.3.0` | 0.2.7 | local |
+| `rightkit-onnx` | genright | `genright/ci/consumers/rightkit-onnx/Cargo.toml` | dependencies | `=0.2.8` | 0.2.7 | ahead |
+| `rightkit-onnx` | genright | `genright/crates/rightkit-asr/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-onnx` | genright | `genright/crates/rightkit-embed/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-onnx` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.2.8` | 0.2.7 | local |
+| `rightkit-onnx` | genright | `genright/crates/rightkit-ocr/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-onnx` | genright | `genright/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.2.7` | 0.2.7 | local |
+| `rightkit-onnx` | genright | `genright/crates/rightkit-tts-qwen/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-onnx` | genright | `genright/crates/rightkit-tts/Cargo.toml` | dependencies | `0.2.5` | 0.2.7 | local |
+| `rightkit-onnx` | genright | `genright/crates/rightkit-vad/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-onnx` | heardright | `heardright/ci/consumers/rightkit-onnx/Cargo.toml` | dependencies | `=0.2.8` | 0.2.7 | ahead |
+| `rightkit-onnx` | heardright | `heardright/crates/rightkit-asr/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-onnx` | heardright | `heardright/crates/rightkit-dictation-engine/Cargo.toml` | dev-dependencies | `0.2.8` | 0.2.7 | local |
+| `rightkit-onnx` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dependencies | `0.2.8` | 0.2.7 | local |
+| `rightkit-onnx` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dependencies | `0.2.8` | 0.2.7 | local |
+| `rightkit-onnx` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dependencies | `0.2.8` | 0.2.7 | local |
+| `rightkit-onnx` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.2.8` | 0.2.7 | local |
+| `rightkit-onnx` | heardright | `heardright/crates/rightkit-embed/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-onnx` | heardright | `heardright/crates/rightkit-ocr/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-onnx` | heardright | `heardright/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.2.7` | 0.2.7 | local |
+| `rightkit-onnx` | heardright | `heardright/crates/rightkit-tts-qwen/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-onnx` | heardright | `heardright/crates/rightkit-tts/Cargo.toml` | dependencies | `0.2.5` | 0.2.7 | local |
+| `rightkit-onnx` | heardright | `heardright/crates/rightkit-vad/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-onnx` | legion | `legion/ci/consumers/rightkit-onnx/Cargo.toml` | dependencies | `=0.2.8` | 0.2.7 | ahead |
+| `rightkit-onnx` | legion | `legion/crates/rightkit-asr/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-onnx` | legion | `legion/crates/rightkit-embed/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-onnx` | legion | `legion/crates/rightkit-ocr/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-onnx` | legion | `legion/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.2.7` | 0.2.7 | local |
+| `rightkit-onnx` | legion | `legion/crates/rightkit-tts-qwen/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-onnx` | legion | `legion/crates/rightkit-tts/Cargo.toml` | dependencies | `0.2.5` | 0.2.7 | local |
+| `rightkit-onnx` | legion | `legion/crates/rightkit-vad/Cargo.toml` | dependencies | `0.2.6` | 0.2.7 | local |
+| `rightkit-overlay` | coderight | `coderight/ci/consumers/rightkit-overlay/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-overlay` | coderight | `coderight/crates/rightkit-overlay-win/Cargo.toml` | dependencies | `0.2.0` | 0.2.0 | local |
+| `rightkit-overlay` | coderight | `coderight/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.2.0` | 0.2.0 | local |
+| `rightkit-overlay` | genright | `genright/ci/consumers/rightkit-overlay/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-overlay` | genright | `genright/crates/rightkit-overlay-win/Cargo.toml` | dependencies | `0.2.0` | 0.2.0 | local |
+| `rightkit-overlay` | genright | `genright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.2.0` | 0.2.0 | local |
+| `rightkit-overlay` | heardright | `heardright/ci/consumers/rightkit-overlay/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-overlay` | heardright | `heardright/crates/rightkit-dictation-command-host/Cargo.toml` | dependencies | `0.2.0` | 0.2.0 | local |
+| `rightkit-overlay` | heardright | `heardright/crates/rightkit-overlay-win/Cargo.toml` | dependencies | `0.2.0` | 0.2.0 | local |
+| `rightkit-overlay` | heardright | `heardright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.2.0` | 0.2.0 | local |
+| `rightkit-overlay` | legion | `legion/ci/consumers/rightkit-overlay/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-overlay` | legion | `legion/crates/rightkit-overlay-win/Cargo.toml` | dependencies | `0.2.0` | 0.2.0 | local |
+| `rightkit-overlay` | legion | `legion/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.2.0` | 0.2.0 | local |
+| `rightkit-overlay-win` | coderight | `coderight/ci/consumers/rightkit-overlay-win/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-overlay-win` | genright | `genright/ci/consumers/rightkit-overlay-win/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-overlay-win` | heardright | `heardright/ci/consumers/rightkit-overlay-win/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-overlay-win` | legion | `legion/ci/consumers/rightkit-overlay-win/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-ownership` | coderight | `coderight/ci/consumers/rightkit-ownership/Cargo.toml` | dependencies | `=0.4.3` | 0.4.2 | ahead |
+| `rightkit-ownership` | genright | `genright/ci/consumers/rightkit-ownership/Cargo.toml` | dependencies | `=0.4.3` | 0.4.2 | ahead |
+| `rightkit-ownership` | heardright | `heardright/ci/consumers/rightkit-ownership/Cargo.toml` | dependencies | `=0.4.3` | 0.4.2 | ahead |
+| `rightkit-ownership` | legion | `legion/ci/consumers/rightkit-ownership/Cargo.toml` | dependencies | `=0.4.3` | 0.4.2 | ahead |
+| `rightkit-ownership` | legion | `legion/crates/rightkit-code-audit-engine/Cargo.toml` | dependencies | `0.4.3` | 0.4.2 | local |
+| `rightkit-pdf` | coderight | `coderight/ci/consumers/rightkit-pdf/Cargo.toml` | dependencies | `=0.3.4` | 0.3.3 | ahead |
+| `rightkit-pdf` | coderight | `coderight/crates/rightkit-docs/Cargo.toml` | dependencies | `0.3.2` | 0.3.3 | local |
+| `rightkit-pdf` | coderight | `coderight/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.3.3` | 0.3.3 | local |
+| `rightkit-pdf` | genright | `genright/ci/consumers/rightkit-pdf/Cargo.toml` | dependencies | `=0.3.4` | 0.3.3 | ahead |
+| `rightkit-pdf` | genright | `genright/crates/rightkit-docs/Cargo.toml` | dependencies | `0.3.2` | 0.3.3 | local |
+| `rightkit-pdf` | genright | `genright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.3.3` | 0.3.3 | local |
+| `rightkit-pdf` | heardright | `heardright/ci/consumers/rightkit-pdf/Cargo.toml` | dependencies | `=0.3.4` | 0.3.3 | ahead |
+| `rightkit-pdf` | heardright | `heardright/crates/rightkit-docs/Cargo.toml` | dependencies | `0.3.2` | 0.3.3 | local |
+| `rightkit-pdf` | heardright | `heardright/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.3.3` | 0.3.3 | local |
+| `rightkit-pdf` | legion | `legion/ci/consumers/rightkit-pdf/Cargo.toml` | dependencies | `=0.3.4` | 0.3.3 | ahead |
+| `rightkit-pdf` | legion | `legion/crates/rightkit-docs/Cargo.toml` | dependencies | `0.3.2` | 0.3.3 | local |
+| `rightkit-pdf` | legion | `legion/crates/rightkit-tauri-shell/Cargo.toml` | dependencies | `0.3.3` | 0.3.3 | local |
+| `rightkit-pipeline` | coderight | `coderight/ci/consumers/rightkit-pipeline/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-pipeline` | genright | `genright/ci/consumers/rightkit-pipeline/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-pipeline` | heardright | `heardright/ci/consumers/rightkit-pipeline/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-pipeline` | legion | `legion/ci/consumers/rightkit-pipeline/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-platform-rules` | coderight | `coderight/ci/consumers/rightkit-platform-rules/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-platform-rules` | genright | `genright/ci/consumers/rightkit-platform-rules/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-platform-rules` | heardright | `heardright/ci/consumers/rightkit-platform-rules/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-platform-rules` | legion | `legion/ci/consumers/rightkit-platform-rules/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-playback` | coderight | `coderight/ci/consumers/rightkit-playback/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-playback` | genright | `genright/ci/consumers/rightkit-playback/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-playback` | heardright | `heardright/ci/consumers/rightkit-playback/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-playback` | legion | `legion/ci/consumers/rightkit-playback/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-qa` | coderight | `coderight/ci/consumers/rightkit-qa/Cargo.toml` | dependencies | `=0.10.1` | 0.9.1 | ahead |
+| `rightkit-qa` | coderight | `coderight/ci/consumers/wv2-0_39/Cargo.toml` | dependencies | `*` | 0.9.1 | local |
+| `rightkit-qa` | coderight | `coderight/crates/rightkit-qa-driver/Cargo.toml` | dependencies | `0.10.0` | 0.9.1 | local |
+| `rightkit-qa` | coderight | `coderight/crates/rightkit-qa/examples/control-test-app/Cargo.toml` | dependencies | `*` | 0.9.1 | local |
+| `rightkit-qa` | coderight | `coderight/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `*` | 0.9.1 | local |
+| `rightkit-qa` | coderight | `coderight/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.9.1` | 0.9.1 | current |
+| `rightkit-qa` | genright | `genright/ci/consumers/rightkit-qa/Cargo.toml` | dependencies | `=0.10.1` | 0.9.1 | ahead |
+| `rightkit-qa` | genright | `genright/ci/consumers/wv2-0_39/Cargo.toml` | dependencies | `*` | 0.9.1 | local |
+| `rightkit-qa` | genright | `genright/crates/rightkit-qa-driver/Cargo.toml` | dependencies | `0.10.0` | 0.9.1 | local |
+| `rightkit-qa` | genright | `genright/crates/rightkit-qa/examples/control-test-app/Cargo.toml` | dependencies | `*` | 0.9.1 | local |
+| `rightkit-qa` | genright | `genright/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `*` | 0.9.1 | local |
+| `rightkit-qa` | genright | `genright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.9.1` | 0.9.1 | current |
+| `rightkit-qa` | heardright | `heardright/ci/consumers/rightkit-qa/Cargo.toml` | dependencies | `=0.10.1` | 0.9.1 | ahead |
+| `rightkit-qa` | heardright | `heardright/ci/consumers/wv2-0_39/Cargo.toml` | dependencies | `*` | 0.9.1 | local |
+| `rightkit-qa` | heardright | `heardright/crates/rightkit-qa-driver/Cargo.toml` | dependencies | `0.10.0` | 0.9.1 | local |
+| `rightkit-qa` | heardright | `heardright/crates/rightkit-qa/examples/control-test-app/Cargo.toml` | dependencies | `*` | 0.9.1 | local |
+| `rightkit-qa` | heardright | `heardright/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `*` | 0.9.1 | local |
+| `rightkit-qa` | heardright | `heardright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.9.1` | 0.9.1 | current |
+| `rightkit-qa` | legion | `legion/ci/consumers/rightkit-qa/Cargo.toml` | dependencies | `=0.10.1` | 0.9.1 | ahead |
+| `rightkit-qa` | legion | `legion/ci/consumers/wv2-0_39/Cargo.toml` | dependencies | `*` | 0.9.1 | local |
+| `rightkit-qa` | legion | `legion/crates/rightkit-qa-driver/Cargo.toml` | dependencies | `0.10.0` | 0.9.1 | local |
+| `rightkit-qa` | legion | `legion/crates/rightkit-qa/examples/control-test-app/Cargo.toml` | dependencies | `*` | 0.9.1 | local |
+| `rightkit-qa` | legion | `legion/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `*` | 0.9.1 | local |
+| `rightkit-qa` | legion | `legion/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.9.1` | 0.9.1 | current |
+| `rightkit-qa-driver` | coderight | `coderight/ci/consumers/rightkit-qa-driver/Cargo.toml` | dependencies | `=0.7.0` | 0.7.0 | current |
+| `rightkit-qa-driver` | coderight | `coderight/spikes/rk2-macos/fixture-app/Cargo.toml` | dependencies | `*` | 0.7.0 | local |
+| `rightkit-qa-driver` | genright | `genright/ci/consumers/rightkit-qa-driver/Cargo.toml` | dependencies | `=0.7.0` | 0.7.0 | current |
+| `rightkit-qa-driver` | genright | `genright/spikes/rk2-macos/fixture-app/Cargo.toml` | dependencies | `*` | 0.7.0 | local |
+| `rightkit-qa-driver` | heardright | `heardright/ci/consumers/rightkit-qa-driver/Cargo.toml` | dependencies | `=0.7.0` | 0.7.0 | current |
+| `rightkit-qa-driver` | heardright | `heardright/spikes/rk2-macos/fixture-app/Cargo.toml` | dependencies | `*` | 0.7.0 | local |
+| `rightkit-qa-driver` | legion | `legion/ci/consumers/rightkit-qa-driver/Cargo.toml` | dependencies | `=0.7.0` | 0.7.0 | current |
+| `rightkit-qa-driver` | legion | `legion/spikes/rk2-macos/fixture-app/Cargo.toml` | dependencies | `*` | 0.7.0 | local |
+| `rightkit-record` | coderight | `coderight/ci/consumers/rightkit-record/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
+| `rightkit-record` | genright | `genright/ci/consumers/rightkit-record/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
+| `rightkit-record` | heardright | `heardright/ci/consumers/rightkit-record/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
+| `rightkit-record` | legion | `legion/ci/consumers/rightkit-record/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
+| `rightkit-reframe` | coderight | `coderight/ci/consumers/rightkit-reframe/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-reframe` | genright | `genright/ci/consumers/rightkit-reframe/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-reframe` | heardright | `heardright/ci/consumers/rightkit-reframe/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-reframe` | legion | `legion/ci/consumers/rightkit-reframe/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-remote-compute` | genright | `genright/ci/consumers/rightkit-remote-compute/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-repo-graph` | coderight | `coderight/ci/consumers/rightkit-repo-graph/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-repo-graph` | coderight | `coderight/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-research` | legion | `legion/ci/consumers/rightkit-research/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-review` | coderight | `coderight/ci/consumers/rightkit-review/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-review` | genright | `genright/ci/consumers/rightkit-review/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-review` | heardright | `heardright/ci/consumers/rightkit-review/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-review` | legion | `legion/ci/consumers/rightkit-review/Cargo.toml` | dependencies | `=0.5.0` | 0.4.0 | ahead |
+| `rightkit-review` | legion | `legion/crates/rightkit-code-audit-commands/Cargo.toml` | dependencies | `0.5.0` | 0.4.0 | local |
+| `rightkit-sandbox` | coderight | `coderight/ci/consumers/rightkit-sandbox/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
+| `rightkit-sandbox` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-sandbox` | coderight | `coderight/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-sandbox` | coderight | `coderight/crates/rightkit-agent-plugins/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-sandbox` | coderight | `coderight/crates/rightkit-agent-policy/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-sandbox` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-sandbox` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-sandbox` | coderight | `coderight/crates/rightkit-agents/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-sandbox` | coderight | `coderight/crates/rightkit-browser/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-sandbox` | coderight | `coderight/crates/rightkit-hooks/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-sandbox` | coderight | `coderight/crates/rightkit-mcp/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-sandbox` | coderight | `coderight/crates/rightkit-models/Cargo.toml` | dependencies | `0.7.0` | 0.6.1 | local |
+| `rightkit-sandbox` | genright | `genright/ci/consumers/rightkit-sandbox/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
+| `rightkit-sandbox` | genright | `genright/crates/rightkit-browser/Cargo.toml` | dependencies | `0.6.1` | 0.6.1 | local |
+| `rightkit-sandbox` | heardright | `heardright/ci/consumers/rightkit-sandbox/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
+| `rightkit-sandbox` | heardright | `heardright/crates/rightkit-browser/Cargo.toml` | dependencies | `0.6.1` | 0.6.1 | local |
+| `rightkit-sandbox` | legion | `legion/ci/consumers/rightkit-sandbox/Cargo.toml` | dependencies | `=0.6.1` | 0.6.1 | current |
+| `rightkit-sandbox` | legion | `legion/crates/rightkit-browser/Cargo.toml` | dependencies | `0.6.1` | 0.6.1 | local |
+| `rightkit-sandbox` | legion | `legion/crates/rightkit-evidence-effects/Cargo.toml` | dependencies | `0.6.1` | 0.6.1 | local |
+| `rightkit-search` | coderight | `coderight/ci/consumers/rightkit-search/Cargo.toml` | dependencies | `=0.4.1` | 0.4.0 | ahead |
+| `rightkit-search` | coderight | `coderight/crates/rightkit-agent-engine-storage/Cargo.toml` | dependencies | `0.4.1` | 0.4.0 | local |
+| `rightkit-search` | genright | `genright/ci/consumers/rightkit-search/Cargo.toml` | dependencies | `=0.4.1` | 0.4.0 | ahead |
+| `rightkit-search` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.4.1` | 0.4.0 | local |
+| `rightkit-search` | heardright | `heardright/ci/consumers/rightkit-search/Cargo.toml` | dependencies | `=0.4.1` | 0.4.0 | ahead |
+| `rightkit-search` | legion | `legion/ci/consumers/rightkit-search/Cargo.toml` | dependencies | `=0.4.1` | 0.4.0 | ahead |
+| `rightkit-send` | coderight | `coderight/ci/consumers/rightkit-send/Cargo.toml` | dependencies | `=0.3.0` | 0.2.0 | ahead |
+| `rightkit-send` | genright | `genright/ci/consumers/rightkit-send/Cargo.toml` | dependencies | `=0.3.0` | 0.2.0 | ahead |
+| `rightkit-send` | heardright | `heardright/ci/consumers/rightkit-send/Cargo.toml` | dependencies | `=0.3.0` | 0.2.0 | ahead |
+| `rightkit-send` | legion | `legion/ci/consumers/rightkit-send/Cargo.toml` | dependencies | `=0.3.0` | 0.2.0 | ahead |
+| `rightkit-shorts` | coderight | `coderight/ci/consumers/rightkit-shorts/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-shorts` | genright | `genright/ci/consumers/rightkit-shorts/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-shorts` | heardright | `heardright/ci/consumers/rightkit-shorts/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-shorts` | legion | `legion/ci/consumers/rightkit-shorts/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-sidecar` | coderight | `coderight/ci/consumers/rightkit-sidecar/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-sidecar` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | coderight | `coderight/crates/rightkit-agents/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | coderight | `coderight/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | coderight | `coderight/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | coderight | `coderight/crates/rightkit-qa/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | coderight | `coderight/crates/rightkit-record/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | coderight | `coderight/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | coderight | `coderight/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `*` | 0.3.0 | local |
+| `rightkit-sidecar` | coderight | `coderight/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-sidecar` | genright | `genright/ci/consumers/rightkit-sidecar/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-sidecar` | genright | `genright/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | genright | `genright/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | genright | `genright/crates/rightkit-qa/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | genright | `genright/crates/rightkit-record/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | genright | `genright/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | genright | `genright/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `*` | 0.3.0 | local |
+| `rightkit-sidecar` | genright | `genright/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-sidecar` | heardright | `heardright/ci/consumers/rightkit-sidecar/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-sidecar` | heardright | `heardright/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | heardright | `heardright/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | heardright | `heardright/crates/rightkit-qa/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | heardright | `heardright/crates/rightkit-record/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | heardright | `heardright/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | heardright | `heardright/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `*` | 0.3.0 | local |
+| `rightkit-sidecar` | heardright | `heardright/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-sidecar` | legion | `legion/ci/consumers/rightkit-sidecar/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-sidecar` | legion | `legion/crates/rightkit-daemon/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | legion | `legion/crates/rightkit-job-queue/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | legion | `legion/crates/rightkit-qa/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | legion | `legion/crates/rightkit-record/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | legion | `legion/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.3.0` | 0.3.0 | local |
+| `rightkit-sidecar` | legion | `legion/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `*` | 0.3.0 | local |
+| `rightkit-sidecar` | legion | `legion/desktop-app-template/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
+| `rightkit-speech-client` | coderight | `coderight/ci/consumers/rightkit-speech-client/Cargo.toml` | dependencies | `=0.4.1` | 0.4.0 | ahead |
+| `rightkit-speech-client` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-speech-client` | coderight | `coderight/crates/rightkit-asr/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-speech-client` | genright | `genright/ci/consumers/rightkit-speech-client/Cargo.toml` | dependencies | `=0.4.1` | 0.4.0 | ahead |
+| `rightkit-speech-client` | genright | `genright/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-speech-client` | genright | `genright/crates/rightkit-asr/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-speech-client` | heardright | `heardright/ci/consumers/rightkit-speech-client/Cargo.toml` | dependencies | `=0.4.1` | 0.4.0 | ahead |
+| `rightkit-speech-client` | heardright | `heardright/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-speech-client` | heardright | `heardright/crates/rightkit-asr/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-speech-client` | heardright | `heardright/crates/rightkit-dictation-core/Cargo.toml` | dependencies | `=0.4.1` | 0.4.0 | local |
+| `rightkit-speech-client` | heardright | `heardright/crates/rightkit-dictation-engine/Cargo.toml` | dev-dependencies | `0.4.1` | 0.4.0 | local |
+| `rightkit-speech-client` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.4.1` | 0.4.0 | local |
+| `rightkit-speech-client` | legion | `legion/ci/consumers/rightkit-speech-client/Cargo.toml` | dependencies | `=0.4.1` | 0.4.0 | ahead |
+| `rightkit-speech-client` | legion | `legion/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-speech-client` | legion | `legion/crates/rightkit-asr/Cargo.toml` | dev-dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-spend` | coderight | `coderight/ci/consumers/rightkit-spend/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-spend` | genright | `genright/ci/consumers/rightkit-spend/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-spend` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.2.0` | 0.2.0 | local |
+| `rightkit-spend` | heardright | `heardright/ci/consumers/rightkit-spend/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-spend` | legion | `legion/ci/consumers/rightkit-spend/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-sync` | coderight | `coderight/ci/consumers/rightkit-sync/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-sync` | genright | `genright/ci/consumers/rightkit-sync/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-sync` | heardright | `heardright/ci/consumers/rightkit-sync/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-sync` | legion | `legion/ci/consumers/rightkit-sync/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-sync-keys` | coderight | `coderight/ci/consumers/rightkit-sync-keys/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-sync-keys` | genright | `genright/ci/consumers/rightkit-sync-keys/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-sync-keys` | heardright | `heardright/ci/consumers/rightkit-sync-keys/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-sync-keys` | legion | `legion/ci/consumers/rightkit-sync-keys/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-tauri-shell` | coderight | `coderight/ci/consumers/rightkit-tauri-shell/Cargo.toml` | dependencies | `=0.7.0` | 0.6.0 | ahead |
+| `rightkit-tauri-shell` | coderight | `coderight/ci/consumers/wv2-0_39/Cargo.toml` | dependencies | `*` | 0.6.0 | local |
+| `rightkit-tauri-shell` | coderight | `coderight/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `*` | 0.6.0 | local |
+| `rightkit-tauri-shell` | coderight | `coderight/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.6.0` | 0.6.0 | current |
+| `rightkit-tauri-shell` | genright | `genright/ci/consumers/rightkit-tauri-shell/Cargo.toml` | dependencies | `=0.7.0` | 0.6.0 | ahead |
+| `rightkit-tauri-shell` | genright | `genright/ci/consumers/wv2-0_39/Cargo.toml` | dependencies | `*` | 0.6.0 | local |
+| `rightkit-tauri-shell` | genright | `genright/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `*` | 0.6.0 | local |
+| `rightkit-tauri-shell` | genright | `genright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.6.0` | 0.6.0 | current |
+| `rightkit-tauri-shell` | heardright | `heardright/ci/consumers/rightkit-tauri-shell/Cargo.toml` | dependencies | `=0.7.0` | 0.6.0 | ahead |
+| `rightkit-tauri-shell` | heardright | `heardright/ci/consumers/wv2-0_39/Cargo.toml` | dependencies | `*` | 0.6.0 | local |
+| `rightkit-tauri-shell` | heardright | `heardright/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `*` | 0.6.0 | local |
+| `rightkit-tauri-shell` | heardright | `heardright/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.6.0` | 0.6.0 | current |
+| `rightkit-tauri-shell` | legion | `legion/ci/consumers/rightkit-tauri-shell/Cargo.toml` | dependencies | `=0.7.0` | 0.6.0 | ahead |
+| `rightkit-tauri-shell` | legion | `legion/ci/consumers/wv2-0_39/Cargo.toml` | dependencies | `*` | 0.6.0 | local |
+| `rightkit-tauri-shell` | legion | `legion/crates/rightkit-tauri-shell/example-app/Cargo.toml` | dependencies | `*` | 0.6.0 | local |
+| `rightkit-tauri-shell` | legion | `legion/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.6.0` | 0.6.0 | current |
+| `rightkit-terminal-ui` | coderight | `coderight/ci/consumers/rightkit-terminal-ui/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-terminal-ui` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-text-polish` | heardright | `heardright/ci/consumers/rightkit-text-polish/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-text-polish` | heardright | `heardright/crates/rightkit-dictation-engine/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-text-polish` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-text-polish` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-text-polish` | heardright | `heardright/crates/rightkit-dictation-text-pipeline/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-time` | coderight | `coderight/ci/consumers/rightkit-time/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-time` | coderight | `coderight/crates/rightkit-agent-engine-protocol/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-time` | coderight | `coderight/crates/rightkit-agent-engine-storage/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-time` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-time` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-time` | coderight | `coderight/crates/rightkit-agents/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-time` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-time` | coderight | `coderight/crates/rightkit-memory/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-time` | coderight | `coderight/crates/rightkit-scheduler/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-time` | coderight | `coderight/crates/rightkit-workflow/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-time` | genright | `genright/ci/consumers/rightkit-time/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-time` | genright | `genright/crates/rightkit-local-gen/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-time` | heardright | `heardright/ci/consumers/rightkit-time/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-time` | heardright | `heardright/crates/rightkit-dictation-core/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-time` | legion | `legion/ci/consumers/rightkit-time/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-timeline` | coderight | `coderight/ci/consumers/rightkit-captions/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-timeline` | coderight | `coderight/ci/consumers/rightkit-timeline/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-timeline` | coderight | `coderight/ci/consumers/rightkit-video-project/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-timeline` | coderight | `coderight/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | coderight | `coderight/crates/rightkit-captions/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | coderight | `coderight/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | coderight | `coderight/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | coderight | `coderight/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | genright | `genright/ci/consumers/rightkit-captions/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-timeline` | genright | `genright/ci/consumers/rightkit-timeline/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-timeline` | genright | `genright/ci/consumers/rightkit-video-project/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-timeline` | genright | `genright/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | genright | `genright/crates/rightkit-captions/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | genright | `genright/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | genright | `genright/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | genright | `genright/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | heardright | `heardright/ci/consumers/rightkit-captions/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-timeline` | heardright | `heardright/ci/consumers/rightkit-timeline/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-timeline` | heardright | `heardright/ci/consumers/rightkit-video-project/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-timeline` | heardright | `heardright/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | heardright | `heardright/crates/rightkit-captions/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | heardright | `heardright/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | heardright | `heardright/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | heardright | `heardright/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | legion | `legion/ci/consumers/rightkit-captions/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-timeline` | legion | `legion/ci/consumers/rightkit-timeline/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-timeline` | legion | `legion/ci/consumers/rightkit-video-project/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-timeline` | legion | `legion/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | legion | `legion/crates/rightkit-captions/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | legion | `legion/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | legion | `legion/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-timeline` | legion | `legion/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-transcript` | coderight | `coderight/ci/consumers/rightkit-asr/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-transcript` | coderight | `coderight/ci/consumers/rightkit-motion/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-transcript` | coderight | `coderight/ci/consumers/rightkit-transcript/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-transcript` | coderight | `coderight/crates/rightkit-align/Cargo.toml` | dependencies | `*` | 0.4.0 | local |
+| `rightkit-transcript` | coderight | `coderight/crates/rightkit-asr/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | coderight | `coderight/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | coderight | `coderight/crates/rightkit-captions/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | coderight | `coderight/crates/rightkit-motion/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | coderight | `coderight/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | coderight | `coderight/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | coderight | `coderight/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | coderight | `coderight/crates/rightkit-tts/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | genright | `genright/ci/consumers/rightkit-asr/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-transcript` | genright | `genright/ci/consumers/rightkit-motion/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-transcript` | genright | `genright/ci/consumers/rightkit-transcript/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-transcript` | genright | `genright/crates/rightkit-align/Cargo.toml` | dependencies | `*` | 0.4.0 | local |
+| `rightkit-transcript` | genright | `genright/crates/rightkit-asr/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | genright | `genright/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | genright | `genright/crates/rightkit-captions/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | genright | `genright/crates/rightkit-media-pipeline/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | genright | `genright/crates/rightkit-motion/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | genright | `genright/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | genright | `genright/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | genright | `genright/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | genright | `genright/crates/rightkit-tts/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | heardright | `heardright/ci/consumers/rightkit-asr/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-transcript` | heardright | `heardright/ci/consumers/rightkit-motion/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-transcript` | heardright | `heardright/ci/consumers/rightkit-transcript/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-transcript` | heardright | `heardright/crates/rightkit-align/Cargo.toml` | dependencies | `*` | 0.4.0 | local |
+| `rightkit-transcript` | heardright | `heardright/crates/rightkit-asr/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | heardright | `heardright/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | heardright | `heardright/crates/rightkit-captions/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | heardright | `heardright/crates/rightkit-motion/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | heardright | `heardright/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | heardright | `heardright/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | heardright | `heardright/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | heardright | `heardright/crates/rightkit-tts/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | legion | `legion/ci/consumers/rightkit-asr/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-transcript` | legion | `legion/ci/consumers/rightkit-motion/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-transcript` | legion | `legion/ci/consumers/rightkit-transcript/Cargo.toml` | dependencies | `=0.4.0` | 0.4.0 | current |
+| `rightkit-transcript` | legion | `legion/crates/rightkit-align/Cargo.toml` | dependencies | `*` | 0.4.0 | local |
+| `rightkit-transcript` | legion | `legion/crates/rightkit-asr/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | legion | `legion/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | legion | `legion/crates/rightkit-captions/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | legion | `legion/crates/rightkit-motion/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | legion | `legion/crates/rightkit-reframe/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | legion | `legion/crates/rightkit-shorts/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | legion | `legion/crates/rightkit-speech-client/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript` | legion | `legion/crates/rightkit-tts/Cargo.toml` | dependencies | `0.4.0` | 0.4.0 | local |
+| `rightkit-transcript-library` | heardright | `heardright/ci/consumers/rightkit-transcript-library/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-transcript-library` | heardright | `heardright/crates/rightkit-dictation-app-runtime/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-transcript-library` | heardright | `heardright/crates/rightkit-dictation-command-host/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-transcript-library` | heardright | `heardright/crates/rightkit-dictation-core/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-transcript-library` | heardright | `heardright/crates/rightkit-dictation-engine/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-transcript-library` | heardright | `heardright/crates/rightkit-dictation-models/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-transcript-library` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-transcript-library` | heardright | `heardright/crates/rightkit-dictation-telemetry/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-transcript-library` | heardright | `heardright/crates/rightkit-dictation-text-pipeline/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-tts` | coderight | `coderight/ci/consumers/rightkit-tts/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
+| `rightkit-tts` | genright | `genright/ci/consumers/rightkit-tts/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
+| `rightkit-tts` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | dependencies | `0.2.3` | 0.2.3 | local |
+| `rightkit-tts` | heardright | `heardright/ci/consumers/rightkit-tts/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
+| `rightkit-tts` | legion | `legion/ci/consumers/rightkit-tts/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
+| `rightkit-tts-qwen` | coderight | `coderight/ci/consumers/rightkit-tts-qwen/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
+| `rightkit-tts-qwen` | coderight | `coderight/crates/rightkit-tts/Cargo.toml` | dependencies | `0.2.7` | 0.2.7 | local |
+| `rightkit-tts-qwen` | genright | `genright/ci/consumers/rightkit-tts-qwen/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
+| `rightkit-tts-qwen` | genright | `genright/crates/rightkit-tts/Cargo.toml` | dependencies | `0.2.7` | 0.2.7 | local |
+| `rightkit-tts-qwen` | heardright | `heardright/ci/consumers/rightkit-tts-qwen/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
+| `rightkit-tts-qwen` | heardright | `heardright/crates/rightkit-tts/Cargo.toml` | dependencies | `0.2.7` | 0.2.7 | local |
+| `rightkit-tts-qwen` | legion | `legion/ci/consumers/rightkit-tts-qwen/Cargo.toml` | dependencies | `=0.2.7` | 0.2.7 | current |
+| `rightkit-tts-qwen` | legion | `legion/crates/rightkit-tts/Cargo.toml` | dependencies | `0.2.7` | 0.2.7 | local |
+| `rightkit-tts-qwen-sys` | coderight | `coderight/ci/consumers/rightkit-tts-qwen-sys/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-tts-qwen-sys` | coderight | `coderight/crates/rightkit-tts-qwen/Cargo.toml` | dependencies | `0.1.0` | 0.1.2 | local |
+| `rightkit-tts-qwen-sys` | genright | `genright/ci/consumers/rightkit-tts-qwen-sys/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-tts-qwen-sys` | genright | `genright/crates/rightkit-tts-qwen/Cargo.toml` | dependencies | `0.1.0` | 0.1.2 | local |
+| `rightkit-tts-qwen-sys` | heardright | `heardright/ci/consumers/rightkit-tts-qwen-sys/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-tts-qwen-sys` | heardright | `heardright/crates/rightkit-tts-qwen/Cargo.toml` | dependencies | `0.1.0` | 0.1.2 | local |
+| `rightkit-tts-qwen-sys` | legion | `legion/ci/consumers/rightkit-tts-qwen-sys/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-tts-qwen-sys` | legion | `legion/crates/rightkit-tts-qwen/Cargo.toml` | dependencies | `0.1.0` | 0.1.2 | local |
+| `rightkit-typeset` | coderight | `coderight/ci/consumers/rightkit-typeset/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-typeset` | coderight | `coderight/crates/rightkit-captions/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-typeset` | genright | `genright/ci/consumers/rightkit-typeset/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-typeset` | genright | `genright/crates/rightkit-captions/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-typeset` | heardright | `heardright/ci/consumers/rightkit-typeset/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-typeset` | heardright | `heardright/crates/rightkit-captions/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-typeset` | legion | `legion/ci/consumers/rightkit-typeset/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-typeset` | legion | `legion/crates/rightkit-captions/Cargo.toml` | dependencies | `0.1.0` | 0.1.0 | local |
+| `rightkit-vad` | coderight | `coderight/ci/consumers/rightkit-vad/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-vad` | coderight | `coderight/crates/rightkit-asr/Cargo.toml` | dependencies | `0.1.0` | 0.1.2 | local |
+| `rightkit-vad` | coderight | `coderight/crates/rightkit-asr/Cargo.toml` | dev-dependencies | `0.1.0` | 0.1.2 | local |
+| `rightkit-vad` | genright | `genright/ci/consumers/rightkit-vad/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-vad` | genright | `genright/crates/rightkit-asr/Cargo.toml` | dependencies | `0.1.0` | 0.1.2 | local |
+| `rightkit-vad` | genright | `genright/crates/rightkit-asr/Cargo.toml` | dev-dependencies | `0.1.0` | 0.1.2 | local |
+| `rightkit-vad` | heardright | `heardright/ci/consumers/rightkit-vad/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-vad` | heardright | `heardright/crates/rightkit-asr/Cargo.toml` | dependencies | `0.1.0` | 0.1.2 | local |
+| `rightkit-vad` | heardright | `heardright/crates/rightkit-asr/Cargo.toml` | dev-dependencies | `0.1.0` | 0.1.2 | local |
+| `rightkit-vad` | heardright | `heardright/crates/rightkit-dictation-inference/Cargo.toml` | dependencies | `0.1.2` | 0.1.2 | local |
+| `rightkit-vad` | legion | `legion/ci/consumers/rightkit-vad/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-vad` | legion | `legion/crates/rightkit-asr/Cargo.toml` | dependencies | `0.1.0` | 0.1.2 | local |
+| `rightkit-vad` | legion | `legion/crates/rightkit-asr/Cargo.toml` | dev-dependencies | `0.1.0` | 0.1.2 | local |
+| `rightkit-vault` | coderight | `coderight/ci/consumers/rightkit-vault/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-vault` | genright | `genright/ci/consumers/rightkit-vault/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-vault` | heardright | `heardright/ci/consumers/rightkit-vault/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-vault` | legion | `legion/ci/consumers/rightkit-vault/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-video-project` | coderight | `coderight/ci/consumers/rightkit-video-project/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-video-project` | coderight | `coderight/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-video-project` | coderight | `coderight/crates/rightkit-shorts/Cargo.toml` | dev-dependencies | `0.1.0` | none recorded | local |
+| `rightkit-video-project` | genright | `genright/ci/consumers/rightkit-video-project/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-video-project` | genright | `genright/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-video-project` | genright | `genright/crates/rightkit-shorts/Cargo.toml` | dev-dependencies | `0.1.0` | none recorded | local |
+| `rightkit-video-project` | heardright | `heardright/ci/consumers/rightkit-video-project/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-video-project` | heardright | `heardright/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-video-project` | heardright | `heardright/crates/rightkit-shorts/Cargo.toml` | dev-dependencies | `0.1.0` | none recorded | local |
+| `rightkit-video-project` | legion | `legion/ci/consumers/rightkit-video-project/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-video-project` | legion | `legion/crates/rightkit-autoedit/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-video-project` | legion | `legion/crates/rightkit-shorts/Cargo.toml` | dev-dependencies | `0.1.0` | none recorded | local |
+| `rightkit-voice-commands` | heardright | `heardright/ci/consumers/rightkit-voice-commands/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
+| `rightkit-voice-commands` | heardright | `heardright/crates/rightkit-dictation-command-host/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-voice-commands` | heardright | `heardright/crates/rightkit-dictation-runtime/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-voice-commands` | heardright | `heardright/crates/rightkit-dictation-text-pipeline/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-voice-commands` | heardright | `heardright/crates/rightkit-text-polish/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
+| `rightkit-workflow` | coderight | `coderight/ci/consumers/rightkit-workflow/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-workflow` | coderight | `coderight/crates/rightkit-agent-engine-storage/Cargo.toml` | dependencies | `0.3.0` | 0.2.0 | local |
+| `rightkit-workflow` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.3.0` | 0.2.0 | local |
+| `rightkit-workflow` | genright | `genright/ci/consumers/rightkit-workflow/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-workflow` | heardright | `heardright/ci/consumers/rightkit-workflow/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-workflow` | legion | `legion/ci/consumers/rightkit-workflow/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `@rightkit/app-update` | coderight | `coderight/ci/consumers/npm/tauri/package.json` | dependencies | `0.4.0` | 0.4.2 | stale |
+| `@rightkit/app-update` | coderight | `coderight/desktop-app-template/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
+| `@rightkit/app-update` | coderight | `coderight/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.4.2 | local |
+| `@rightkit/app-update` | coderight | `coderight/packages/settings-ui/package.json` | peerDependencies | `>=0.2.0` | 0.4.2 | range ok |
+| `@rightkit/app-update` | coderight | `coderight/packages/tauri/package.json` | peerDependencies | `>=0.2.5 <0.5` | 0.4.2 | range ok |
+| `@rightkit/app-update` | genright | `genright/ci/consumers/npm/tauri/package.json` | dependencies | `0.4.0` | 0.4.2 | stale |
+| `@rightkit/app-update` | genright | `genright/desktop-app-template/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
+| `@rightkit/app-update` | genright | `genright/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.4.2 | local |
+| `@rightkit/app-update` | genright | `genright/packages/settings-ui/package.json` | peerDependencies | `>=0.2.0` | 0.4.2 | range ok |
+| `@rightkit/app-update` | genright | `genright/packages/tauri/package.json` | peerDependencies | `>=0.2.5 <0.5` | 0.4.2 | range ok |
+| `@rightkit/app-update` | heardright | `heardright/ci/consumers/npm/tauri/package.json` | dependencies | `0.4.0` | 0.4.2 | stale |
+| `@rightkit/app-update` | heardright | `heardright/desktop-app-template/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
+| `@rightkit/app-update` | heardright | `heardright/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.4.2 | local |
+| `@rightkit/app-update` | heardright | `heardright/packages/settings-ui/package.json` | peerDependencies | `>=0.2.0` | 0.4.2 | range ok |
+| `@rightkit/app-update` | heardright | `heardright/packages/tauri/package.json` | peerDependencies | `>=0.2.5 <0.5` | 0.4.2 | range ok |
+| `@rightkit/app-update` | legion | `legion/ci/consumers/npm/tauri/package.json` | dependencies | `0.4.0` | 0.4.2 | stale |
+| `@rightkit/app-update` | legion | `legion/desktop-app-template/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
+| `@rightkit/app-update` | legion | `legion/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.4.2 | local |
+| `@rightkit/app-update` | legion | `legion/packages/settings-ui/package.json` | peerDependencies | `>=0.2.0` | 0.4.2 | range ok |
+| `@rightkit/app-update` | legion | `legion/packages/tauri/package.json` | peerDependencies | `>=0.2.5 <0.5` | 0.4.2 | range ok |
+| `@rightkit/ci` | coderight | `coderight/ci/consumers/npm/outdated/package.json` | dependencies | `0.3.0` | 0.3.1 | stale |
+| `@rightkit/ci` | coderight | `coderight/ci/consumers/npm/release/package.json` | dependencies | `0.2.49` | 0.3.1 | stale |
+| `@rightkit/ci` | coderight | `coderight/package.json` | devDependencies | `workspace:*` | 0.3.1 | local |
+| `@rightkit/ci` | coderight | `coderight/packages/outdated/package.json` | dependencies | `workspace:^` | 0.3.1 | local |
+| `@rightkit/ci` | genright | `genright/ci/consumers/npm/outdated/package.json` | dependencies | `0.3.0` | 0.3.1 | stale |
+| `@rightkit/ci` | genright | `genright/ci/consumers/npm/release/package.json` | dependencies | `0.2.49` | 0.3.1 | stale |
+| `@rightkit/ci` | genright | `genright/package.json` | devDependencies | `workspace:*` | 0.3.1 | local |
+| `@rightkit/ci` | genright | `genright/packages/outdated/package.json` | dependencies | `workspace:^` | 0.3.1 | local |
+| `@rightkit/ci` | heardright | `heardright/ci/consumers/npm/outdated/package.json` | dependencies | `0.3.0` | 0.3.1 | stale |
+| `@rightkit/ci` | heardright | `heardright/ci/consumers/npm/release/package.json` | dependencies | `0.2.49` | 0.3.1 | stale |
+| `@rightkit/ci` | heardright | `heardright/package.json` | devDependencies | `workspace:*` | 0.3.1 | local |
+| `@rightkit/ci` | heardright | `heardright/packages/outdated/package.json` | dependencies | `workspace:^` | 0.3.1 | local |
+| `@rightkit/ci` | legion | `legion/ci/consumers/npm/outdated/package.json` | dependencies | `0.3.0` | 0.3.1 | stale |
+| `@rightkit/ci` | legion | `legion/ci/consumers/npm/release/package.json` | dependencies | `0.2.49` | 0.3.1 | stale |
+| `@rightkit/ci` | legion | `legion/package.json` | devDependencies | `workspace:*` | 0.3.1 | local |
+| `@rightkit/ci` | legion | `legion/packages/outdated/package.json` | dependencies | `workspace:^` | 0.3.1 | local |
+| `@rightkit/legal` | coderight | `coderight/desktop-app-template/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
+| `@rightkit/legal` | genright | `genright/desktop-app-template/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
+| `@rightkit/legal` | heardright | `heardright/desktop-app-template/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
+| `@rightkit/legal` | legion | `legion/desktop-app-template/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
+| `@rightkit/legal-ui` | coderight | `coderight/ci/consumers/npm/onboarding/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
+| `@rightkit/legal-ui` | coderight | `coderight/desktop-app-template/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
+| `@rightkit/legal-ui` | coderight | `coderight/packages/onboarding/package.json` | devDependencies | `workspace:*` | 0.4.1 | local |
+| `@rightkit/legal-ui` | coderight | `coderight/packages/onboarding/package.json` | peerDependencies | `>=0.4.1 <1` | 0.4.1 | range ok |
+| `@rightkit/legal-ui` | genright | `genright/ci/consumers/npm/onboarding/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
+| `@rightkit/legal-ui` | genright | `genright/desktop-app-template/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
+| `@rightkit/legal-ui` | genright | `genright/packages/onboarding/package.json` | devDependencies | `workspace:*` | 0.4.1 | local |
+| `@rightkit/legal-ui` | genright | `genright/packages/onboarding/package.json` | peerDependencies | `>=0.4.1 <1` | 0.4.1 | range ok |
+| `@rightkit/legal-ui` | heardright | `heardright/ci/consumers/npm/onboarding/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
+| `@rightkit/legal-ui` | heardright | `heardright/desktop-app-template/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
+| `@rightkit/legal-ui` | heardright | `heardright/packages/onboarding/package.json` | devDependencies | `workspace:*` | 0.4.1 | local |
+| `@rightkit/legal-ui` | heardright | `heardright/packages/onboarding/package.json` | peerDependencies | `>=0.4.1 <1` | 0.4.1 | range ok |
+| `@rightkit/legal-ui` | legion | `legion/ci/consumers/npm/onboarding/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
+| `@rightkit/legal-ui` | legion | `legion/desktop-app-template/package.json` | dependencies | `0.4.1` | 0.4.1 | current |
+| `@rightkit/legal-ui` | legion | `legion/packages/onboarding/package.json` | devDependencies | `workspace:*` | 0.4.1 | local |
+| `@rightkit/legal-ui` | legion | `legion/packages/onboarding/package.json` | peerDependencies | `>=0.4.1 <1` | 0.4.1 | range ok |
+| `@rightkit/license` | coderight | `coderight/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/license` | coderight | `coderight/desktop-app-template/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/license` | coderight | `coderight/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.3.0 | local |
+| `@rightkit/license` | coderight | `coderight/packages/settings-ui/package.json` | peerDependencies | `>=0.3.0 <0.4` | 0.3.0 | range ok |
+| `@rightkit/license` | genright | `genright/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/license` | genright | `genright/desktop-app-template/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/license` | genright | `genright/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.3.0 | local |
+| `@rightkit/license` | genright | `genright/packages/settings-ui/package.json` | peerDependencies | `>=0.3.0 <0.4` | 0.3.0 | range ok |
+| `@rightkit/license` | heardright | `heardright/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/license` | heardright | `heardright/desktop-app-template/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/license` | heardright | `heardright/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.3.0 | local |
+| `@rightkit/license` | heardright | `heardright/packages/settings-ui/package.json` | peerDependencies | `>=0.3.0 <0.4` | 0.3.0 | range ok |
+| `@rightkit/license` | legion | `legion/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/license` | legion | `legion/desktop-app-template/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/license` | legion | `legion/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.3.0 | local |
+| `@rightkit/license` | legion | `legion/packages/settings-ui/package.json` | peerDependencies | `>=0.3.0 <0.4` | 0.3.0 | range ok |
+| `@rightkit/logs` | coderight | `coderight/ci/consumers/npm/tauri/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
+| `@rightkit/logs` | coderight | `coderight/desktop-app-template/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
+| `@rightkit/logs` | coderight | `coderight/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.1.6 | local |
+| `@rightkit/logs` | coderight | `coderight/packages/settings-ui/package.json` | peerDependencies | `>=0.1.0` | 0.1.6 | range ok |
+| `@rightkit/logs` | coderight | `coderight/packages/tauri/package.json` | dependencies | `^0.1.6` | 0.1.6 | range ok |
+| `@rightkit/logs` | genright | `genright/ci/consumers/npm/tauri/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
+| `@rightkit/logs` | genright | `genright/desktop-app-template/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
+| `@rightkit/logs` | genright | `genright/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.1.6 | local |
+| `@rightkit/logs` | genright | `genright/packages/settings-ui/package.json` | peerDependencies | `>=0.1.0` | 0.1.6 | range ok |
+| `@rightkit/logs` | genright | `genright/packages/tauri/package.json` | dependencies | `^0.1.6` | 0.1.6 | range ok |
+| `@rightkit/logs` | heardright | `heardright/ci/consumers/npm/tauri/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
+| `@rightkit/logs` | heardright | `heardright/desktop-app-template/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
+| `@rightkit/logs` | heardright | `heardright/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.1.6 | local |
+| `@rightkit/logs` | heardright | `heardright/packages/settings-ui/package.json` | peerDependencies | `>=0.1.0` | 0.1.6 | range ok |
+| `@rightkit/logs` | heardright | `heardright/packages/tauri/package.json` | dependencies | `^0.1.6` | 0.1.6 | range ok |
+| `@rightkit/logs` | legion | `legion/ci/consumers/npm/tauri/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
+| `@rightkit/logs` | legion | `legion/desktop-app-template/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
+| `@rightkit/logs` | legion | `legion/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.1.6 | local |
+| `@rightkit/logs` | legion | `legion/packages/settings-ui/package.json` | peerDependencies | `>=0.1.0` | 0.1.6 | range ok |
+| `@rightkit/logs` | legion | `legion/packages/tauri/package.json` | dependencies | `^0.1.6` | 0.1.6 | range ok |
+| `@rightkit/onboarding` | coderight | `coderight/desktop-app-template/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
+| `@rightkit/onboarding` | genright | `genright/desktop-app-template/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
+| `@rightkit/onboarding` | heardright | `heardright/desktop-app-template/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
+| `@rightkit/onboarding` | legion | `legion/desktop-app-template/package.json` | dependencies | `0.6.3` | 0.6.3 | current |
+| `@rightkit/outdated` | coderight | `coderight/ci/consumers/npm/release/package.json` | dependencies | `0.2.0` | 0.3.0 | stale |
+| `@rightkit/outdated` | coderight | `coderight/packages/release/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/outdated` | genright | `genright/ci/consumers/npm/release/package.json` | dependencies | `0.2.0` | 0.3.0 | stale |
+| `@rightkit/outdated` | genright | `genright/packages/release/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/outdated` | heardright | `heardright/ci/consumers/npm/release/package.json` | dependencies | `0.2.0` | 0.3.0 | stale |
+| `@rightkit/outdated` | heardright | `heardright/packages/release/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/outdated` | legion | `legion/ci/consumers/npm/release/package.json` | dependencies | `0.2.0` | 0.3.0 | stale |
+| `@rightkit/outdated` | legion | `legion/packages/release/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/platform-ui` | coderight | `coderight/ci/consumers/npm/onboarding/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | coderight | `coderight/ci/consumers/npm/react-shell/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | coderight | `coderight/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | coderight | `coderight/desktop-app-template/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | coderight | `coderight/packages/react-shell/package.json` | devDependencies | `workspace:*` | 0.4.0 | local |
+| `@rightkit/platform-ui` | coderight | `coderight/packages/react-shell/package.json` | peerDependencies | `>=0.2.8 <1` | 0.4.0 | range ok |
+| `@rightkit/platform-ui` | genright | `genright/ci/consumers/npm/onboarding/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | genright | `genright/ci/consumers/npm/react-shell/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | genright | `genright/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | genright | `genright/desktop-app-template/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | genright | `genright/packages/react-shell/package.json` | devDependencies | `workspace:*` | 0.4.0 | local |
+| `@rightkit/platform-ui` | genright | `genright/packages/react-shell/package.json` | peerDependencies | `>=0.2.8 <1` | 0.4.0 | range ok |
+| `@rightkit/platform-ui` | heardright | `heardright/ci/consumers/npm/onboarding/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | heardright | `heardright/ci/consumers/npm/react-shell/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | heardright | `heardright/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | heardright | `heardright/desktop-app-template/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | heardright | `heardright/packages/react-shell/package.json` | devDependencies | `workspace:*` | 0.4.0 | local |
+| `@rightkit/platform-ui` | heardright | `heardright/packages/react-shell/package.json` | peerDependencies | `>=0.2.8 <1` | 0.4.0 | range ok |
+| `@rightkit/platform-ui` | legion | `legion/ci/consumers/npm/onboarding/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | legion | `legion/ci/consumers/npm/react-shell/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | legion | `legion/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | legion | `legion/desktop-app-template/package.json` | dependencies | `0.4.0` | 0.4.0 | current |
+| `@rightkit/platform-ui` | legion | `legion/packages/react-shell/package.json` | devDependencies | `workspace:*` | 0.4.0 | local |
+| `@rightkit/platform-ui` | legion | `legion/packages/react-shell/package.json` | peerDependencies | `>=0.2.8 <1` | 0.4.0 | range ok |
+| `@rightkit/qa` | coderight | `coderight/desktop-app-template/package.json` | devDependencies | `0.6.1` | 0.6.1 | current |
+| `@rightkit/qa` | genright | `genright/desktop-app-template/package.json` | devDependencies | `0.6.1` | 0.6.1 | current |
+| `@rightkit/qa` | heardright | `heardright/desktop-app-template/package.json` | devDependencies | `0.6.1` | 0.6.1 | current |
+| `@rightkit/qa` | legion | `legion/desktop-app-template/package.json` | devDependencies | `0.6.1` | 0.6.1 | current |
+| `@rightkit/qa-chrome` | coderight | `coderight/ci/consumers/npm/qa/package.json` | dependencies | `0.1.12` | 0.1.12 | current |
+| `@rightkit/qa-chrome` | coderight | `coderight/desktop-app-template/package.json` | devDependencies | `0.1.12` | 0.1.12 | current |
+| `@rightkit/qa-chrome` | coderight | `coderight/packages/doc-render/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | coderight | `coderight/packages/media-ui/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | coderight | `coderight/packages/onboarding/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | coderight | `coderight/packages/pdf-ui/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | coderight | `coderight/packages/qa/package.json` | dependencies | `0.1.12` | 0.1.12 | current |
+| `@rightkit/qa-chrome` | coderight | `coderight/packages/react-shell/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | coderight | `coderight/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | coderight | `coderight/packages/theme/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | genright | `genright/ci/consumers/npm/qa/package.json` | dependencies | `0.1.12` | 0.1.12 | current |
+| `@rightkit/qa-chrome` | genright | `genright/desktop-app-template/package.json` | devDependencies | `0.1.12` | 0.1.12 | current |
+| `@rightkit/qa-chrome` | genright | `genright/packages/doc-render/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | genright | `genright/packages/media-ui/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | genright | `genright/packages/onboarding/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | genright | `genright/packages/pdf-ui/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | genright | `genright/packages/qa/package.json` | dependencies | `0.1.12` | 0.1.12 | current |
+| `@rightkit/qa-chrome` | genright | `genright/packages/react-shell/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | genright | `genright/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | genright | `genright/packages/theme/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | heardright | `heardright/ci/consumers/npm/qa/package.json` | dependencies | `0.1.12` | 0.1.12 | current |
+| `@rightkit/qa-chrome` | heardright | `heardright/desktop-app-template/package.json` | devDependencies | `0.1.12` | 0.1.12 | current |
+| `@rightkit/qa-chrome` | heardright | `heardright/packages/doc-render/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | heardright | `heardright/packages/media-ui/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | heardright | `heardright/packages/onboarding/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | heardright | `heardright/packages/pdf-ui/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | heardright | `heardright/packages/qa/package.json` | dependencies | `0.1.12` | 0.1.12 | current |
+| `@rightkit/qa-chrome` | heardright | `heardright/packages/react-shell/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | heardright | `heardright/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | heardright | `heardright/packages/theme/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | legion | `legion/ci/consumers/npm/qa/package.json` | dependencies | `0.1.12` | 0.1.12 | current |
+| `@rightkit/qa-chrome` | legion | `legion/desktop-app-template/package.json` | devDependencies | `0.1.12` | 0.1.12 | current |
+| `@rightkit/qa-chrome` | legion | `legion/packages/doc-render/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | legion | `legion/packages/media-ui/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | legion | `legion/packages/onboarding/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | legion | `legion/packages/pdf-ui/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | legion | `legion/packages/qa/package.json` | dependencies | `0.1.12` | 0.1.12 | current |
+| `@rightkit/qa-chrome` | legion | `legion/packages/react-shell/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | legion | `legion/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/qa-chrome` | legion | `legion/packages/theme/package.json` | devDependencies | `workspace:*` | 0.1.12 | local |
+| `@rightkit/react-shell` | coderight | `coderight/ci/consumers/npm/onboarding/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
+| `@rightkit/react-shell` | coderight | `coderight/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
+| `@rightkit/react-shell` | coderight | `coderight/desktop-app-template/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
+| `@rightkit/react-shell` | coderight | `coderight/packages/onboarding/package.json` | devDependencies | `workspace:*` | 0.7.2 | local |
+| `@rightkit/react-shell` | coderight | `coderight/packages/onboarding/package.json` | peerDependencies | `>=0.2.0 <1` | 0.7.2 | range ok |
+| `@rightkit/react-shell` | coderight | `coderight/packages/settings-ui/package.json` | peerDependencies | `>=0.2.0 <1` | 0.7.2 | range ok |
+| `@rightkit/react-shell` | genright | `genright/ci/consumers/npm/onboarding/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
+| `@rightkit/react-shell` | genright | `genright/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
+| `@rightkit/react-shell` | genright | `genright/desktop-app-template/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
+| `@rightkit/react-shell` | genright | `genright/packages/onboarding/package.json` | devDependencies | `workspace:*` | 0.7.2 | local |
+| `@rightkit/react-shell` | genright | `genright/packages/onboarding/package.json` | peerDependencies | `>=0.2.0 <1` | 0.7.2 | range ok |
+| `@rightkit/react-shell` | genright | `genright/packages/settings-ui/package.json` | peerDependencies | `>=0.2.0 <1` | 0.7.2 | range ok |
+| `@rightkit/react-shell` | heardright | `heardright/ci/consumers/npm/onboarding/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
+| `@rightkit/react-shell` | heardright | `heardright/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
+| `@rightkit/react-shell` | heardright | `heardright/desktop-app-template/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
+| `@rightkit/react-shell` | heardright | `heardright/packages/onboarding/package.json` | devDependencies | `workspace:*` | 0.7.2 | local |
+| `@rightkit/react-shell` | heardright | `heardright/packages/onboarding/package.json` | peerDependencies | `>=0.2.0 <1` | 0.7.2 | range ok |
+| `@rightkit/react-shell` | heardright | `heardright/packages/settings-ui/package.json` | peerDependencies | `>=0.2.0 <1` | 0.7.2 | range ok |
+| `@rightkit/react-shell` | legion | `legion/ci/consumers/npm/onboarding/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
+| `@rightkit/react-shell` | legion | `legion/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
+| `@rightkit/react-shell` | legion | `legion/desktop-app-template/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
+| `@rightkit/react-shell` | legion | `legion/packages/onboarding/package.json` | devDependencies | `workspace:*` | 0.7.2 | local |
+| `@rightkit/react-shell` | legion | `legion/packages/onboarding/package.json` | peerDependencies | `>=0.2.0 <1` | 0.7.2 | range ok |
+| `@rightkit/react-shell` | legion | `legion/packages/settings-ui/package.json` | peerDependencies | `>=0.2.0 <1` | 0.7.2 | range ok |
+| `@rightkit/release` | coderight | `coderight/desktop-app-template/package.json` | devDependencies | `0.6.13` | 0.6.13 | current |
+| `@rightkit/release` | coderight | `coderight/package.json` | devDependencies | `workspace:*` | 0.6.13 | local |
+| `@rightkit/release` | coderight | `coderight/packages/legal/package.json` | peerDependencies | `^0.4.1 \|\| ^0.5.0 \|\| ^0.6.0` | 0.6.13 | stale |
+| `@rightkit/release` | genright | `genright/desktop-app-template/package.json` | devDependencies | `0.6.13` | 0.6.13 | current |
+| `@rightkit/release` | genright | `genright/package.json` | devDependencies | `workspace:*` | 0.6.13 | local |
+| `@rightkit/release` | genright | `genright/packages/legal/package.json` | peerDependencies | `^0.4.1 \|\| ^0.5.0 \|\| ^0.6.0` | 0.6.13 | stale |
+| `@rightkit/release` | heardright | `heardright/desktop-app-template/package.json` | devDependencies | `0.6.13` | 0.6.13 | current |
+| `@rightkit/release` | heardright | `heardright/package.json` | devDependencies | `workspace:*` | 0.6.13 | local |
+| `@rightkit/release` | heardright | `heardright/packages/legal/package.json` | peerDependencies | `^0.4.1 \|\| ^0.5.0 \|\| ^0.6.0` | 0.6.13 | stale |
+| `@rightkit/release` | legion | `legion/desktop-app-template/package.json` | devDependencies | `0.6.13` | 0.6.13 | current |
+| `@rightkit/release` | legion | `legion/package.json` | devDependencies | `workspace:*` | 0.6.13 | local |
+| `@rightkit/release` | legion | `legion/packages/legal/package.json` | peerDependencies | `^0.4.1 \|\| ^0.5.0 \|\| ^0.6.0` | 0.6.13 | stale |
+| `@rightkit/settings-ui` | coderight | `coderight/desktop-app-template/package.json` | dependencies | `0.7.0` | 0.7.0 | current |
+| `@rightkit/settings-ui` | genright | `genright/desktop-app-template/package.json` | dependencies | `0.7.0` | 0.7.0 | current |
+| `@rightkit/settings-ui` | heardright | `heardright/desktop-app-template/package.json` | dependencies | `0.7.0` | 0.7.0 | current |
+| `@rightkit/settings-ui` | legion | `legion/desktop-app-template/package.json` | dependencies | `0.7.0` | 0.7.0 | current |
+| `@rightkit/tauri` | coderight | `coderight/desktop-app-template/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/tauri` | genright | `genright/desktop-app-template/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/tauri` | heardright | `heardright/desktop-app-template/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/tauri` | legion | `legion/desktop-app-template/package.json` | dependencies | `0.3.0` | 0.3.0 | current |
+| `@rightkit/tauri-shell` | coderight | `coderight/desktop-app-template/package.json` | dependencies | `0.1.3` | 0.1.3 | current |
+| `@rightkit/tauri-shell` | genright | `genright/desktop-app-template/package.json` | dependencies | `0.1.3` | 0.1.3 | current |
+| `@rightkit/tauri-shell` | heardright | `heardright/desktop-app-template/package.json` | dependencies | `0.1.3` | 0.1.3 | current |
+| `@rightkit/tauri-shell` | legion | `legion/desktop-app-template/package.json` | dependencies | `0.1.3` | 0.1.3 | current |
+| `@rightkit/theme` | coderight | `coderight/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
+| `@rightkit/theme` | coderight | `coderight/desktop-app-template/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
+| `@rightkit/theme` | coderight | `coderight/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.3.1 | local |
+| `@rightkit/theme` | coderight | `coderight/packages/settings-ui/package.json` | peerDependencies | `>=0.2.0 <1` | 0.3.1 | range ok |
+| `@rightkit/theme` | genright | `genright/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
+| `@rightkit/theme` | genright | `genright/desktop-app-template/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
+| `@rightkit/theme` | genright | `genright/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.3.1 | local |
+| `@rightkit/theme` | genright | `genright/packages/settings-ui/package.json` | peerDependencies | `>=0.2.0 <1` | 0.3.1 | range ok |
+| `@rightkit/theme` | heardright | `heardright/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
+| `@rightkit/theme` | heardright | `heardright/desktop-app-template/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
+| `@rightkit/theme` | heardright | `heardright/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.3.1 | local |
+| `@rightkit/theme` | heardright | `heardright/packages/settings-ui/package.json` | peerDependencies | `>=0.2.0 <1` | 0.3.1 | range ok |
+| `@rightkit/theme` | legion | `legion/ci/consumers/npm/settings-ui/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
+| `@rightkit/theme` | legion | `legion/desktop-app-template/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
+| `@rightkit/theme` | legion | `legion/packages/settings-ui/package.json` | devDependencies | `workspace:*` | 0.3.1 | local |
+| `@rightkit/theme` | legion | `legion/packages/settings-ui/package.json` | peerDependencies | `>=0.2.0 <1` | 0.3.1 | range ok |
 
 ## Duplicate copies and split pins
 
@@ -729,33 +2102,740 @@ Vendored copies are app-owned source trees that carry a RightKit package name. T
 
 | Package | App | Manifest | Version in tree | Latest published |
 |---|---|---|---|---|
-| `rightkit-asr` | heardright | `heardright/tauri-app-next/vendor/rightkit-asr/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-adapt` | coderight | `coderight/crates/rightkit-adapt/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-engine-api-platform` | coderight | `coderight/crates/rightkit-agent-engine-api-platform/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-engine-api-sessions` | coderight | `coderight/crates/rightkit-agent-engine-api-sessions/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-engine-api-workflows` | coderight | `coderight/crates/rightkit-agent-engine-api-workflows/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-engine-attention` | coderight | `coderight/crates/rightkit-agent-engine-attention/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-engine-cli` | coderight | `coderight/crates/rightkit-agent-engine-cli/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-engine-history` | coderight | `coderight/crates/rightkit-agent-engine-history/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-agent-engine-protocol/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-engine-runtime-middleware` | coderight | `coderight/crates/rightkit-agent-engine-runtime-middleware/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-engine-runtime-resources` | coderight | `coderight/crates/rightkit-agent-engine-runtime-resources/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-engine-storage` | coderight | `coderight/crates/rightkit-agent-engine-storage/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-engine-tasks` | coderight | `coderight/crates/rightkit-agent-engine-tasks/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-orchestration` | coderight | `coderight/crates/rightkit-agent-orchestration/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-orchestration` | legion | `legion/crates/rightkit-agent-orchestration/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-orchestration-handoff` | legion | `legion/crates/rightkit-agent-orchestration-handoff/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-policy` | coderight | `coderight/crates/rightkit-agent-policy/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-agent-tools` | genright | `genright/crates/rightkit-agent-tools/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-agent-tools` | heardright | `heardright/crates/rightkit-agent-tools/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-agent-tools` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | 0.4.0 | 0.3.0 |
+| `rightkit-agent-tools` | legion | `legion/crates/rightkit-agent-tools/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-agents` | genright | `genright/crates/rightkit-agents/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-agents` | heardright | `heardright/crates/rightkit-agents/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-agents` | coderight | `coderight/crates/rightkit-agents/Cargo.toml` | 0.3.0 | 0.2.0 |
+| `rightkit-agents` | legion | `legion/crates/rightkit-agents/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-align` | genright | `genright/crates/rightkit-align/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-align` | heardright | `heardright/crates/rightkit-align/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-align` | coderight | `coderight/crates/rightkit-align/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-align` | legion | `legion/crates/rightkit-align/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-android` | genright | `genright/crates/rightkit-android/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-android` | heardright | `heardright/crates/rightkit-android/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-android` | coderight | `coderight/crates/rightkit-android/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-android` | legion | `legion/crates/rightkit-android/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-app-settings` | genright | `genright/crates/rightkit-app-settings/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-app-settings` | heardright | `heardright/crates/rightkit-app-settings/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-app-settings` | coderight | `coderight/crates/rightkit-app-settings/Cargo.toml` | 0.4.0 | 0.3.0 |
+| `rightkit-app-settings` | legion | `legion/crates/rightkit-app-settings/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-asr` | genright | `genright/crates/rightkit-asr/Cargo.toml` | 0.3.1 | 0.3.0 |
+| `rightkit-asr` | heardright | `heardright/crates/rightkit-asr/Cargo.toml` | 0.4.0 | 0.3.0 |
+| `rightkit-asr` | coderight | `coderight/crates/rightkit-asr/Cargo.toml` | 0.3.1 | 0.3.0 |
+| `rightkit-asr` | legion | `legion/crates/rightkit-asr/Cargo.toml` | 0.3.1 | 0.3.0 |
+| `rightkit-audio` | genright | `genright/crates/rightkit-audio/Cargo.toml` | 0.3.1 | 0.3.1 |
+| `rightkit-audio` | heardright | `heardright/crates/rightkit-audio/Cargo.toml` | 0.3.1 | 0.3.1 |
+| `rightkit-audio` | coderight | `coderight/crates/rightkit-audio/Cargo.toml` | 0.3.1 | 0.3.1 |
+| `rightkit-audio` | legion | `legion/crates/rightkit-audio/Cargo.toml` | 0.3.1 | 0.3.1 |
+| `rightkit-autoedit` | genright | `genright/crates/rightkit-autoedit/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-autoedit` | heardright | `heardright/crates/rightkit-autoedit/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-autoedit` | coderight | `coderight/crates/rightkit-autoedit/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-autoedit` | legion | `legion/crates/rightkit-autoedit/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-automation` | genright | `genright/crates/rightkit-automation/Cargo.toml` | 0.6.1 | 0.6.1 |
+| `rightkit-automation` | heardright | `heardright/crates/rightkit-automation/Cargo.toml` | 0.7.0 | 0.6.1 |
+| `rightkit-automation` | coderight | `coderight/crates/rightkit-automation/Cargo.toml` | 0.6.1 | 0.6.1 |
+| `rightkit-automation` | legion | `legion/crates/rightkit-automation/Cargo.toml` | 0.6.1 | 0.6.1 |
+| `rightkit-bot-messaging` | coderight | `coderight/crates/rightkit-bot-messaging/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-browser` | genright | `genright/crates/rightkit-browser/Cargo.toml` | 0.3.7 | 0.3.6 |
+| `rightkit-browser` | heardright | `heardright/crates/rightkit-browser/Cargo.toml` | 0.3.7 | 0.3.6 |
+| `rightkit-browser` | coderight | `coderight/crates/rightkit-browser/Cargo.toml` | 0.3.7 | 0.3.6 |
+| `rightkit-browser` | legion | `legion/crates/rightkit-browser/Cargo.toml` | 0.3.7 | 0.3.6 |
+| `rightkit-cache` | genright | `genright/crates/rightkit-cache/Cargo.toml` | 0.2.3 | 0.2.3 |
+| `rightkit-cache` | heardright | `heardright/crates/rightkit-cache/Cargo.toml` | 0.2.3 | 0.2.3 |
+| `rightkit-cache` | coderight | `coderight/crates/rightkit-cache/Cargo.toml` | 0.2.3 | 0.2.3 |
+| `rightkit-cache` | legion | `legion/crates/rightkit-cache/Cargo.toml` | 0.2.3 | 0.2.3 |
+| `rightkit-captions` | genright | `genright/crates/rightkit-captions/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-captions` | heardright | `heardright/crates/rightkit-captions/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-captions` | coderight | `coderight/crates/rightkit-captions/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-captions` | legion | `legion/crates/rightkit-captions/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-channel-memory` | genright | `genright/crates/rightkit-channel-memory/Cargo.toml` | 0.2.2 | 0.2.1 |
+| `rightkit-channel-memory` | heardright | `heardright/crates/rightkit-channel-memory/Cargo.toml` | 0.2.2 | 0.2.1 |
+| `rightkit-channel-memory` | coderight | `coderight/crates/rightkit-channel-memory/Cargo.toml` | 0.2.2 | 0.2.1 |
+| `rightkit-channel-memory` | legion | `legion/crates/rightkit-channel-memory/Cargo.toml` | 0.2.2 | 0.2.1 |
+| `rightkit-child-process` | genright | `genright/crates/rightkit-child-process/Cargo.toml` | 0.5.7 | 0.5.7 |
+| `rightkit-child-process` | heardright | `heardright/crates/rightkit-child-process/Cargo.toml` | 0.5.7 | 0.5.7 |
+| `rightkit-child-process` | coderight | `coderight/crates/rightkit-child-process/Cargo.toml` | 0.5.7 | 0.5.7 |
+| `rightkit-child-process` | legion | `legion/crates/rightkit-child-process/Cargo.toml` | 0.5.7 | 0.5.7 |
+| `rightkit-code-audit-provider-sdk` | legion | `legion/crates/rightkit-code-audit-provider-sdk/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-color` | genright | `genright/crates/rightkit-color/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-color` | heardright | `heardright/crates/rightkit-color/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-color` | coderight | `coderight/crates/rightkit-color/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-color` | legion | `legion/crates/rightkit-color/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-compose` | genright | `genright/crates/rightkit-compose/Cargo.toml` | 0.2.1 | 0.2.0 |
+| `rightkit-compose` | heardright | `heardright/crates/rightkit-compose/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-compose` | coderight | `coderight/crates/rightkit-compose/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-compose` | legion | `legion/crates/rightkit-compose/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-compositor` | genright | `genright/crates/rightkit-compositor/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-compositor` | heardright | `heardright/crates/rightkit-compositor/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-compositor` | coderight | `coderight/crates/rightkit-compositor/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-compositor` | legion | `legion/crates/rightkit-compositor/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-contracts` | genright | `genright/crates/rightkit-contracts/Cargo.toml` | 0.1.8 | 0.1.7 |
+| `rightkit-contracts` | heardright | `heardright/crates/rightkit-contracts/Cargo.toml` | 0.1.8 | 0.1.7 |
+| `rightkit-contracts` | coderight | `coderight/crates/rightkit-contracts/Cargo.toml` | 0.1.8 | 0.1.7 |
+| `rightkit-contracts` | legion | `legion/crates/rightkit-contracts/Cargo.toml` | 0.1.8 | 0.1.7 |
+| `rightkit-crash` | genright | `genright/crates/rightkit-crash/Cargo.toml` | 0.3.6 | 0.3.6 |
+| `rightkit-crash` | heardright | `heardright/crates/rightkit-crash/Cargo.toml` | 0.3.6 | 0.3.6 |
+| `rightkit-crash` | coderight | `coderight/crates/rightkit-crash/Cargo.toml` | 0.3.6 | 0.3.6 |
+| `rightkit-crash` | legion | `legion/crates/rightkit-crash/Cargo.toml` | 0.3.6 | 0.3.6 |
+| `rightkit-credentials` | genright | `genright/crates/rightkit-credentials/Cargo.toml` | 0.4.2 | 0.4.2 |
+| `rightkit-credentials` | heardright | `heardright/crates/rightkit-credentials/Cargo.toml` | 0.4.2 | 0.4.2 |
+| `rightkit-credentials` | coderight | `coderight/crates/rightkit-credentials/Cargo.toml` | 0.4.2 | 0.4.2 |
+| `rightkit-credentials` | legion | `legion/crates/rightkit-credentials/Cargo.toml` | 0.4.2 | 0.4.2 |
+| `rightkit-crypto` | genright | `genright/crates/rightkit-crypto/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-crypto` | heardright | `heardright/crates/rightkit-crypto/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-crypto` | coderight | `coderight/crates/rightkit-crypto/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-crypto` | legion | `legion/crates/rightkit-crypto/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-daemon` | genright | `genright/crates/rightkit-daemon/Cargo.toml` | 0.5.0 | 0.4.0 |
+| `rightkit-daemon` | heardright | `heardright/crates/rightkit-daemon/Cargo.toml` | 0.5.0 | 0.4.0 |
+| `rightkit-daemon` | coderight | `coderight/crates/rightkit-daemon/Cargo.toml` | 0.6.0 | 0.4.0 |
+| `rightkit-daemon` | legion | `legion/crates/rightkit-daemon/Cargo.toml` | 0.5.0 | 0.4.0 |
+| `rightkit-db` | genright | `genright/crates/rightkit-db/Cargo.toml` | 0.5.3 | 0.5.2 |
+| `rightkit-db` | heardright | `heardright/crates/rightkit-db/Cargo.toml` | 0.5.3 | 0.5.2 |
+| `rightkit-db` | coderight | `coderight/crates/rightkit-db/Cargo.toml` | 0.5.3 | 0.5.2 |
+| `rightkit-db` | legion | `legion/crates/rightkit-db/Cargo.toml` | 0.5.3 | 0.5.2 |
+| `rightkit-device` | genright | `genright/crates/rightkit-device/Cargo.toml` | 0.4.0 | 0.4.0 |
+| `rightkit-device` | heardright | `heardright/crates/rightkit-device/Cargo.toml` | 0.4.0 | 0.4.0 |
+| `rightkit-device` | coderight | `coderight/crates/rightkit-device/Cargo.toml` | 0.4.0 | 0.4.0 |
+| `rightkit-device` | legion | `legion/crates/rightkit-device/Cargo.toml` | 0.4.0 | 0.4.0 |
+| `rightkit-dictation-core` | heardright | `heardright/crates/rightkit-dictation-core/Cargo.toml` | 0.2.0 | none recorded |
+| `rightkit-docs` | genright | `genright/crates/rightkit-docs/Cargo.toml` | 0.1.3 | 0.1.2 |
+| `rightkit-docs` | heardright | `heardright/crates/rightkit-docs/Cargo.toml` | 0.1.3 | 0.1.2 |
+| `rightkit-docs` | coderight | `coderight/crates/rightkit-docs/Cargo.toml` | 0.1.3 | 0.1.2 |
+| `rightkit-docs` | legion | `legion/crates/rightkit-docs/Cargo.toml` | 0.1.3 | 0.1.2 |
+| `rightkit-embed` | genright | `genright/crates/rightkit-embed/Cargo.toml` | 0.6.2 | 0.6.1 |
+| `rightkit-embed` | heardright | `heardright/crates/rightkit-embed/Cargo.toml` | 0.6.2 | 0.6.1 |
+| `rightkit-embed` | coderight | `coderight/crates/rightkit-embed/Cargo.toml` | 0.6.2 | 0.6.1 |
+| `rightkit-embed` | legion | `legion/crates/rightkit-embed/Cargo.toml` | 0.6.2 | 0.6.1 |
+| `rightkit-evidence` | coderight | `coderight/crates/rightkit-evidence/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-evidence-contracts/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-evidence-decisions` | legion | `legion/crates/rightkit-evidence-decisions/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-evidence-effects` | legion | `legion/crates/rightkit-evidence-effects/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-evidence-governance` | legion | `legion/crates/rightkit-evidence-governance/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-evidence-report` | legion | `legion/crates/rightkit-evidence-report/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-ffmpeg` | genright | `genright/crates/rightkit-ffmpeg/Cargo.toml` | 0.2.11 | 0.2.10 |
+| `rightkit-ffmpeg` | heardright | `heardright/crates/rightkit-ffmpeg/Cargo.toml` | 0.2.11 | 0.2.10 |
+| `rightkit-ffmpeg` | coderight | `coderight/crates/rightkit-ffmpeg/Cargo.toml` | 0.3.0 | 0.2.10 |
+| `rightkit-ffmpeg` | legion | `legion/crates/rightkit-ffmpeg/Cargo.toml` | 0.2.11 | 0.2.10 |
+| `rightkit-file-watch` | genright | `genright/crates/rightkit-file-watch/Cargo.toml` | 0.4.2 | 0.4.1 |
+| `rightkit-file-watch` | heardright | `heardright/crates/rightkit-file-watch/Cargo.toml` | 0.4.2 | 0.4.1 |
+| `rightkit-file-watch` | coderight | `coderight/crates/rightkit-file-watch/Cargo.toml` | 0.4.2 | 0.4.1 |
+| `rightkit-file-watch` | legion | `legion/crates/rightkit-file-watch/Cargo.toml` | 0.4.2 | 0.4.1 |
+| `rightkit-fs` | genright | `genright/crates/rightkit-fs/Cargo.toml` | 0.4.8 | 0.4.7 |
+| `rightkit-fs` | heardright | `heardright/crates/rightkit-fs/Cargo.toml` | 0.4.8 | 0.4.7 |
+| `rightkit-fs` | coderight | `coderight/crates/rightkit-fs/Cargo.toml` | 0.4.8 | 0.4.7 |
+| `rightkit-fs` | legion | `legion/crates/rightkit-fs/Cargo.toml` | 0.4.8 | 0.4.7 |
+| `rightkit-fsindex` | genright | `genright/crates/rightkit-fsindex/Cargo.toml` | 0.6.0 | 0.5.0 |
+| `rightkit-fsindex` | heardright | `heardright/crates/rightkit-fsindex/Cargo.toml` | 0.6.0 | 0.5.0 |
+| `rightkit-fsindex` | coderight | `coderight/crates/rightkit-fsindex/Cargo.toml` | 0.6.0 | 0.5.0 |
+| `rightkit-fsindex` | legion | `legion/crates/rightkit-fsindex/Cargo.toml` | 0.6.0 | 0.5.0 |
+| `rightkit-github` | coderight | `coderight/crates/rightkit-github/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-google-identity` | genright | `genright/crates/rightkit-google-identity/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-google-identity` | heardright | `heardright/crates/rightkit-google-identity/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-google-identity` | coderight | `coderight/crates/rightkit-google-identity/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-google-identity` | legion | `legion/crates/rightkit-google-identity/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-hooks` | genright | `genright/crates/rightkit-hooks/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-hooks` | heardright | `heardright/crates/rightkit-hooks/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-hooks` | coderight | `coderight/crates/rightkit-hooks/Cargo.toml` | 0.3.0 | 0.2.0 |
+| `rightkit-hooks` | legion | `legion/crates/rightkit-hooks/Cargo.toml` | 0.3.0 | 0.2.0 |
+| `rightkit-hotkeys` | genright | `genright/crates/rightkit-hotkeys/Cargo.toml` | 0.1.2 | 0.1.2 |
+| `rightkit-hotkeys` | heardright | `heardright/crates/rightkit-hotkeys/Cargo.toml` | 0.1.2 | 0.1.2 |
+| `rightkit-hotkeys` | coderight | `coderight/crates/rightkit-hotkeys/Cargo.toml` | 0.1.2 | 0.1.2 |
+| `rightkit-hotkeys` | legion | `legion/crates/rightkit-hotkeys/Cargo.toml` | 0.1.2 | 0.1.2 |
+| `rightkit-http` | genright | `genright/crates/rightkit-http/Cargo.toml` | 0.3.9 | 0.3.8 |
+| `rightkit-http` | heardright | `heardright/crates/rightkit-http/Cargo.toml` | 0.3.9 | 0.3.8 |
+| `rightkit-http` | coderight | `coderight/crates/rightkit-http/Cargo.toml` | 0.3.9 | 0.3.8 |
+| `rightkit-http` | legion | `legion/crates/rightkit-http/Cargo.toml` | 0.3.9 | 0.3.8 |
+| `rightkit-identity` | genright | `genright/crates/rightkit-identity/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-identity` | heardright | `heardright/crates/rightkit-identity/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-identity` | coderight | `coderight/crates/rightkit-identity/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-identity` | legion | `legion/crates/rightkit-identity/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-job-queue` | genright | `genright/crates/rightkit-job-queue/Cargo.toml` | 0.5.1 | 0.5.1 |
+| `rightkit-job-queue` | heardright | `heardright/crates/rightkit-job-queue/Cargo.toml` | 0.5.1 | 0.5.1 |
+| `rightkit-job-queue` | coderight | `coderight/crates/rightkit-job-queue/Cargo.toml` | 0.5.1 | 0.5.1 |
+| `rightkit-job-queue` | legion | `legion/crates/rightkit-job-queue/Cargo.toml` | 0.5.1 | 0.5.1 |
+| `rightkit-library` | genright | `genright/crates/rightkit-library/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-license` | genright | `genright/crates/rightkit-license/Cargo.toml` | 0.2.6 | 0.2.5 |
+| `rightkit-license` | heardright | `heardright/crates/rightkit-license/Cargo.toml` | 0.2.6 | 0.2.5 |
+| `rightkit-license` | coderight | `coderight/crates/rightkit-license/Cargo.toml` | 0.2.6 | 0.2.5 |
+| `rightkit-license` | legion | `legion/crates/rightkit-license/Cargo.toml` | 0.2.6 | 0.2.5 |
+| `rightkit-llm` | genright | `genright/crates/rightkit-llm/Cargo.toml` | 0.3.1 | 0.3.1 |
+| `rightkit-llm` | heardright | `heardright/crates/rightkit-llm/Cargo.toml` | 0.3.1 | 0.3.1 |
+| `rightkit-llm` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | 0.4.0 | 0.3.1 |
+| `rightkit-llm` | legion | `legion/crates/rightkit-llm/Cargo.toml` | 0.3.1 | 0.3.1 |
+| `rightkit-local-gen` | genright | `genright/crates/rightkit-local-gen/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-logs` | genright | `genright/crates/rightkit-logs/Cargo.toml` | 0.3.6 | 0.3.5 |
+| `rightkit-logs` | heardright | `heardright/crates/rightkit-logs/Cargo.toml` | 0.3.6 | 0.3.5 |
+| `rightkit-logs` | coderight | `coderight/crates/rightkit-logs/Cargo.toml` | 0.4.0 | 0.3.5 |
+| `rightkit-logs` | legion | `legion/crates/rightkit-logs/Cargo.toml` | 0.3.6 | 0.3.5 |
+| `rightkit-mcp` | genright | `genright/crates/rightkit-mcp/Cargo.toml` | 0.7.1 | 0.7.0 |
+| `rightkit-mcp` | heardright | `heardright/crates/rightkit-mcp/Cargo.toml` | 0.7.1 | 0.7.0 |
+| `rightkit-mcp` | coderight | `coderight/crates/rightkit-mcp/Cargo.toml` | 0.8.0 | 0.7.0 |
+| `rightkit-mcp` | legion | `legion/crates/rightkit-mcp/Cargo.toml` | 0.7.1 | 0.7.0 |
+| `rightkit-media-gen` | genright | `genright/crates/rightkit-media-gen/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-media-pipeline` | genright | `genright/crates/rightkit-media-pipeline/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-memory` | coderight | `coderight/crates/rightkit-memory/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-mesh` | genright | `genright/crates/rightkit-mesh/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-mesh` | heardright | `heardright/crates/rightkit-mesh/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-mesh` | coderight | `coderight/crates/rightkit-mesh/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-mesh` | legion | `legion/crates/rightkit-mesh/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-models` | genright | `genright/crates/rightkit-models/Cargo.toml` | 0.5.2 | 0.5.1 |
+| `rightkit-models` | heardright | `heardright/crates/rightkit-models/Cargo.toml` | 0.5.2 | 0.5.1 |
+| `rightkit-models` | coderight | `coderight/crates/rightkit-models/Cargo.toml` | 0.6.0 | 0.5.1 |
+| `rightkit-models` | legion | `legion/crates/rightkit-models/Cargo.toml` | 0.5.2 | 0.5.1 |
+| `rightkit-motion` | genright | `genright/crates/rightkit-motion/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-motion` | heardright | `heardright/crates/rightkit-motion/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-motion` | coderight | `coderight/crates/rightkit-motion/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-motion` | legion | `legion/crates/rightkit-motion/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-oauth` | genright | `genright/crates/rightkit-oauth/Cargo.toml` | 0.10.0 | 0.10.0 |
+| `rightkit-oauth` | heardright | `heardright/crates/rightkit-oauth/Cargo.toml` | 0.10.0 | 0.10.0 |
+| `rightkit-oauth` | coderight | `coderight/crates/rightkit-oauth/Cargo.toml` | 0.10.0 | 0.10.0 |
+| `rightkit-oauth` | legion | `legion/crates/rightkit-oauth/Cargo.toml` | 0.10.0 | 0.10.0 |
+| `rightkit-ocr` | genright | `genright/crates/rightkit-ocr/Cargo.toml` | 0.2.3 | 0.2.3 |
+| `rightkit-ocr` | heardright | `heardright/crates/rightkit-ocr/Cargo.toml` | 0.2.3 | 0.2.3 |
+| `rightkit-ocr` | coderight | `coderight/crates/rightkit-ocr/Cargo.toml` | 0.2.3 | 0.2.3 |
+| `rightkit-ocr` | legion | `legion/crates/rightkit-ocr/Cargo.toml` | 0.2.3 | 0.2.3 |
+| `rightkit-onnx` | genright | `genright/crates/rightkit-onnx/Cargo.toml` | 0.2.8 | 0.2.7 |
+| `rightkit-onnx` | heardright | `heardright/crates/rightkit-onnx/Cargo.toml` | 0.2.8 | 0.2.7 |
+| `rightkit-onnx` | coderight | `coderight/crates/rightkit-onnx/Cargo.toml` | 0.3.0 | 0.2.7 |
+| `rightkit-onnx` | legion | `legion/crates/rightkit-onnx/Cargo.toml` | 0.2.8 | 0.2.7 |
+| `rightkit-overlay` | genright | `genright/crates/rightkit-overlay/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-overlay` | heardright | `heardright/crates/rightkit-overlay/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-overlay` | coderight | `coderight/crates/rightkit-overlay/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-overlay` | legion | `legion/crates/rightkit-overlay/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-overlay-win` | genright | `genright/crates/rightkit-overlay-win/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-overlay-win` | heardright | `heardright/crates/rightkit-overlay-win/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-overlay-win` | coderight | `coderight/crates/rightkit-overlay-win/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-overlay-win` | legion | `legion/crates/rightkit-overlay-win/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-ownership` | genright | `genright/crates/rightkit-ownership/Cargo.toml` | 0.4.3 | 0.4.2 |
+| `rightkit-ownership` | heardright | `heardright/crates/rightkit-ownership/Cargo.toml` | 0.4.3 | 0.4.2 |
+| `rightkit-ownership` | coderight | `coderight/crates/rightkit-ownership/Cargo.toml` | 0.4.3 | 0.4.2 |
+| `rightkit-ownership` | legion | `legion/crates/rightkit-ownership/Cargo.toml` | 0.4.3 | 0.4.2 |
+| `rightkit-pdf` | genright | `genright/crates/rightkit-pdf/Cargo.toml` | 0.3.4 | 0.3.3 |
+| `rightkit-pdf` | heardright | `heardright/crates/rightkit-pdf/Cargo.toml` | 0.3.4 | 0.3.3 |
+| `rightkit-pdf` | coderight | `coderight/crates/rightkit-pdf/Cargo.toml` | 0.3.4 | 0.3.3 |
+| `rightkit-pdf` | legion | `legion/crates/rightkit-pdf/Cargo.toml` | 0.3.4 | 0.3.3 |
+| `rightkit-pipeline` | genright | `genright/crates/rightkit-pipeline/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-pipeline` | heardright | `heardright/crates/rightkit-pipeline/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-pipeline` | coderight | `coderight/crates/rightkit-pipeline/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-pipeline` | legion | `legion/crates/rightkit-pipeline/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-platform-rules` | genright | `genright/crates/rightkit-platform-rules/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-platform-rules` | heardright | `heardright/crates/rightkit-platform-rules/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-platform-rules` | coderight | `coderight/crates/rightkit-platform-rules/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-platform-rules` | legion | `legion/crates/rightkit-platform-rules/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-playback` | genright | `genright/crates/rightkit-playback/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-playback` | heardright | `heardright/crates/rightkit-playback/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-playback` | coderight | `coderight/crates/rightkit-playback/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-playback` | legion | `legion/crates/rightkit-playback/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-qa` | genright | `genright/crates/rightkit-qa/Cargo.toml` | 0.10.1 | 0.9.1 |
+| `rightkit-qa` | heardright | `heardright/crates/rightkit-qa/Cargo.toml` | 0.10.1 | 0.9.1 |
+| `rightkit-qa` | coderight | `coderight/crates/rightkit-qa/Cargo.toml` | 0.10.1 | 0.9.1 |
+| `rightkit-qa` | legion | `legion/crates/rightkit-qa/Cargo.toml` | 0.10.1 | 0.9.1 |
+| `rightkit-qa-driver` | genright | `genright/crates/rightkit-qa-driver/Cargo.toml` | 0.7.0 | 0.7.0 |
+| `rightkit-qa-driver` | heardright | `heardright/crates/rightkit-qa-driver/Cargo.toml` | 0.7.0 | 0.7.0 |
+| `rightkit-qa-driver` | coderight | `coderight/crates/rightkit-qa-driver/Cargo.toml` | 0.7.0 | 0.7.0 |
+| `rightkit-qa-driver` | legion | `legion/crates/rightkit-qa-driver/Cargo.toml` | 0.7.0 | 0.7.0 |
+| `rightkit-record` | genright | `genright/crates/rightkit-record/Cargo.toml` | 0.3.3 | 0.3.3 |
+| `rightkit-record` | heardright | `heardright/crates/rightkit-record/Cargo.toml` | 0.3.3 | 0.3.3 |
+| `rightkit-record` | coderight | `coderight/crates/rightkit-record/Cargo.toml` | 0.3.3 | 0.3.3 |
+| `rightkit-record` | legion | `legion/crates/rightkit-record/Cargo.toml` | 0.3.3 | 0.3.3 |
+| `rightkit-reframe` | genright | `genright/crates/rightkit-reframe/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-reframe` | heardright | `heardright/crates/rightkit-reframe/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-reframe` | coderight | `coderight/crates/rightkit-reframe/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-reframe` | legion | `legion/crates/rightkit-reframe/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-remote-compute` | genright | `genright/crates/rightkit-remote-compute/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-repo-graph` | coderight | `coderight/crates/rightkit-repo-graph/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-research` | legion | `legion/crates/rightkit-research/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-review` | genright | `genright/crates/rightkit-review/Cargo.toml` | 0.4.0 | 0.4.0 |
+| `rightkit-review` | heardright | `heardright/crates/rightkit-review/Cargo.toml` | 0.4.0 | 0.4.0 |
+| `rightkit-review` | coderight | `coderight/crates/rightkit-review/Cargo.toml` | 0.4.0 | 0.4.0 |
+| `rightkit-review` | legion | `legion/crates/rightkit-review/Cargo.toml` | 0.5.0 | 0.4.0 |
+| `rightkit-sandbox` | genright | `genright/crates/rightkit-sandbox/Cargo.toml` | 0.6.1 | 0.6.1 |
+| `rightkit-sandbox` | heardright | `heardright/crates/rightkit-sandbox/Cargo.toml` | 0.6.1 | 0.6.1 |
+| `rightkit-sandbox` | coderight | `coderight/crates/rightkit-sandbox/Cargo.toml` | 0.7.0 | 0.6.1 |
+| `rightkit-sandbox` | legion | `legion/crates/rightkit-sandbox/Cargo.toml` | 0.6.1 | 0.6.1 |
+| `rightkit-search` | genright | `genright/crates/rightkit-search/Cargo.toml` | 0.4.1 | 0.4.0 |
+| `rightkit-search` | heardright | `heardright/crates/rightkit-search/Cargo.toml` | 0.4.1 | 0.4.0 |
+| `rightkit-search` | coderight | `coderight/crates/rightkit-search/Cargo.toml` | 0.4.1 | 0.4.0 |
+| `rightkit-search` | legion | `legion/crates/rightkit-search/Cargo.toml` | 0.4.1 | 0.4.0 |
+| `rightkit-send` | genright | `genright/crates/rightkit-send/Cargo.toml` | 0.3.0 | 0.2.0 |
+| `rightkit-send` | heardright | `heardright/crates/rightkit-send/Cargo.toml` | 0.3.0 | 0.2.0 |
+| `rightkit-send` | coderight | `coderight/crates/rightkit-send/Cargo.toml` | 0.3.0 | 0.2.0 |
+| `rightkit-send` | legion | `legion/crates/rightkit-send/Cargo.toml` | 0.3.0 | 0.2.0 |
+| `rightkit-shorts` | genright | `genright/crates/rightkit-shorts/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-shorts` | heardright | `heardright/crates/rightkit-shorts/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-shorts` | coderight | `coderight/crates/rightkit-shorts/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-shorts` | legion | `legion/crates/rightkit-shorts/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-sidecar` | genright | `genright/crates/rightkit-sidecar/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-sidecar` | heardright | `heardright/crates/rightkit-sidecar/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-sidecar` | coderight | `coderight/crates/rightkit-sidecar/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-sidecar` | legion | `legion/crates/rightkit-sidecar/Cargo.toml` | 0.3.0 | 0.3.0 |
+| `rightkit-speech-client` | genright | `genright/crates/rightkit-speech-client/Cargo.toml` | 0.4.1 | 0.4.0 |
+| `rightkit-speech-client` | heardright | `heardright/crates/rightkit-speech-client/Cargo.toml` | 0.4.1 | 0.4.0 |
+| `rightkit-speech-client` | coderight | `coderight/crates/rightkit-speech-client/Cargo.toml` | 0.4.1 | 0.4.0 |
+| `rightkit-speech-client` | legion | `legion/crates/rightkit-speech-client/Cargo.toml` | 0.4.1 | 0.4.0 |
+| `rightkit-spend` | genright | `genright/crates/rightkit-spend/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-spend` | heardright | `heardright/crates/rightkit-spend/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-spend` | coderight | `coderight/crates/rightkit-spend/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-spend` | legion | `legion/crates/rightkit-spend/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-sync` | genright | `genright/crates/rightkit-sync/Cargo.toml` | 0.2.2 | 0.2.2 |
+| `rightkit-sync` | heardright | `heardright/crates/rightkit-sync/Cargo.toml` | 0.2.2 | 0.2.2 |
+| `rightkit-sync` | coderight | `coderight/crates/rightkit-sync/Cargo.toml` | 0.2.2 | 0.2.2 |
+| `rightkit-sync` | legion | `legion/crates/rightkit-sync/Cargo.toml` | 0.2.2 | 0.2.2 |
+| `rightkit-sync-keys` | genright | `genright/crates/rightkit-sync-keys/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-sync-keys` | heardright | `heardright/crates/rightkit-sync-keys/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-sync-keys` | coderight | `coderight/crates/rightkit-sync-keys/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-sync-keys` | legion | `legion/crates/rightkit-sync-keys/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-tauri-shell` | genright | `genright/crates/rightkit-tauri-shell/Cargo.toml` | 0.7.0 | 0.6.0 |
+| `rightkit-tauri-shell` | heardright | `heardright/crates/rightkit-tauri-shell/Cargo.toml` | 0.7.0 | 0.6.0 |
+| `rightkit-tauri-shell` | coderight | `coderight/crates/rightkit-tauri-shell/Cargo.toml` | 0.7.0 | 0.6.0 |
+| `rightkit-tauri-shell` | legion | `legion/crates/rightkit-tauri-shell/Cargo.toml` | 0.7.0 | 0.6.0 |
+| `rightkit-terminal-ui` | coderight | `coderight/crates/rightkit-terminal-ui/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-text-polish` | heardright | `heardright/crates/rightkit-text-polish/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-time` | genright | `genright/crates/rightkit-time/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-time` | heardright | `heardright/crates/rightkit-time/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-time` | coderight | `coderight/crates/rightkit-time/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-time` | legion | `legion/crates/rightkit-time/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-timeline` | genright | `genright/crates/rightkit-timeline/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-timeline` | heardright | `heardright/crates/rightkit-timeline/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-timeline` | coderight | `coderight/crates/rightkit-timeline/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-timeline` | legion | `legion/crates/rightkit-timeline/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-transcript` | genright | `genright/crates/rightkit-transcript/Cargo.toml` | 0.4.0 | 0.4.0 |
+| `rightkit-transcript` | heardright | `heardright/crates/rightkit-transcript/Cargo.toml` | 0.4.0 | 0.4.0 |
+| `rightkit-transcript` | coderight | `coderight/crates/rightkit-transcript/Cargo.toml` | 0.4.0 | 0.4.0 |
+| `rightkit-transcript` | legion | `legion/crates/rightkit-transcript/Cargo.toml` | 0.4.0 | 0.4.0 |
+| `rightkit-transcript-library` | heardright | `heardright/crates/rightkit-transcript-library/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-tts` | genright | `genright/crates/rightkit-tts/Cargo.toml` | 0.2.3 | 0.2.3 |
+| `rightkit-tts` | heardright | `heardright/crates/rightkit-tts/Cargo.toml` | 0.2.3 | 0.2.3 |
+| `rightkit-tts` | coderight | `coderight/crates/rightkit-tts/Cargo.toml` | 0.2.3 | 0.2.3 |
+| `rightkit-tts` | legion | `legion/crates/rightkit-tts/Cargo.toml` | 0.2.3 | 0.2.3 |
+| `rightkit-tts-qwen` | genright | `genright/crates/rightkit-tts-qwen/Cargo.toml` | 0.2.7 | 0.2.7 |
+| `rightkit-tts-qwen` | heardright | `heardright/crates/rightkit-tts-qwen/Cargo.toml` | 0.2.7 | 0.2.7 |
+| `rightkit-tts-qwen` | coderight | `coderight/crates/rightkit-tts-qwen/Cargo.toml` | 0.2.7 | 0.2.7 |
+| `rightkit-tts-qwen` | legion | `legion/crates/rightkit-tts-qwen/Cargo.toml` | 0.2.7 | 0.2.7 |
+| `rightkit-tts-qwen-sys` | genright | `genright/crates/rightkit-tts-qwen-sys/Cargo.toml` | 0.1.2 | 0.1.2 |
+| `rightkit-tts-qwen-sys` | heardright | `heardright/crates/rightkit-tts-qwen-sys/Cargo.toml` | 0.1.2 | 0.1.2 |
+| `rightkit-tts-qwen-sys` | coderight | `coderight/crates/rightkit-tts-qwen-sys/Cargo.toml` | 0.1.2 | 0.1.2 |
+| `rightkit-tts-qwen-sys` | legion | `legion/crates/rightkit-tts-qwen-sys/Cargo.toml` | 0.1.2 | 0.1.2 |
+| `rightkit-typeset` | genright | `genright/crates/rightkit-typeset/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-typeset` | heardright | `heardright/crates/rightkit-typeset/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-typeset` | coderight | `coderight/crates/rightkit-typeset/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-typeset` | legion | `legion/crates/rightkit-typeset/Cargo.toml` | 0.1.0 | 0.1.0 |
+| `rightkit-vad` | genright | `genright/crates/rightkit-vad/Cargo.toml` | 0.1.2 | 0.1.2 |
+| `rightkit-vad` | heardright | `heardright/crates/rightkit-vad/Cargo.toml` | 0.1.2 | 0.1.2 |
+| `rightkit-vad` | coderight | `coderight/crates/rightkit-vad/Cargo.toml` | 0.1.2 | 0.1.2 |
+| `rightkit-vad` | legion | `legion/crates/rightkit-vad/Cargo.toml` | 0.1.2 | 0.1.2 |
+| `rightkit-vault` | genright | `genright/crates/rightkit-vault/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-vault` | heardright | `heardright/crates/rightkit-vault/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-vault` | coderight | `coderight/crates/rightkit-vault/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-vault` | legion | `legion/crates/rightkit-vault/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-video-project` | genright | `genright/crates/rightkit-video-project/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-video-project` | heardright | `heardright/crates/rightkit-video-project/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-video-project` | coderight | `coderight/crates/rightkit-video-project/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-video-project` | legion | `legion/crates/rightkit-video-project/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-voice-commands` | heardright | `heardright/crates/rightkit-voice-commands/Cargo.toml` | 0.1.0 | none recorded |
+| `rightkit-workflow` | genright | `genright/crates/rightkit-workflow/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-workflow` | heardright | `heardright/crates/rightkit-workflow/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `rightkit-workflow` | coderight | `coderight/crates/rightkit-workflow/Cargo.toml` | 0.3.0 | 0.2.0 |
+| `rightkit-workflow` | legion | `legion/crates/rightkit-workflow/Cargo.toml` | 0.2.0 | 0.2.0 |
+| `@rightkit/app-update` | genright | `genright/packages/app-update/package.json` | 0.4.2 | 0.4.2 |
+| `@rightkit/app-update` | heardright | `heardright/packages/app-update/package.json` | 0.4.2 | 0.4.2 |
+| `@rightkit/app-update` | coderight | `coderight/packages/app-update/package.json` | 0.4.2 | 0.4.2 |
+| `@rightkit/app-update` | legion | `legion/packages/app-update/package.json` | 0.4.2 | 0.4.2 |
+| `@rightkit/ax` | genright | `genright/packages/ax/package.json` | 0.3.2 | 0.3.2 |
+| `@rightkit/ax` | heardright | `heardright/packages/ax/package.json` | 0.3.2 | 0.3.2 |
+| `@rightkit/ax` | coderight | `coderight/packages/ax/package.json` | 0.3.2 | 0.3.2 |
+| `@rightkit/ax` | legion | `legion/packages/ax/package.json` | 0.3.2 | 0.3.2 |
+| `@rightkit/build-control-policy` | genright | `genright/packages/build-control-policy/package.json` | 0.1.4-phase1 | none recorded |
+| `@rightkit/build-control-policy` | heardright | `heardright/packages/build-control-policy/package.json` | 0.1.4-phase1 | none recorded |
+| `@rightkit/build-control-policy` | coderight | `coderight/packages/build-control-policy/package.json` | 0.1.4-phase1 | none recorded |
+| `@rightkit/build-control-policy` | legion | `legion/packages/build-control-policy/package.json` | 0.1.4-phase1 | none recorded |
+| `@rightkit/ci` | genright | `genright/packages/ci/package.json` | 0.3.2 | 0.3.1 |
+| `@rightkit/ci` | heardright | `heardright/packages/ci/package.json` | 0.3.2 | 0.3.1 |
+| `@rightkit/ci` | coderight | `coderight/packages/ci/package.json` | 0.3.2 | 0.3.1 |
+| `@rightkit/ci` | legion | `legion/packages/ci/package.json` | 0.3.2 | 0.3.1 |
+| `@rightkit/doc-render` | genright | `genright/packages/doc-render/package.json` | 0.2.1 | 0.2.1 |
+| `@rightkit/doc-render` | heardright | `heardright/packages/doc-render/package.json` | 0.2.1 | 0.2.1 |
+| `@rightkit/doc-render` | coderight | `coderight/packages/doc-render/package.json` | 0.2.1 | 0.2.1 |
+| `@rightkit/doc-render` | legion | `legion/packages/doc-render/package.json` | 0.2.1 | 0.2.1 |
+| `@rightkit/hooks` | genright | `genright/packages/hooks/package.json` | 0.1.2 | 0.1.2 |
+| `@rightkit/hooks` | heardright | `heardright/packages/hooks/package.json` | 0.1.2 | 0.1.2 |
+| `@rightkit/hooks` | coderight | `coderight/packages/hooks/package.json` | 0.1.2 | 0.1.2 |
+| `@rightkit/hooks` | legion | `legion/packages/hooks/package.json` | 0.1.2 | 0.1.2 |
+| `@rightkit/i18n` | genright | `genright/packages/i18n/package.json` | 0.2.0 | 0.2.0 |
+| `@rightkit/i18n` | heardright | `heardright/packages/i18n/package.json` | 0.2.0 | 0.2.0 |
+| `@rightkit/i18n` | coderight | `coderight/packages/i18n/package.json` | 0.2.0 | 0.2.0 |
+| `@rightkit/i18n` | legion | `legion/packages/i18n/package.json` | 0.2.0 | 0.2.0 |
+| `@rightkit/issues-tracker` | genright | `genright/packages/issues-tracker/package.json` | 0.1.0 | 0.1.0 |
+| `@rightkit/issues-tracker` | heardright | `heardright/packages/issues-tracker/package.json` | 0.1.0 | 0.1.0 |
+| `@rightkit/issues-tracker` | coderight | `coderight/packages/issues-tracker/package.json` | 0.1.0 | 0.1.0 |
+| `@rightkit/issues-tracker` | legion | `legion/packages/issues-tracker/package.json` | 0.1.0 | 0.1.0 |
+| `@rightkit/legal` | genright | `genright/packages/legal/package.json` | 0.6.3 | 0.6.3 |
+| `@rightkit/legal` | heardright | `heardright/packages/legal/package.json` | 0.6.3 | 0.6.3 |
+| `@rightkit/legal` | coderight | `coderight/packages/legal/package.json` | 0.6.3 | 0.6.3 |
+| `@rightkit/legal` | legion | `legion/packages/legal/package.json` | 0.6.3 | 0.6.3 |
+| `@rightkit/legal-ui` | genright | `genright/packages/legal-ui/package.json` | 0.4.1 | 0.4.1 |
+| `@rightkit/legal-ui` | heardright | `heardright/packages/legal-ui/package.json` | 0.4.1 | 0.4.1 |
+| `@rightkit/legal-ui` | coderight | `coderight/packages/legal-ui/package.json` | 0.4.1 | 0.4.1 |
+| `@rightkit/legal-ui` | legion | `legion/packages/legal-ui/package.json` | 0.4.1 | 0.4.1 |
+| `@rightkit/license` | genright | `genright/packages/license/package.json` | 0.3.0 | 0.3.0 |
+| `@rightkit/license` | heardright | `heardright/packages/license/package.json` | 0.3.0 | 0.3.0 |
+| `@rightkit/license` | coderight | `coderight/packages/license/package.json` | 0.3.0 | 0.3.0 |
+| `@rightkit/license` | legion | `legion/packages/license/package.json` | 0.3.0 | 0.3.0 |
+| `@rightkit/logs` | genright | `genright/packages/logs/package.json` | 0.1.6 | 0.1.6 |
+| `@rightkit/logs` | heardright | `heardright/packages/logs/package.json` | 0.1.6 | 0.1.6 |
+| `@rightkit/logs` | coderight | `coderight/packages/logs/package.json` | 0.1.6 | 0.1.6 |
+| `@rightkit/logs` | legion | `legion/packages/logs/package.json` | 0.1.6 | 0.1.6 |
+| `@rightkit/media-ui` | genright | `genright/packages/media-ui/package.json` | 0.3.4 | 0.3.4 |
+| `@rightkit/media-ui` | heardright | `heardright/packages/media-ui/package.json` | 0.3.4 | 0.3.4 |
+| `@rightkit/media-ui` | coderight | `coderight/packages/media-ui/package.json` | 0.3.4 | 0.3.4 |
+| `@rightkit/media-ui` | legion | `legion/packages/media-ui/package.json` | 0.3.4 | 0.3.4 |
+| `@rightkit/onboarding` | genright | `genright/packages/onboarding/package.json` | 0.6.3 | 0.6.3 |
+| `@rightkit/onboarding` | heardright | `heardright/packages/onboarding/package.json` | 0.6.3 | 0.6.3 |
+| `@rightkit/onboarding` | coderight | `coderight/packages/onboarding/package.json` | 0.6.3 | 0.6.3 |
+| `@rightkit/onboarding` | legion | `legion/packages/onboarding/package.json` | 0.6.3 | 0.6.3 |
+| `@rightkit/outdated` | genright | `genright/packages/outdated/package.json` | 0.3.0 | 0.3.0 |
+| `@rightkit/outdated` | heardright | `heardright/packages/outdated/package.json` | 0.3.0 | 0.3.0 |
+| `@rightkit/outdated` | coderight | `coderight/packages/outdated/package.json` | 0.3.0 | 0.3.0 |
+| `@rightkit/outdated` | legion | `legion/packages/outdated/package.json` | 0.3.0 | 0.3.0 |
+| `@rightkit/pdf-ui` | genright | `genright/packages/pdf-ui/package.json` | 0.2.0 | 0.2.0 |
+| `@rightkit/pdf-ui` | heardright | `heardright/packages/pdf-ui/package.json` | 0.2.0 | 0.2.0 |
+| `@rightkit/pdf-ui` | coderight | `coderight/packages/pdf-ui/package.json` | 0.2.0 | 0.2.0 |
+| `@rightkit/pdf-ui` | legion | `legion/packages/pdf-ui/package.json` | 0.2.0 | 0.2.0 |
+| `@rightkit/platform-ui` | genright | `genright/packages/platform-ui/package.json` | 0.4.0 | 0.4.0 |
+| `@rightkit/platform-ui` | heardright | `heardright/packages/platform-ui/package.json` | 0.4.0 | 0.4.0 |
+| `@rightkit/platform-ui` | coderight | `coderight/packages/platform-ui/package.json` | 0.4.0 | 0.4.0 |
+| `@rightkit/platform-ui` | legion | `legion/packages/platform-ui/package.json` | 0.4.0 | 0.4.0 |
+| `@rightkit/qa` | genright | `genright/packages/qa/package.json` | 0.6.2 | 0.6.1 |
+| `@rightkit/qa` | heardright | `heardright/packages/qa/package.json` | 0.6.2 | 0.6.1 |
+| `@rightkit/qa` | coderight | `coderight/packages/qa/package.json` | 0.6.2 | 0.6.1 |
+| `@rightkit/qa` | legion | `legion/packages/qa/package.json` | 0.6.2 | 0.6.1 |
+| `@rightkit/qa-chrome` | genright | `genright/packages/qa-chrome/package.json` | 0.1.12 | 0.1.12 |
+| `@rightkit/qa-chrome` | heardright | `heardright/packages/qa-chrome/package.json` | 0.1.12 | 0.1.12 |
+| `@rightkit/qa-chrome` | coderight | `coderight/packages/qa-chrome/package.json` | 0.1.12 | 0.1.12 |
+| `@rightkit/qa-chrome` | legion | `legion/packages/qa-chrome/package.json` | 0.1.12 | 0.1.12 |
+| `@rightkit/react-shell` | genright | `genright/packages/react-shell/package.json` | 0.7.2 | 0.7.2 |
+| `@rightkit/react-shell` | heardright | `heardright/packages/react-shell/package.json` | 0.7.2 | 0.7.2 |
+| `@rightkit/react-shell` | coderight | `coderight/packages/react-shell/package.json` | 0.7.2 | 0.7.2 |
+| `@rightkit/react-shell` | legion | `legion/packages/react-shell/package.json` | 0.7.2 | 0.7.2 |
+| `@rightkit/release` | genright | `genright/packages/release/package.json` | 0.6.16 | 0.6.13 |
+| `@rightkit/release` | heardright | `heardright/packages/release/package.json` | 0.6.16 | 0.6.13 |
+| `@rightkit/release` | coderight | `coderight/packages/release/package.json` | 0.6.16 | 0.6.13 |
+| `@rightkit/release` | legion | `legion/packages/release/package.json` | 0.6.16 | 0.6.13 |
+| `@rightkit/settings-ui` | genright | `genright/packages/settings-ui/package.json` | 0.7.0 | 0.7.0 |
+| `@rightkit/settings-ui` | heardright | `heardright/packages/settings-ui/package.json` | 0.7.0 | 0.7.0 |
+| `@rightkit/settings-ui` | coderight | `coderight/packages/settings-ui/package.json` | 0.7.0 | 0.7.0 |
+| `@rightkit/settings-ui` | legion | `legion/packages/settings-ui/package.json` | 0.7.0 | 0.7.0 |
+| `@rightkit/sync-worker` | genright | `genright/packages/sync-worker/package.json` | 0.1.0 | none recorded |
+| `@rightkit/sync-worker` | heardright | `heardright/packages/sync-worker/package.json` | 0.1.0 | none recorded |
+| `@rightkit/sync-worker` | coderight | `coderight/packages/sync-worker/package.json` | 0.1.0 | none recorded |
+| `@rightkit/sync-worker` | legion | `legion/packages/sync-worker/package.json` | 0.1.0 | none recorded |
+| `@rightkit/tauri` | genright | `genright/packages/tauri/package.json` | 0.3.0 | 0.3.0 |
+| `@rightkit/tauri` | heardright | `heardright/packages/tauri/package.json` | 0.3.0 | 0.3.0 |
+| `@rightkit/tauri` | coderight | `coderight/packages/tauri/package.json` | 0.3.0 | 0.3.0 |
+| `@rightkit/tauri` | legion | `legion/packages/tauri/package.json` | 0.3.0 | 0.3.0 |
+| `@rightkit/tauri-shell` | genright | `genright/packages/tauri-shell/package.json` | 0.1.3 | 0.1.3 |
+| `@rightkit/tauri-shell` | heardright | `heardright/packages/tauri-shell/package.json` | 0.1.3 | 0.1.3 |
+| `@rightkit/tauri-shell` | coderight | `coderight/packages/tauri-shell/package.json` | 0.1.3 | 0.1.3 |
+| `@rightkit/tauri-shell` | legion | `legion/packages/tauri-shell/package.json` | 0.1.3 | 0.1.3 |
+| `@rightkit/theme` | genright | `genright/packages/theme/package.json` | 0.3.1 | 0.3.1 |
+| `@rightkit/theme` | heardright | `heardright/packages/theme/package.json` | 0.3.1 | 0.3.1 |
+| `@rightkit/theme` | coderight | `coderight/packages/theme/package.json` | 0.3.1 | 0.3.1 |
+| `@rightkit/theme` | legion | `legion/packages/theme/package.json` | 0.3.1 | 0.3.1 |
 
 Split pins: one app names the same package with different requirements, possibly in different manifests.
 
 | Package | Ecosystem | App | Requirements |
 |---|---|---|---|
-| `rightkit-ffmpeg` | cargo | heardright | 0.2.3; =0.2.10 |
-| `rightkit-onnx` | cargo | heardright | 0.2.6; =0.2.7 |
-| `rightkit-speech-client` | cargo | heardright | 0.4.0; =0.4.1 |
-| `rightkit-transcript` | cargo | heardright | 0.4.0; =0.4.0 |
-| `rightkit-vad` | cargo | heardright | 0.1.0; =0.1.2 |
+| `rightkit-adapt` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-agent-engine-api-platform` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-agent-engine-api-sessions` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-agent-engine-api-workflows` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-agent-engine-attention` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-agent-engine-cli` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-agent-engine-history` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-agent-engine-protocol` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-agent-engine-runtime-middleware` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-agent-engine-runtime-resources` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-agent-engine-storage` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-agent-engine-tasks` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-agent-orchestration` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-agent-orchestration` | cargo | legion | =0.1.0; local 0.1.0 |
+| `rightkit-agent-policy` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-agent-tools` | cargo | coderight | =0.3.0; local 0.4.0 |
+| `rightkit-agent-tools` | cargo | legion | =0.3.0; local 0.3.0 |
+| `rightkit-agents` | cargo | coderight | =0.2.0; local 0.3.0 |
+| `rightkit-agents` | cargo | legion | =0.2.0; local 0.2.0 |
+| `rightkit-app-settings` | cargo | coderight | =0.3.0; local 0.4.0 |
+| `rightkit-app-settings` | cargo | genright | =0.3.0; local 0.3.0 |
+| `rightkit-app-settings` | cargo | heardright | =0.3.0; local 0.3.0 |
+| `rightkit-app-settings` | cargo | legion | =0.3.0; local 0.3.0 |
+| `rightkit-asr` | cargo | heardright | =0.3.1; local 0.4.0 |
+| `rightkit-audio` | cargo | coderight | =0.3.1; local 0.3.1 |
+| `rightkit-audio` | cargo | genright | =0.3.1; local 0.3.1 |
+| `rightkit-audio` | cargo | heardright | =0.3.1; local 0.3.1 |
+| `rightkit-audio` | cargo | legion | =0.3.1; local 0.3.1 |
+| `rightkit-autoedit` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-autoedit` | cargo | genright | =0.1.0; local 0.1.0 |
+| `rightkit-autoedit` | cargo | heardright | =0.1.0; local 0.1.0 |
+| `rightkit-autoedit` | cargo | legion | =0.1.0; local 0.1.0 |
+| `rightkit-automation` | cargo | coderight | =0.6.1; local *; local 0.6.0 |
+| `rightkit-automation` | cargo | genright | =0.6.1; local *; local 0.6.0 |
+| `rightkit-automation` | cargo | heardright | =0.6.1; local *; local 0.6.0; local 0.7.0 |
+| `rightkit-automation` | cargo | legion | =0.6.1; local *; local 0.6.0 |
+| `rightkit-bot-messaging` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-browser` | cargo | coderight | =0.3.7; local 0.3.0 |
+| `rightkit-browser` | cargo | genright | =0.3.7; local 0.3.0; local 0.3.7 |
+| `rightkit-browser` | cargo | heardright | =0.3.7; local 0.3.0 |
+| `rightkit-browser` | cargo | legion | =0.3.7; local 0.3.0; local 0.3.7 |
+| `rightkit-cache` | cargo | coderight | =0.2.3; local 0.2.3 |
+| `rightkit-cache` | cargo | legion | =0.2.3; local 0.2.3 |
+| `rightkit-captions` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-captions` | cargo | genright | =0.1.0; local 0.1.0 |
+| `rightkit-captions` | cargo | heardright | =0.1.0; local 0.1.0 |
+| `rightkit-captions` | cargo | legion | =0.1.0; local 0.1.0 |
+| `rightkit-child-process` | cargo | coderight | =0.5.7; local 0.5.0; local 0.5.1; local 0.5.4; local 0.5.6; local 0.5.7 |
+| `rightkit-child-process` | cargo | genright | =0.5.7; local 0.5.0; local 0.5.1; local 0.5.4; local 0.5.6; local 0.5.7 |
+| `rightkit-child-process` | cargo | heardright | =0.5.7; local 0.5.0; local 0.5.1; local 0.5.4; local 0.5.6; local 0.5.7 |
+| `rightkit-child-process` | cargo | legion | =0.5.7; local 0.5.0; local 0.5.1; local 0.5.4; local 0.5.6; local 0.5.7 |
+| `rightkit-code-audit-provider-sdk` | cargo | legion | =0.1.0; local 0.1.0 |
+| `rightkit-compose` | cargo | genright | =0.2.1; local 0.2.1 |
+| `rightkit-contracts` | cargo | coderight | =0.1.8; local 0.1.5 |
+| `rightkit-contracts` | cargo | genright | =0.1.8; local 0.1.5; local 0.1.8 |
+| `rightkit-contracts` | cargo | heardright | =0.1.8; local 0.1.5 |
+| `rightkit-contracts` | cargo | legion | =0.1.8; local 0.1.5 |
+| `rightkit-crash` | cargo | coderight | =0.3.6; local 0.3.0; local 0.3.4; local 0.3.6 |
+| `rightkit-crash` | cargo | genright | =0.3.6; local 0.3.0; local 0.3.4 |
+| `rightkit-crash` | cargo | heardright | =0.3.6; local 0.3.0; local 0.3.4; local 0.3.6 |
+| `rightkit-crash` | cargo | legion | =0.3.6; local 0.3.0; local 0.3.4 |
+| `rightkit-credentials` | cargo | coderight | =0.4.1; =0.4.2; local 0.4.0; local 0.4.1; local 0.4.2 |
+| `rightkit-credentials` | cargo | genright | =0.4.1; =0.4.2; local 0.4.0; local 0.4.1; local 0.4.2 |
+| `rightkit-credentials` | cargo | heardright | =0.4.1; =0.4.2; local 0.4.0; local 0.4.1; local 0.4.2; local =0.4.2 |
+| `rightkit-credentials` | cargo | legion | =0.4.1; =0.4.2; local 0.4.0; local 0.4.1; local 0.4.2 |
+| `rightkit-crypto` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-crypto` | cargo | genright | =0.1.0; local 0.1.0 |
+| `rightkit-daemon` | cargo | coderight | 0.2; =0.4.0; =0.5.0; local *; local 0.6.0 |
+| `rightkit-daemon` | cargo | genright | 0.2; =0.4.0; =0.5.0; local *; local 0.5.0 |
+| `rightkit-daemon` | cargo | heardright | 0.2; =0.4.0; =0.5.0; local *; local 0.5.0 |
+| `rightkit-daemon` | cargo | legion | 0.2; =0.4.0; =0.5.0; local *; local 0.5.0 |
+| `rightkit-db` | cargo | coderight | 0.5; =0.5.2; =0.5.3; local 0.5.0; local 0.5.1; local 0.5.3 |
+| `rightkit-db` | cargo | genright | 0.5; =0.5.2; =0.5.3; local 0.5.0; local 0.5.1; local 0.5.3 |
+| `rightkit-db` | cargo | heardright | 0.5; =0.5.2; =0.5.3; local 0.5.0; local 0.5.1 |
+| `rightkit-db` | cargo | legion | 0.5; =0.5.2; =0.5.3; local 0.5.0; local 0.5.1 |
+| `rightkit-device` | cargo | coderight | =0.4.0; local 0.4.0 |
+| `rightkit-device` | cargo | genright | =0.4.0; local 0.4.0 |
+| `rightkit-dictation-core` | cargo | heardright | =0.2.0; local 0.2.0 |
+| `rightkit-embed` | cargo | coderight | =0.6.2; local 0.6.2 |
+| `rightkit-evidence` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-evidence-contracts` | cargo | legion | =0.1.0; local 0.1.0 |
+| `rightkit-evidence-decisions` | cargo | legion | =0.1.0; local 0.1.0 |
+| `rightkit-evidence-effects` | cargo | legion | =0.1.0; local 0.1.0 |
+| `rightkit-evidence-governance` | cargo | legion | =0.1.0; local 0.1.0 |
+| `rightkit-evidence-report` | cargo | legion | =0.1.0; local 0.1.0 |
+| `rightkit-ffmpeg` | cargo | coderight | =0.2.11; =0.2.9; local 0.3.0 |
+| `rightkit-ffmpeg` | cargo | genright | =0.2.11; =0.2.9; local 0.2.10; local 0.2.11; local 0.2.3; local 0.2.9 |
+| `rightkit-ffmpeg` | cargo | heardright | =0.2.11; =0.2.9; local 0.2.10; local 0.2.11; local 0.2.3; local 0.2.9 |
+| `rightkit-ffmpeg` | cargo | legion | =0.2.11; =0.2.9; local 0.2.10; local 0.2.11; local 0.2.3; local 0.2.9 |
+| `rightkit-file-watch` | cargo | coderight | =0.4.2; local 0.4.2 |
+| `rightkit-fs` | cargo | coderight | =0.4.6; =0.4.7; =0.4.8; local 0.4.0; local 0.4.2; local 0.4.3; local 0.4.4; local 0.4.6; local 0.4.7; local 0.4.8 |
+| `rightkit-fs` | cargo | genright | =0.4.6; =0.4.7; =0.4.8; local 0.4.0; local 0.4.2; local 0.4.3; local 0.4.4; local 0.4.6; local 0.4.7; local 0.4.8 |
+| `rightkit-fs` | cargo | heardright | =0.4.6; =0.4.7; =0.4.8; local 0.4.0; local 0.4.2; local 0.4.3; local 0.4.4; local 0.4.6; local 0.4.7; local 0.4.8 |
+| `rightkit-fs` | cargo | legion | =0.4.6; =0.4.7; =0.4.8; local 0.4.0; local 0.4.2; local 0.4.3; local 0.4.4; local 0.4.6; local 0.4.7; local 0.4.8 |
+| `rightkit-hooks` | cargo | coderight | =0.2.0; local 0.3.0 |
+| `rightkit-http` | cargo | coderight | 0.3; =0.3.8; =0.3.9; local *; local 0.3.0; local 0.3.1; local 0.3.6; local 0.3.8; local 0.3.9 |
+| `rightkit-http` | cargo | genright | 0.3; =0.3.8; =0.3.9; local *; local 0.3.0; local 0.3.1; local 0.3.6; local 0.3.8; local 0.3.9 |
+| `rightkit-http` | cargo | heardright | 0.3; =0.3.8; =0.3.9; local *; local 0.3.0; local 0.3.1; local 0.3.6; local 0.3.8; local 0.3.9 |
+| `rightkit-http` | cargo | legion | 0.3; =0.3.8; =0.3.9; local *; local 0.3.0; local 0.3.1; local 0.3.6; local 0.3.8 |
+| `rightkit-job-queue` | cargo | coderight | =0.3.2; =0.5.1; local 0.5.0; local 0.5.1 |
+| `rightkit-job-queue` | cargo | genright | =0.3.2; =0.5.1; local 0.5.0; local 0.5.1 |
+| `rightkit-job-queue` | cargo | heardright | =0.3.2; =0.5.1; local 0.5.0; local 0.5.1 |
+| `rightkit-job-queue` | cargo | legion | =0.3.2; =0.5.1; local 0.5.0; local 0.5.1 |
+| `rightkit-license` | cargo | coderight | =0.2.5; =0.2.6; local 0.2.2; local 0.2.5; local 0.2.6 |
+| `rightkit-license` | cargo | genright | =0.2.5; =0.2.6; local 0.2.2; local 0.2.5 |
+| `rightkit-license` | cargo | heardright | =0.2.5; =0.2.6; local 0.2.2; local 0.2.5 |
+| `rightkit-license` | cargo | legion | =0.2.5; =0.2.6; local 0.2.2; local 0.2.5 |
+| `rightkit-llm` | cargo | coderight | =0.3.1; local 0.4.0 |
+| `rightkit-llm` | cargo | genright | =0.3.1; local 0.3.1 |
+| `rightkit-llm` | cargo | heardright | =0.3.1; local 0.3.1 |
+| `rightkit-llm` | cargo | legion | =0.3.1; local 0.3.1 |
+| `rightkit-local-gen` | cargo | genright | =0.1.0; local 0.1.0 |
+| `rightkit-logs` | cargo | coderight | =0.3.5; =0.3.6; local *; local 0.4.0 |
+| `rightkit-logs` | cargo | genright | =0.3.5; =0.3.6; local *; local 0.3.4; local 0.3.5; local 0.3.6 |
+| `rightkit-logs` | cargo | heardright | =0.3.5; =0.3.6; local *; local 0.3.4; local 0.3.5; local 0.3.6 |
+| `rightkit-logs` | cargo | legion | =0.3.5; =0.3.6; local *; local 0.3.4; local 0.3.5 |
+| `rightkit-mcp` | cargo | coderight | =0.7.1; local *; local 0.8.0 |
+| `rightkit-mcp` | cargo | genright | =0.7.1; local * |
+| `rightkit-mcp` | cargo | heardright | =0.7.1; local * |
+| `rightkit-mcp` | cargo | legion | =0.7.1; local * |
+| `rightkit-media-gen` | cargo | genright | =0.1.0; local 0.1.0 |
+| `rightkit-memory` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-models` | cargo | coderight | =0.5.2; local 0.6.0 |
+| `rightkit-models` | cargo | genright | =0.5.2; local 0.5.0; local 0.5.1; local 0.5.2 |
+| `rightkit-models` | cargo | heardright | =0.5.2; local 0.5.0; local 0.5.1; local 0.5.2 |
+| `rightkit-models` | cargo | legion | =0.5.2; local 0.5.0; local 0.5.1; local 0.5.2 |
+| `rightkit-motion` | cargo | genright | =0.2.0; local 0.2.0 |
+| `rightkit-oauth` | cargo | coderight | =0.10.0; local 0.10.0 |
+| `rightkit-oauth` | cargo | genright | =0.10.0; local 0.10.0 |
+| `rightkit-oauth` | cargo | heardright | =0.10.0; local 0.10.0 |
+| `rightkit-oauth` | cargo | legion | =0.10.0; local 0.10.0 |
+| `rightkit-ocr` | cargo | coderight | =0.2.3; local 0.2.3 |
+| `rightkit-onnx` | cargo | coderight | =0.2.8; local 0.3.0 |
+| `rightkit-onnx` | cargo | genright | =0.2.8; local 0.2.5; local 0.2.6; local 0.2.7; local 0.2.8 |
+| `rightkit-onnx` | cargo | heardright | =0.2.8; local 0.2.5; local 0.2.6; local 0.2.7; local 0.2.8 |
+| `rightkit-onnx` | cargo | legion | =0.2.8; local 0.2.5; local 0.2.6; local 0.2.7 |
+| `rightkit-overlay` | cargo | coderight | =0.2.0; local 0.2.0 |
+| `rightkit-overlay` | cargo | genright | =0.2.0; local 0.2.0 |
+| `rightkit-overlay` | cargo | heardright | =0.2.0; local 0.2.0 |
+| `rightkit-overlay` | cargo | legion | =0.2.0; local 0.2.0 |
+| `rightkit-ownership` | cargo | legion | =0.4.3; local 0.4.3 |
+| `rightkit-pdf` | cargo | coderight | =0.3.4; local 0.3.2; local 0.3.3 |
+| `rightkit-pdf` | cargo | genright | =0.3.4; local 0.3.2; local 0.3.3 |
+| `rightkit-pdf` | cargo | heardright | =0.3.4; local 0.3.2; local 0.3.3 |
+| `rightkit-pdf` | cargo | legion | =0.3.4; local 0.3.2; local 0.3.3 |
+| `rightkit-qa` | cargo | coderight | =0.10.1; =0.9.1; local *; local 0.10.0 |
+| `rightkit-qa` | cargo | genright | =0.10.1; =0.9.1; local *; local 0.10.0 |
+| `rightkit-qa` | cargo | heardright | =0.10.1; =0.9.1; local *; local 0.10.0 |
+| `rightkit-qa` | cargo | legion | =0.10.1; =0.9.1; local *; local 0.10.0 |
+| `rightkit-qa-driver` | cargo | coderight | =0.7.0; local * |
+| `rightkit-qa-driver` | cargo | genright | =0.7.0; local * |
+| `rightkit-qa-driver` | cargo | heardright | =0.7.0; local * |
+| `rightkit-qa-driver` | cargo | legion | =0.7.0; local * |
+| `rightkit-repo-graph` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-review` | cargo | legion | =0.5.0; local 0.5.0 |
+| `rightkit-sandbox` | cargo | coderight | =0.6.1; local 0.7.0 |
+| `rightkit-sandbox` | cargo | genright | =0.6.1; local 0.6.1 |
+| `rightkit-sandbox` | cargo | heardright | =0.6.1; local 0.6.1 |
+| `rightkit-sandbox` | cargo | legion | =0.6.1; local 0.6.1 |
+| `rightkit-search` | cargo | coderight | =0.4.1; local 0.4.1 |
+| `rightkit-search` | cargo | genright | =0.4.1; local 0.4.1 |
+| `rightkit-sidecar` | cargo | coderight | =0.3.0; local *; local 0.3.0 |
+| `rightkit-sidecar` | cargo | genright | =0.3.0; local *; local 0.3.0 |
+| `rightkit-sidecar` | cargo | heardright | =0.3.0; local *; local 0.3.0 |
+| `rightkit-sidecar` | cargo | legion | =0.3.0; local *; local 0.3.0 |
+| `rightkit-speech-client` | cargo | coderight | =0.4.1; local 0.4.0 |
+| `rightkit-speech-client` | cargo | genright | =0.4.1; local 0.4.0 |
+| `rightkit-speech-client` | cargo | heardright | =0.4.1; local 0.4.0; local 0.4.1; local =0.4.1 |
+| `rightkit-speech-client` | cargo | legion | =0.4.1; local 0.4.0 |
+| `rightkit-spend` | cargo | genright | =0.2.0; local 0.2.0 |
+| `rightkit-tauri-shell` | cargo | coderight | =0.6.0; =0.7.0; local * |
+| `rightkit-tauri-shell` | cargo | genright | =0.6.0; =0.7.0; local * |
+| `rightkit-tauri-shell` | cargo | heardright | =0.6.0; =0.7.0; local * |
+| `rightkit-tauri-shell` | cargo | legion | =0.6.0; =0.7.0; local * |
+| `rightkit-terminal-ui` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-text-polish` | cargo | heardright | =0.1.0; local 0.1.0 |
+| `rightkit-time` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-time` | cargo | genright | =0.1.0; local 0.1.0 |
+| `rightkit-time` | cargo | heardright | =0.1.0; local 0.1.0 |
+| `rightkit-timeline` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-timeline` | cargo | genright | =0.1.0; local 0.1.0 |
+| `rightkit-timeline` | cargo | heardright | =0.1.0; local 0.1.0 |
+| `rightkit-timeline` | cargo | legion | =0.1.0; local 0.1.0 |
+| `rightkit-transcript` | cargo | coderight | =0.4.0; local *; local 0.4.0 |
+| `rightkit-transcript` | cargo | genright | =0.4.0; local *; local 0.4.0 |
+| `rightkit-transcript` | cargo | heardright | =0.4.0; local *; local 0.4.0 |
+| `rightkit-transcript` | cargo | legion | =0.4.0; local *; local 0.4.0 |
+| `rightkit-transcript-library` | cargo | heardright | =0.1.0; local 0.1.0 |
+| `rightkit-tts` | cargo | genright | =0.2.3; local 0.2.3 |
+| `rightkit-tts-qwen` | cargo | coderight | =0.2.7; local 0.2.7 |
+| `rightkit-tts-qwen` | cargo | genright | =0.2.7; local 0.2.7 |
+| `rightkit-tts-qwen` | cargo | heardright | =0.2.7; local 0.2.7 |
+| `rightkit-tts-qwen` | cargo | legion | =0.2.7; local 0.2.7 |
+| `rightkit-tts-qwen-sys` | cargo | coderight | =0.1.2; local 0.1.0 |
+| `rightkit-tts-qwen-sys` | cargo | genright | =0.1.2; local 0.1.0 |
+| `rightkit-tts-qwen-sys` | cargo | heardright | =0.1.2; local 0.1.0 |
+| `rightkit-tts-qwen-sys` | cargo | legion | =0.1.2; local 0.1.0 |
+| `rightkit-typeset` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-typeset` | cargo | genright | =0.1.0; local 0.1.0 |
+| `rightkit-typeset` | cargo | heardright | =0.1.0; local 0.1.0 |
+| `rightkit-typeset` | cargo | legion | =0.1.0; local 0.1.0 |
+| `rightkit-vad` | cargo | coderight | =0.1.2; local 0.1.0 |
+| `rightkit-vad` | cargo | genright | =0.1.2; local 0.1.0 |
+| `rightkit-vad` | cargo | heardright | =0.1.2; local 0.1.0; local 0.1.2 |
+| `rightkit-vad` | cargo | legion | =0.1.2; local 0.1.0 |
+| `rightkit-video-project` | cargo | coderight | =0.1.0; local 0.1.0 |
+| `rightkit-video-project` | cargo | genright | =0.1.0; local 0.1.0 |
+| `rightkit-video-project` | cargo | heardright | =0.1.0; local 0.1.0 |
+| `rightkit-video-project` | cargo | legion | =0.1.0; local 0.1.0 |
+| `rightkit-voice-commands` | cargo | heardright | =0.1.0; local 0.1.0 |
+| `rightkit-workflow` | cargo | coderight | =0.2.0; local 0.3.0 |
+| `@rightkit/app-update` | npm | coderight | 0.4.0; 0.4.2; >=0.2.0; >=0.2.5 <0.5; local workspace:* |
+| `@rightkit/app-update` | npm | genright | 0.4.0; 0.4.2; >=0.2.0; >=0.2.5 <0.5; local workspace:* |
+| `@rightkit/app-update` | npm | heardright | 0.4.0; 0.4.2; >=0.2.0; >=0.2.5 <0.5; local workspace:* |
+| `@rightkit/app-update` | npm | legion | 0.4.0; 0.4.2; >=0.2.0; >=0.2.5 <0.5; local workspace:* |
+| `@rightkit/ci` | npm | coderight | 0.2.49; 0.3.0; local workspace:*; local workspace:^ |
+| `@rightkit/ci` | npm | genright | 0.2.49; 0.3.0; local workspace:*; local workspace:^ |
+| `@rightkit/ci` | npm | heardright | 0.2.49; 0.3.0; local workspace:*; local workspace:^ |
+| `@rightkit/ci` | npm | legion | 0.2.49; 0.3.0; local workspace:*; local workspace:^ |
+| `@rightkit/legal-ui` | npm | coderight | 0.4.1; >=0.4.1 <1; local workspace:* |
+| `@rightkit/legal-ui` | npm | genright | 0.4.1; >=0.4.1 <1; local workspace:* |
+| `@rightkit/legal-ui` | npm | heardright | 0.4.1; >=0.4.1 <1; local workspace:* |
+| `@rightkit/legal-ui` | npm | legion | 0.4.1; >=0.4.1 <1; local workspace:* |
+| `@rightkit/license` | npm | coderight | 0.3.0; >=0.3.0 <0.4; local workspace:* |
+| `@rightkit/license` | npm | genright | 0.3.0; >=0.3.0 <0.4; local workspace:* |
+| `@rightkit/license` | npm | heardright | 0.3.0; >=0.3.0 <0.4; local workspace:* |
+| `@rightkit/license` | npm | legion | 0.3.0; >=0.3.0 <0.4; local workspace:* |
+| `@rightkit/logs` | npm | coderight | 0.1.6; >=0.1.0; ^0.1.6; local workspace:* |
+| `@rightkit/logs` | npm | genright | 0.1.6; >=0.1.0; ^0.1.6; local workspace:* |
+| `@rightkit/logs` | npm | heardright | 0.1.6; >=0.1.0; ^0.1.6; local workspace:* |
+| `@rightkit/logs` | npm | legion | 0.1.6; >=0.1.0; ^0.1.6; local workspace:* |
+| `@rightkit/outdated` | npm | coderight | 0.2.0; 0.3.0 |
+| `@rightkit/outdated` | npm | genright | 0.2.0; 0.3.0 |
+| `@rightkit/outdated` | npm | heardright | 0.2.0; 0.3.0 |
+| `@rightkit/outdated` | npm | legion | 0.2.0; 0.3.0 |
+| `@rightkit/platform-ui` | npm | coderight | 0.4.0; >=0.2.8 <1; local workspace:* |
+| `@rightkit/platform-ui` | npm | genright | 0.4.0; >=0.2.8 <1; local workspace:* |
+| `@rightkit/platform-ui` | npm | heardright | 0.4.0; >=0.2.8 <1; local workspace:* |
+| `@rightkit/platform-ui` | npm | legion | 0.4.0; >=0.2.8 <1; local workspace:* |
+| `@rightkit/qa-chrome` | npm | coderight | 0.1.12; local workspace:* |
+| `@rightkit/qa-chrome` | npm | genright | 0.1.12; local workspace:* |
+| `@rightkit/qa-chrome` | npm | heardright | 0.1.12; local workspace:* |
+| `@rightkit/qa-chrome` | npm | legion | 0.1.12; local workspace:* |
+| `@rightkit/react-shell` | npm | coderight | 0.7.2; >=0.2.0 <1; local workspace:* |
+| `@rightkit/react-shell` | npm | genright | 0.7.2; >=0.2.0 <1; local workspace:* |
+| `@rightkit/react-shell` | npm | heardright | 0.7.2; >=0.2.0 <1; local workspace:* |
+| `@rightkit/react-shell` | npm | legion | 0.7.2; >=0.2.0 <1; local workspace:* |
+| `@rightkit/release` | npm | coderight | 0.6.13; ^0.4.1 \|\| ^0.5.0 \|\| ^0.6.0; local workspace:* |
+| `@rightkit/release` | npm | genright | 0.6.13; ^0.4.1 \|\| ^0.5.0 \|\| ^0.6.0; local workspace:* |
+| `@rightkit/release` | npm | heardright | 0.6.13; ^0.4.1 \|\| ^0.5.0 \|\| ^0.6.0; local workspace:* |
+| `@rightkit/release` | npm | legion | 0.6.13; ^0.4.1 \|\| ^0.5.0 \|\| ^0.6.0; local workspace:* |
+| `@rightkit/theme` | npm | coderight | 0.3.1; >=0.2.0 <1; local workspace:* |
+| `@rightkit/theme` | npm | genright | 0.3.1; >=0.2.0 <1; local workspace:* |
+| `@rightkit/theme` | npm | heardright | 0.3.1; >=0.2.0 <1; local workspace:* |
+| `@rightkit/theme` | npm | legion | 0.3.1; >=0.2.0 <1; local workspace:* |
 
 ## Scan scope
 
 | App | Present | Manifests read | Parse errors | RightKit pins matched |
 |---|---|---|---|---|
 | cutright | **missing** | 0 | 0 | 0 |
-| genright | yes | 11 | 0 | 104 |
-| scraperight | yes | 13 | 0 | 86 |
-| viewright | yes | 8 | 0 | 37 |
-| heardright | yes | 22 | 0 | 112 |
-| coderight | yes | 53 | 0 | 69 |
-| mailright | yes | 6 | 0 | 48 |
-| postright | yes | 8 | 0 | 56 |
+| genright | yes | 239 | 0 | 432 |
+| scraperight | **missing** | 0 | 0 | 0 |
+| viewright | **missing** | 0 | 0 | 0 |
+| heardright | yes | 249 | 0 | 458 |
+| coderight | yes | 280 | 0 | 572 |
+| mailright | **missing** | 0 | 0 | 0 |
+| postright | **missing** | 0 | 0 | 0 |
 | cockpit | **missing** | 0 | 0 | 0 |
 | workright | **missing** | 0 | 0 | 0 |
 | sellright | **missing** | 0 | 0 | 0 |
 | rightsites | **missing** | 0 | 0 | 0 |
 | voiceright | **missing** | 0 | 0 | 0 |
-| legion | yes | 66 | 0 | 16 |
+| legion | yes | 279 | 0 | 416 |

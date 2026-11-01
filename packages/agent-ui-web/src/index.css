@@ -1,0 +1,116 @@
+:root {
+  --shell: #0b0b0a;
+  --bg: #30302d;
+  --surface: #242422;
+  --surface-2: #383834;
+  --border: #4a4a45;
+  --border-2: #5d5d56;
+  --text: #f0f0ec;
+  --muted: #a0a098;
+  --accent: #e53855;
+  --accent-2: #5bbe86;
+  --accent-light: #f05a70;
+  --user-bg: #242422;
+  --asst-bg: #30302d;
+  --tool-bg: #242422;
+  --approval-bg: #383834;
+  --error-bg: #2a171a;
+  --heading: "Cabinet Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --sans: "General Sans", ui-sans-serif, system-ui, "Segoe UI", Inter, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, 'Cascadia Code', Consolas, monospace;
+  --text-display: 25px;
+  --text-heading: 17px;
+  --text-body: 15px;
+  --text-secondary: 13px;
+  --text-caption: 12px;
+  --leading-body: 1.55;
+  --leading-compact: 1.35;
+
+  font-family: var(--sans);
+  color-scheme: dark;
+  color: var(--text);
+  background: var(--shell);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #c8c8c1;
+    --text-h: #f0f0ec;
+    --bg: #30302d;
+    --shell: #0b0b0a;
+    --border: #4a4a45;
+    --code-bg: #383834;
+    --accent-bg: rgba(229, 56, 85, 0.12);
+    --accent-border: rgba(229, 56, 85, 0.42);
+    --social-bg: rgba(56, 56, 52, 0.5);
+    --shadow:
+      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+  }
+
+  #social .button-icon {
+    filter: invert(1) brightness(2);
+  }
+}
+
+#root {
+  width: 1126px;
+  max-width: 100%;
+  margin: 0 auto;
+  text-align: center;
+  border-inline: 1px solid var(--border);
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+h1,
+h2 {
+  font-family: var(--heading);
+  font-weight: 500;
+  color: var(--text-h);
+  line-height: var(--leading-compact);
+}
+
+h1 {
+  font-size: var(--text-display);
+  letter-spacing: 0;
+  margin: 20px 0;
+  @media (max-width: 1024px) {
+    font-size: 22px;
+    margin: 16px 0;
+  }
+}
+h2 {
+  font-size: var(--text-heading);
+  letter-spacing: 0;
+  margin: 0 0 8px;
+  @media (max-width: 1024px) {
+    font-size: 16px;
+  }
+}
+p {
+  margin: 0;
+}
+
+code,
+.counter {
+  font-family: var(--mono);
+  display: inline-flex;
+  border-radius: 4px;
+  color: var(--text-h);
+}
+
+code {
+  font-size: var(--text-secondary);
+  line-height: 1.45;
+  padding: 4px 8px;
+  background: var(--code-bg);
+}

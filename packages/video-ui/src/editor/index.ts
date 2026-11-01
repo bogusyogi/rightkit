@@ -1,0 +1,10 @@
+export { TimelineEditorView, type PreviewHost } from "./TimelineEditorView";
+export { Timeline } from "./Timeline";
+export { Inspector } from "./Inspector";
+export { EditSession, StaleEditError, EngineEditError } from "./adapter";
+export type { EditAction } from "./actions";
+export * as actions from "./actions";
+export { buildEditorModel, findClip } from "./model";
+export type { EditorModel, EditorClip, EditorLane } from "./model";
+export { supports, unsupported } from "./capabilities";
+export type { EditorCapability, CapabilityReport } from "./capabilities";

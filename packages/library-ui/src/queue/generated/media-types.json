@@ -1,0 +1,7 @@
+{
+  "audio": ["aac", "flac", "m4a", "mp3", "oga", "ogg", "opus", "wav", "wma"],
+  "video": ["avi", "m4v", "mkv", "mov", "mp4", "webm", "wmv"],
+  "videoContainers": ["avi", "m4v", "mkv", "mov", "mp4", "wmv"],
+  "image": ["bmp", "gif", "jpeg", "jpg", "png", "tif", "tiff"],
+  "document": ["pdf"]
+}

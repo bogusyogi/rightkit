@@ -1,0 +1,588 @@
+/* biome-ignore-all lint/style/noDescendingSpecificity: player rules restyle @rightkit/media-ui markup in place; menu and player selectors intentionally share button states */
+.desktop-reader:has(.claude-doc) {
+  gap: 0;
+  padding: 0;
+}
+
+.claude-doc {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  color: var(--label);
+  font-family: var(--ui, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
+  scrollbar-width: thin;
+}
+
+.claude-doc-content {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 28px 32px 80px 88px;
+}
+
+.claude-toolbar-find {
+  display: flex;
+  align-items: center;
+}
+
+.claude-toolbar-find .desktop-reader-find {
+  width: min(42vw, 360px);
+  min-width: 0;
+}
+
+.claude-kind {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  color: var(--label-2);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.claude-kind svg {
+  color: var(--accent);
+  flex: none;
+}
+
+.claude-doc h1 {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+  color: var(--label);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.014em;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.claude-download-doc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.claude-download-state {
+  display: flex;
+  min-height: 100%;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 56px 72px;
+  text-align: center;
+}
+
+.claude-download-halo {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  flex: none;
+  place-items: center;
+  margin-bottom: 18px;
+  border-radius: 50%;
+  background: var(--select);
+  color: var(--accent);
+}
+
+.claude-download-state h2 {
+  max-width: 440px;
+  margin: 0 0 6px;
+  color: var(--label);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.claude-download-state p {
+  max-width: 390px;
+  margin: 0;
+  color: var(--label-2);
+  font-size: 13px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+/* Scoped under .claude-download-state so the .claude-desktop button reset cannot strip padding or fills. */
+.claude-download-state .claude-download-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.claude-download-state .claude-download-actions button {
+  display: inline-flex;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 16px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 0.12s;
+}
+
+.claude-download-state .claude-download-actions .claude-download-primary {
+  background: var(--gold, var(--accent));
+  color: var(--on-gold, var(--label));
+  font-weight: 600;
+}
+.claude-download-state .claude-download-actions .claude-download-primary:hover {
+  background: var(--gold-hi, var(--accent));
+}
+.claude-download-state .claude-download-actions .claude-download-secondary {
+  background: var(--fill-2);
+  color: var(--label);
+}
+.claude-download-state .claude-download-actions .claude-download-secondary:hover {
+  background: var(--fill-3);
+}
+.claude-meta {
+  display: flex;
+  flex-wrap: wrap;
+  color: var(--label-2);
+  font-size: 13px;
+}
+
+.claude-meta span + span::before {
+  margin: 0 7px;
+  color: var(--label-3);
+  content: "·";
+}
+
+.claude-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  margin-top: 8px;
+  border-radius: 4px;
+  color: var(--accent);
+  font-size: 13px;
+  text-align: left;
+}
+
+.claude-source svg {
+  flex: none;
+}
+.claude-source span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.claude-source:hover span {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.claude-download-state .claude-source {
+  max-width: 440px;
+  margin-top: 22px;
+}
+
+.claude-body {
+  margin-top: 28px;
+  color: var(--label);
+  font-size: 15px;
+  line-height: 1.68;
+}
+
+.claude-body p {
+  position: relative;
+  margin: 0 0 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.claude-body.has-timestamps p[data-time]::before {
+  position: absolute;
+  top: 0.22em;
+  right: calc(100% + 20px);
+  color: var(--label-2);
+  content: attr(data-time);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.claude-body mark {
+  border-radius: 3px;
+  background: var(--select);
+  color: var(--label);
+}
+
+.claude-body mark.active {
+  background: var(--gold, var(--accent));
+  color: var(--on-gold, var(--label));
+}
+
+.claude-toolbar {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.claude-tool {
+  display: inline-flex;
+  height: 30px;
+  min-width: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 7px;
+  border-radius: 8px;
+  color: var(--label-2);
+  transition:
+    background-color 0.12s,
+    color 0.12s;
+}
+
+.claude-tool:hover,
+.claude-tool.is-open {
+  background: var(--fill-2);
+  color: var(--label);
+}
+.claude-tool:active {
+  background: var(--fill-3);
+}
+.claude-tool[aria-pressed="true"] {
+  color: var(--accent);
+}
+.claude-tool:disabled {
+  background: none;
+  color: var(--label-3);
+  opacity: 0.5;
+}
+.claude-copy {
+  font-size: 13px;
+  font-weight: 500;
+}
+.claude-toolbar-separator {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--hairline);
+}
+
+.claude-menu {
+  position: absolute;
+  z-index: 90;
+  top: calc(100% + 4px);
+  right: 0;
+  display: flex;
+  min-width: 210px;
+  max-width: 330px;
+  flex-direction: column;
+  padding: 5px;
+  border: 1px solid var(--menu-edge, var(--hairline));
+  border-radius: 10px;
+  background: var(--menu-bg, var(--plane));
+  box-shadow: var(--shadow-pop, 0 14px 34px rgba(0, 0, 0, 0.18));
+  color: var(--label);
+  font-size: 13px;
+}
+
+.claude-menu button {
+  display: flex;
+  width: 100%;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 6px;
+  border-radius: 5px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.claude-menu button:hover:not(:disabled),
+.claude-menu button:focus-visible {
+  background: var(--menu-hl, var(--fill-2));
+  color: var(--menu-hl-label, var(--label));
+}
+.claude-menu button:disabled {
+  color: var(--label-3);
+  cursor: not-allowed;
+}
+.claude-menu button span {
+  margin-left: auto;
+  padding-left: 24px;
+  color: var(--label-2);
+  font-size: 12px;
+}
+
+.claude-menu button span.claude-menu-pro {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--gold, #ffc24b);
+  color: #241a00;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* Free-tier cap: end-of-transcript banner pointing at Settings > Pro. */
+.claude-truncation-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 28px;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--fill-1, rgba(127, 127, 127, 0.06));
+  color: var(--label-2);
+  font-size: 13px;
+}
+
+.claude-truncation-banner button {
+  margin-left: auto;
+  padding: 5px 10px;
+  border-radius: 7px;
+  background: var(--gold, #ffc24b);
+  color: #241a00;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.claude-truncation-banner button:hover {
+  filter: brightness(1.06);
+}
+
+@media (max-width: 700px) {
+  .claude-doc-content {
+    padding: 28px 24px 64px 64px;
+  }
+}
+
+/* WS-7 in-reader player: video is a block above the transcript, audio a slim
+   bar; both mount inside .desktop-reader-player under the media strip (or
+   .claude-download-player in the download-only view). */
+.desktop-reader-player {
+  padding: 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+
+.rk-media {
+  max-width: 680px;
+}
+
+.rk-media-video {
+  display: block;
+  width: 100%;
+  max-height: min(56vh, 420px);
+  border-radius: 10px;
+  background: #000;
+}
+
+.rk-media-audio audio {
+  display: none;
+}
+
+.rk-media-fallback {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  background: var(--fill-2);
+  color: var(--label-2);
+  font-size: 13px;
+}
+
+.rk-media-fallback button.sr-player-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+}
+
+.rk-media-fallback button.sr-player-open:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.claude-download-player {
+  width: min(560px, 100%);
+  margin-top: 22px;
+}
+
+.claude-download-player .rk-media {
+  max-width: none;
+}
+
+/* Timestamped lines: with media attached, the stamp becomes a real seek
+   button (the ::before label is suppressed so it doesn't render twice), and
+   the line under the playhead takes the same --select fill as find matches. */
+.claude-body.has-timestamps p.has-seek::before {
+  content: none;
+}
+
+.claude-line-time {
+  position: absolute;
+  top: 0.22em;
+  right: calc(100% + 20px);
+  color: var(--label-2);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.claude-line-time:hover,
+.claude-body.has-timestamps p.has-seek:hover .claude-line-time {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.claude-body p.is-playing {
+  border-radius: 4px;
+  background: var(--select);
+  box-shadow: 0 0 0 4px var(--select);
+}
+
+.claude-body p.is-playing .claude-line-time {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Shared media controls remain reachable on both native WebViews. */
+.rk-media-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 0;
+  font-size: 12px;
+  background: none;
+}
+.rk-media-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  min-height: 30px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.rk-media-controls button:hover {
+  background: var(--fill-2);
+}
+.rk-media-controls button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.rk-media-controls input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.rk-media-controls input[aria-label="Volume"] {
+  width: 60px;
+}
+.rk-media-controls .rk-media-seek {
+  flex: 1;
+  min-width: 100px;
+}
+.rk-media-controls select {
+  background: var(--fill-2);
+  color: var(--label);
+  border-radius: 5px;
+  padding: 4px;
+}
+.rk-media-audio {
+  width: 100%;
+  max-width: none;
+}
+.rk-media-audio .rk-media-controls {
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 3px 0;
+}
+.rk-media-audio .rk-media-seek {
+  min-width: 0;
+}
+.rk-media-audio output,
+.rk-media-audio button,
+.rk-media-audio select {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.rk-media-audio input[aria-label="Volume"] {
+  width: 44px;
+}
+@media (max-width: 520px) {
+  .rk-media-audio input[aria-label="Volume"],
+  .rk-media-audio button[aria-label="Replay from start"] {
+    display: none;
+  }
+}
+.rk-media-error {
+  color: var(--danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.rk-media [role="status"] {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px 0;
+}
+.rk-media.is-native-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+.rk-media:fullscreen,
+.rk-media.is-native-fullscreen {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-width: none;
+  padding: 20px;
+  background: #000;
+  color: #fff;
+}
+.rk-media:fullscreen .rk-media-video,
+.rk-media.is-native-fullscreen .rk-media-video {
+  flex: 1;
+  min-height: 0;
+  max-height: calc(100vh - 80px);
+  object-fit: contain;
+}
+
+.rk-media-time {
+  font: inherit;
+  color: inherit;
+}
+
+/* the host app colours for the shared @rightkit/media-ui player. */
+.claude-desktop {
+  --rk-media-accent: var(--accent);
+  --rk-media-fg: var(--label);
+  --rk-media-fg-dim: var(--label-2);
+  --rk-media-surface: var(--fill-2);
+  --rk-media-danger: var(--danger);
+  --rk-media-muted: var(--muted);
+}

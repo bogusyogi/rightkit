@@ -1,0 +1,323 @@
+.folder:active {
+  transform: scale(0.985);
+}
+
+.f-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--copper-hi);
+  min-width: 16px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.folders {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--ink);
+}
+
+.topbar {
+  height: 56px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  background: var(--panel);
+}
+
+/* Search + Compose are a tight left-aligned pair; the account switcher is
+   pushed to the right edge. Search takes a fixed-ish width (doesn't hog the bar). */
+
+.topbar .search-wrap {
+  flex: 0 1 560px;
+  max-width: 560px;
+}
+
+.topbar .acct-switcher {
+  margin-left: auto;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+}
+
+/* Reader action bar (Gmail-positioned: actions left, prev/next right) */
+
+.reader-bar {
+  position: sticky;
+  top: 0;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -4px 0 16px;
+  padding: 8px 16px 12px;
+  background: var(--reader-chrome);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 8px 18px rgba(39, 35, 29, 0.04);
+}
+
+.reader-actions,
+.reader-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rnav-count {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--muted-2);
+  margin-right: 6px;
+  white-space: nowrap;
+}
+
+.t-att-more {
+  color: var(--muted-2);
+  font-size: 11px;
+}
+
+.search-hit {
+  color: inherit;
+  background: color-mix(in srgb, var(--copper) 42%, transparent);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.match-badge {
+  margin-left: 8px;
+  color: var(--copper);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* ---- Motion + theming polish ---- */
+
+.folder,
+.switch-item,
+.acct-switch,
+.swatch,
+.cat-tab,
+.labels-add,
+.label-twisty {
+  transition: background 0.12s ease, color 0.12s ease,
+    border-color 0.12s ease, transform 0.12s ease;
+}
+
+/* Accent-tinted surfaces follow the active theme's accent, not a fixed copper. */
+
+.folder.active {
+  background: color-mix(in srgb, var(--copper) 16%, transparent);
+}
+
+.switch-item.active {
+  background: color-mix(in srgb, var(--copper) 14%, transparent);
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.swatch {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.swatch-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+}
+
+.swatch-btn:hover .swatch {
+  transform: scale(1.08);
+}
+
+.swatch-btn.is-open .swatch {
+  border-color: var(--copper);
+}
+
+.swatch-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ---- Search ---- */
+
+.search-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  max-width: 720px;
+  display: flex;
+}
+
+.search {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  color: var(--paper);
+  font-family: var(--body);
+  font-size: 14px;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 10px 38px 10px 16px;
+  height: 40px;
+  outline: none;
+}
+
+.search:focus {
+  border-color: var(--copper);
+  background: var(--ink);
+}
+
+.search-clear {
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.search-clear:hover {
+  color: var(--paper);
+  background: var(--line-2);
+}
+
+/* Save/unsave the current query as a saved search (lane C6). Sits left of
+   the clear button, sharing its size + hover treatment. */
+.search-save {
+  position: absolute;
+  right: 36px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.search-save:hover {
+  color: var(--star);
+  background: var(--line-2);
+}
+
+.search-save.on {
+  color: var(--star);
+}
+
+.search:focus {
+  border-color: var(--copper);
+}
+
+.search::placeholder {
+  color: var(--muted-2);
+}
+
+/* ---- Reading pane ---- */
+
+/* The open-conversation reading pane is a continuous LIGHT surface (Gmail-like)
+   so the white email bodies blend in instead of floating on the dark app. This
+   re-themes ONLY the reader by scoping the palette variables — the sidebar,
+   thread list, tabs and toolbar (outside .reader) stay dark. */
+
+.reader {
+  max-width: 100%;
+  position: relative;
+  --reader-surface: #f8f3eb;
+  --reader-chrome: #fbf7ef;
+  --reader-panel: #ffffff;
+  --reader-panel-2: #f1ebe2;
+  --reader-line: #e4d9cc;
+  --ink: #202124;
+  --panel: var(--reader-panel);
+  --panel-2: var(--reader-panel-2);
+  --paper: #202124; /* primary text becomes dark-on-light */
+  --muted: #5f6368;
+  --muted-2: #80868b;
+  --line: var(--reader-line);
+  --line-2: #d6cabd;
+  color: var(--paper);
+  padding: 4px 28px 28px;
+}
+
+/* Fill the whole scroll area with the light surface while a thread is open, so
+   there's no dark strip below the last message. Only applies when the reader
+   is present — the inbox list (no .reader) stays dark. */
+
+.content:has(.reader) {
+  background: #f8f3eb;
+}
+
+/* Find-in-page bar — floats at the top-right of the reading pane. */
