@@ -2,10 +2,12 @@
 //! `rightkit-social-publish` defines.
 
 pub mod analytics;
+pub mod links;
 pub mod metric_import;
 pub mod optimise;
 
 pub use analytics::*;
+pub use links::*;
 pub use metric_import::*;
 pub use optimise::*;
 pub use rightkit_social_publish::protocol::Scope;
