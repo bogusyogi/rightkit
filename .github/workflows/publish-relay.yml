@@ -32,13 +32,19 @@ jobs:
         run: |
           set -euo pipefail
           since=$(date -u -d '-1 day' +%Y-%m-%dT%H:%M:%SZ)
+          # Each publish-direct run's title names its publish run; keep its status and conclusion.
           gh api -X GET "repos/$REPO/actions/workflows/publish-direct.yml/runs" -f per_page=100 -f created=">=$since" --paginate \
-            --jq '.workflow_runs[].display_title' > relayed.txt
+            --jq '.workflow_runs[] | "\(.display_title)|\(.status)|\(.conclusion)"' > relayed.txt
           gh api -X GET "repos/$REPO/actions/workflows/publish.yml/runs" -f per_page=100 -f created=">=$since" -f branch=main \
             -f event=workflow_dispatch -f status=success --paginate \
             --jq '.workflow_runs[] | "\(.id) \(.run_attempt) \(.head_sha)"' > green.txt
           while read -r id attempt sha; do
-            if grep -qx "publish-direct $id $attempt" relayed.txt; then continue; fi
+            title="publish-direct $id $attempt"
+            # Done once one upload succeeded or one is still queued or running; a failed upload (crates.io's new-crate rate
+            # limit answers 429) is retried, at most six times.
+            if grep -F "$title|" relayed.txt | grep -qvE '\|completed\|'; then continue; fi
+            if grep -qxF "$title|completed|success" relayed.txt; then continue; fi
+            if [ "$(grep -cF "$title|completed|" relayed.txt || true)" -ge 6 ]; then continue; fi
             echo "relay publish run $id attempt $attempt at $sha"
             gh workflow run publish-direct.yml --repo "$REPO" --ref main -f run_id="$id" -f run_attempt="$attempt" -f head_sha="$sha"
           done < green.txt
