@@ -372,7 +372,7 @@ fn spawn_worker(state: &mut State, delay_ms: u64) {
     }
     state.worker = true;
     let spawned = std::thread::Builder::new()
-        .name("pulse-clip-burst".to_string())
+        .name("rightkit-clip-burst".to_string())
         .spawn(move || stage_loop(delay_ms));
     if spawned.is_err() {
         state.worker = false;
@@ -423,7 +423,7 @@ fn spawn_watcher(state: &mut State) {
     }
     state.watcher = true;
     let spawned = std::thread::Builder::new()
-        .name("pulse-clip-burst-idle".to_string())
+        .name("rightkit-clip-burst-idle".to_string())
         .spawn(|| {
             loop {
                 std::thread::sleep(Duration::from_secs(5));
@@ -450,7 +450,7 @@ fn spawn_watcher(state: &mut State) {
 
 /// Where the PNGs of a multi-image paste are written (cleared at the next burst).
 fn burst_dir() -> std::path::PathBuf {
-    std::env::temp_dir().join("PulseClip").join("burst")
+    std::env::temp_dir().join(crate::host::drag_copy_dir()).join("burst")
 }
 
 /// Puts the items on the clipboard together: one item as it was copied; several as text joined
