@@ -41,4 +41,5 @@ def kind(t):
     if t.startswith('@rightkit/'): return 'npm'
     if t.startswith('RightKit'): return 'Swift'
     if t.startswith('rightkit-'): return 'crate'
+    if t=='legion': return 'Legion'
     return 'other'

@@ -36,9 +36,9 @@ L+=["## Coverage by app","","| App | Code lines | NEW | EXTEND | ADOPT | Vendor 
 G=collections.Counter()
 for r,c in tot.items():
     code=sum(c.values())-c['NOTCODE']; st=c['SHELL']+c['CONFIG']; G.update(c)
-    L.append(f"| {N[r]} | {fn(code)} | {fn(c['NEW'])} | {fn(c['EXTEND'])} | {fn(c['ADOPT'])} | {fn(c['VENDOR-OWN']+c['VENDOR-KEEP'])} | {fn(c['DROP'])} | {fn(st)} | {100*st//code}% |")
+    L.append(f"| {N[r]} | {fn(code)} | {fn(c['NEW'])} | {fn(c['EXTEND'])} | {fn(c['ADOPT'])} | {fn(c['LEGION'])} | {fn(c['VENDOR-OWN']+c['VENDOR-KEEP'])} | {fn(c['DROP'])} | {fn(st)} | {100*st//code}% |")
 code=sum(G.values())-G['NOTCODE']; st=G['SHELL']+G['CONFIG']
-L.append(f"| **All** | **{fn(code)}** | **{fn(G['NEW'])}** | **{fn(G['EXTEND'])}** | **{fn(G['ADOPT'])}** | **{fn(G['VENDOR-OWN']+G['VENDOR-KEEP'])}** | **{fn(G['DROP'])}** | **{fn(st)}** | **{100*st//code}%** |")
+L.append(f"| **All** | **{fn(code)}** | **{fn(G['NEW'])}** | **{fn(G['EXTEND'])}** | **{fn(G['ADOPT'])}** | **{fn(G['LEGION'])}** | **{fn(G['VENDOR-OWN']+G['VENDOR-KEEP'])}** | **{fn(G['DROP'])}** | **{fn(st)}** | **{100*st//code}%** |")
 L+=["","Lines include tests, which move with the code they test.",""]
 # final new list
 crates=[t for t in new if kind(t)=='crate']; npm=[t for t in new if kind(t)=='npm']; sw=[t for t in new if kind(t)=='Swift']
@@ -58,6 +58,14 @@ ext=[t for t,a in m.items() if a['actions'].get('EXTEND') and kind(t)!='other']
 L+=["## Existing RightKit packages to extend","",f"**{len(ext)} existing packages** gain capability now living in apps.","","| Package | Used by | Lines moving in | What it gains |","|---|---|---:|---|"]
 for t in sorted(ext,key=lambda t:-m[t]['actions']['EXTEND']):
     a=m[t]; L.append(f"| `{t}` | {', '.join(N[r] for r in a['repos'])} | {fn(a['actions']['EXTEND'])} | {caps(a,5)} |")
+lg=m.get('legion')
+if lg:
+    L+=["","## Moves to Legion, not RightKit","","Skills, doctrine, agent personas, skill manifests/loaders and host projection (Claude Code, Codex, AGENTS.md) are owned by Legion. RightKit is the code kit; Legion is the skills owner.","","| From app | Lines | What |","|---|---:|---|"]
+    for r in N:
+        d=json.load(open(f'{S}/md/{r}-rightkit-files.json'))['files']; g=collections.OrderedDict()
+        for f in d:
+            if f['action']=='LEGION': g[f['capability']]=g.get(f['capability'],0)+f['loc']
+        for c,n in g.items(): L.append(f"| {N[r]} | {fn(n)} | {c} |")
 ad=[t for t,a in m.items() if a['actions'].get('ADOPT') and kind(t)!='other']
 L+=["","## Already in RightKit: delete app copies & adopt","","| Package | Apps still carrying own copy | Lines to delete |","|---|---|---:|"]
 for t in sorted(ad,key=lambda t:-m[t]['actions']['ADOPT']):
@@ -72,4 +80,5 @@ for r in N:
     for (t,a,c),n in g.items(): L.append(f"| {c} | {N[r]} | {fn(n)} | {a}: `{t}` |")
 L+=["","## Merges made across apps","","| Merged away | Into | Why |","|---|---|---|"]+[f"| `{k}` | `{v[0]}` | {v[1]} |" for k,v in ALIAS.items()]
 L+=["","## What stays in apps","","Each app keeps only entry points (Tauri `main`/`lib`, iOS/Android app entry, engine binary & command table, CLI definitions), app manifests and release config. Largest leftovers are CodeRight's CLI (`main_runtime_*`, `cli_definitions*`), Legion's CLI commands, Pulse's per-platform entries (Windows `main.rs`, Mac `AppDelegate`, hub) and HeardRight's `app_run.rs`. Each app's mapping file lists them.",""]
+L.append(open(S+'/decisions.md').read())
 open(S+'/md/master.md','w').write('\n'.join(L)+'\n'); print(len(new),len(crates),len(npm),len(sw),len(ext),len(ad))

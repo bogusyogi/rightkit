@@ -8,23 +8,23 @@ Goal: no app code outside RightKit except a thin app shell (entry points, comman
 
 | App | Code lines | NEW | EXTEND | ADOPT | Vendor | DROP | Stays (shell+config) | Stays % |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| PostRight | 147,942 | 113,565 | 18,763 | 12,871 | 0 | 468 | 2,275 | 1% |
-| ScrapeRight | 118,952 | 41,676 | 29,557 | 35,445 | 0 | 2,573 | 9,701 | 8% |
-| MailRight | 126,048 | 80,211 | 22,297 | 19,094 | 0 | 164 | 4,282 | 3% |
-| ViewRight | 387,740 | 112,549 | 18,857 | 29,910 | 171,356 | 51,240 | 3,828 | 0% |
-| GenRight | 181,597 | 105,787 | 24,815 | 37,122 | 0 | 8,627 | 5,246 | 2% |
-| CutRight | 236,061 | 161,400 | 31,936 | 33,058 | 6,675 | 513 | 2,479 | 1% |
-| Pulse | 673,096 | 430,867 | 59,190 | 41,330 | 71,409 | 23,187 | 47,113 | 6% |
-| HeardRight | 471,514 | 181,017 | 151,772 | 36,038 | 60,335 | 21,987 | 20,365 | 4% |
-| CodeRight | 990,438 | 617,993 | 258,926 | 56,642 | 26,679 | 2,320 | 27,878 | 2% |
-| Legion | 663,533 | 423,145 | 190,578 | 1,357 | 0 | 0 | 48,453 | 7% |
-| **All** | **3,996,921** | **2,268,210** | **806,691** | **302,867** | **336,454** | **111,079** | **171,620** | **4%** |
+| PostRight | 147,942 | 113,565 | 18,763 | 12,871 | 0 | 0 | 468 | 2,275 | 1% |
+| ScrapeRight | 118,952 | 41,676 | 29,557 | 35,445 | 0 | 0 | 2,573 | 9,701 | 8% |
+| MailRight | 126,048 | 80,211 | 22,297 | 19,094 | 0 | 0 | 164 | 4,282 | 3% |
+| ViewRight | 387,740 | 112,549 | 18,857 | 29,910 | 0 | 171,356 | 51,240 | 3,828 | 0% |
+| GenRight | 181,597 | 105,787 | 24,815 | 37,122 | 0 | 0 | 8,627 | 5,246 | 2% |
+| CutRight | 236,061 | 118,613 | 31,936 | 33,058 | 42,787 | 6,675 | 513 | 2,479 | 1% |
+| Pulse | 673,096 | 430,867 | 59,190 | 41,330 | 0 | 71,409 | 23,187 | 47,113 | 6% |
+| HeardRight | 471,514 | 181,017 | 151,772 | 36,038 | 0 | 60,335 | 21,987 | 20,365 | 4% |
+| CodeRight | 990,438 | 597,613 | 258,926 | 56,642 | 20,380 | 26,679 | 2,320 | 27,878 | 2% |
+| Legion | 663,533 | 367,535 | 190,578 | 1,357 | 55,610 | 0 | 0 | 48,453 | 7% |
+| **All** | **3,996,921** | **2,149,433** | **806,691** | **302,867** | **118,777** | **336,454** | **111,079** | **171,620** | **4%** |
 
 Lines include tests, which move with the code they test.
 
 ## Final list: new RightKit packages to create & publish
 
-**88 new packages**: 65 crates, 17 npm packages, 6 Swift packages. Grouped by family; within a family, ordered by size.
+**86 new packages**: 64 crates, 16 npm packages, 6 Swift packages. Grouped by family; within a family, ordered by size.
 
 ### Agent platform
 
@@ -35,8 +35,6 @@ Lines include tests, which move with the code they test.
 | `rightkit-agent-server` | crate | CodeRight | 117,397 | Python |  | OpenAPI client codegen & contract checks; agent daemon HTTP API: sessions, runtime, contract/OpenAPI, tool invocations, run changes, health, workspace, teams, coordination; server & daemon client runtime; route contract & e2e tests; installed matrix & engine tests |
 | `rightkit-terminal-ui` | crate | CodeRight | 94,376 |  |  | terminal UI toolkit: composer, transcript, wrapping, panes, markdown render, image input, render metrics |
 | `rightkit-agent-orchestration` | crate | CodeRight, Legion | 94,340 |  | `rightkit-work-router` | agent room; multi-agent coordination: subagents, teams, delegation, roster; handoff packets, continuity gate, live state; capability routing runtime: plan, route, task, budget, grant, escalation, delivery, inventories, platform layers, skills/designer checks |
-| `@rightkit/skills` | npm | CutRight, Legion | 62,077 | Python |  | agent skill packs (designer engine incl. vendored huashu, content specialists, cutaway editing scripts); agent skill packs & doctrine (architect, audit, council, designer, iOS/macOS/Android dev, marketing, SEO, research, writing, etc.) |
-| `rightkit-skills` | crate | CodeRight, Legion | 56,700 |  |  | skill manifests & trigger DSL, plugin marketplace & loader, recipes, custom commands; catalog & inventory generators; host setup, binding & script projection; capability catalog & frontmatter, host detection/projection into Claude Code/Codex/AGENTS.md, plugin marketplace install |
 | `rightkit-agent-gateway` | crate | MailRight, Pulse | 37,461 |  | `rightkit-remote-control` | paired external agents over local daemon: method registry, gate, approval cards (send/forward/delete/attach), audit log, untrusted-content contract, redaction; remote tools for agents (files, app launch, clipboard, chat read/start/term, browser address), local approvals, audit trail; agent gateway: LLM provider & tool routing |
 | `RightKitAgent` | Swift | Pulse, CodeRight | 34,981 | Swift | `RightKitRemoteUI` | phone remote-control screens; Swift agent client: local runtime bridge, chat library, code editor, diff walkthrough, plan review, markdown rendering, approvals |
 | `rightkit-evidence` | crate | CodeRight, Legion | 32,933 |  | `rightkit-specs` | spec-governed artifacts & coverage; contracts, effect execution & receipts, decision store, evidence/SARIF/HTML reports, certification & governance lifecycle |
@@ -243,6 +241,19 @@ Lines include tests, which move with the code they test.
 | `rightkit-credentials` | MailRight, GenRight, Pulse, HeardRight | 114 | OS credential store; provider API keys; secure prompt; secrets |
 | `rightkit-platform-rules` | PostRight | 107 | pinned platform API versions & sunset dates |
 
+## Moves to Legion, not RightKit
+
+Skills, doctrine, agent personas, skill manifests/loaders and host projection (Claude Code, Codex, AGENTS.md) are owned by Legion. RightKit is the code kit; Legion is the skills owner.
+
+| From app | Lines | What |
+|---|---:|---|
+| CutRight | 42,787 | agent skill packs (designer engine incl. vendored huashu, content specialists, cutaway editing scripts) |
+| CodeRight | 20,380 | skill manifests & trigger DSL, plugin marketplace & loader, recipes, custom commands |
+| Legion | 5,119 | catalog & inventory generators |
+| Legion | 12,837 | host setup, binding & script projection |
+| Legion | 18,364 | capability catalog & frontmatter, host detection/projection into Claude Code/Codex/AGENTS.md, plugin marketplace install |
+| Legion | 19,290 | agent skill packs & doctrine (architect, audit, council, designer, iOS/macOS/Android dev, marketing, SEO, research, writing, etc.) |
+
 ## Already in RightKit: delete app copies & adopt
 
 | Package | Apps still carrying own copy | Lines to delete |
@@ -373,6 +384,7 @@ Each app keeps only entry points (Tauri `main`/`lib`, iOS/Android app entry, eng
 5. **sherpa-onnx & prebuilt xcframeworks (HeardRight iOS).** Recommendation: replace with RightKit's Rust KWS/ASR (`rightkit-asr`) built for iOS.
 6. **ONNX Runtime binary (HeardRight iOS).** Keep as binary dependency, resolved only through `rightkit-onnx`.
 7. **GenRight legacy Node server (`server/`, `compat-lib/`, `bin/`, 8k lines).** Mapped DROP as superseded by the Rust studio port; confirm nothing still calls it.
-8. **Skill packs (`@rightkit/skills`).** Legion's doctrine & skills and CutRight's designer engine (incl. vendored huashu) become one content package; `rightkit-skills` is the crate that loads & projects them.
+8. **Skills live in Legion.** All skill packs, doctrine, personas, skill manifests/loaders & host projection go to Legion (CutRight skills & cutaway, Pulse membrane skill, CodeRight skills/plugins/recipes crates). RightKit has no skills package.
 9. **`rightkit-mesh`.** Already named as a RightKit crate but lives inside the Pulse repo; move it to RightKit & publish.
 10. **Single-app packages.** 50+ new packages have one consumer today (e.g. `rightkit-code-audit`, `rightkit-terminal-ui`, video editing family). They are listed as RightKit packages per the factory goal; the family grouping above is the order to extract them in.
+

@@ -3704,20 +3704,33 @@
    ".rs": 7952
   }
  },
- "@rightkit/skills": {
+ "legion": {
   "repos": {
    "CutRight": 42787,
-   "legion": 19290
+   "coderight": 20380,
+   "legion": 55610
   },
-  "loc": 62077,
-  "files": 126,
+  "loc": 118777,
+  "files": 282,
   "actions": {
-   "NEW": 62077
+   "LEGION": 118777
   },
   "merged": [],
   "caps": {
    "agent skill packs (designer engine incl. vendored huashu, content specialists, cutaway editing scripts)": [
     "CutRight"
+   ],
+   "skill manifests & trigger DSL, plugin marketplace & loader, recipes, custom commands": [
+    "coderight"
+   ],
+   "catalog & inventory generators": [
+    "legion"
+   ],
+   "host setup, binding & script projection": [
+    "legion"
+   ],
+   "capability catalog & frontmatter, host detection/projection into Claude Code/Codex/AGENTS.md, plugin marketplace install": [
+    "legion"
    ],
    "agent skill packs & doctrine (architect, audit, council, designer, iOS/macOS/Android dev, marketing, SEO, research, writing, etc.)": [
     "legion"
@@ -3730,7 +3743,9 @@
    ".tsx": 376,
    ".jsx": 2907,
    ".html": 1014,
-   ".js": 29315
+   ".js": 29315,
+   ".rs": 56594,
+   ".toml": 106
   }
  },
  "RightKitMedia": {
@@ -5007,36 +5022,6 @@
   "ext": {
    ".rs": 24969,
    ".toml": 92
-  }
- },
- "rightkit-skills": {
-  "repos": {
-   "coderight": 20380,
-   "legion": 36320
-  },
-  "loc": 56700,
-  "files": 156,
-  "actions": {
-   "NEW": 56700
-  },
-  "merged": [],
-  "caps": {
-   "skill manifests & trigger DSL, plugin marketplace & loader, recipes, custom commands": [
-    "coderight"
-   ],
-   "catalog & inventory generators": [
-    "legion"
-   ],
-   "host setup, binding & script projection": [
-    "legion"
-   ],
-   "capability catalog & frontmatter, host detection/projection into Claude Code/Codex/AGENTS.md, plugin marketplace install": [
-    "legion"
-   ]
-  },
-  "ext": {
-   ".rs": 56594,
-   ".toml": 106
   }
  },
  "rightkit-bot-messaging": {

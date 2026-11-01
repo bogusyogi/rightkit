@@ -18,7 +18,7 @@ crates/(providers|router)/|bins/coderight/src/(provider_client|provider_setup|mo
 crates/mcp/|bins/coderight/src/(mcp_server|api_mcp)	rightkit-mcp	ADOPT	MCP client/server
 crates/(policy|coderight-legion-policy)/|bins/coderight/src/(api_permissions|audit)	rightkit-agent-policy	NEW	pure permission decision engine, destructive-action guard, policy packs, audit
 crates/hooks/|bins/coderight/src/(hooks|hooks_management)	rightkit-hooks	EXTEND	lifecycle hook bus & runner
-crates/(skills|plugins|recipes)/|bins/coderight/src/(api_skills|api_plugins|api_recipes|skill_loop|custom_commands|command_registry)	rightkit-skills	NEW	skill manifests & trigger DSL, plugin marketplace & loader, recipes, custom commands
+crates/(skills|plugins|recipes)/|bins/coderight/src/(api_skills|api_plugins|api_recipes|skill_loop|custom_commands|command_registry)	legion	LEGION	skill manifests & trigger DSL, plugin marketplace & loader, recipes, custom commands
 crates/learning/|bins/coderight/src/(learning/|api_adapt|adapt_application_host|daemon_self_review|background_review_adapter)	rightkit-adapt	NEW	post-session learning pipeline
 crates/(memory|coderight-memory-backend|coderight-membrane-cli)/|bins/coderight/src/(membrane_binding|memory|api_memory|api_memright|api_membrane|blueprint_)	rightkit-memory	NEW	adaptive memory retrieval & backend (over context engine)
 crates/specs/|bins/coderight/src/api_specs	rightkit-specs	NEW	spec-governed artifacts & coverage

@@ -1,5 +1,5 @@
 ^imports/	none	DROP	provenance copies of imported skills/behaviour notes (reference only)
-^skills/|^cutaway/	@rightkit/skills	NEW	agent skill packs (designer engine incl. vendored huashu, content specialists, cutaway editing scripts)
+^skills/|^cutaway/	legion	LEGION	agent skill packs (designer engine incl. vendored huashu, content specialists, cutaway editing scripts)
 ^vendor/citationberg/	rightkit-typeset	VENDOR-KEEP	CSL style parser (MIT): keep as crates.io dep of typeset/citations
 crates/cutright-compositor(-effects|-gpu|-masks)?/	rightkit-compositor	NEW	native wgpu layer compositor, GPU effects & SDF masks (adapted from OpenCut, MIT)
 crates/cutright-compose/	rightkit-compose	EXTEND	evaluated timeline -> compositor frame descriptors

@@ -41,7 +41,7 @@ membrane/engine/crates/cortex-	rightkit-memory	NEW	durable memory store (Cortex)
 membrane/engine/crates/membrane-blueprint/	rightkit-repo-graph	NEW	repository graph: structure, evidence, drift
 membrane/engine/crates/membrane-adapt/	rightkit-adapt	NEW	governed behavioural learning (taste + insights)
 membrane/engine/crates/membrane-transcript/	rightkit-agents	EXTEND	Claude Code/Codex transcript discovery & normalisation
-^membrane/skills/	@rightkit/skills	NEW	membrane skill
+^membrane/skills/	legion	LEGION	membrane skill
 ^membrane/	rightkit-context	NEW	context engine: protocol, client, provider SDK, federation, budget/lanes, runtime, schemas, hooks
 windows/src/(launcher|spot_takeover)|mac/Notch/Sources/Launcher/	rightkit-launcher	NEW	command launcher: calculator, dictionary, files, notes, rates, snippets, commands (Win32 + Swift)
 windows/src/(clip|shelf)|mac/Notch/Sources/Conveniences/(WheelClipboardRing|SnippetExpansion)	rightkit-clipboard-history	NEW	clipboard history: capture, detect, images, paste, seal, search, strip, shelf, snippet expansion

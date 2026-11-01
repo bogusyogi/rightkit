@@ -3,10 +3,10 @@ sys.path.insert(0,os.path.dirname(__file__)); from merge import ALIAS,final,kind
 S=os.path.dirname(__file__); EX=set(open(S+'/existing.txt').read().split())
 NAMES={'postright':'PostRight','scraperight':'ScrapeRight','mailright':'MailRight','viewright':'ViewRight','genright':'GenRight','CutRight':'CutRight','pulse':'Pulse','heardright':'HeardRight','coderight':'CodeRight','legion':'Legion'}
 COMMIT={r:os.popen(f'git -C /home/user/{r} rev-parse --short HEAD').read().strip() for r in NAMES}
-ACTDESC={'NEW':'new RightKit package (or new piece of one)','EXTEND':'existing RightKit package gains this','ADOPT':'RightKit already ships it; delete app copy & use owner','SHELL':'thin app composition that stays in app','CONFIG':'app manifest/config that stays','DROP':'delete','VENDOR-OWN':'vendored 3rd-party: own/rewrite in RightKit','VENDOR-KEEP':'vendored 3rd-party: keep as plain dependency, delete vendored copy','NOTCODE':'docs/data, not code'}
+ACTDESC={'NEW':'new RightKit package (or new piece of one)','EXTEND':'existing RightKit package gains this','ADOPT':'RightKit already ships it; delete app copy & use owner','SHELL':'thin app composition that stays in app','CONFIG':'app manifest/config that stays','DROP':'delete','VENDOR-OWN':'vendored 3rd-party: own/rewrite in RightKit','VENDOR-KEEP':'vendored 3rd-party: keep as plain dependency, delete vendored copy','NOTCODE':'docs/data, not code','LEGION':'skill/doctrine code: lives in Legion (suite skills owner), not RightKit'}
 def fix_action(t,a):
     # NEW vs EXTEND decided by whether final package exists in RightKit today
-    if a in('NEW','EXTEND') and kind(t)!='other': return 'EXTEND' if t in EX else 'NEW'
+    if a in('NEW','EXTEND') and kind(t)!='other' and a!='LEGION': return 'EXTEND' if t in EX else 'NEW'
     return a
 allfiles={}
 for r in NAMES:
@@ -27,13 +27,13 @@ for r,files in allfiles.items():
     L=[f"# {NAMES[r]}: RightKit mapping\n",f"Repo `{r}` at `{COMMIT[r]}` (main). Generated 2026-11-01. Every tracked code file (Rust, TS/JS, Swift, Kotlin, Python, shell, CSS/HTML, TOML, SQL) is assigned to exactly one target. Full per-file list: [`{r}-rightkit-files.json`]({r}-rightkit-files.json).\n",
        "Package names are final, after cross-app merging (see master plan in RightKit `docs/audits/2026-11-01-rightkit-package-master-plan.md`).\n",
        "## Summary\n","| Action | Meaning | Files | Lines |","|---|---|---:|---:|"]
-    for a in ['NEW','EXTEND','ADOPT','VENDOR-OWN','VENDOR-KEEP','DROP','SHELL','CONFIG','NOTCODE']:
+    for a in ['NEW','EXTEND','ADOPT','LEGION','VENDOR-OWN','VENDOR-KEEP','DROP','SHELL','CONFIG','NOTCODE']:
         if totf[a]: L.append(f"| {a} | {ACTDESC[a]} | {fmtn(totf[a])} | {fmtn(tot[a])} |")
     L.append(f"| **Total** | | **{fmtn(len(files))}** | **{fmtn(sum(tot.values()))}** |\n")
-    moving=sum(tot[a] for a in ['NEW','EXTEND','ADOPT','VENDOR-OWN','VENDOR-KEEP','DROP'])
-    L.append(f"Code leaving the app (NEW + EXTEND + ADOPT + vendor + DROP): **{fmtn(moving)} lines**. Staying as app shell/config: **{fmtn(tot['SHELL']+tot['CONFIG'])} lines** ({100*(tot['SHELL']+tot['CONFIG'])//max(1,sum(tot.values())-tot['NOTCODE'])}% of code).\n")
+    moving=sum(tot[a] for a in ['NEW','EXTEND','ADOPT','LEGION','VENDOR-OWN','VENDOR-KEEP','DROP'])
+    L.append(f"Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **{fmtn(moving)} lines**. Staying as app shell/config: **{fmtn(tot['SHELL']+tot['CONFIG'])} lines** ({100*(tot['SHELL']+tot['CONFIG'])//max(1,sum(tot.values())-tot['NOTCODE'])}% of code).\n")
     L+=["## Mapping table\n","| RightKit target | Kind | Action | What moves | Files | Lines | Where (sample) |","|---|---|---|---|---:|---:|---|"]
-    order={'NEW':0,'EXTEND':1,'ADOPT':2,'VENDOR-OWN':3,'VENDOR-KEEP':4,'DROP':5,'SHELL':6,'CONFIG':7,'NOTCODE':8}
+    order={'NEW':0,'EXTEND':1,'ADOPT':2,'LEGION':2.5,'VENDOR-OWN':3,'VENDOR-KEEP':4,'DROP':5,'SHELL':6,'CONFIG':7,'NOTCODE':8}
     for (t,a,c),x in sorted(rows.items(),key=lambda kv:(order[kv[0][1]],kv[0][0],-kv[1]['loc'])):
         dirs=sorted({os.path.dirname(p) or '.' for p in x['paths']})
         samp=', '.join(f'`{d}/`' for d in dirs[:3])+(f' +{len(dirs)-3} dirs' if len(dirs)>3 else '')
