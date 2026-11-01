@@ -8,3 +8,6 @@ src-tauri/binaries/*
 src-tauri/gen/
 .rightkit-qa-bin/
 .rightkit-qa-app-binary
+# Staging outputs of right-release stage-sidecar (ffmpeg notices, ONNX Runtime): generated, never committed.
+src-tauri/resources/runtime/
+src-tauri/resources/third-party/
