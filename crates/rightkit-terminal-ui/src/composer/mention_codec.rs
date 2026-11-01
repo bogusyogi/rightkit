@@ -14,6 +14,7 @@ pub(crate) struct LinkedMention {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg(test)]
 pub(crate) struct DecodedHistoryText {
     pub(crate) text: String,
     pub(crate) mentions: Vec<LinkedMention>,
@@ -126,6 +127,7 @@ pub(crate) fn encode_history_mentions_at_elements(
     out
 }
 
+#[cfg(test)]
 pub(crate) fn decode_history_mentions_with_at_mentions(
     text: &str,
     at_mentions_enabled: bool,
@@ -182,6 +184,7 @@ pub(crate) fn decode_history_mentions_with_at_mentions(
     }
 }
 
+#[cfg(test)]
 fn parse_history_linked_mention(
     text: &str,
     start: usize,
@@ -217,6 +220,7 @@ fn parse_history_linked_mention(
 }
 
 /// Parse a linked mention at an opening `[` byte, returning its name, path, and end offset.
+#[cfg(test)]
 pub(crate) fn parse_linked_tool_mention(
     text: &str,
     start: usize,
@@ -349,6 +353,7 @@ pub(crate) fn is_common_env_var(name: &str) -> bool {
     )
 }
 
+#[cfg(test)]
 fn is_tool_path(path: &str) -> bool {
     path.starts_with("app://")
         || path.starts_with("mcp://")

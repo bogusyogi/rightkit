@@ -19,6 +19,7 @@ use std::ops::Range;
 use std::path::Path;
 
 /// Preserve source Markdown when copying, replacing only recognized follow-up directives.
+#[cfg(test)]
 pub(crate) fn followup_labels(input: &str) -> Cow<'_, str> {
     if !input.contains(":codex-followup[") {
         return Cow::Borrowed(input);

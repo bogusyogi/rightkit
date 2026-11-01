@@ -60,10 +60,12 @@ fn insert_number(out: &mut Map<String, Value>, key: &str, value: Option<f64>) {
     }
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn bytes_to_mb(bytes: u64) -> f64 {
     bytes as f64 / (1024.0 * 1024.0)
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn percent_used(used: u64, total: u64) -> Option<f64> {
     (total > 0).then(|| (used as f64 * 100.0 / total as f64).clamp(0.0, 100.0))
 }

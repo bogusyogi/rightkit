@@ -88,10 +88,10 @@ impl ElicitationForm {
     /// representable; the caller then offers raw JSON entry instead.
     pub fn from_schema(schema: &Value) -> Result<Self, String> {
         let object = schema.as_object().ok_or("schema is not an object")?;
-        if let Some(kind) = object.get("type").and_then(Value::as_str) {
-            if kind != "object" {
-                return Err(format!("schema type `{kind}` is not an object"));
-            }
+        if let Some(kind) = object.get("type").and_then(Value::as_str)
+            && kind != "object"
+        {
+            return Err(format!("schema type `{kind}` is not an object"));
         }
         let properties = object
             .get("properties")
@@ -499,7 +499,7 @@ fn choices(object: &Map<String, Value>) -> Option<Result<Vec<Choice>, String>> {
                 title,
             });
         }
-        return Some(Ok(out)).filter(|_| !values.is_empty());
+        return (!values.is_empty()).then_some(Ok(out));
     }
     if let Some(items) = object.get("oneOf").and_then(Value::as_array) {
         let mut out = Vec::new();
@@ -517,7 +517,7 @@ fn choices(object: &Map<String, Value>) -> Option<Result<Vec<Choice>, String>> {
                 title,
             });
         }
-        return Some(Ok(out)).filter(|_| !items.is_empty());
+        return (!items.is_empty()).then_some(Ok(out));
     }
     None
 }

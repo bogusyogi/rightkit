@@ -9,7 +9,6 @@ use ratatui::layout::Position;
 
 #[derive(Debug)]
 pub(super) struct MouseSelection {
-    pending_copy: Option<(u64, Range<usize>)>,
     origin: Range<usize>,
     unit: SelectionUnit,
     dragging: bool,
@@ -17,34 +16,6 @@ pub(super) struct MouseSelection {
 }
 
 impl TextArea {
-    pub(crate) fn defer_copy(&mut self, id: u64) {
-        if let Some(range) = self.mouse_selection_range()
-            && let Some(selection) = &mut self.mouse_selection
-        {
-            selection.pending_copy = Some((id, range));
-        }
-    }
-
-    pub(crate) fn finish_copy(
-        &mut self,
-        completion: &(u64, crate::composer::clipboard_copy::worker::CopyResult),
-        current: bool,
-    ) -> Option<usize> {
-        let pending = self.mouse_selection.as_mut()?.pending_copy.as_ref()?;
-        if pending.0 != completion.0 {
-            return None;
-        }
-        let (_, range) = self.mouse_selection.as_mut()?.pending_copy.take()?;
-        if !current || self.mouse_selection_range().as_ref() != Some(&range) {
-            return None;
-        }
-        let characters = self.text()[range].chars().count();
-        if completion.1 == Ok(crate::composer::clipboard_copy::CopyStatus::Confirmed) {
-            self.set_cursor(self.cursor());
-        }
-        Some(characters)
-    }
-
     pub(crate) fn contains_mouse(&self, event: MouseEvent) -> bool {
         self.rendered_area
             .get()
@@ -111,7 +82,6 @@ impl TextArea {
                 event.row,
             );
             MouseSelection {
-                pending_copy: None,
                 origin: pos..pos,
                 // Padding remains an insertion target on repeated clicks.
                 unit: SelectionUnit::from_clicks(if pos == line.end - 1 { 1 } else { clicks }),

@@ -45,10 +45,10 @@ impl CompletionPopup {
         let selected_name = self.selected_candidate().map(|c| c.name.clone());
         self.catalog = catalog;
         self.state.clamp_selection(self.filtered_items().len());
-        if let Some(name) = selected_name {
-            if let Some(position) = self.filtered_items().iter().position(|c| c.name == name) {
-                self.state.selected_idx = Some(position);
-            }
+        if let Some(name) = selected_name
+            && let Some(position) = self.filtered_items().iter().position(|c| c.name == name)
+        {
+            self.state.selected_idx = Some(position);
         }
     }
 
@@ -198,7 +198,6 @@ impl CompletionPopup {
                     match_indices: indices.map(|v| v.into_iter().map(|i| i + 1).collect()),
                     display_shortcut: None,
                     description: Some(description),
-                    wrap_indent: None,
                     is_disabled: candidate.disabled_reason.is_some(),
                     disabled_reason: candidate.disabled_reason.clone(),
                 }
@@ -256,11 +255,6 @@ impl CompletionPopup {
 
     pub fn selected_index(&self) -> usize {
         self.state.selected_idx.unwrap_or(0)
-    }
-
-    /// The `/token` filter text driving `filtered()` (composer introspection).
-    pub(crate) fn command_filter(&self) -> &str {
-        &self.command_filter
     }
 
     pub fn select_next(&mut self) {

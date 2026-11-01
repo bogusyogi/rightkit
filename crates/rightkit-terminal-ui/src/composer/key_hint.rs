@@ -57,28 +57,13 @@ pub(crate) struct KeyBinding {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum ShortcutHint {
     Single(KeyBinding),
-    Chord {
-        prefix: KeyBinding,
-        completion: KeyBinding,
-    },
 }
 
 impl ShortcutHint {
-    pub(crate) fn spans(self) -> Vec<Span<'static>> {
-        vec![self.into()]
-    }
-
     pub(crate) fn display_label(self) -> String {
         match self {
             Self::Single(binding) => binding.display_label(),
-            Self::Chord { prefix, completion } => {
-                format!("{} {}", prefix.display_label(), completion.display_label())
-            }
         }
-    }
-
-    pub(crate) fn is_press(self, event: KeyEvent) -> bool {
-        matches!(self, Self::Single(binding) if binding.is_press(event))
     }
 }
 
@@ -122,11 +107,6 @@ impl KeyBinding {
         Self { key, modifiers }
     }
 
-    pub(crate) fn from_event(event: KeyEvent) -> Self {
-        let (key, modifiers) = normalize_key_parts(event.code, event.modifiers);
-        Self { key, modifiers }
-    }
-
     pub fn is_press(&self, event: KeyEvent) -> bool {
         normalize_key_parts(self.key, self.modifiers)
             == normalize_key_parts(event.code, event.modifiers)
@@ -143,10 +123,6 @@ impl KeyBinding {
             (KeyCode::Char('5'), KeyModifiers::CONTROL) => ctrl(KeyCode::Char(']')).parts(),
             parts => parts,
         }
-    }
-
-    pub(crate) fn spans(&self) -> Vec<Span<'static>> {
-        vec![self.into()]
     }
 }
 
@@ -195,27 +171,6 @@ impl KeyBindingListExt for [KeyBinding] {
     }
 }
 
-/// Returns whether an event should be treated as literal text input.
-///
-/// Searchable pickers use this to avoid stealing plain printable characters for
-/// navigation when the same character might be a valid query. For example, a
-/// list may bind `j` and `k` for movement, but a searchable list must let
-/// plain `j` update the query while still allowing `Ctrl+J` to move. Calling
-/// this after normalizing keybindings would blur that distinction and cause
-/// printable search input to disappear.
-pub(crate) fn is_plain_text_key_event(event: KeyEvent) -> bool {
-    matches!(
-        event,
-        KeyEvent {
-            code: KeyCode::Char(ch),
-            modifiers,
-            ..
-        } if !ch.is_ascii_control()
-            && !modifiers.contains(KeyModifiers::CONTROL)
-            && !modifiers.contains(KeyModifiers::ALT)
-    )
-}
-
 pub(crate) const fn plain(key: KeyCode) -> KeyBinding {
     KeyBinding::new(key, KeyModifiers::NONE)
 }
@@ -232,6 +187,7 @@ pub(crate) const fn ctrl(key: KeyCode) -> KeyBinding {
     KeyBinding::new(key, KeyModifiers::CONTROL)
 }
 
+#[cfg(test)]
 pub(crate) const fn ctrl_alt(key: KeyCode) -> KeyBinding {
     KeyBinding::new(key, KeyModifiers::CONTROL.union(KeyModifiers::ALT))
 }
@@ -259,11 +215,6 @@ fn key_hint_style() -> Style {
     // bridge lands.
     let _ = Color::Reset;
     Style::default().bold().not_dim()
-}
-
-/// Emphasize the complete key label, including chords, alternatives, and literal punctuation.
-pub(crate) fn key_label_spans(label: &str) -> Vec<Span<'static>> {
-    vec![Span::styled(label.to_owned(), key_hint_style())]
 }
 
 pub(crate) fn has_ctrl_or_alt(mods: KeyModifiers) -> bool {

@@ -163,7 +163,7 @@ impl PtyAttach {
 
     fn human_idle(&self, now: Instant) -> bool {
         self.last_human_input
-            .map_or(true, |at| now.saturating_duration_since(at) >= HUMAN_IDLE)
+            .is_none_or(|at| now.saturating_duration_since(at) >= HUMAN_IDLE)
     }
 
     fn note_human_input(&mut self, now: Instant) {
@@ -404,7 +404,7 @@ pub fn render_grid(
             }
             style = style.add_modifier(modifier);
             let contents = cell.contents();
-            let text: &str = if contents.is_empty() { " " } else { &contents };
+            let text: &str = if contents.is_empty() { " " } else { contents };
             buf.set_string(area.x + col, area.y + row, text, style);
         }
     }

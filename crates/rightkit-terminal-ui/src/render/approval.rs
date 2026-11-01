@@ -316,11 +316,11 @@ impl ApprovalOverlay {
         if session_id != self.session_id {
             return false;
         }
-        if let Some(current) = &self.current {
-            if current.request_id == request_id {
-                self.advance();
-                return true;
-            }
+        if let Some(current) = &self.current
+            && current.request_id == request_id
+        {
+            self.advance();
+            return true;
         }
         let before = self.queue.len();
         self.queue.retain(|r| r.request_id != request_id);
@@ -363,6 +363,11 @@ impl ApprovalOverlay {
     /// The request currently displayed, if any.
     pub fn current_request(&self) -> Option<&ApprovalRequest> {
         self.current.as_ref()
+    }
+
+    /// Every request still open: the one on screen, then the queued ones.
+    pub fn pending_requests(&self) -> impl Iterator<Item = &ApprovalRequest> {
+        self.current.iter().chain(self.queue.iter())
     }
 
     /// True when nothing is being shown and nothing is queued.

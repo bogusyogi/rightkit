@@ -6,17 +6,17 @@
 //!
 //! # Shape
 //!
-//! - [`hint`] -- the only data shape a tool's call/result may take. Every
+//! - `hint` -- the only data shape a tool's call/result may take. Every
 //!   constructor sanitizes and bounds its input; this is the security
 //!   boundary render hints cross.
-//! - [`registry`] -- the finite set of render classes built-in tools map
+//! - `registry` -- the finite set of render classes built-in tools map
 //!   to, with unknown/dynamic tools always falling back to
 //!   [`RenderClass::Generic`].
 //! - [`sanitize`] -- strips control bytes (including every ANSI escape
 //!   opener) from untrusted text before it is stored anywhere.
 //! - [`truncate`] -- bounds display size while recording the original size
 //!   and the cap applied, never a bare ellipsis.
-//! - [`tool_call`] -- [`ToolCallBlock`], the `Component` that draws the
+//! - `tool_call` -- [`ToolCallBlock`], the `Component` that draws the
 //!   frame described above.
 //!
 //! Mirrors pi's `ToolExecutionComponent`

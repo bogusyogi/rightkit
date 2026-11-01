@@ -276,6 +276,18 @@ pub trait CommandSource {
     fn valid_mid_turn(&self, name: &str) -> bool;
 }
 
+impl RenderFrame for crate::terminal::custom_terminal::Frame<'_> {
+    fn area(&self) -> Rect {
+        self.area()
+    }
+    fn buffer_mut(&mut self) -> &mut ratatui::buffer::Buffer {
+        self.buffer_mut()
+    }
+    fn set_cursor(&mut self, position: ratatui::layout::Position) {
+        self.set_cursor_position(position);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,17 +384,5 @@ mod tests {
         assert!(Outcome::Consumed.is_terminal());
         assert!(Outcome::Redraw.is_terminal());
         assert!(!Outcome::Ignored.is_terminal());
-    }
-}
-
-impl RenderFrame for crate::terminal::custom_terminal::Frame<'_> {
-    fn area(&self) -> Rect {
-        self.area()
-    }
-    fn buffer_mut(&mut self) -> &mut ratatui::buffer::Buffer {
-        self.buffer_mut()
-    }
-    fn set_cursor(&mut self, position: ratatui::layout::Position) {
-        self.set_cursor_position(position);
     }
 }

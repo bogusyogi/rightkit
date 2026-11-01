@@ -16,13 +16,13 @@
 //!
 //! [`Transcript::drain_finalized`] moves the finalized prefix of the live
 //! entries into scrollback-ready `Vec<String>` and advances `flushed`, which
-//! is the boundary [`terminal::history::insert`] expects the caller to
+//! is the boundary `terminal::history::insert` expects the caller to
 //! maintain.
 //!
 //! # Why streaming a token is cheap
 //!
 //! Each entry owns its own [`cache::WidthCache`]. Appending a token touches
-//! only the last entry's content hash, so [`Transcript::ensure_rendered`]
+//! only the last entry's content hash, so `Transcript::ensure_rendered`
 //! recomputes markdown parsing and wrapping for that one entry and reuses the
 //! cached render for everything else -- the core requirement this module
 //! exists to satisfy. See the `transcript_streaming` test module for the
@@ -134,13 +134,6 @@ struct RenderedLine {
 }
 
 impl RenderedLine {
-    fn themed(line: HyperlinkLine, role: Role) -> Self {
-        Self {
-            line,
-            theme_role: Some((role, true)),
-        }
-    }
-
     fn styled(line: HyperlinkLine) -> Self {
         Self {
             line,
@@ -555,12 +548,12 @@ impl Transcript {
     /// message when no deltas arrived. The canonical text replaces the stream.
     pub fn complete_assistant(&mut self, text: &str) {
         self.streaming_markdown.flush();
-        if let Some(index) = self.pending_assistant_index() {
-            if let EntryBody::Message(message) = &mut self.entries[index].body {
-                message.content = sanitize(text);
-                message.finalized = true;
-                return;
-            }
+        if let Some(index) = self.pending_assistant_index()
+            && let EntryBody::Message(message) = &mut self.entries[index].body
+        {
+            message.content = sanitize(text);
+            message.finalized = true;
+            return;
         }
         if !text.is_empty() {
             self.push(Message::assistant(text));
@@ -595,11 +588,9 @@ impl Transcript {
             EntryBody::Message(m) if m.speaker == Speaker::Assistant && !m.finalized
         );
         let tail = self.streaming_markdown.flush();
-        if can_finalize {
-            if let EntryBody::Message(m) = &mut self.entries[index].body {
-                m.content.push_str(&sanitize(&tail));
-                m.finalized = true;
-            }
+        if can_finalize && let EntryBody::Message(m) = &mut self.entries[index].body {
+            m.content.push_str(&sanitize(&tail));
+            m.finalized = true;
         }
     }
 
@@ -611,12 +602,12 @@ impl Transcript {
         if tail.is_empty() {
             return;
         }
-        if let Some(entry) = self.entries.last_mut() {
-            if let EntryBody::Message(m) = &mut entry.body {
-                if m.speaker == Speaker::Assistant && !m.finalized {
-                    m.content.push_str(&sanitize(&tail));
-                }
-            }
+        if let Some(entry) = self.entries.last_mut()
+            && let EntryBody::Message(m) = &mut entry.body
+            && m.speaker == Speaker::Assistant
+            && !m.finalized
+        {
+            m.content.push_str(&sanitize(&tail));
         }
     }
 
@@ -1490,7 +1481,9 @@ mod message_panel_tests {
 
     #[test]
     fn notices_keep_the_backslashes_of_windows_paths() {
-        let path = format!("(BBBB?BD:BClaudeBmyrepoB.auditBrepo)").replace('B', "\\");
+        let path = "(BBBB?BD:BClaudeBmyrepoB.auditBrepo)"
+            .to_string()
+            .replace('B', "\\");
         let lines = drained(Message::system(format!("session in {path}")), 120);
         let text = text_of(&lines[0]);
         assert!(text.contains(&path), "{text}");

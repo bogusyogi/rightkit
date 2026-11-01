@@ -18,7 +18,6 @@ use ratatui::widgets::Widget;
 
 use super::key_hint::ShortcutHint;
 use super::scroll_state::ScrollState;
-use super::width::display_width;
 
 /// Maximum rows any composer popup shows at once.
 pub(crate) const MAX_POPUP_ROWS: usize = 8;
@@ -27,7 +26,7 @@ pub(crate) const MAX_POPUP_ROWS: usize = 8;
 ///
 /// This type contains presentation-focused fields that are intentionally more
 /// concrete than source domain models. `match_indices` are character offsets
-/// into `name`, and `wrap_indent` is interpreted in terminal cell columns.
+/// into `name`.
 #[derive(Default)]
 pub(crate) struct GenericDisplayRow {
     pub name: String,
@@ -41,14 +40,11 @@ pub(crate) struct GenericDisplayRow {
     pub category_tag: Option<String>,
     pub disabled_reason: Option<String>, // optional disabled message
     pub is_disabled: bool,
-    pub wrap_indent: Option<usize>, // optional indent for wrapped lines
 }
 
-/// Counts painted rows and items and reports content hidden outside the viewport.
+/// Reports content hidden outside the viewport.
 #[derive(Clone, Copy, Default)]
 pub(crate) struct RenderedRows {
-    pub(crate) lines: u16,
-    pub(crate) items: usize,
     pub(crate) has_above: bool,
     /// Includes a description whose final wrapped lines were clipped.
     pub(crate) has_below: bool,
@@ -93,10 +89,10 @@ fn compute_item_window_start(
 fn row_line(row: &GenericDisplayRow, width: usize) -> Line<'static> {
     let mut spans = row.name_prefix_spans.clone();
     if let Some(indices) = &row.match_indices {
-        let mut iter = row.name.chars().enumerate().peekable();
+        let iter = row.name.chars().enumerate().peekable();
         let mut run = String::new();
         let mut run_is_match = indices.contains(&0);
-        while let Some((idx, ch)) = iter.next() {
+        for (idx, ch) in iter {
             let is_match = indices.contains(&idx);
             if is_match == run_is_match {
                 run.push(ch);
@@ -199,8 +195,6 @@ fn render_rows_single_line_body(
     if rows_all.is_empty() {
         Line::from(empty_message.dim().italic()).render(area, buf);
         return RenderedRows {
-            lines: 1,
-            items: 0,
             ..Default::default()
         };
     }
@@ -252,8 +246,6 @@ fn render_rows_single_line_body(
     }
 
     RenderedRows {
-        lines: rendered_lines,
-        items: rendered_items,
         has_above: start_idx > 0,
         has_below: start_idx + rendered_items < rows_all.len(),
     }

@@ -111,10 +111,9 @@ impl TodoOverlay {
                     (TodoStatus::Completed, r)
                 } else if let Some(r) = line.strip_prefix("[~]") {
                     (TodoStatus::InProgress, r)
-                } else if let Some(r) = line.strip_prefix("[ ]") {
-                    (TodoStatus::Pending, r)
                 } else {
-                    return None;
+                    let r = line.strip_prefix("[ ]")?;
+                    (TodoStatus::Pending, r)
                 };
                 let content = rest.trim();
                 (!content.is_empty()).then(|| TodoItem {

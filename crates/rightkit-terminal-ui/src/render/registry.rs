@@ -78,7 +78,7 @@ const BUILTIN_TOOLS: &[(&str, RenderClass)] = &[
 ///    seam: the host binary registers every real tool name at boot -- see
 ///    `crate::register_render_class`). This is what makes `read_file` render
 ///    as [`RenderClass::FileRead`] instead of falling through to Generic.
-/// 2. The legacy static [`BUILTIN_TOOLS`] table.
+/// 2. The legacy static `BUILTIN_TOOLS` table.
 /// 3. [`RenderClass::Generic`] -- unknown or dynamic tools, always. Never an
 ///    unbounded default.
 pub fn classify(tool_name: &str) -> RenderClass {

@@ -232,10 +232,6 @@ impl ChatComposerHistory {
         self.last_history_text = Some(text);
     }
 
-    pub(crate) fn is_navigating(&self) -> bool {
-        self.history_cursor.is_some()
-    }
-
     pub(crate) fn reset_navigation(&mut self) {
         self.history_cursor = None;
         self.last_history_text = None;
@@ -283,10 +279,11 @@ impl ChatComposerHistory {
                 .as_ref()
                 .and_then(|search| search.selected_offset)
                 .is_some();
-        if !restart && !query_changed {
-            if let Some(result) = self.select_cached_unique_match(direction) {
-                return result;
-            }
+        if !restart
+            && !query_changed
+            && let Some(result) = self.select_cached_unique_match(direction)
+        {
+            return result;
         }
 
         let start_offset = self.search_start_offset(total, direction, query_changed || restart);
@@ -341,10 +338,11 @@ impl ChatComposerHistory {
     ) -> HistorySearchResult {
         let total = self.total_entries();
         while offset < total {
-            if let Some(entry) = self.entry_at(offset) {
-                if self.search_matches(&entry) && self.search_result_is_unique(&entry) {
-                    return self.search_match(offset, entry);
-                }
+            if let Some(entry) = self.entry_at(offset)
+                && self.search_matches(&entry)
+                && self.search_result_is_unique(&entry)
+            {
+                return self.search_match(offset, entry);
             }
             match direction {
                 HistorySearchDirection::Older => match offset.checked_sub(1) {

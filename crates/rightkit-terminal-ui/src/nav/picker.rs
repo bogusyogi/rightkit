@@ -25,6 +25,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use crate::component::{Component, Event, Outcome, Role, Theme};
 use crate::render::cell::clipped_line;
 use crate::render::sanitize;
+#[cfg(test)]
 use crate::transcript::wrap::display_width;
 
 use super::scroll_state::ScrollState;
@@ -184,10 +185,10 @@ impl ListPicker {
         let filtered: Vec<usize> = (0..items.len()).collect();
         let mut scroll = ScrollState::new();
         scroll.clamp_selection(items.len());
-        if let Some(idx) = params.initial_selected_idx {
-            if idx < items.len() {
-                scroll.selected_idx = Some(idx);
-            }
+        if let Some(idx) = params.initial_selected_idx
+            && idx < items.len()
+        {
+            scroll.selected_idx = Some(idx);
         }
         Self {
             view_id: params.view_id,
@@ -488,10 +489,10 @@ impl ListPicker {
                     Style::default()
                 };
                 spans.push(Span::styled(name, name_style));
-                if item.is_disabled {
-                    if let Some(reason) = &item.disabled_reason {
-                        spans.push(Span::styled(format!(" ({reason})"), dim));
-                    }
+                if item.is_disabled
+                    && let Some(reason) = &item.disabled_reason
+                {
+                    spans.push(Span::styled(format!(" ({reason})"), dim));
                 }
                 lines.push(clipped_line(Line::from(spans), width.saturating_sub(2)));
                 if let Some(desc) = &item.description {

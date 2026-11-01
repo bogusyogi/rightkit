@@ -661,7 +661,8 @@ fn vim_replace_backspace_restores_characters_in_new_slash_element() {
 
 #[test]
 fn vim_editing_modes_use_the_same_large_paste_handling() {
-    for pasted in ["x".repeat(LARGE_PASTE_CHAR_THRESHOLD + 1)] {
+    {
+        let pasted = "x".repeat(LARGE_PASTE_CHAR_THRESHOLD + 1);
         let mut insert = vim_composer("next");
         keys(&mut insert, "i");
         insert.handle_paste(pasted.clone());

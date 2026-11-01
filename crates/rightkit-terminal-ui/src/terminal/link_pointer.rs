@@ -15,19 +15,25 @@ use std::io::Write;
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering;
 
+#[cfg(test)]
 use crate::component::Event;
 use crate::terminal::capability::TerminalName;
+#[cfg(test)]
 use crossterm::event::MouseEvent;
+#[cfg(test)]
 use crossterm::event::MouseEventKind;
 
 /// Last-seen pointer position while capturing, cleared on any event that
 /// invalidates screen coordinates.
 #[derive(Default)]
+#[cfg(test)]
 pub(crate) struct LinkHover {
     pub(crate) mouse: Option<MouseEvent>,
 }
 
+#[cfg(test)]
 impl LinkHover {
+    #[cfg(test)]
     pub(crate) fn observe(&mut self, event: &Event) {
         match event {
             Event::Mouse(mouse) => {
@@ -58,6 +64,7 @@ impl LinkPointer {
         Self(AtomicU8::new(/*v*/ 0))
     }
 
+    #[cfg(test)]
     pub(super) fn update(&self, writer: &mut impl Write, over_link: bool) -> std::io::Result<()> {
         let previous = self.0.load(Ordering::Relaxed);
         let next = if over_link { 2 } else { 1 };
@@ -96,14 +103,6 @@ impl LinkPointer {
         }
         Ok(())
     }
-}
-
-/// OSC 22 names differ between terminals. Restrict CSS names to known
-/// implementations; multiplexers may consume OSC 22 and do not promise
-/// pointer-shape passthrough (donor `Tui::set_link_pointer` gate).
-pub(crate) fn link_pointer_supported() -> bool {
-    let info = crate::terminal::capability::terminal_info();
-    info.multiplexer.is_none() && matches!(info.name, TerminalName::Ghostty | TerminalName::Kitty)
 }
 
 #[cfg(test)]

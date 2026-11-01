@@ -6,10 +6,11 @@ fn fake() -> MembraneCli {
     MembraneCli::new(env!("CARGO_BIN_EXE_fake-membrane").into())
 }
 
-/// Test dirs live under D:/scratch when present (disk-hygiene rule).
+/// Test dirs live under D:/scratch when present on Windows (disk-hygiene rule); elsewhere the path would be
+/// relative and land inside the crate, so every other host uses the system temp directory.
 fn scratch() -> tempfile::TempDir {
     let base = Path::new("D:/scratch/membrane-cli");
-    if std::fs::create_dir_all(base).is_ok() {
+    if cfg!(windows) && std::fs::create_dir_all(base).is_ok() {
         tempfile::Builder::new().tempdir_in(base).unwrap()
     } else {
         tempfile::tempdir().unwrap()

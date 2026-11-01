@@ -42,6 +42,7 @@
 
 use crate::terminal::hyperlinks::HyperlinkLine;
 use crate::terminal::hyperlinks::remap_wrapped_line;
+#[cfg(test)]
 use crate::terminal::hyperlinks::visible_lines;
 use crate::terminal::hyperlinks::web_destination;
 use crate::terminal::line_utils::line_to_static;
@@ -68,6 +69,7 @@ use pulldown_cmark::TagEnd;
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::text::Span;
+#[cfg(test)]
 use ratatui::text::Text;
 use std::ops::Range;
 use std::path::Path;
@@ -86,12 +88,12 @@ mod task_lists;
 mod web_links;
 
 use inline_directives::InlineDirectives;
-pub(crate) use inline_directives::followup_labels;
 pub(crate) use list_spacing::ListSpacing;
 use list_spacing::UniformList;
 use local_links::is_local_path_like_link;
 use local_links::render_local_link_target;
 use local_links::should_render_local_link_label;
+#[cfg(test)]
 pub(crate) use streaming::StreamingMarkdownRender;
 pub(crate) use streaming::render_streaming_markdown_lines_with_width_and_cwd;
 #[cfg(test)]
@@ -341,6 +343,7 @@ struct TableColumnMetrics {
 /// example, snapshot tests or contexts that intentionally defer wrapping). If
 /// a viewport width is known, prefer [`render_markdown_text_with_width`] so
 /// table fallback and line wrapping decisions match the visible terminal.
+#[cfg(test)]
 pub fn render_markdown_text(input: &str) -> Text<'static> {
     render_markdown_text_with_width(input, /*width*/ None)
 }
@@ -352,6 +355,7 @@ pub fn render_markdown_text(input: &str) -> Text<'static> {
 /// readably. Passing `None` keeps intrinsic line widths and disables
 /// width-driven wrapping in the markdown writer. Local file links render
 /// relative to the current process working directory.
+#[cfg(test)]
 pub(crate) fn render_markdown_text_with_width(input: &str, width: Option<usize>) -> Text<'static> {
     let cwd = std::env::current_dir().ok();
     render_markdown_text_with_width_and_cwd(input, width, cwd.as_deref())
@@ -362,6 +366,7 @@ pub(crate) fn render_markdown_text_with_width(input: &str, width: Option<usize>)
 /// The `cwd` parameter controls how absolute local targets are shortened before display. Passing
 /// the session cwd keeps full renders, history cells, and streamed deltas visually aligned even
 /// when rendering happens away from the process cwd.
+#[cfg(test)]
 pub(crate) fn render_markdown_text_with_width_and_cwd(
     input: &str,
     width: Option<usize>,
@@ -1002,6 +1007,7 @@ impl<'a, 'policy> Writer<'a, 'policy> {
         self.flush_current_line();
         let separate = match self.list_spacing {
             ListSpacing::AfterMultiline => after_multiline,
+            #[cfg(test)]
             ListSpacing::Compact => false,
             ListSpacing::Uniform => self.uniform_lists.last().is_some_and(|list| list.has_item),
         };
