@@ -5,9 +5,15 @@
 //!   parsing a verified Meta delivery into bounded events; event-time reading.
 //! - [`keywords`]: whole-word keyword matching for comment-to-DM rules.
 //!
-//! Storing deliveries, matching accounts and sending replies belong to the host app.
+//! - [`inbox`]: the store-bound commands (`inbox.receive`, `list`, `get`, `set_state`, `stats`) over a
+//!   host-implemented [`inbox::InboxStore`].
+//! - [`protocol`]: the inbox and DM-automation payload shapes.
+//!
+//! The tables and sending replies belong to the host app.
 
+pub mod inbox;
 pub mod keywords;
+pub mod protocol;
 pub mod webhook;
 
 /// An error: a stable machine-readable code and a human-readable message.
