@@ -59,7 +59,7 @@ rightkit-logs = { version = "0.3.7", path = "../rightkit-logs", default-features
 rightkit-device-link-types = { version = "0.1.0", path = "../rightkit-device-link-types", optional = true }
 rightkit-owner-approvals = { version = "0.1.0", path = "../rightkit-owner-approvals", optional = true }
 # Device identity seed in the OS credential store.
-rightkit-credentials = { version = "0.4.2", path = "../rightkit-credentials", optional = true }
+rightkit-credentials = { version = "0.4.3", path = "../rightkit-credentials", optional = true }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto", optional = true }
 # Bounded newline-delimited JSON frames for the pairing channel.
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar", optional = true }

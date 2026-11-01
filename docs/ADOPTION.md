@@ -114,7 +114,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-disk-cleanup` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-docs` | crates.io | 0.1.3 | 0.1.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-doctor` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-document-workspace` | crates.io | 0.1.1 | none recorded | 0 | none | - |
+| `rightkit-document-workspace` | crates.io | 0.1.2 | none recorded | 0 | none | - |
 | `rightkit-embed` | crates.io | 0.6.2 | 0.6.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-engine-host` | crates.io | 0.1.1 | none recorded | 1 | genright | 1 vendored copy |
 | `rightkit-evidence` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
@@ -209,7 +209,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-vault` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-video-project` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-voice-commands` | crates.io | 0.1.0 | none recorded | 1 | heardright | 1 vendored copy |
-| `rightkit-web-extract` | crates.io | 0.1.1 | none recorded | 0 | none | - |
+| `rightkit-web-extract` | crates.io | 0.1.2 | none recorded | 0 | none | - |
 | `rightkit-web-session` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-win-ui` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-workflow` | crates.io | 0.2.1 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |

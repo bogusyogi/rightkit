@@ -2439,8 +2439,8 @@ dependencies = [
  "sys-locale",
  "tracing",
  "windows",
- "windows-core 0.62.2",
- "windows-implement 0.60.2",
+ "windows-core 0.100.0",
+ "windows-implement 0.100.0",
  "windows-sys 0.61.2",
 ]
 
