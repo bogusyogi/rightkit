@@ -172,7 +172,9 @@ test("the cargo a gate wraps skips an outer gate's runtime wrapper on PATH and t
     assert.equal(isGateCargoWrapper(toolchain), false, "a toolchain cargo is not a wrapper");
     assert.equal(realCargoOf([outer.shim, toolchain]), toolchain, "the outer wrapper first on PATH is skipped");
     assert.equal(realCargoOf([toolchain, outer.shim]), toolchain);
-    assert.equal(realCargoOf([outer.shim]), undefined, "only a wrapper: no cargo to wrap");
+    assert.equal(realCargoOf([outer.shim]), toolchain, "a lookup that names only the wrapper: the toolchain cargo its map records");
+    assert.equal(realCargoOf([outer.shim], undefined, () => ({ realCargo: outer.shim })), undefined, "a map that names a wrapper names no cargo");
+    assert.equal(realCargoOf([outer.shim], undefined, () => { throw new Error("gone"); }), undefined, "an unreadable map names no cargo");
     assert.equal(realCargoOf(["cargo", toolchain]), toolchain, "a relative entry is never taken");
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });

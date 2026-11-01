@@ -39,8 +39,8 @@ export function resolveExecutor({ env = process.env, platform = process.platform
       };
     }
     const pathKey = platform === "win32" ? Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH" : "PATH";
-    const direct = directCargoPath({ env: { ...env, PATH: env[pathKey] }, exists, platform });
-    return { kind: "direct", cargo: ["cargo"], ...(direct.dropped.length ? { env: { [pathKey]: direct.path }, note: `RustRight shims taken off PATH for direct cargo: ${direct.dropped.join(", ")}` } : {}), ...(direct.cargo ? {} : { note: `no direct cargo on PATH${direct.dropped.length ? ` (RustRight shims skipped: ${direct.dropped.join(", ")})` : ""}; cargo scans fail as a missing tool` }) };
+    const direct = directCargoPath({ env: { ...env, PATH: env[pathKey] }, exists, platform, gateWrappers: true });
+    return { kind: "direct", cargo: ["cargo"], ...(direct.dropped.length ? { env: { [pathKey]: direct.path }, note: `RustRight shims and outer gate cargo wrappers taken off PATH for direct cargo: ${direct.dropped.join(", ")}` } : {}), ...(direct.cargo ? {} : { note: `no direct cargo on PATH${direct.dropped.length ? ` (RustRight shims and gate wrappers skipped: ${direct.dropped.join(", ")})` : ""}; cargo scans fail as a missing tool` }) };
   }
   if (which("rustright").length) return { kind: "broker", cargo: ["rustright", "cargo"] };
   const first = which("cargo")[0];

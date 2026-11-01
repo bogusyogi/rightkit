@@ -132,12 +132,23 @@ export function isGateCargoWrapper(file, readHead = fileHead) {
 }
 
 /**
- * The absolute cargo a gate wraps: the first of `candidates` (a PATH lookup, in order) that is not another gate's runtime wrapper.
+ * The absolute cargo a gate wraps: the first of `candidates` (a PATH lookup, in order) that is not another gate's runtime wrapper, or the
+ * toolchain cargo such a wrapper's map records (a lookup that returns only the first match finds only the wrapper).
  * A gate started inside a scan of an outer gate finds that gate's wrapper first on PATH; wrapping it would send every call through
  * the outer map, which binds none of this gate's workspaces (0.6.18 Linux qualify: RK_CARGO_UNBOUND_WORKSPACE "resolved (none)").
  */
-export function realCargoOf(candidates, readHead = fileHead) {
-  return candidates.find((c) => path.isAbsolute(c) && !isGateCargoWrapper(c, readHead));
+export function realCargoOf(candidates, readHead = fileHead, readMap = (file) => JSON.parse(readFileSync(file, "utf8"))) {
+  for (const c of candidates) {
+    if (!path.isAbsolute(c)) continue;
+    if (!isGateCargoWrapper(c, readHead)) return c;
+    // A PATH lookup (`which`) names only the first match: the wrapper's own map records the toolchain cargo it wraps.
+    try {
+      const at = /--map '([^']+)'/.exec(readHead(c));
+      const wrapped = at ? readMap(at[1]).realCargo : null;
+      if (typeof wrapped === "string" && path.isAbsolute(wrapped) && !isGateCargoWrapper(wrapped, readHead)) return wrapped;
+    } catch { /* an unreadable map names nothing: keep looking */ }
+  }
+  return undefined;
 }
 
 /**
@@ -145,7 +156,7 @@ export function realCargoOf(candidates, readHead = fileHead) {
  * RIGHTKIT_MANAGED_AGENT_BIN, or a script that routes through the broker, read 4 KiB at most), and the first real cargo left on it.
  * Plain `cargo` then can only be a real toolchain; with none, a cargo launch fails as missing, never through a shim.
  */
-export function directCargoPath({ env = process.env, exists = existsSync, readHead = fileHead, platform = process.platform } = {}) {
+export function directCargoPath({ env = process.env, exists = existsSync, readHead = fileHead, platform = process.platform, gateWrappers = false } = {}) {
   // `platform` only matters for a forced direct run on Windows (a recorded broker exception): ";" separators, backslash paths, cargo.exe.
   const win = platform === "win32";
   const norm = (d) => (win ? String(d).replaceAll("\\", "/") : d);
@@ -154,7 +165,9 @@ export function directCargoPath({ env = process.env, exists = existsSync, readHe
   for (const dir of String(env.PATH ?? "").split(win ? ";" : ":").filter(Boolean)) {
     const candidates = win ? ["cargo.exe", "cargo.cmd", "cargo.bat", "cargo"].map((n) => path.win32.join(dir, n)) : [path.posix.join(dir, "cargo")];
     const found = candidates.find((c) => exists(c));
-    const isShim = Boolean(found) && (MANAGED_AGENT_BIN.test(norm(dir)) || (configured && path.posix.resolve(norm(dir)) === configured) || /cargo-guard\.mjs|rustright/i.test(readHead(found)));
+    // `gateWrappers`: a gate resolving its OWN executor also skips another gate's runtime cargo wrapper (a gate started inside an outer gate's scan,
+    // 0.6.18/0.6.19 Linux qualify). A gate's children never pass it: inside a stage the wrapper first on PATH is the binding they must go through.
+    const isShim = Boolean(found) && (MANAGED_AGENT_BIN.test(norm(dir)) || (configured && path.posix.resolve(norm(dir)) === configured) || /cargo-guard\.mjs|rustright/i.test(readHead(found)) || (gateWrappers && isGateCargoWrapper(found, readHead)));
     if (isShim) { dropped.push(dir); continue; }
     kept.push(dir);
     if (!cargo && found) cargo = found;
