@@ -1638,7 +1638,11 @@ async function runStages(o, args, root, git, io) {
       // compile was already passed (a separately invoked `--to package` re-stages after the sync, so it never meets a missing externalBin).
       // right-release then takes its identity from the selected commit and the verified snapshot (release-source-identity.mjs, row 7.04),
       // never the checkout's HEAD, status or branch; its outputs, state and the sealed directory stay in the checkout's `.right-release`.
-      ok = ds ? await stageSidecarsOnce({ o, ds, root, git, configs: sidecarConfigsOf(), appDir, cli, commonDir, commit, tree, stage, executor }) : true;
+      // The declared web build and Windows identity inputs first, as in the compile stage: the sidecar builds are broker-admitted only when every declared input is in the snapshot.
+      ok = true;
+      if (ds) ok = await stageWebBuildOnce({ o, ds, root, git, appDir, cli, commonDir, commit, tree, stage, executor });
+      if (ok && ds) ok = await stageWindowsIdentityOnce({ o, ds, root, git, appDir, cli, commonDir, commit, tree, stage, executor });
+      if (ok && ds) ok = await stageSidecarsOnce({ o, ds, root, git, configs: sidecarConfigsOf(), appDir, cli, commonDir, commit, tree, stage, executor });
       // Source QA (right-release qa --stage source) exists for mac and win only; a mobile package is the signed build alone.
       // Row 7.04c (R-T1, 7.09): the snapshot holds no Cargo target. On a direct host the checkout's output directory is resolved here, in the primary
       // checkout, and handed to right-release absolute: it binds every manifest's target for this stage, and the sealed manifest must record it back
@@ -2870,6 +2874,11 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
   // app's own prepare step may stage them too; the ledger's attribution check, not an environment marker, is what keeps that single and exact.
   if (ds) {
     const sidecarConfigs = committedSidecarConfigs({ o, git, commit, appDir, base: ds.path });
+    // The declared web build and Windows identity inputs first: the sidecar builds are broker-admitted only when every declared input is in the snapshot.
+    const rr = fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url));
+    if (!(await stageWebBuildOnce({ o, ds, root, git, appDir, cli: rr, commonDir, commit, tree, stage: to, executor, tag })) || !(await stageWindowsIdentityOnce({ o, ds, root, git, appDir, cli: rr, commonDir, commit, tree, stage: to, executor, tag }))) {
+      o.err(`${tag} --to ${to} stopped: the declared compile inputs could not be produced; nothing compiled`); return 1;
+    }
     const staged = await stageSidecarsOnce({ o, ds, root, git, configs: sidecarConfigs, appDir, cli: fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url)), commonDir, commit, tree, stage: to, executor, tag });
     if (!staged) { o.err(`${tag} --to ${to} stopped: the declared sidecars could not be staged; nothing compiled`); return 1; }
   }
