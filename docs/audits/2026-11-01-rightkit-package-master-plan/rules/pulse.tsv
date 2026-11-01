@@ -1,0 +1,96 @@
+^settings/|windows/src/(settings|settings_gen)\.rs|hub/src/settings\.gen|scripts/gen-settings	rightkit-app-settings	EXTEND	cross-platform settings manifest + codegen (Rust/Swift/Win32/React)
+windows/src/agent\.rs	rightkit-agent-runtime	NEW	windows agent glue
+mac/Notch/Sources/App/ViewShots	RightKitHubQA	EXTEND	view snapshots
+core/tests/(chat|codex|claude)	rightkit-chat-bridge	NEW	tests
+core/tests/(rule|store|scan|cleanup|dupl|growth)	rightkit-disk-cleanup	NEW	tests
+core/tests/(device|link|pair|mesh)	rightkit-mesh	NEW	tests
+core/tests/(remote|admin|approval)	rightkit-remote-control	NEW	tests
+core/tests/(monitor|process)	rightkit-system-monitor	NEW	tests
+core/tests/(app|uninstall)	rightkit-app-manager	NEW	tests
+^brand/	@rightkit/theme	EXTEND	icon-pack builder (all platforms) from brand source
+^(rightkit-mesh|rightkit-mesh-ffi|relay-tools)/|^deploy/relay/|^swift/MeshLink/|^android/meshlink/|core/src/devicelink/(link|circle|join_token|linux_install)|engine/src/(share_mesh|devicelink_host)	rightkit-mesh	NEW	device mesh (iroh): link, device circle, join tokens, relay & mailbox/admission, FFI for iOS/Android (already named rightkit-mesh but lives in app repo: move & publish)
+core/src/devicelink/(identity|pairing)	rightkit-identity	EXTEND	device identity & short-code pairing
+core/src/devicelink/(admin_sig|admin_win|chat_confirm|phone)|core/src/remote/approval_sig|^winadmin/|core/src/admin_cmd	rightkit-approvals	NEW	signed phone/owner approvals for privileged & reserved actions; Windows admin service
+core/src/devicelink/	rightkit-mesh	NEW	device link module glue
+core/src/remote/agent_secrets	rightkit-vault	EXTEND	agent logins & payment secrets
+core/src/remote/|core/src/remote_cmd|engine/src/files	rightkit-remote-control	NEW	remote tools for agents (files, app launch, clipboard, chat read/start/term, browser address), local approvals, audit trail
+^gateway/	rightkit-agent-gateway	NEW	agent gateway: LLM provider & tool routing
+core/src/agent/|ios/Sources/Agent/	rightkit-agent-runtime	NEW	always-on agent: task envelope & transitions, principals, intents, effects, device/approval binding, voice handoff; agent loop, providers, budget (Swift: RightKitAgent)
+core/src/(browser/|browser_cmd)	rightkit-web-session	NEW	agent browser logins on rightkit-browser
+core/src/(chat/|chat_cmd|claude_chats)|engine/src/chat\.rs|windows/src/(chat_plugins|phone_typing|launcher_chat)|mac/Notch/Sources/Conveniences/(ChatPluginInstaller|ClaudeChatMirror)	rightkit-chat-bridge	NEW	deliver messages into running Claude/Codex chats (hooks, UIA/AX typing), envelopes, hub heartbeat, chat skill install, cross-user boundary
+core/src/(claude_cli|claude_desktop|claude_names|claude_sync|claude_cmd)|engine/src/claude_accounts|windows/src/claude_|mac/Notch/Sources/System/(ClaudeAccount|ClaudeChatSync)	rightkit-claude-accounts	NEW	Claude Desktop/CLI account switching & Code-session sync across accounts
+mac/Notch/Sources/Providers/	rightkit-ai-usage	NEW	Claude/Codex plan usage, credentials, resets & credits (Swift providers)
+core/src/(budget|budget_cmd)	rightkit-spend	EXTEND	per-project spend budgets
+core/src/(sharing|send_cmd)|engine/src/share\.rs|windows/src/send|mac/Notch/Sources/Sharing/	rightkit-send	ADOPT	nearby sharing glue & UI
+core/src/(scan|cleanup|cleanup_cmd|cleanup_scan|rules|duplicates|folder_growth|history|snapshot|storage_browser|store|activity|compression)\.rs|engine/src/(cleanup|cleanup_sources|duplicates|growth|scanner|compress|journal/|activity\.rs)	rightkit-disk-cleanup	NEW	bounded metadata scans, cleanup plans/rules w/ undo journal, duplicates, folder growth, snapshots, storage browser, media compression
+engine/src/disk_index	rightkit-fsindex	ADOPT	disk index
+core/src/(app_manager|apps|apps_windows/|uninstall_cmd|process_control)|engine/src/(apps|startup_items)|windows/src/(auto_quit|installer|disk_images)|mac/Notch/Sources/Conveniences/(AutoQuit|DiskImage)	rightkit-app-manager	NEW	installed-app inventory, leftovers, uninstall plans, updates, usage, startup items, quit/auto-quit, disk-image install
+core/src/(monitor|processes|process_|gpu_temp|drive_health|usage_snapshot|dashboard_export)|engine/src/(memory_guard|memory_series|metrics_history|procstats|health|volumes|eject_windows)|windows/src/(sensors|usage|drive_health)|mac/Notch/Sources/System/(DriveHealth|SystemSensors|SystemProviders|Sensors)	rightkit-system-monitor	NEW	CPU/memory/GPU/disk gauges, process inspection, SMART drive health, metrics history, volumes & eject
+core/src/platform/|core/src/home	rightkit-fs	EXTEND	native metadata adapters, bulk dir reads, volume identity, account home
+core/src/subprocess	rightkit-child-process	ADOPT	bounded subprocess
+core/src/crash|windows/src/crash	rightkit-crash	ADOPT	crash
+engine/src/(cache)	rightkit-cache	ADOPT	cache
+engine/src/diag_reports|windows/src/diag	rightkit-logs	ADOPT	diag
+engine/src/elevate|^mac/Notch/(Helper|Elevate)/|mac/Notch/Sources/System/(ElevationBroker|PrivilegedHelper)	rightkit-privileged-helper	NEW	privileged helper & elevation broker (macOS SMAppService helper, Windows elevation), trash policy
+engine/src/permissions|mac/Notch/Sources/System/PulsePermissions	rightkit-automation	EXTEND	OS permission status & prompts
+engine/src/watch\.rs	rightkit-file-watch	ADOPT	watch
+engine/src/activity_lease	rightkit-job-queue	EXTEND	activity leases
+engine/src/membrane|windows/src/membrane|mac/Notch/Sources/System/MembraneLauncher	rightkit-context	NEW	host side of context engine
+membrane/engine/crates/membrane-grammars-vendored/	tree-sitter grammars	VENDOR-KEEP	vendored tree-sitter grammars; use crates.io grammar crates
+membrane/engine/crates/cortex-	rightkit-memory	NEW	durable memory store (Cortex): scopes, identity, telemetry
+membrane/engine/crates/membrane-blueprint/	rightkit-repo-graph	NEW	repository graph: structure, evidence, drift
+membrane/engine/crates/membrane-adapt/	rightkit-adapt	NEW	governed behavioural learning (taste + insights)
+membrane/engine/crates/membrane-transcript/	rightkit-agents	EXTEND	Claude Code/Codex transcript discovery & normalisation
+^membrane/skills/	@rightkit/skills	NEW	membrane skill
+^membrane/	rightkit-context	NEW	context engine: protocol, client, provider SDK, federation, budget/lanes, runtime, schemas, hooks
+windows/src/(launcher|spot_takeover)|mac/Notch/Sources/Launcher/	rightkit-launcher	NEW	command launcher: calculator, dictionary, files, notes, rates, snippets, commands (Win32 + Swift)
+windows/src/(clip|shelf)|mac/Notch/Sources/Conveniences/(WheelClipboardRing|SnippetExpansion)	rightkit-clipboard-history	NEW	clipboard history: capture, detect, images, paste, seal, search, strip, shelf, snippet expansion
+windows/src/(shot|viewshots)	rightkit-record	EXTEND	screenshots via WGC
+windows/src/(wheel|answer_card|alerts|browser_alerts|remote_alerts|notify|card|canvas|render|text_layout|surface|layout|motion|glyphs|response_layout|visibility|fileicon|tick_cost)|mac/Notch/Sources/Conveniences/(ToolWheel|WheelConflict|Tools)	rightkit-overlay-win	EXTEND	Win32 notch surface toolkit: render, text layout, motion, cards, alerts, tool wheel
+windows/src/(unlock_auth)|ios/Sources/Owners/	rightkit-app-lock	NEW	owner unlock auth / app lock
+windows/src/(autostart|update)	rightkit-tauri-shell	ADOPT	autostart & update
+windows/src/(i18n)	@rightkit/i18n	ADOPT	i18n
+windows/src/(keys|window_keys|wheel_conflict)	rightkit-hotkeys	ADOPT	hotkeys
+windows/src/(zstd|json)\.rs|mac/Notch/Sources/Vendor/	none	DROP	hand-rolled zstd/json & vendored zstd: use crates/system lib
+windows/src/(devices)	rightkit-mesh	NEW	devices UI
+mac/Notch/Sources/Conveniences/	rightkit-desktop-tweaks	NEW	Finder cut/paste, path field, window closer, dock-click minimize, window maximizer, event tap hub (Swift + Win)
+mac/Notch/Sources/(Notch|DesignSystem|Presentation|Features|Model|Face)/|^mac/Notch/Face/	RightKitNotch	NEW	macOS notch surface: notch window, design system, rings & cards, model
+mac/Notch/Sources/Agent/	rightkit-agent-runtime	NEW	Swift agent UI/bridge
+mac/Notch/Sources/Sessions/	rightkit-claude-accounts	NEW	Claude sessions (Swift)
+mac/Notch/Sources/Devices/	rightkit-mesh	NEW	Swift devices
+mac/Notch/Sources/Settings/	RightKitUI	EXTEND	SwiftUI settings
+mac/Notch/Sources/Updater/	RightKitUpdate	ADOPT	updater
+mac/Notch/Sources/Keyboard/	RightKitHotkeys	ADOPT	keyboard
+mac/Notch/Sources/System/	app-shell	SHELL	engine/hub launch glue
+mac/Notch/	app-shell	SHELL	notch app entry
+mac/Hub/Sources/(PulseHubFixtures|pulse-hub-render|pulse-hub-tour)/	RightKitHubQA	EXTEND	hub fixtures, renderer, AX tour
+mac/Hub/	RightKitSystemUI	NEW	SwiftUI system hub sections: overview, storage, cleanup, monitor, apps, chat, activity, membrane
+^swift/RightKitHub/	RightKitHub	ADOPT	duplicate copy of RightKit's RightKitHub: delete
+ios/Sources/(Mesh)/	rightkit-mesh	NEW	Swift mesh client
+ios/Sources/(Approvals)/	rightkit-approvals	NEW	Swift approvals
+ios/Sources/(Browser)/	rightkit-web-session	NEW	Swift browser logins
+ios/Sources/(Presentation|Screens)/	RightKitRemoteUI	NEW	phone remote-control screens
+^ios/	app-shell	SHELL	iOS app
+^android/	app-shell	SHELL	android app
+hub/src/views/(Devices|PhonePairing|Guests|NearbySettings)	@rightkit/mesh-ui	NEW	devices, pairing, guests, nearby
+hub/src/views/(RemoteApprovals|RemoteSettings|OwnerPin|SecureBoxSettings|BrowserLogins)	@rightkit/agent-ui	NEW	remote approvals & owner settings
+hub/src/views/(Settings|settingsKit|LauncherSettings|Diagnostics|diagnostics\.css|settings\.css)	@rightkit/settings-ui	EXTEND	settings sections
+hub/src/(lib/(legal|license|onboardingSettings)|onboarding/)	@rightkit/onboarding	ADOPT	onboarding/legal/licence
+hub/src/(views|components|lib|chart|metrics|kept|visible|activityLease)	@rightkit/system-ui	NEW	React system hub: overview, storage, cleanup, monitor, apps, chat, activity, membrane, drive health, charts
+hub/qa-e2e/|^qa/	rightkit-qa	ADOPT	QA scenarios
+hub/src-tauri/src/(legal|license|onboarding)	rightkit-tauri-shell	ADOPT	shell hosts
+hub/src-tauri/src/secure_prompt	rightkit-credentials	EXTEND	secure prompt
+^hub/	app-shell	SHELL	hub app entry
+core/src/	app-shell	SHELL	pulse CLI commands, IPC model, presentation
+^core/	app-shell	SHELL	core tests/examples
+engine/src/	app-shell	SHELL	resident engine host, supervisor, watchdog, instance, events
+^engine/	app-shell	SHELL	engine manifest
+windows/src/	app-shell	SHELL	windows app entry, runtime, settings, bridge
+^windows/	app-shell	SHELL	windows manifest
+^plugin-launcher/	@rightkit/ax	EXTEND	agent plugin launcher
+^scripts/(release|fonts|gen-settings)	@rightkit/release	EXTEND	release staging, settings codegen, fonts
+^scripts/(upstream|swiftright)	@rightkit/outdated	EXTEND	upstream donor check
+^scripts/	@rightkit/qa	EXTEND	probes, fixtures, win-installed crawler, protected keys
+^deploy/	@rightkit/release	EXTEND	server deploy scripts
+(rustfmt\.toml|\.cargo/|vite\.config\.ts|about\.toml|eslint|deny\.toml|rust-toolchain)	@rightkit/config	NEW	shared presets
+.*	app-shell	CONFIG	app manifests

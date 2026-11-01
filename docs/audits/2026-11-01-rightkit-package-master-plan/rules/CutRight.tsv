@@ -1,0 +1,64 @@
+^imports/	none	DROP	provenance copies of imported skills/behaviour notes (reference only)
+^skills/|^cutaway/	@rightkit/skills	NEW	agent skill packs (designer engine incl. vendored huashu, content specialists, cutaway editing scripts)
+^vendor/citationberg/	rightkit-typeset	VENDOR-KEEP	CSL style parser (MIT): keep as crates.io dep of typeset/citations
+crates/cutright-compositor(-effects|-gpu|-masks)?/	rightkit-compositor	NEW	native wgpu layer compositor, GPU effects & SDF masks (adapted from OpenCut, MIT)
+crates/cutright-compose/	rightkit-compose	EXTEND	evaluated timeline -> compositor frame descriptors
+crates/cutright-timeline/	rightkit-timeline	NEW	portable timeline core: tracks, clips, rational time, edits, undo
+crates/cutright-project/|engine/src/(project_cmd|projects_cmd|bundle_cmd|slot_cmd|storage_cmd|outputs_cmd)	rightkit-video-project	NEW	video project layer: sources & integrity, revisions, portable bundle export/import, card slots, cache storage
+crates/cutright-captions/|engine/src/(caption_|captions_cmd)	rightkit-captions	NEW	caption styles, per-language caption sets, placement, swatch preview
+crates/cutright-color/|engine/src/colour_cmd	rightkit-color	NEW	colour grading & scopes
+crates/cutright-(cuts|editorial|variants)/|engine/src/(autoedit_cmd|editplan_cmd|plan_cmd|style_cmd|mic_cmd)	rightkit-autoedit	NEW	transcript-driven cut & editorial engines, edit plans, named variants, style measurement, mic alignment
+crates/cutright-shorts/|engine/src/moments_cmd	rightkit-shorts	NEW	shorts finder & scoring, on-screen-text moment search
+crates/cutright-reframe/	rightkit-reframe	NEW	tracked 9:16 reframe: ONNX face detect, tracking, smoothed crop path
+crates/cutright-rules/|engine/src/(rules_cmd|autonomy_cmd)	rightkit-edit-rules	NEW	scoped editing rules & resolution matrix, autonomy levels
+crates/cutright-(fcpxml|otio)/	rightkit-timeline-interchange	NEW	FCPXML & OpenTimelineIO export
+crates/cutright-genright/|engine/src/genright_cmd	rightkit-pipeline	NEW	cross-engine orchestration: call generation engine, follow jobs, place results
+engine/src/(brief_cmd|channel_recipe|recipe_cmd|recipes_cmd|batch_cmd)	rightkit-pipeline	NEW	brief check/run, channel recipes, unattended recipe runs, durable batch delivery
+crates/cutright-ledger/	rightkit-spend	EXTEND	productivity/command ledger & preference policy
+engine/src/retention_cmd	rightkit-social-analytics	NEW	retention feedback import & analysis
+crates/cutright-qa/	rightkit-review	EXTEND	final-render QA gate & social packaging checks
+crates/cutright-speech/	rightkit-align	EXTEND	word timings + VAD for talking-head (on rightkit-asr/vad/align)
+crates/cutright-model-store/|engine/src/models_cmd	rightkit-models	ADOPT	model store adapter
+engine/src/(contactsheet_cmd|thumb_cmd)	rightkit-motion	EXTEND	contact sheets & thumbnails
+engine/src/discovery	rightkit-daemon	EXTEND	installed suite-app discovery
+engine/src/doctor	rightkit-doctor	NEW	doctor report
+engine/src/(media_cmd)	rightkit-video-project	NEW	media workflow methods: projects, transcription, render
+engine/src/(paths)	rightkit-fs	ADOPT	paths
+crates/cutright-ui-e2e/	rightkit-qa	ADOPT	UI e2e
+engine/tests/(caption|c3_captions|project_font)	rightkit-captions	NEW	tests
+engine/tests/(colour)	rightkit-color	NEW	tests
+engine/tests/(autoedit|editing|editor_corr|editplan|plan_apply|cross_file|broll|c3_dry|c3_mic|mic_align|service_filler|transition|keyframes|split_slip)	rightkit-autoedit	NEW	tests
+engine/tests/(shorts|c3_shorts|moments|repurpose)	rightkit-shorts	NEW	tests
+engine/tests/(c3_reframe|framing|c3_aspects|screen_camera)	rightkit-reframe	NEW	tests
+engine/tests/(rules|autonomy)	rightkit-edit-rules	NEW	tests
+engine/tests/(brief|recipe|batch|genright|generated_source|serve_dry)	rightkit-pipeline	NEW	tests
+engine/tests/(retention|autoedit_retention)	rightkit-social-analytics	NEW	tests
+engine/tests/(qa_|room_tone_splice)	rightkit-review	EXTEND	tests
+engine/tests/(speech|talking_head)	rightkit-align	EXTEND	tests
+engine/tests/(room_tone|finishing|c3_finishing|hdr|video_shorter|keyed_visuals|slot_fill|preview_mute)	rightkit-compose	EXTEND	finishing/render tests
+engine/tests/(contactsheet)	rightkit-motion	EXTEND	tests
+engine/tests/	rightkit-video-project	NEW	project/bundle/step e2e tests
+src-tauri/tests/	rightkit-playback	EXTEND	playback e2e tests
+crates/cutright-engine/	app-shell	SHELL	engine binary & method table
+apps/cutright/src-tauri/src/demo/|apps/cutright/src/demo/|^apps/demo-fixture/	rightkit-agent-demo	NEW	consented agent demo mode: agent drives a catalog app via rightkit-automation, recorded via rightkit-record, badge, kill hotkey, bundles
+apps/cutright/src-tauri/src/playback	rightkit-playback	EXTEND	native playback session over evaluated revision
+apps/cutright/src-tauri/src/(crash)	rightkit-crash	ADOPT	crash
+apps/cutright/src-tauri/src/(licence)	rightkit-license	ADOPT	licence
+apps/cutright/src-tauri/src/(logs)	rightkit-logs	ADOPT	logs
+apps/cutright/src-tauri/src/(engine_supervisor)	rightkit-tauri-shell	ADOPT	engine host
+apps/cutright/src-tauri/	app-shell	SHELL	tauri entry & grants
+^sidecars/	RightKitMedia	NEW	macOS media worker (Swift): AVFoundation render, audio finish, typography, Vision, motion compositor; Silero VAD & vision anchor
+apps/cutright/src/editor/vendor/hyperframes	@rightkit/timeline-ui	VENDOR-OWN	vendored hyperframes player bits
+apps/cutright/src/(editor|hooks)/	@rightkit/timeline-ui	NEW	video editor UI: timeline, preview, inspector
+apps/cutright/src/(views|components|ui)/	@rightkit/video-ui	NEW	project, captions, colour, shorts, recipes, outputs, batch & finished-edit screens
+apps/cutright/src/legal/	@rightkit/legal	ADOPT	legal
+apps/cutright/src/generated/	@rightkit/theme	ADOPT	generated
+apps/cutright/src/lib/	@rightkit/video-ui	NEW	client lib & engine bindings
+apps/cutright/	app-shell	SHELL	app entry
+^scripts/runtime/	rightkit-models	EXTEND	runtime pack builders (ffmpeg, llama, whisper, parakeet, silero, kokoro, ORT staging, model conversion)
+^scripts/legal/	@rightkit/legal	EXTEND	corresponding-source build
+^scripts/	@rightkit/release	ADOPT	gates & sample validation
+^tools/	rightkit-ffmpeg	EXTEND	ffmpeg editing build staging & qualification
+(rustfmt\.toml|\.cargo/|vite\.config\.ts|about\.toml|eslint|deny\.toml|rust-toolchain)	@rightkit/config	NEW	shared presets
+issues\.html|how-to\.html	app-shell	CONFIG	generated pages
+.*	app-shell	CONFIG	app manifests

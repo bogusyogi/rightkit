@@ -1,0 +1,66 @@
+src-tauri/tests/(history|draft_history)	rightkit-library	NEW	tests
+src-tauri/tests/pill	rightkit-overlay	EXTEND	tests
+src-tauri/tests/(paste|delivery|streaming)	rightkit-automation	EXTEND	tests
+src-tauri/tests/telemetry	rightkit-crash	EXTEND	tests
+src-tauri/tests/hub_updates	rightkit-tauri-shell	ADOPT	tests
+src-tauri/src/commands/models	rightkit-models	ADOPT	model commands
+ios-native/HeardRight/ContentView(Settings|History)	RightKitLibraryUI	NEW	SwiftUI history & settings views
+^data/|^docs/	none	NOTCODE	datasets & docs
+tauri-app-next/vendor/rightkit-asr/	rightkit-asr	DROP	vendored copy of rightkit-asr: use published crate
+tauri-app-next/vendor/tauri-runtime-wry/	tauri-runtime-wry	VENDOR-KEEP	patched Tauri runtime fork: upstream the patch, then use crates.io
+ios-native/Vendor/sherpa-onnx	rightkit-asr	VENDOR-OWN	sherpa-onnx xcframework headers: replace with RightKit Rust KWS/ASR (sherpa rewrite)
+ios-native/Vendor/onnxruntime	rightkit-onnx	VENDOR-KEEP	ONNX Runtime binary via rightkit-onnx
+ios-native/Vendor/	rightkit-asr	DROP	prebuilt core xcframework: build from RightKit crates
+^scripts/(wake_|zephyr_|hnm_|omnilingual|watch_int8)|tauri-app-next/scripts/(local-model-training|open-asr-bakeoff|local-model-screening|parakeet-v3-streaming|l1-polish-replay|bias-experiments|sotto-deployment-gate|coreml|whisper|unified_|windows_realtime|test_score_sherpa|test_evaluate_sherpa|test_compact_onnx|verify_audio_conditioning|validate-(sotto|l1|bakeoff))|tauri-app-next/bakeoff/	rightkit-ml-lab	NEW	model training & evaluation tooling: KWS/wake corpora & conditioning, ASR bakeoffs, polish-model training/eval, CoreML export
+tauri-app-next/heardright-(inference|onnx-asr|parakeet-core)/	rightkit-asr	EXTEND	Parakeet TDT core & ORT exec, CoreML, Whisper, KWS keyword spotting, VAD, calibration, file transcription
+tauri-app-next/heardright-model-store/|ios-native/Packages/SharedModelRoot	rightkit-models	ADOPT	model fetch/install/activation
+tauri-app-next/heardright-text-pipeline/|heardright_core/src/(text_pipeline|vocab|vocabulary)|src-tauri/src/(vocabulary|l3_keys)|commands/(vocabulary|l3_keys)	rightkit-text-polish	NEW	deterministic polish, LLM cleanup (L1-L3), vocabulary & learning, screen context
+tauri-app-next/heardright-command-host/|heardright_core/src/(command|external_url)	rightkit-voice-commands	NEW	voice command recognition/classification, launch & OS command adapters
+heardright_core/src/(delivery|hotkey_conflict|ptt_policy)|heardright_platform/|src-tauri/src/(delivery|streaming_|windows_uia|windows_wezterm|macos_input|paste_event_probe|middle_mouse)|tauri-app-next/tsf-tip/	rightkit-automation	EXTEND	text delivery into focused app: paste, streaming insertion & reconcile, UIA/AX, terminal targets, TSF tip, focus continuity
+src-tauri/src/(fn_hotkey|hotkey|hotkey_setup)	rightkit-hotkeys	ADOPT	push-to-talk hotkeys
+tauri-app-next/heardright-(runtime|engine|app-runtime)/|heardright_core/src/(engine|controller|state|audio_conditioning|mic_selection|wake|kws_ffi|ffi)|src-tauri/src/(runtime|engine|dictation_|controller|recording_cancel|wake_lab|start_sequence|state|runtime_lock)	rightkit-dictation	NEW	dictation runtime: mic capture & conditioning, session state machine, JSON-RPC sidecar worker, wake listener, recording lifecycle
+tauri-app-next/heardright-telemetry/|tauri-app-next/heardright-dump-helper/|src-tauri/src/(crash_report|diagnostic_log_migration)|commands/(diagnostics|feedback)	rightkit-crash	EXTEND	out-of-process minidump writer, user feedback, diagnostics transport
+tauri-app-next/heardright-dev-env/	rightkit-qa	EXTEND	test-only env switches
+heardright_core/src/(history|settings|app_paths|credential|net)|src-tauri/src/history	rightkit-library	NEW	transcript history: SQLCipher store, key rotation, retention, recovery, export
+src-tauri/src/(cloud_sync)	rightkit-sync	EXTEND	CloudKit transcript sync scheduler
+src-tauri/src/(pill|pill_)|heardright_core/src/pill|tauri-app-next/macos-native/	rightkit-overlay	EXTEND	recording pill overlay (native Win/Mac, dispatch queue)
+src-tauri/src/media_control	rightkit-media-control	NEW	system media playback pause/resume while dictating (Mac/Win)
+src-tauri/src/shot	rightkit-record	EXTEND	screenshot capture for context
+src-tauri/src/(license|native_license|pro_bridge|account_session)	rightkit-license	ADOPT	licence, trial, device link, pro bridge
+src-tauri/src/(credential_store|secret_store)	rightkit-credentials	ADOPT	secrets
+src-tauri/src/(background_updates|update_relaunch|login_launch|tray|menubar_helper|hub_window|app_icon|known_folder|atomic_replace|helper_process|platform_init|platform_setup|host_services|settings)	rightkit-tauri-shell	ADOPT	updates, autostart, tray, menubar, known folders, atomic replace, helpers
+src-tauri/src/(onboarding_)	@rightkit/onboarding	EXTEND	mic & calibration onboarding steps
+src-tauri/src/whisper_model	rightkit-asr	ADOPT	whisper model
+src-tauri/src/(qa_|retired_model|legacy_import)	rightkit-qa	EXTEND	QA commands & cleanup
+tauri-app-next/qa-e2e/|tauri-app-next/qa/	rightkit-qa	ADOPT	native journeys
+^tauri-app-next/src/pill/	@rightkit/overlay-ui	NEW	recording pill webview UI
+^tauri-app-next/src/pages/(Polish|Vocabulary)|^tauri-app-next/src/pages/polish/	@rightkit/text-polish-ui	NEW	polish & vocabulary pages
+^tauri-app-next/src/pages/(History|Transcribe)|^tauri-app-next/src/pages/history/|^tauri-app-next/src/components/(TranscribeModal|HistoryRecovery)	@rightkit/library-ui	NEW	transcript history & file transcribe
+^tauri-app-next/src/pages/(Onboarding|LegalAcceptance)|^tauri-app-next/src/pages/onboarding/	@rightkit/onboarding	EXTEND	onboarding pages
+^tauri-app-next/src/pages/(Settings|Shortcuts|Controls|About)|^tauri-app-next/src/components/(settings|about|model-update)/|^tauri-app-next/src/lib/(settingsRegistry|rightkitSettingsBackend|fieldStore)	@rightkit/settings-ui	EXTEND	settings, shortcuts, controls, model update
+^tauri-app-next/src/(pages|components|lib|hooks|shared|types|assets)/	@rightkit/dictation-ui	NEW	dictation home/controls, banners, command palette, PTT, sounds, metrics
+^tauri-app-next/src/(generated)/	@rightkit/theme	ADOPT	generated
+^tauri-app-next/src/	app-shell	SHELL	app entry
+tauri-app-next/(heardright_core|src-tauri)/	app-shell	SHELL	shell entry & commands
+tauri-app-next/heardright-android/|^android/	app-shell	SHELL	android app
+ios-native/HeardRight/(Model|CoreMLModel|SharedModel|ANECache|LocalASR|ComputePlan)	RightKitSpeech	ADOPT	model download/install, CoreML validation
+ios-native/HeardRight/(.*KWS|SherpaKeyword|KeywordCommand|RustSpeech|OnDeviceTranscriber|ASRBench|RealtimeTranscript)	RightKitSpeech	EXTEND	on-device ASR & KWS bridges
+ios-native/HeardRight/(Dictation|Recording|WarmAudio|LongForm|Background|HardwareRecording|SharedRecording|SavedAudio|AudioImport|DocumentImport|PendingImport)|ios-native/Shared/(AudioCapture|SharedDictation|SharedImportQueue|RecordingResult)	RightKitDictation	NEW	iOS dictation: recording session, warm capture, long-form, import queue, live activity
+ios-native/HeardRight/(TranscriptPolish|HeardRightCorePolisher|AppleIntelligencePolish|BYOKPolish|TextRules)|ios-native/Shared/(BYOKPolish|TranscriptPolish|TextRules)	rightkit-text-polish	NEW	Swift polish clients (Apple Intelligence, BYOK)
+ios-native/HeardRight/(Transcript|WeeklyInsights)|ios-native/Shared/(SharedTranscript|TranscriptHistory|TranscriptCloud)	RightKitLibrary	NEW	Swift transcript library, insights, cloud sync
+ios-native/HeardRight/(License|ProEntitlement|StoreKit|ModelGrant)|ios-native/Shared/(LicenseEntitlement|ProAccess|ProBridge)	RightKitLicense	ADOPT	licence & purchases
+ios-native/HeardRight/(DevicePairing|DeviceManagement|AccountSession)	rightkit-mesh	NEW	device pairing (Swift)
+ios-native/Shared/AppleSyncedCredential	RightKitAppleCredentials	ADOPT	credentials
+ios-native/HeardRight/Onboarding	RightKitUI	EXTEND	onboarding
+ios-native/HeardRight/(Watch)|ios-native/HeardRightWatch/|ios-native/Shared/Watch	RightKitWatch	EXTEND	watch recording capture, transfer & intents
+ios-native/HeardRightSharedUI/	RightKitLiveActivity	EXTEND	recording live activity views
+ios-native/Shared/(HeardRightAppIntents|HeardRightStartNeeded|IOSVoiceCommand)	RightKitIntents	EXTEND	app intents & voice commands
+ios-native/Shared/(Diagnostics|MobileDiagnostic|DogfoodTrace)	RightKitDiagnostics	ADOPT	diagnostics
+ios-native/HeardRight/(Color|Font|AppMark)	@rightkit/theme	EXTEND	Swift brand tokens
+ios-native/(Tests|HeardRightUITests|HeardRightSyncTests)/|ios-native/scripts/	RightKitHubQA	EXTEND	iOS tests & scripts
+ios-native/	app-shell	SHELL	iOS app entry & views
+tauri-app-next/scripts/(lib|test-|check-|verify-|qa)	@rightkit/qa	EXTEND	contract tests & QA scripts
+tauri-app-next/scripts/	@rightkit/release	EXTEND	build/package/release scripts
+^scripts/	@rightkit/qa	EXTEND	deadcode baseline & contracts
+(rustfmt\.toml|\.cargo/|vite\.config\.ts|about\.toml|eslint|deny\.toml|rust-toolchain)	@rightkit/config	NEW	shared presets
+.*	app-shell	CONFIG	app manifests
