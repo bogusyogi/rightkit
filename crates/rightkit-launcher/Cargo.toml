@@ -18,8 +18,10 @@ serde = { version = "1.0" }
 serde_json = { version = "1.0" }
 
 [target.'cfg(windows)'.dependencies]
+rightkit-clipboard-history = { version = "0.1.0", path = "../rightkit-clipboard-history" }
+rightkit-automation = { version = "0.6.4", path = "../rightkit-automation" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Threading", "Win32_UI_Shell"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [workspace]
 

@@ -42,6 +42,31 @@ pub trait Host: Send + Sync + 'static {
         (false, Vec::new(), None)
     }
 
+    /// Whether the named user switch is on.
+    fn switch_on(&self, _key: &str) -> bool {
+        false
+    }
+
+    /// The user's launcher items as the JSON text [`crate::config::parse`] reads.
+    fn launcher_config_json(&self) -> String {
+        String::new()
+    }
+
+    /// Starts or stops the keyboard hook that feeds snippet expansion.
+    fn snippets_need_hook(&self, _on: bool) {}
+
+    /// Sends `events` as one tagged batch; `ctx` names the sender in the log.
+    #[cfg(windows)]
+    fn send_input(&self, events: &[rightkit_automation::win::input::RawInput], ctx: &str);
+
+    /// Sends Ctrl+V with no key held.
+    fn paste(&self) {}
+
+    /// A snippet body with `{clipboard}` and `{date}` filled and `{argument}` empty.
+    fn snippet_text(&self, body: &str) -> String {
+        body.to_string()
+    }
+
     /// File name of the per-folder ignore list the file search honours.
     fn ignore_file_name(&self) -> String {
         ".rightkitignore".to_string()
@@ -125,4 +150,43 @@ pub(crate) fn now_secs() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+#[cfg(windows)]
+pub(crate) fn switch_on(key: &str) -> bool {
+    HOST.get().is_some_and(|host| host.switch_on(key))
+}
+
+#[cfg(windows)]
+pub(crate) fn launcher_config_json() -> String {
+    HOST.get()
+        .map(|host| host.launcher_config_json())
+        .unwrap_or_default()
+}
+
+#[cfg(windows)]
+pub(crate) fn snippets_need_hook(on: bool) {
+    if let Some(host) = HOST.get() {
+        host.snippets_need_hook(on);
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn send_input(events: &[rightkit_automation::win::input::RawInput], ctx: &str) {
+    if let Some(host) = HOST.get() {
+        host.send_input(events, ctx);
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn paste() {
+    if let Some(host) = HOST.get() {
+        host.paste();
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn snippet_text(body: &str) -> String {
+    HOST.get()
+        .map_or_else(|| body.to_string(), |host| host.snippet_text(body))
 }

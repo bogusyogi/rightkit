@@ -13,4 +13,6 @@ pub mod json;
 pub mod notes;
 pub mod rates;
 #[cfg(windows)]
+pub mod snippets;
+#[cfg(windows)]
 pub mod store;
