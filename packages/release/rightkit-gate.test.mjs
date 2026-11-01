@@ -48,6 +48,7 @@ const pkg = (name, extra = "") => `[package]\nname = "${name}"\nversion = "1.0.0
 const lockPkg = (name, version, deps = []) => `[[package]]\nname = "${name}"\nversion = "${version}"\n${deps.length ? `dependencies = [\n${deps.map((d) => ` "${d}",`).join("\n")}\n]\n` : ""}\n`;
 const meta = (root, wsDir, members) => JSON.stringify({
   workspace_root: path.join(root, wsDir),
+  target_directory: path.join(root, wsDir, "target"),
   packages: members.map(([name, dir, publish = null]) => ({ name, manifest_path: path.join(root, dir, "Cargo.toml"), publish })),
 });
 /**
@@ -223,6 +224,7 @@ const unmanagedHost = (p) => !/RustRight|RightKit|\.rightkit-managed/.test(Strin
 /** A real git for the fixture repository, nothing else: toolchain probes (rustc -V, cargo-deny --version, ...) never reach the host. */
 const gitOnly = (cmd, args, opts) => cmd === "git" || (cmd === "rustright" && args[0] === "cargo" && args[1] === "metadata") || (cmd === "cargo" && args[0] === "metadata")
   ? spawnSync(cmd, args, { ...opts, encoding: "utf8" }) // a metadata read is the one cargo call a test may make: the broker guard answers it with stub metadata
+  : (cmd === "which" || cmd === "where") && args[0] === "cargo" ? { status: 0, stdout: "/usr/bin/cargo\n", stderr: "" } // the runtime cargo wrapper (item 7) wraps the cargo it finds on PATH; nothing here runs it
   : { status: 127, stdout: "", stderr: `${cmd}: not run in tests` };
 // Every test speaks to the host through gitOnly unless it injects its own spawn (repoSpawn, hookSpawn, ...), whatever the spread order.
 // The door's snapshot route is every host's (docs/GATE-CONTRACT.md "Commit-only build"): a `--to` run syncs a gate-owned snapshot under host
@@ -2795,8 +2797,9 @@ test("data: scoped scans keep every file-only row, keep only the closure's execu
   const closure = closureOf({ scopeDirs: ["apps/desktop"], npmUnits: CLOSURE_NPM, rustUnits: CLOSURE_RUST, readFile: (f) => CLOSURE_FILES[f] });
   const rows = [{ id: "secret-scan", class: "A" }, { id: "cargo-deny:other", class: "A" }, { id: "check:core", class: "A" }, { id: "check:desktop-native", class: "A" }, { id: "check:other", class: "A" }, { id: "test:npm:desktop", class: "A" }, { id: "test:npm:web", class: "A" }, { id: "custom-in", class: "A", executes: true, cwd: "apps/desktop" }, { id: "custom-out", class: "A", executes: true, cwd: "apps/web" }];
   const { scans, dropped } = scopeScans(rows, closure, { rustUnits: CLOSURE_RUST });
-  assert.deepEqual(scans.map((s) => s.id), ["secret-scan", "cargo-deny:other", "check:core", "check:desktop-native", "test:npm:desktop", "custom-in"]);
-  assert.deepEqual(dropped.map((s) => s.id), ["check:other", "test:npm:web", "custom-out"]);
+  // A workspace-level Cargo scan (here cargo-deny with no workspace of the closure) runs only for a Cargo workspace that holds a unit of the closure (#1325, G1).
+  assert.deepEqual(scans.map((s) => s.id), ["secret-scan", "check:core", "check:desktop-native", "test:npm:desktop", "custom-in"]);
+  assert.deepEqual(dropped.map((s) => s.id), ["cargo-deny:other", "check:other", "test:npm:web", "custom-out"]);
   assert.throws(() => scopeScans([{ id: "mystery", class: "A", executes: true }], closure, { rustUnits: CLOSURE_RUST }), /RK_SCOPE_CLOSURE: executing scan mystery has no exact scope owner/);
   assert.throws(() => scopeScans([{ id: "check:stranger", class: "A" }], closure, { rustUnits: CLOSURE_RUST }), /RK_SCOPE_CLOSURE: scan check:stranger has no known Rust owner/);
 });

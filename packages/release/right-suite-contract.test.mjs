@@ -30,6 +30,9 @@ import { pendingUpdaterEndpoint, SUITE_API_CONTRACT_HOSTS } from "./suite-api-li
 import { validateDevelopmentConfig } from "./development.mjs";
 import { simulateHostPlatform } from "./test-support/simulated-host.mjs";
 
+// RightKit's own root is this file's grandparent, whatever the checkout directory is called: the gate tests a snapshot of the commit, which is not named `rightkit`.
+const rightkitRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const inWorkspace = (relativePath) => (relativePath.startsWith("rightkit/") ? path.join(rightkitRoot, relativePath.slice("rightkit/".length)) : path.join(workspace, relativePath));
 const workspace = path.resolve(
   process.env.RIGHT_SUITE_CONTRACT_WORKSPACE
     ?? fileURLToPath(new URL("../../..", import.meta.url)),
@@ -556,7 +559,7 @@ test("RightKit exposes one current version manifest", () => {
   for (const [name, version] of Object.entries(versions.stagedNpm)) {
     const packageName = name.slice("@rightkit/".length);
     const manifest = JSON.parse(readFileSync(
-      path.join(workspace, "rightkit/packages", packageName, "package.json"),
+      path.join(rightkitRoot, "packages", packageName, "package.json"),
       "utf8",
     ));
     assert.equal(manifest.name, name);
@@ -648,13 +651,13 @@ test("Cargo metadata respects PATH precedence when unmanaged Cargo resolves firs
 });
 
 test("license v2 public vector is identical at every portable consumer boundary", { skip: checkoutSkip([
-  path.join(workspace, "rightkit/crates/rightkit-license/test-vectors/license-v2.json"),
-  path.join(workspace, "rightkit/packages/license/test-vectors/license-v2.json"),
+  inWorkspace("rightkit/crates/rightkit-license/test-vectors/license-v2.json"),
+  inWorkspace("rightkit/packages/license/test-vectors/license-v2.json"),
   path.join(workspace, siteRepoDir, "packages/api/src/licensing/test-vectors/license-v2.json"),
   path.join(workspace, "scraperight/tests/fixtures/license-v2.json"),
 ], "license v2 consumer boundaries") }, () => {
   const canonical = readFileSync(
-    path.join(workspace, "rightkit/crates/rightkit-license/test-vectors/license-v2.json"),
+    inWorkspace("rightkit/crates/rightkit-license/test-vectors/license-v2.json"),
     "utf8",
   );
   for (const relativePath of [
@@ -663,7 +666,7 @@ test("license v2 public vector is identical at every portable consumer boundary"
     "scraperight/tests/fixtures/license-v2.json",
   ]) {
     assert.equal(
-      readFileSync(path.join(workspace, relativePath), "utf8"),
+      readFileSync(inWorkspace(relativePath), "utf8"),
       canonical,
       `${relativePath} must be the canonical public license vector byte-for-byte`,
     );
@@ -942,7 +945,7 @@ function findFiles(root, filename) {
 }
 
 function readCanonicalCrateVersions() {
-  const crateRoot = path.join(workspace, "rightkit/crates");
+  const crateRoot = inWorkspace("rightkit/crates");
   return new Map(
     readdirSync(crateRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && existsSync(path.join(crateRoot, entry.name, "Cargo.toml")))
@@ -1321,7 +1324,7 @@ function assertAdminWorkflow(text, name) {
 const PUBLISHING_WORKFLOW_COMMANDS = /right-release\s+(?:build|upload|publish)|gh\s+release|action-gh-release|npm\s+publish|cargo\s+publish/;
 test("Right Suite hosts no hosted workflow except rightkit's reviewed workflows", () => {
   for (const root of ["viewright", "scraperight", "heardright", "mailright", "coderight", "genright", "voiceright", "rightkit"]) {
-    const workflowDir = path.join(workspace, root, ".github", "workflows");
+    const workflowDir = path.join(inWorkspace(root === "rightkit" ? "rightkit/" : root), ".github", "workflows");
     const workflows = existsSync(workflowDir) ? readdirSync(workflowDir) : [];
     if (root !== "rightkit") {
       assert.deepEqual(workflows, [], `${root} must not contain hosted workflow files`);
