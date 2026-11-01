@@ -35,7 +35,7 @@ pub struct AgentMcpServer {
     pub name: String,
     /// Transport type: "stdio" | "sse" | "http"
     pub transport: String,
-    /// Command argv for stdio transport, e.g. ["npx", "-y", "@mcp/github"].
+    /// Command argv for stdio transport, e.g. `["npx", "-y", "@mcp/github"]`.
     pub command: Option<Vec<String>>,
     /// URL for sse or http transports.
     pub url: Option<String>,

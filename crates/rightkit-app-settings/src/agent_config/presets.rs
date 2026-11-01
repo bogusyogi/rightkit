@@ -4,8 +4,8 @@
 //! Claude Code has no first-party "preset" object; the closest documented
 //! equivalents are the CLI flags a preset sets: `--model`, `--permission-mode`,
 //! `--allowedTools`/`--disallowedTools`, `--append-system-prompt`
-//! (https://code.claude.com/docs/en/cli-reference) and settings files
-//! (https://code.claude.com/docs/en/settings). Explicit CLI flags always win.
+//! (<https://code.claude.com/docs/en/cli-reference>) and settings files
+//! (<https://code.claude.com/docs/en/settings>). Explicit CLI flags always win.
 //!
 //! Sources (later overrides earlier on name collision):
 //! 1. user: `<state root>/presets.toml`

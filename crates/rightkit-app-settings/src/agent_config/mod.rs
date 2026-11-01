@@ -2,13 +2,13 @@
 //!
 //! Merge precedence (later overrides earlier for scalars; lists extend):
 //! 1. built-in defaults
-//! 2. user config (`<state root>/config.toml`, the rightkit-daemon AppRoot, see [`state_root`])
+//! 2. user config (`<state root>/config.toml`, the rightkit-daemon AppRoot, see [`fn@state_root`])
 //! 3. workspace config (`<workspace>/<state-dir>/config.toml`)
 //! 4. env var overrides (`RIGHTKIT_*`)
 //! 5. session overrides (a passed-in map)
 
 pub mod accounts;
-pub mod agent_config;
+mod agents_mcp;
 pub mod instructions;
 pub mod licence_env;
 mod loader;
@@ -38,7 +38,7 @@ pub fn qa_path_override(name: &str) -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
 }
 
-pub use agent_config::{find_agents_dir, AgentMcpConfig, AgentMcpServer};
+pub use agents_mcp::{find_agents_dir, AgentMcpConfig, AgentMcpServer};
 pub use instructions::{Frontmatter, InstructionFile, InstructionLoader, InstructionScope};
 pub use loader::{ConfigError, ConfigLoader};
 pub use merge::{
