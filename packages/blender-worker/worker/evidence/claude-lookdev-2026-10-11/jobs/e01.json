@@ -1,0 +1,34 @@
+{
+ "schema": 1,
+ "job_id": "e01-ti-material",
+ "recipe": "lookdev",
+ "kind": "authoring",
+ "source": "/home/user/genright/workers/blender/fixtures/fenrir/fenrir.glb",
+ "output_dir": "/tmp/claude-0/-home-user-genright/c0251dc5-fb63-5c79-b2db-0274dbef2dcc/scratchpad/out/e01-ti-material",
+ "params": {
+  "width": 480,
+  "height": 600,
+  "samples": 96,
+  "device": "cpu",
+  "lookdev_settings": {
+   "key_power": 3,
+   "roll": -50,
+   "rake_power": 0.4,
+   "key_size": 0.2,
+   "blade_roughness": 0.35,
+   "surface": "leather",
+   "key_x": 0.05,
+   "handle_texture": 0.6,
+   "elevation": 22,
+   "fill_power": 1.5,
+   "azimuth": -10,
+   "blade_anisotropy": 0.25,
+   "aperture": 8,
+   "handle_roughness": 0.58,
+   "handle_value": 0.08,
+   "grain_strength": 0.35,
+   "key_y": 0.15,
+   "finish_profile": "ti_stonewash_v1"
+  }
+ }
+}

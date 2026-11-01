@@ -1,0 +1,29 @@
+{
+  "repository": "bogusyogi/CutRight",
+  "commit": "5453ff5",
+  "request_id": "2b17af4b-67c4-4c96-9e40-a2cdbb4ff7aa",
+  "exit_code": 0,
+  "status": "SUCCEEDED",
+  "command": "cargo test -p cutright-genright -p cutright-engine --lib --test generated_source_e2e generated_ --target x86_64-pc-windows-msvc --target-dir D:\\.rightkit-managed\\rightkit-build-control\\ws\\a0db65c48b60\\g\\003\\target -- --nocapture",
+  "input_closure": {
+    "status": "verified",
+    "changed": [],
+    "added": [],
+    "removed": [],
+    "extrasChanged": [],
+    "preDigest": "17066d474ea0390cc2e4c24818b29d044eadd683610ca9ed5a2bb0e82f09d11d",
+    "postDigest": "17066d474ea0390cc2e4c24818b29d044eadd683610ca9ed5a2bb0e82f09d11d"
+  },
+  "tests": [
+    "generated_movie_import_is_idempotent_and_reopens_as_editable_shots",
+    "generated_source::tests::unreviewed_blender_draft_fails_before_project_mutation",
+    "generated_source::tests::reviewed_blender_product_imports"
+  ],
+  "assertions": [
+    "real FFmpeg movie used; no SKIP",
+    "unreviewed draft rejected before project mutation",
+    "reviewed import creates editable shots",
+    "repeat import is idempotent; project survives reopening",
+    "hash corruption & out-of-range frame rejection"
+  ]
+}

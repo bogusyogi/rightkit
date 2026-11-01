@@ -1,0 +1,15 @@
+{
+  "iteration": 22,
+  "image": "22.jpg",
+  "source_png_sha256": "60b2724854d5d5e411c97e2cce8511f4ba8896a7f58e103bd129f7548105745f",
+  "viewed_by": "Codex root agent",
+  "reviewed": false,
+  "decision": "rejected",
+  "change_from_21": {
+    "elevation": {
+      "before": 22,
+      "after": 10
+    }
+  },
+  "critique": "Lower angle increases thickness visibility but compresses blade face into a narrow strip, weakens product silhouette & retains dominant floor plus hard side shadow. Reject; retain angle 21 as stronger framing candidate. Neither image is an approved finish or finished advertisement."
+}

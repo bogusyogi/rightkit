@@ -1,0 +1,17 @@
+{
+  "status": "DRAFT; unapproved generic material studies",
+  "materials": [
+    "DRAFT stonewash 1mm",
+    "DRAFT stonewash 2mm",
+    "DRAFT stonewash 3mm"
+  ],
+  "only_variant_control": "cell_mm: 1, 2, or 3",
+  "scratch_depth_um": 60,
+  "roughness": 0.42,
+  "metallic": 1.0,
+  "bevel_radius_m": 0.0002,
+  "anisotropy": 0,
+  "coat": 0,
+  "spatial_basis": "Geometry Position in world metres; independent of object scale",
+  "identity": "No product or substrate identity is asserted; not approved steel, titanium, or G10."
+}

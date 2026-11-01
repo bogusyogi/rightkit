@@ -1,0 +1,166 @@
+{
+  "schema": 1,
+  "sample": true,
+  "product": {
+    "name": "Fenrir (sample product)",
+    "use": "Qualification sample and fixture only. It is not a product specification, finish approval, or publication record. Other companies supply their own product spec with a finish_profiles entry."
+  },
+  "finish_profiles": {
+    "sample_ti_stonewash": {
+      "description": "Physically scaled titanium stonewash for the Fenrir sample. Values are the former ti_stonewash_v1 constants; the legacy id loads this entry.",
+      "finish_roles": {
+        "FENRIR_HANDLE_TOP_v002": "scale",
+        "FENRIR_HANDLE_BOTTOM_v002": "scale",
+        "FENRIR_HANDLE_TOP_v004": "liner",
+        "FENRIR_HANDLE_BOTTOM_v003": "liner",
+        "FENRIR_HANDLE_TOP_v1": "backspacer",
+        "FENRIR_HANDLE_BOTTOM_v1": "backspacer",
+        "FENRIR_HANDLE_BOTTOM_v001": "clip",
+        "FENRIR_HANDLE_TOP_v001": "blanking_plate",
+        "FENRIR_HANDLE_TOP_v003": "stop_pin"
+      },
+      "pivot": {
+        "object": "FENRIR_PIVOT",
+        "xy_m": [
+          -0.003136,
+          0.000237
+        ]
+      },
+      "detail_parts": [
+        "FENRIR_HANDLE_TOP_v002",
+        "FENRIR_HANDLE_BOTTOM_v002",
+        "FENRIR_PIVOT"
+      ],
+      "parameters": {
+        "ti_r": 0.4,
+        "ti_g": 0.375,
+        "ti_b": 0.34,
+        "ti_roughness": 0.42,
+        "ti_cell_mm": 1.6,
+        "ti_scratch_mm": 6.0,
+        "ti_scratch_density": 0.018,
+        "ti_bevel_mm": 0.3,
+        "ti_mottle_bright": 0.35,
+        "ti_mottle_rough": 0.14,
+        "ti_relief": 0.15,
+        "ti_anisotropy": 0.0,
+        "blade_value": 0.66,
+        "blade_roughness": 0.35,
+        "blade_cell_mm": 1.2,
+        "blade_scratch_density": 0.012,
+        "blade_mottle_bright": 0.22,
+        "blade_mottle_rough": 0.1,
+        "blade_anisotropy": 0.25,
+        "blade_relief": 0.0,
+        "blade_fine_relief": 0.0,
+        "blade_fine_scratch": 0.4,
+        "edge_bevel_mm": 1.3
+      }
+    }
+  },
+  "registration": {
+    "derivation": "Legacy source basis (x,-z,y); translation aligns analytic bore at blade placement datum to archived pivot. Pivot is a registration input, not an independent holdout. See docs/fenrir-lookdev.md.",
+    "knife_space_label": "archived Fenrir knife space, metres",
+    "source_sha256": "48af6070d85c1cb34920a7db531f0a89fe8491c86e29d5ab6ab809c9c3ad9cb4",
+    "archive_obj_sha256": "443a01021ca884f5bcd40a0988f47d1d3175403397d66321f391e7ba3ae95d91",
+    "glb_to_knife": [
+      [
+        1,
+        0,
+        0,
+        0.2604829273
+      ],
+      [
+        0,
+        0,
+        -1,
+        0.01951251
+      ],
+      [
+        0,
+        1,
+        0,
+        -0.010807249
+      ],
+      [
+        0,
+        0,
+        0,
+        1
+      ]
+    ],
+    "pivot_knife_mm": [
+      -3.136,
+      0.237,
+      10.0
+    ],
+    "bore": {
+      "axis_origin_mm": [
+        -263.6189273089316,
+        0,
+        19.27550992072588
+      ],
+      "axis_datum_mm": 20.80724860542477,
+      "ring_mm": [
+        2.8,
+        3.2
+      ]
+    },
+    "tip_band_mm": 0.15,
+    "tolerances": {
+      "residual_mm": 0.05,
+      "normal_deg": 0.05,
+      "axis_direction": 5e-05
+    },
+    "archive_reference": {
+      "source_obj_sha256": "443a01021ca884f5bcd40a0988f47d1d3175403397d66321f391e7ba3ae95d91",
+      "scene_build_sha256": "93b55e973ed6c6878ca470f665908b3a1149193ab63f267bf6ca54b3d6de436a",
+      "rest_matrix": [
+        [
+          0.9990673661231995,
+          -0.00011199545406270772,
+          -0.043178100138902664,
+          -0.016105519607663155
+        ],
+        [
+          8.83665052242577e-09,
+          0.9999966621398926,
+          -0.0025935890153050423,
+          -0.0035535816568881273
+        ],
+        [
+          0.043178245425224304,
+          0.0025911699049174786,
+          0.999064028263092,
+          -0.0028832447715103626
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "rest_normal": [
+        -0.043178245425224304,
+        -0.0025911699049174786,
+        -0.999064028263092
+      ],
+      "pivot_knife_mm": [
+        -3.135999917984009,
+        0.2370000034570694,
+        10.0
+      ],
+      "tip_world_m": [
+        -0.11867716908454895,
+        -0.0183425210416317,
+        0.002674754010513425
+      ],
+      "pivot_world_m": [
+        -0.019670402631163597,
+        -0.003342518350109458,
+        0.006972603499889374
+      ]
+    }
+  }
+}

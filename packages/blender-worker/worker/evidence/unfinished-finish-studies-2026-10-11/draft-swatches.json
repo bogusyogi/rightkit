@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "confirmed": false,
+  "confirmed_by": null,
+  "product_id": null,
+  "variant": null,
+  "owner": null,
+  "parts": {},
+  "finishes": {
+    "draft-1mm": {
+      "version": "draft-1",
+      "approved": false,
+      "approved_by": null,
+      "shader": {
+        "path": "D:\\Claude\\Content\\renderright\\finish-swatch-20261011\\stonewash-draft.blend",
+        "material": "DRAFT stonewash 1mm"
+      }
+    },
+    "draft-2mm": {
+      "version": "draft-1",
+      "approved": false,
+      "approved_by": null,
+      "shader": {
+        "path": "D:\\Claude\\Content\\renderright\\finish-swatch-20261011\\stonewash-draft.blend",
+        "material": "DRAFT stonewash 2mm"
+      }
+    },
+    "draft-3mm": {
+      "version": "draft-1",
+      "approved": false,
+      "approved_by": null,
+      "shader": {
+        "path": "D:\\Claude\\Content\\renderright\\finish-swatch-20261011\\stonewash-draft.blend",
+        "material": "DRAFT stonewash 3mm"
+      }
+    }
+  }
+}

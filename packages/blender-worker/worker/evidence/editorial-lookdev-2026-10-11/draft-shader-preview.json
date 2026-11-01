@@ -1,0 +1,28 @@
+{
+  "scenario": "explicit unapproved finish shader remains previewable in draft",
+  "job_id": "native-draft-shader-preview",
+  "blender": "5.2.2 LTS",
+  "source": "D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\synthetic-product.glb",
+  "spec": "D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\draft-shader-preview\\unapproved-spec.json",
+  "assertions": {
+    "worker_completed": true,
+    "explicit_shader_applied": true,
+    "reviewed_false": true,
+    "confirmed_false": true,
+    "hero_artifact_exists": true
+  },
+  "finish_application_event": "02:18:19 | INFO: Data are loaded, start creating Blender stuff\r\n02:18:19 | INFO: Blender create Mesh node SyntheticBodyMesh\r\n02:18:19 | INFO: glTF import finished in 0.00s\r\n{\"event\": \"PRODUCT_FINISHES_APPLIED\", \"finishes\": {\"SyntheticBody\": [\"SyntheticSteel\"]}, \"job_id\": \"native-draft-shader-preview\"}\r\n00:01.359  render           | Saved: 'D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\draft-shader-preview\\render\\frames\\frame_000000.png'\r\n{\"event\": \"FRAME_DONE\", \"frame\": 0, \"frame_count\": 1, \"job_id\": \"native-draft-shader-preview\", \"path\": \"frames/frame_000000.png\"}\r\n{\"event\": \"WORKER_COMPLETE\", \"job_fingerprint\": \"3eb6579411883b078a58f6d6f1e5d434f5eb02acb39d254d2f905bd7b6dc4eb7\", \"job_id\": \"native-draft-shader-preview\", \"result_manifest\": \"result-manifest.json\"}\r\nBlender 5.2.2 LTS (hash d13f752e3b9c built 2026-09-15 01:37:04)\r\n",
+  "review": {
+    "approved_by": null,
+    "confirmed": false,
+    "finish_tags": {
+      "steel": "v1"
+    },
+    "product_id": "SYNTHETIC-DELIVERY-REVIEW",
+    "reviewed": false,
+    "source_sha256": "b60b0362e648efeabaf8b4cc65cf14c5c049f5a7c5394e8ea3aaeb2602ef89fe",
+    "variant": "Native E2E cube"
+  },
+  "result_manifest": "D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\draft-shader-preview\\render\\result-manifest.json",
+  "blender_log": "D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\draft-shader-preview\\blender.log"
+}

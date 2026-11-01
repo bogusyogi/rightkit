@@ -1,0 +1,68 @@
+{
+  "artifacts": [
+    {
+      "bytes": 5298,
+      "id": "probe",
+      "path": "probe.png",
+      "role": "probe",
+      "sha256": "f2f84d2c968ae6da5d004dccc41b6d33b3d163ca67f88258b4dc60d96a1ec2df"
+    },
+    {
+      "bytes": 315,
+      "id": "probe_report",
+      "path": "probe.json",
+      "role": "probe",
+      "sha256": "b7bc8d309fc2b7234db2e2d248fb2b7d609bc68a4fd06348197a093438b8ad37"
+    }
+  ],
+  "blender": {
+    "binary_sha256": "c9f9c33e538dd3e195ccb8dcc5986721f49df795e91288d4f6e82295a028e1c1",
+    "path": "C:\\Users\\adrds\\AppData\\Local\\Orthic Labs\\shared\\tools\\blender\\5.2.2\\blender-5.2.2-windows-x64\\blender.exe",
+    "version": "5.2.2 LTS",
+    "version_output_sha256": "56d95daf5fe2fca36f5800ee3d16e0c9f597648f64b659d309d45f7bacc6c55a"
+  },
+  "blender_archive": {
+    "checksum_listing": "https://download.blender.org/release/Blender5.2/blender-5.2.2.sha256",
+    "path": "C:\\Users\\adrds\\AppData\\Local\\Temp\\blender-5.2.2-windows-x64.zip",
+    "sha256": "3849d17a682cba006075aaa3f3597ecb5c9c30ec31035b2e092c53e40679b535"
+  },
+  "ffmpeg": {
+    "binary_sha256": "a35880a72ca511bbf595a28c6480c85218cdf1d6c1008511a848fc71dbad5527",
+    "path": "D:\\Claude\\cutright\\apps\\cutright\\src-tauri\\resources\\runtime\\ffmpeg.exe",
+    "version": "ffmpeg version n8.1.3-20260926 Copyright (c) 2000-2026 the FFmpeg developers"
+  },
+  "job_fingerprint": "d6ba5c72502b448a7a8d99997d118302f87faab797274732a18ac2902a9a9023",
+  "job_id": "qualification-20261010T090608Z",
+  "probe": {
+    "device": "OPTIX:NVIDIA GeForce RTX 4070 Laptop GPU",
+    "gpu_requested": true,
+    "gpu_used": true,
+    "height": 64,
+    "render_ok": true,
+    "samples": 1,
+    "width": 64
+  },
+  "qualified_at": "2026-10-10T09:06:10.669682+00:00",
+  "recipe": {
+    "path": "recipes/manifest.json",
+    "sha256": "7b5deb0744d45ef4888c15c4a2c21def5fb6c7a5f96366ffd692565e2a229974",
+    "version": "1.0.0"
+  },
+  "schema": 1,
+  "status": "qualified",
+  "worker": {
+    "code_sha256": "88a4c49812d7b78f57fa67a591b6c7d714d6a630977481c5e9c1b4ffc2022d34",
+    "files_sha256": {
+      "render_job.py": "10b6b1a96afcb5619038fcb6e6a267fa270538e453f72492fad1c777f9d535ba",
+      "renderright/__init__.py": "37b0eacfba4ddbc8224f75cc48f7d679ad06d66e334ee84fa2eb99b8241d2359",
+      "renderright/contract.py": "3afd45fd9b63ba75b336b00ec24ce1b70dd2bdfd895070a6909c0bc81b006485",
+      "renderright/pngcheck.py": "e66a87dd0c56fd88ef7d140ad8af79231088c9ec7248d63333f35c4bdfa9ced3",
+      "renderright/scene.py": "24087a0c003ecf3e3c19b1a0e60b5a5a6cedec20462eeb542c8a94f3fc0b976c",
+      "renderright/worker.py": "12df17dabad2acb95c778f24ee876e440b29ad2d04e0c2fe4e8cb13eee9b36d0"
+    },
+    "manifest_sha256": "bced7b670e7dba18d59f0901a2539dde25aac127dabd1159394fcf07caa6d467",
+    "name": "renderright",
+    "protocol": 1,
+    "version": "0.1.0"
+  }
+}

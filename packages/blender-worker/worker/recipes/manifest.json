@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "version": "1.0.0",
+  "recipes": {
+    "hero": {"version":"1.0.0","kind":"image","defaults":{"width":1600,"height":1200,"samples":64,"frame_count":1,"fps":{"num":30,"den":1},"transparent":false}},
+    "turntable": {"version":"1.0.0","kind":"video","defaults":{"width":1280,"height":720,"samples":32,"frame_count":120,"fps":{"num":30,"den":1},"transparent":false}},
+    "exploded": {"version":"1.0.0","kind":"video","defaults":{"width":1280,"height":720,"samples":32,"frame_count":120,"fps":{"num":30,"den":1},"transparent":false}},
+    "film": {"version":"1.0.0","kind":"video","defaults":{"width":1920,"height":1080,"samples":64,"frame_count":240,"fps":{"num":30,"den":1},"transparent":false}},
+    "probe": {"version":"1.0.0","kind":"probe","defaults":{"width":64,"height":64,"samples":1,"frame_count":1,"fps":{"num":1,"den":1},"transparent":false}},
+    "lookdev": {"version":"1.0.0","kind":"authoring","defaults":{"width":1600,"height":1200,"samples":128,"frame_count":1,"fps":{"num":30,"den":1},"transparent":false,"look_profile":"product_premium_v1","view":"hero"}},
+    "measure": {"version":"1.0.0","kind":"authoring","defaults":{"width":1600,"height":1200,"samples":128,"frame_count":1,"fps":{"num":30,"den":1},"transparent":false,"look_profile":"product_premium_v1","view":"hero"}},
+    "swatch": {"version":"1.0.0","kind":"authoring","defaults":{"width":1200,"height":900,"samples":128,"frame_count":1,"fps":{"num":30,"den":1},"transparent":false}}
+  }
+}

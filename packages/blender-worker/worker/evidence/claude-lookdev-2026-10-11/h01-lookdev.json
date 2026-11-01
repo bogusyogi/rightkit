@@ -1,0 +1,193 @@
+{
+  "adaptive_sampling": false,
+  "camera_authorship": "editorial_draft_from_current_mesh_bounds",
+  "denoise": false,
+  "depth_of_field": true,
+  "device": "CPU",
+  "diagnostics_are_aesthetic_acceptance": false,
+  "finishes": {
+    "FENRIR_BLADE_v1": {
+      "materials": [
+        "DRAFT stonewash steel v1"
+      ],
+      "role": "blade"
+    },
+    "FENRIR_Back Screw Female.step": {
+      "materials": [
+        "DRAFT black hardware v1.001"
+      ],
+      "role": "hardware"
+    },
+    "FENRIR_Back Screw Female.step001": {
+      "materials": [
+        "DRAFT black hardware v1.001"
+      ],
+      "role": "hardware"
+    },
+    "FENRIR_HANDLE_BOTTOM_v001": {
+      "materials": [
+        "DRAFT black painted clip v1"
+      ],
+      "role": "clip"
+    },
+    "FENRIR_HANDLE_BOTTOM_v002": {
+      "materials": [
+        "DRAFT Ti stonewash v1"
+      ],
+      "role": "scale"
+    },
+    "FENRIR_HANDLE_BOTTOM_v003": {
+      "materials": [
+        "DRAFT bead blast liner v1"
+      ],
+      "role": "liner"
+    },
+    "FENRIR_HANDLE_BOTTOM_v1": {
+      "materials": [
+        "DRAFT black plastic backspacer v1"
+      ],
+      "role": "backspacer"
+    },
+    "FENRIR_HANDLE_TOP_v001": {
+      "materials": [
+        "DRAFT black hardware v1"
+      ],
+      "role": "blanking_plate"
+    },
+    "FENRIR_HANDLE_TOP_v002": {
+      "materials": [
+        "DRAFT Ti stonewash v1"
+      ],
+      "role": "scale"
+    },
+    "FENRIR_HANDLE_TOP_v003": {
+      "materials": [
+        "DRAFT bead blast liner v1.001"
+      ],
+      "role": "stop_pin"
+    },
+    "FENRIR_HANDLE_TOP_v004": {
+      "materials": [
+        "DRAFT bead blast liner v1"
+      ],
+      "role": "liner"
+    },
+    "FENRIR_HANDLE_TOP_v1": {
+      "materials": [
+        "DRAFT black plastic backspacer v1"
+      ],
+      "role": "backspacer"
+    },
+    "FENRIR_PIVOT": {
+      "materials": [
+        "DRAFT black hardware v1.001"
+      ],
+      "role": "hardware"
+    },
+    "FENRIR_Pivot screw_Female": {
+      "materials": [
+        "DRAFT black hardware v1.001"
+      ],
+      "role": "hardware"
+    },
+    "Part3": {
+      "materials": [
+        "DRAFT black hardware v1.001"
+      ],
+      "role": "hardware"
+    }
+  },
+  "height": 1350,
+  "product_review": {
+    "approved_by": null,
+    "confirmed": false,
+    "finish_tags": {},
+    "product_id": null,
+    "reviewed": false,
+    "source_sha256": "48af6070d85c1cb34920a7db531f0a89fe8491c86e29d5ab6ab809c9c3ad9cb4",
+    "variant": null
+  },
+  "projection": {
+    "bounds_uv": [
+      [
+        0.206778718508845,
+        0.8403508461701616
+      ],
+      [
+        0.08808351465291431,
+        0.8680834733269824
+      ]
+    ],
+    "outside_frame": 0,
+    "vertices": 136702
+  },
+  "recipe": "lookdev",
+  "render_seconds": 320.325311263,
+  "samples": 256,
+  "settings": {
+    "accent_power": 10,
+    "accent_size": 0.03,
+    "accent_warm": 0.92,
+    "accent_x": -0.25,
+    "accent_y": 0.3,
+    "accent_z": 0.28,
+    "aperture": 8,
+    "azimuth": -10,
+    "blade_anisotropy": 0.2,
+    "blade_card": 2.5,
+    "blade_cell_mm": 1.5,
+    "blade_finish": "stonewash",
+    "blade_mottle_bright": 0.07,
+    "blade_mottle_rough": 0.06,
+    "blade_roughness": 0.22,
+    "blade_scratch_density": 0.008,
+    "elevation": 22,
+    "exposure": 0.0,
+    "fill_power": 2.0,
+    "finish_profile": "ti_stonewash_v1",
+    "focus_bias": 0.0,
+    "frame_part": 0.0,
+    "grain_strength": 0.35,
+    "handle_roughness": 0.58,
+    "handle_texture": 0.6,
+    "handle_value": 0.08,
+    "key_card_gain": 2.0,
+    "key_gradient": 2.2,
+    "key_power": 3,
+    "key_shape": 0.0,
+    "key_size": 0.2,
+    "key_x": 0.05,
+    "key_y": 0.15,
+    "key_z": 0.35,
+    "lens": 95.0,
+    "occupancy": 0.78,
+    "rake_power": 0.4,
+    "rim_power": 0,
+    "rim_size": 0.12,
+    "rim_x": 0.1,
+    "rim_y": 0.35,
+    "rim_z": 0.08,
+    "roll": -50,
+    "surface": "leather",
+    "surface_roughness": 0.82,
+    "surface_value": 0.24,
+    "texture_root": "/home/user/genright/workers/blender/assets/materials",
+    "texture_scale": 0.35,
+    "texture_strength": 0.28,
+    "ti_b": 0.285,
+    "ti_bevel_mm": 0.3,
+    "ti_cell_mm": 2.2,
+    "ti_g": 0.315,
+    "ti_mottle_bright": 0.12,
+    "ti_mottle_rough": 0.1,
+    "ti_r": 0.34,
+    "ti_relief": 0.22,
+    "ti_roughness": 0.42,
+    "ti_scratch_density": 0.035,
+    "ti_scratch_mm": 6.0,
+    "vignette": 0.1,
+    "warm_key": 0.9,
+    "world_strength": 0.12
+  },
+  "width": 1080
+}
