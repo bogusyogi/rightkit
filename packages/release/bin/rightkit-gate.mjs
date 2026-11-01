@@ -1294,6 +1294,17 @@ export function readUnitList(readFile, file) {
  * units, so a repository that is not RightKit refuses them. Returns `{ exit }` when the run ends here, or `{}` to go on as a whole door run (the
  * all-units flag and its id are removed from `args`). An unresolvable commit is runStages' own refusal, so it goes on.
  */
+/** The RightKit sample app the run's working directory is in, when the commit's ci/sample-apps.json lists it; else null. */
+export function sampleAppOf({ o, root, git, commit }) {
+  const shown = git("show", `${commit}:ci/sample-apps.json`);
+  if (failed(shown)) return null;
+  let apps;
+  try { apps = JSON.parse(text(shown)).apps; } catch { return null; }
+  if (!Array.isArray(apps)) return null;
+  const rel = path.relative(root, path.resolve(o.cwd)).split(path.sep).join("/");
+  return apps.find((dir) => typeof dir === "string" && dir && !dir.includes("..") && (rel === dir || rel.startsWith(`${dir}/`))) ?? null;
+}
+
 export async function rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, allUnitsFlag, unitList }) {
   const tag = "rightkit-gate:";
   const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
@@ -1329,6 +1340,13 @@ export async function rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, 
     }
     args.splice(args.indexOf("--all-units-exception"), 2);
     o.out(`${tag} ALL UNITS EXCEPTION ${describeAllUnitsException(granted)}`);
+    return {};
+  }
+  // RightKit's own sample apps (ci/sample-apps.json of the commit: the all-packages e2e app) are built as apps, from inside their directory:
+  // the run is scoped to that app (appRootOf), never the whole repository, exactly as a product app's run is.
+  const sample = sampleAppOf({ o, root, git, commit: pinned.commit });
+  if (sample) {
+    o.out(`${tag} RightKit sample app ${sample}: built as an app, scoped to ${sample} (ci/sample-apps.json)`);
     return {};
   }
   o.err(`${tag} BLOCKED: RK_UNIT_NOT_NAMED: RightKit names its unit on every run: --unit <cargo:rightkit-name|npm:@rightkit/name>, --units-file <json written for this run>, or --all-units-exception <id> (Adrian's entry in ${ALL_UNITS_EXCEPTIONS_FILE}); a whole-repository run is never the default; nothing ran`);
