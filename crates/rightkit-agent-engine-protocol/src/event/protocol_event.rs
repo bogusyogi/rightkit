@@ -184,6 +184,10 @@ pub enum ProtocolEvent {
         created_at: String,
         tool_call_id: String,
         approved: bool,
+        /// Why a denial happened: `unattended`, `detached`, `cancelled`, or `user`
+        /// (the user declined). Absent on an approval; omitted from the wire when `None`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
     },
 
     /// Typed verdict of the approval review stage for one mutating tool call,
@@ -205,6 +209,22 @@ pub enum ProtocolEvent {
         verdict: String,
         reason: String,
         reviewer_configured: bool,
+    },
+
+    /// A stored policy fact about one tool call that is not an approval card (tools rule 31): a
+    /// session grant was installed, a hook blocked the call, or the sandbox refused the launch.
+    /// `kind` is `grant_installed`, `hook_block` or `sandbox_refusal`; `policy_source` names what
+    /// decided (a rule id, a hook id such as `PreToolUse#0`, a sandbox tier or profile); `cause`
+    /// is a short redacted reason, never command text, arguments or a secret.
+    #[serde(rename = "toolPolicyEvent", rename_all = "camelCase")]
+    ToolPolicyEvent {
+        session_id: String,
+        seq: i64,
+        created_at: String,
+        tool_call_id: String,
+        policy_source: String,
+        kind: String,
+        cause: String,
     },
 
     #[serde(rename = "toolResultAdded", rename_all = "camelCase")]

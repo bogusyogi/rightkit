@@ -34,6 +34,7 @@ fn camel_case_tool_call_id_field() {
         created_at: "t".into(),
         tool_call_id: "tc1".into(),
         approved: false,
+        reason: None,
     };
     let json = serde_json::to_string(&ev).unwrap();
     assert!(json.contains(r#""toolCallId":"tc1""#), "got: {json}");

@@ -316,6 +316,12 @@ macro_rules! match_event_meta {
                 created_at: $created_at,
                 ..
             }
+            | ProtocolEvent::ToolPolicyEvent {
+                session_id: $session_id,
+                seq: $seq,
+                created_at: $created_at,
+                ..
+            }
             | ProtocolEvent::ModelRouteDecision {
                 session_id: $session_id,
                 seq: $seq,
@@ -392,6 +398,7 @@ fn assign_seq(event: &mut ProtocolEvent, new_seq: i64) {
         | ProtocolEvent::SelfReviewProposalReceived { seq, .. }
         | ProtocolEvent::ModelRouteDecision { seq, .. }
         | ProtocolEvent::ToolApprovalReviewed { seq, .. }
+        | ProtocolEvent::ToolPolicyEvent { seq, .. }
         | ProtocolEvent::RunGovernanceRejected { seq, .. } => *seq = new_seq,
     }
 }
@@ -639,6 +646,7 @@ mod tests {
                 | ProtocolEvent::GoalProgressUpdated { seq, .. }
                 | ProtocolEvent::SelfReviewProposalReceived { seq, .. }
                 | ProtocolEvent::ToolApprovalReviewed { seq, .. }
+                | ProtocolEvent::ToolPolicyEvent { seq, .. }
                 | ProtocolEvent::RunGovernanceRejected { seq, .. } => mutate(seq),
                 // ModelRouteDecision nests a payload — exhaustive coverage
                 // requires the inner seq; in practice, set_seq delegates to
