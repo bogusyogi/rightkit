@@ -247,7 +247,17 @@
      "version": "=0.1.0,workspace"
     }
    ],
-   "env_reads": {}
+   "env_reads": {
+    "RIGHTKIT_QA_HIDDEN": [
+     "coderight/apps/coderight-tauri/src-tauri/src/lib.rs:35"
+    ],
+    "RIGHTKIT_SUITE_ROOT": [
+     "coderight/engine/crates/tools/src/mcp_auth.rs:220",
+     "coderight/engine/crates/tools/src/mcp_auth.rs:277",
+     "coderight/engine/crates/tools/src/mcp_auth.rs:335",
+     "coderight/engine/crates/driver_host/src/cli_runtime/profile.rs:308"
+    ]
+   }
   },
   {
    "kind": "app",
@@ -515,6 +525,13 @@
      "cutright/apps/cutright/right-release.config.mjs:19",
      "cutright/apps/cutright/vite.config.ts:14",
      "cutright/apps/cutright/vite.config.ts:15"
+    ],
+    "RIGHTKIT_QA_MUTE": [
+     "cutright/apps/cutright/src-tauri/src/lib.rs:122",
+     "cutright/apps/cutright/src-tauri/src/playback.rs:85"
+    ],
+    "RIGHTKIT_QA_RUN_ID": [
+     "cutright/apps/cutright/src-tauri/src/lib.rs:132"
     ]
    }
   },
@@ -685,6 +702,19 @@
     }
    ],
    "env_reads": {
+    "RIGHTKIT_QA_BACKGROUND": [
+     "ember/apps/lightcraft-desktop/src/native.rs:287",
+     "ember/apps/lightcraft-desktop/src/native.rs:811",
+     "ember/apps/lightcraft-desktop/src/native.rs:1117",
+     "ember/apps/lightcraft-desktop/src/native.rs:1230"
+    ],
+    "RIGHTKIT_QA_DATA_DIR": [
+     "ember/apps/lightcraft-desktop/src/native.rs:835"
+    ],
+    "RIGHTKIT_QA_HIDDEN": [
+     "ember/apps/lightcraft-desktop/src/native.rs:286",
+     "ember/apps/lightcraft-desktop/src/native.rs:810"
+    ],
     "RIGHTKIT_RELEASE_CONFIG": [
      "ember/scripts/desktop/lib.mjs:82"
     ]
@@ -1177,6 +1207,18 @@
     ],
     "RIGHTKIT_LEGAL_DIR": [
      "heardright/tauri-app-next/scripts/sync-legal-snapshot.mjs:62"
+    ],
+    "RIGHTKIT_QA_HIDDEN": [
+     "heardright/tauri-app-next/src-tauri/src/app_lib.rs:109"
+    ],
+    "RIGHTKIT_QA_NATIVE": [
+     "heardright/tauri-app-next/src-tauri/src/app_lib.rs:104"
+    ],
+    "RIGHTKIT_SUITE_ROOT": [
+     "heardright/tauri-app-next/src-tauri/src/app_run.rs:330"
+    ],
+    "RIGHTKIT_UNDER_TEST": [
+     "heardright/tauri-app-next/heardright_core/src/app_paths.rs:54"
     ]
    }
   },
@@ -1251,14 +1293,7 @@
      "version": "=0.6.1"
     }
    ],
-   "env_reads": {
-    "RIGHTKIT_CHROME_FOR_TESTING": [
-     "legion/engine/crates/legion-audit/src/native_providers/legacy_checks/runtime_capture.rs:3121"
-    ],
-    "RIGHTKIT_CHROME_HEADLESS_SHELL": [
-     "legion/engine/crates/legion-audit/src/native_providers/legacy_checks/runtime_capture.rs:3122"
-    ]
-   }
+   "env_reads": {}
   },
   {
    "kind": "app",
@@ -1468,7 +1503,11 @@
    ],
    "env_reads": {
     "RIGHTKIT_BUILD_MODE": [
-     "mailright/right-release.config.mjs:19"
+     "mailright/right-release.config.mjs:19",
+     "mailright/src-tauri/build.rs:66"
+    ],
+    "RIGHTKIT_QA_NATIVE": [
+     "mailright/src-tauri/src/tauri_run.rs:5"
     ],
     "RIGHTKIT_RUN_ROOT": [
      "mailright/scripts/qa-journeys.mjs:18",
@@ -1677,7 +1716,11 @@
      "version": "=0.1.0"
     }
    ],
-   "env_reads": {}
+   "env_reads": {
+    "RIGHTKIT_QA_APP_DATA_SOURCE": [
+     "postright/src-tauri/src/lib.rs:227"
+    ]
+   }
   },
   {
    "kind": "app",
@@ -1945,7 +1988,23 @@
      "version": "=0.1.0"
     }
    ],
-   "env_reads": {}
+   "env_reads": {
+    "RIGHTKIT_PULSE_QA_HOME": [
+     "pulse/core/src/home.rs:66",
+     "pulse/windows/src/viewshots.rs:545",
+     "pulse/engine/src/disk_index.rs:1462",
+     "pulse/engine/src/disk_index.rs:1786"
+    ],
+    "RIGHTKIT_PULSE_QA_INVOKE_FIXTURES": [
+     "pulse/hub/src-tauri/src/qa_invoke.rs:20"
+    ],
+    "RIGHTKIT_PULSE_QA_INVOKE_RECORD": [
+     "pulse/hub/src-tauri/src/qa_invoke.rs:23"
+    ],
+    "RIGHTKIT_QA_HIDDEN": [
+     "pulse/hub/src-tauri/src/lib.rs:981"
+    ]
+   }
   },
   {
    "kind": "app",
@@ -2187,6 +2246,14 @@
     "RIGHTKIT_BUILD_MODE": [
      "scraperight/scripts/prepare-runtime.mjs:95"
     ],
+    "RIGHTKIT_QA_NATIVE": [
+     "scraperight/src-tauri/src/main.rs:18"
+    ],
+    "RIGHTKIT_QA_NATIVE_REAL": [
+     "scraperight/src-tauri/src/playback.rs:57",
+     "scraperight/src-tauri/src/main.rs:23",
+     "scraperight/src-tauri/src/license.rs:47"
+    ],
     "RIGHTKIT_RUN_ROOT": [
      "scraperight/scripts/qa-browser.mjs:21",
      "scraperight/scripts/qa-browser.mjs:22",
@@ -2412,11 +2479,23 @@
     }
    ],
    "env_reads": {
+    "RIGHTKIT_CONTROL_SERVICE": [
+     "viewright/src-tauri/src/lib.rs:106"
+    ],
+    "RIGHTKIT_QA_HIDDEN": [
+     "viewright/src-tauri/src/lib.rs:112"
+    ],
+    "RIGHTKIT_QA_NATIVE": [
+     "viewright/src-tauri/src/lib.rs:105"
+    ],
     "RIGHTKIT_RUN_ROOT": [
      "viewright/tasks/handoffs/2026-10-11/next-snapshot/qa-adapter/qa-browser-functional-helpers.mjs:32",
      "viewright/tasks/handoffs/2026-10-11/next-snapshot/qa-adapter/qa-browser-functional-helpers.mjs:32",
      "viewright/tasks/handoffs/2026-10-11/next-snapshot/qa-adapter/qa-browser-functional-helpers.mjs:39",
      "viewright/scripts/qa-browser-functional-helpers.mjs:32"
+    ],
+    "RIGHTKIT_VIEWRIGHT_QA_OPEN": [
+     "viewright/src-tauri/src/lib.rs:193"
     ]
    }
   }
@@ -2626,9 +2705,16 @@
     "env_read": [
      "CARGO_MANIFEST_DIR",
      "CARGO_PKG_VERSION",
-     "RIGHTKIT_DISABLE_VENDOR_CLIS"
+     "RIGHTKIT_DISABLE_VENDOR_CLIS",
+     "RK_FAKE_CLI_FIXTURE",
+     "RK_FAKE_CLI_KIND",
+     "RK_FAKE_SESSION_KIND"
     ],
-    "env_set": [],
+    "env_set": [
+     "RK_FAKE_CLI_FIXTURE",
+     "RK_FAKE_CLI_KIND",
+     "RK_FAKE_SESSION_KIND"
+    ],
     "files": [
      "Cargo.toml"
     ],
@@ -3786,30 +3872,48 @@
    "runtime": {
     "env_read": [
      "CARGO_MANIFEST_DIR",
+     "RIGHTKIT_BREAKAWAY_HELPER",
      "RIGHTKIT_EXPECTED_CWD",
+     "RIGHTKIT_INHERITED_TERMINAL_FIXTURE",
      "RIGHTKIT_INHERITED_TERMINAL_GROUP",
+     "RIGHTKIT_JOB_PIDS_HELPER",
      "RIGHTKIT_KEPT_ENV",
      "RIGHTKIT_MISSING_ENV",
+     "RIGHTKIT_NATIVE_CAPTURE_CASE",
      "RIGHTKIT_NATIVE_CAPTURE_DIRECTORY",
+     "RIGHTKIT_NATIVE_CAPTURE_FIXTURE",
+     "RIGHTKIT_PROBE_FDS",
      "RIGHTKIT_PROBE_NO_INHERIT",
      "RIGHTKIT_PROCESS_PARENT_DEATH_ROLE",
+     "RIGHTKIT_SLOW_STREAM_CASE",
+     "RIGHTKIT_SLOW_STREAM_FIXTURE",
      "RIGHTKIT_STDERR_LIVE_PIPE_WRITER",
      "RIGHTKIT_STRIPPED_ENV",
-     "RK_RUN_COMMAND_VAR"
+     "RK_RUN_COMMAND_VAR",
+     "RK_RUN_HELPER"
     ],
     "env_set": [
+     "RIGHTKIT_BREAKAWAY_HELPER",
      "RIGHTKIT_EXPECTED_CWD",
+     "RIGHTKIT_INHERITED_TERMINAL_FIXTURE",
      "RIGHTKIT_INHERITED_TERMINAL_GROUP",
+     "RIGHTKIT_JOB_PIDS_HELPER",
      "RIGHTKIT_KEPT_ENV",
      "RIGHTKIT_MISSING_ENV",
+     "RIGHTKIT_NATIVE_CAPTURE_CASE",
      "RIGHTKIT_NATIVE_CAPTURE_DIRECTORY",
+     "RIGHTKIT_NATIVE_CAPTURE_FIXTURE",
+     "RIGHTKIT_PROBE_FDS",
      "RIGHTKIT_PROBE_NO_INHERIT",
      "RIGHTKIT_PROCESS_PARENT_DEATH_ROLE",
+     "RIGHTKIT_SLOW_STREAM_CASE",
+     "RIGHTKIT_SLOW_STREAM_FIXTURE",
      "RIGHTKIT_STDERR_LIVE_PIPE_WRITER",
      "RIGHTKIT_STRIPPED_ENV",
      "RK_M3_ENV_EXTRA",
      "RK_M3_ENV_SECRET",
      "RK_RUN_COMMAND_VAR",
+     "RK_RUN_HELPER",
      "RK_TEST_ADDED",
      "RK_TEST_HIDDEN",
      "RK_TEST_KEEP",
@@ -4074,9 +4178,11 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "RK_CRASH_E2E_CHILD_DIR",
      "RK_CRASH_E2E_NATIVE"
     ],
     "env_set": [
+     "RK_CRASH_E2E_CHILD_DIR",
      "RK_CRASH_E2E_NATIVE",
      "RUST_BACKTRACE"
     ],
@@ -4711,10 +4817,12 @@
    "runtime": {
     "env_read": [
      "RIGHTKIT_DB_RELOCATION_CHILD_PHASE",
+     "RIGHTKIT_DB_RELOCATION_INTERRUPTION_CHILD",
      "RKDB_PATH"
     ],
     "env_set": [
      "RIGHTKIT_DB_RELOCATION_CHILD_PHASE",
+     "RIGHTKIT_DB_RELOCATION_INTERRUPTION_CHILD",
      "RKDB_PATH"
     ],
     "files": [
@@ -5229,6 +5337,7 @@
     "env_read": [
      "CARGO_MANIFEST_DIR",
      "RIGHTKIT_FFMPEG",
+     "RIGHTKIT_MEDIA_PROMOTE_EVIDENCE",
      "RIGHTKIT_REQUIRE_ASSETS",
      "RIGHTKIT_WORKSPACE_ROOT"
     ],
@@ -5290,8 +5399,8 @@
    "private_modules": [],
    "bins": [],
    "files": 21,
-   "loc": 9591,
-   "tests": 113,
+   "loc": 9634,
+   "tests": 114,
    "doc": "`rightkit-file-watch`: one filesystem-watching foundation for every Right Suite app.",
    "workspace_root": true,
    "used": {
@@ -5433,7 +5542,10 @@
      "RIGHTKIT_CLONE_XVOL_DIR",
      "RIGHTKIT_FS_LEASE_KILL_HELPER",
      "RIGHTKIT_FS_LOCK_PROBE",
+     "RIGHTKIT_FS_TEST_LOCK_ALIAS_PROBE",
+     "RIGHTKIT_FS_TEST_LOCK_HOLDER",
      "RIGHTKIT_FS_TEST_OTHER_VOLUME",
+     "RIGHTKIT_FS_TEST_WRITE_LOCK_HOLDER",
      "RIGHTKIT_FS_TXN_KILL_ASIDE",
      "RIGHTKIT_FS_TXN_KILL_HELPER",
      "RIGHTKIT_FS_TXN_KILL_MODE",
@@ -5446,6 +5558,9 @@
      "HR_HOME",
      "RIGHTKIT_FS_LEASE_KILL_HELPER",
      "RIGHTKIT_FS_LOCK_PROBE",
+     "RIGHTKIT_FS_TEST_LOCK_ALIAS_PROBE",
+     "RIGHTKIT_FS_TEST_LOCK_HOLDER",
+     "RIGHTKIT_FS_TEST_WRITE_LOCK_HOLDER",
      "RIGHTKIT_FS_TXN_KILL_ASIDE",
      "RIGHTKIT_FS_TXN_KILL_HELPER",
      "RIGHTKIT_FS_TXN_KILL_MODE",
@@ -6191,6 +6306,7 @@
      "RIGHTKIT_JOBS_TEST_FIFO_HOLD_MS",
      "RIGHTKIT_JOBS_TEST_FIFO_INDEX",
      "RIGHTKIT_JOBS_TEST_FIFO_OUT",
+     "RIGHTKIT_JOBS_TEST_LOCK_HOLDER",
      "RIGHTKIT_RUNTIME_SCRATCH_ROOT",
      "RK_BUDGET_ENGINE"
     ],
@@ -6206,6 +6322,7 @@
      "RIGHTKIT_JOBS_TEST_FIFO_DIR",
      "RIGHTKIT_JOBS_TEST_FIFO_INDEX",
      "RIGHTKIT_JOBS_TEST_FIFO_OUT",
+     "RIGHTKIT_JOBS_TEST_LOCK_HOLDER",
      "RK_BUDGET_ENGINE",
      "RK_M3_JOBS_KEEP",
      "RK_M3_JOBS_SECRET"
@@ -6628,12 +6745,14 @@
      "CARGO_PKG_VERSION",
      "RIGHTKIT_LOGS_INHERITED_STDERR_CHILD",
      "RK_LOGS_CONFIG_CHILD_REVOKE_PATH",
+     "RK_LOGS_E2E_CHILD_DIR",
      "RK_PURGE_LOCK_CHILD",
      "RUST_LOG"
     ],
     "env_set": [
      "RIGHTKIT_LOGS_INHERITED_STDERR_CHILD",
      "RK_LOGS_CONFIG_CHILD_REVOKE_PATH",
+     "RK_LOGS_E2E_CHILD_DIR",
      "RK_PURGE_LOCK_CHILD"
     ],
     "files": [
@@ -6957,11 +7076,14 @@
     "env_read": [
      "CARGO_PKG_VERSION",
      "CARGO_TARGET_TMPDIR",
-     "RIGHTKIT_HW_JSON"
+     "RIGHTKIT_HW_JSON",
+     "RIGHTKIT_MODELS_TEST_CHILD"
     ],
     "env_set": [
      "HTTP_PROXY",
      "ORTHIC_SHARED_DIR",
+     "RIGHTKIT_MODELS_TEST_CHILD",
+     "RIGHTKIT_SUITE_ROOT",
      "RIGHT_SUITE_DIR"
     ],
     "files": [
@@ -8331,6 +8453,7 @@
      "RIGHTKIT_CONTROL_SERVICE",
      "RIGHTKIT_CONTROL_STACK_ON_TIMEOUT",
      "RIGHTKIT_CONTROL_TRACE",
+     "RIGHTKIT_JOURNEYS_PROTOCOL",
      "RIGHTKIT_JOURNEYS_RESULTS",
      "RIGHTKIT_JOURNEYS_SELECTION",
      "RIGHTKIT_MANAGED_ROOT",
@@ -8345,6 +8468,7 @@
      "RIGHTKIT_QA_HOME_MAX_AGE_SECS",
      "RIGHTKIT_QA_HOME_ROOT",
      "RIGHTKIT_QA_HOME_SWEEP",
+     "RIGHTKIT_QA_INTERACTIVE",
      "RIGHTKIT_QA_KEEP_FAILED_HOME",
      "RIGHTKIT_QA_NATIVE_FOCUS_RETURN_EXECUTABLE",
      "RIGHTKIT_QA_NATIVE_FOCUS_RETURN_PID",
@@ -8355,6 +8479,7 @@
      "RIGHTKIT_QA_ROOT_CEILING_BYTES",
      "RIGHTKIT_QA_SCAN_HOME",
      "RIGHTKIT_QA_SETTINGS",
+     "RIGHTKIT_QA_SIGNING_EVIDENCE",
      "RIGHTKIT_QA_SUPERVISE_HELPER",
      "RIGHTKIT_QA_SUPERVISE_MARKER_SLEEP",
      "RIGHTKIT_QA_SUPERVISE_WORLD",
@@ -8412,6 +8537,7 @@
      "RIGHTKIT_QA_RUN_ID",
      "RIGHTKIT_QA_RUN_TOKEN",
      "RIGHTKIT_QA_SCAN_HOME",
+     "RIGHTKIT_QA_STEP_PLUGIN",
      "RIGHTKIT_QA_SUPERVISE_HELPER",
      "RIGHTKIT_QA_SUPERVISE_MARKER_SLEEP",
      "RIGHTKIT_QA_SUPERVISE_WORLD",
@@ -8821,6 +8947,8 @@
      "CARGO_MANIFEST_DIR",
      "CARGO_PKG_VERSION",
      "CARGO_TARGET_TMPDIR",
+     "RIGHTKIT_RECORD_MACOS_FIXTURE",
+     "RIGHTKIT_RECORD_MACOS_HELPER",
      "RK_RECORD_KEEP",
      "RK_UPDATE_GOLDEN"
     ],
@@ -10030,6 +10158,7 @@
      "RK_SHELL_INSTANCE_DOTTED_ROOT",
      "RK_SHELL_INSTANCE_TEST_ROOT",
      "RK_SINGLE_INSTANCE_DOTTED_ROOT",
+     "RK_SINGLE_INSTANCE_TEST_ROOT",
      "XDG_CACHE_HOME",
      "XDG_CONFIG_HOME"
     ],
@@ -10046,6 +10175,7 @@
      "RK_SHELL_INSTANCE_DOTTED_ROOT",
      "RK_SHELL_INSTANCE_TEST_ROOT",
      "RK_SINGLE_INSTANCE_DOTTED_ROOT",
+     "RK_SINGLE_INSTANCE_TEST_ROOT",
      "SOMETHING_ELSE",
      "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
      "WEBVIEW2_USER_DATA_FOLDER",
@@ -11140,7 +11270,10 @@
      "RIGHT_GIT_GRACE_FRACTION",
      "RIGHT_GIT_MEDIAN_WINDOW"
     ],
-    "env_set": [],
+    "env_set": [
+     "RIGHTKIT_DEV_SIGNING",
+     "RIGHT_RELEASE_QA_RECEIPT"
+    ],
     "files": [
      ".rightgit.json",
      "package.json",
@@ -11946,6 +12079,7 @@
      "WEBVIEW2_USER_DATA_FOLDER"
     ],
     "env_set": [
+     "RIGHTKIT_JOURNEYS_PROTOCOL",
      "RIGHTKIT_JOURNEYS_RESULTS",
      "RIGHTKIT_JOURNEYS_SELECTION",
      "RIGHTKIT_QA_CAPTURE_DIR",
@@ -18151,9 +18285,9 @@
    },
    "setters": {
     "@rightkit/release": [
-     "packages/release/heavy-command.mjs:31",
+     "packages/release/heavy-command.mjs:32",
      "packages/release/ios-cargoless-build.test.mjs:378 (test)",
-     "packages/release/ios-cargoless-build.test.mjs:459 (test)",
+     "packages/release/ios-cargoless-build.test.mjs:460 (test)",
      "packages/release/heavy-command.test.mjs:43 (test)"
     ]
    },
@@ -18310,12 +18444,20 @@
      "packages/release/ios-cargoless-build.test.mjs:459 (test)",
      "packages/release/local-runtime.mjs:250",
      "packages/release/development.test.mjs:134 (test)"
+    ],
+    "github-workflows": [
+     ".github/workflows/ci.yml:176",
+     ".github/workflows/ci.yml:242",
+     ".github/workflows/ci.yml:308",
+     ".github/workflows/ci.yml:372",
+     ".github/workflows/publish.yml:856",
+     ".github/workflows/publish.yml:974"
     ]
    },
    "named_in_consts": {},
    "removers": {},
    "mentioned_by": [],
-   "cross_unit": false,
+   "cross_unit": true,
    "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
@@ -18487,7 +18629,7 @@
    },
    "setters": {
     "rightkit-qa": [
-     "crates/rightkit-qa/src/run_tests/mod.rs:511"
+     "crates/rightkit-qa/src/run_tests/mod.rs:512"
     ]
    },
    "named_in_consts": {},
@@ -18502,6 +18644,27 @@
     "rightkit-tauri-shell",
     "rightkit-tts-qwen",
     "rightkit-tts-qwen-sys"
+   ],
+   "cross_unit": true,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "CARGO_NDK_VERSION": {
+   "readers": {
+    "github-workflows": [
+     ".github/workflows/android.yml:65"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/android.yml:64"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [
+    "rightkit-android"
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
@@ -18656,6 +18819,71 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "CARGO_PROFILE_DEV_DEBUG": {
+   "readers": {},
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/ci.yml:177",
+     ".github/workflows/ci.yml:243",
+     ".github/workflows/ci.yml:309",
+     ".github/workflows/ci.yml:373",
+     ".github/workflows/publish.yml:857",
+     ".github/workflows/publish.yml:975"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "CARGO_PROFILE_TEST_DEBUG": {
+   "readers": {},
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/ci.yml:178",
+     ".github/workflows/ci.yml:244",
+     ".github/workflows/ci.yml:310",
+     ".github/workflows/ci.yml:374",
+     ".github/workflows/publish.yml:858",
+     ".github/workflows/publish.yml:976"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "CARGO_REGISTRY_TOKEN": {
+   "readers": {
+    "github-workflows": [
+     "scripts/ci/supplemental-proof.mjs:67",
+     "scripts/ci/owner-upload.mjs:18",
+     "scripts/ci/workflow-contract.mjs:652",
+     "scripts/ci/registry-admin.mjs:55"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/publish-direct.yml:205",
+     ".github/workflows/publish-owner.yml:93",
+     ".github/workflows/publish-reviewed.yml:137",
+     ".github/workflows/registry-admin.yml:51"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "CARGO_TARGET_DIR": {
    "readers": {
     "@rightkit/release": [
@@ -18722,7 +18950,7 @@
    "setters": {
     "@rightkit/release": [
      "packages/release/release-token.test.mjs:9 (test)",
-     "packages/release/publish-update.test.mjs:282 (test)"
+     "packages/release/publish-update.test.mjs:283 (test)"
     ]
    },
    "named_in_consts": {},
@@ -18782,7 +19010,7 @@
      "packages/release/release-token.test.mjs:9 (test)",
      "packages/release/managed-host-secrets.test.mjs:76 (test)",
      "packages/release/managed-host-secrets.test.mjs:78 (test)",
-     "packages/release/model-promote.test.mjs:364 (test)"
+     "packages/release/model-promote.test.mjs:365 (test)"
     ]
    },
    "named_in_consts": {},
@@ -18808,8 +19036,8 @@
     "@rightkit/release": [
      "packages/release/release-token.test.mjs:16 (test)",
      "packages/release/managed-host-secrets.test.mjs:77 (test)",
-     "packages/release/model-promote.test.mjs:365 (test)",
-     "packages/release/publish-update.test.mjs:281 (test)"
+     "packages/release/model-promote.test.mjs:366 (test)",
+     "packages/release/publish-update.test.mjs:282 (test)"
     ]
    },
    "named_in_consts": {},
@@ -19049,6 +19277,29 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RIGHTKIT_BREAKAWAY_HELPER": {
+   "readers": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/windows_process_tree.rs:204 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/windows_process_tree.rs:258 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/windows_process_tree.rs:195 HELPER_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RIGHTKIT_BROKER_GUARD_LOG": {
    "readers": {
     "@rightkit/release": [
@@ -19125,7 +19376,7 @@
    },
    "setters": {
     "@rightkit/release": [
-     "packages/release/development.mjs:46",
+     "packages/release/development.mjs:47",
      "packages/release/adapter-env-qa.test.mjs:118 (test)",
      "packages/release/assembled-app.test.mjs:288 (test)",
      "packages/release/stage-sidecar.test.mjs:356 (test)",
@@ -19151,7 +19402,8 @@
      "genright/right-release.config.mjs:106"
     ],
     "mailright": [
-     "mailright/right-release.config.mjs:19"
+     "mailright/right-release.config.mjs:19",
+     "mailright/src-tauri/build.rs:66"
     ],
     "scraperight": [
      "scraperight/scripts/prepare-runtime.mjs:95"
@@ -19310,7 +19562,7 @@
    },
    "setters": {
     "@rightkit/release": [
-     "packages/release/development.mjs:47"
+     "packages/release/development.mjs:48"
     ]
    },
    "named_in_consts": {},
@@ -19430,6 +19682,9 @@
     ],
     "@rightkit/qa-chrome": [
      "packages/qa-chrome/src/index.ts:147"
+    ],
+    "github-workflows": [
+     "scripts/ci/chrome-linux-sandbox.mjs:31"
     ]
    },
    "setters": {
@@ -19444,6 +19699,10 @@
      "packages/qa-chrome/src/index.test.ts:58 (test)",
      "packages/qa-chrome/src/index.test.ts:59 (test)",
      "packages/qa-chrome/src/index.test.ts:64 (test)"
+    ],
+    "github-workflows": [
+     ".github/workflows/chrome-native-diagnostic.yml:42",
+     ".github/workflows/publish.yml:966"
     ]
    },
    "named_in_consts": {
@@ -19460,20 +19719,23 @@
     "rightkit-browser"
    ],
    "cross_unit": true,
-   "read_never_set_in_rk": true,
+   "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
-   "read_only_by_tests": false,
-   "app_readers": {
-    "legion": [
-     "legion/engine/crates/legion-audit/src/native_providers/legacy_checks/runtime_capture.rs:3121"
-    ]
-   }
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CHROME_FOR_TESTING_ROOT": {
    "readers": {
     "@rightkit/qa-chrome": [
      "packages/qa-chrome/src/install.test.ts:65 (test)",
      "packages/qa-chrome/src/install.ts:119"
+    ],
+    "github-workflows": [
+     "scripts/ci/chrome-linux-sandbox.mjs:31",
+     "scripts/ci/chrome-native-diagnostic.mjs:282",
+     "scripts/ci/workflow-contract.mjs:638",
+     "scripts/ci/workflow-contract.mjs:639",
+     "scripts/ci/workflow-contract.mjs:891",
+     "scripts/ci/workflow-contract.mjs:892"
     ]
    },
    "setters": {
@@ -19489,6 +19751,14 @@
      "packages/qa-chrome/src/install.test.ts:59 (test)",
      "packages/qa-chrome/src/install.test.ts:69 (test)",
      "packages/qa-chrome/src/install.test.ts:77 (test)"
+    ],
+    "github-workflows": [
+     ".github/workflows/chrome-native-diagnostic.yml:36",
+     ".github/workflows/chrome-native-diagnostic.yml:41",
+     ".github/workflows/chrome-native-diagnostic.yml:46",
+     ".github/workflows/publish.yml:817",
+     ".github/workflows/publish.yml:849",
+     ".github/workflows/publish.yml:870"
     ]
    },
    "named_in_consts": {
@@ -19540,12 +19810,7 @@
    "cross_unit": true,
    "read_never_set_in_rk": true,
    "set_never_read_in_rk": false,
-   "read_only_by_tests": false,
-   "app_readers": {
-    "legion": [
-     "legion/engine/crates/legion-audit/src/native_providers/legacy_checks/runtime_capture.rs:3122"
-    ]
-   }
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CLASS_A_LAUNCH_GUARD": {
    "readers": {
@@ -19659,7 +19924,12 @@
    "cross_unit": false,
    "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
-   "read_only_by_tests": false
+   "read_only_by_tests": false,
+   "app_readers": {
+    "viewright": [
+     "viewright/src-tauri/src/lib.rs:106"
+    ]
+   }
   },
   "RIGHTKIT_CONTROL_STACK_ON_TIMEOUT": {
    "readers": {
@@ -19874,7 +20144,7 @@
    "readers": {},
    "setters": {
     "rightkit-qa": [
-     "crates/rightkit-qa/src/journeys/tests.rs:2078 (test)",
+     "crates/rightkit-qa/src/journeys/tests.rs:2079 (test)",
      "crates/rightkit-qa/src/journeys/tests.rs:2092 (test)",
      "crates/rightkit-qa/src/journeys/tests.rs:2162 (test)",
      "crates/rightkit-qa/src/journeys/tests.rs:1333 (test)"
@@ -19942,6 +20212,29 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RIGHTKIT_DB_RELOCATION_INTERRUPTION_CHILD": {
+   "readers": {
+    "rightkit-db": [
+     "crates/rightkit-db/tests/relocation_interruption.rs:302 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-db": [
+     "crates/rightkit-db/tests/relocation_interruption.rs:272 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-db": [
+     "crates/rightkit-db/tests/relocation_interruption.rs:22 CHILD_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RIGHTKIT_DEV_SIGNING": {
    "readers": {
     "@rightkit/release": [
@@ -19950,6 +20243,9 @@
     ]
    },
    "setters": {
+    "@rightkit/ci": [
+     "packages/ci/manifest.mjs:1541"
+    ],
     "@rightkit/release": [
      "packages/release/suite-signing-route.test.mjs:61 (test)",
      "packages/release/suite-signing-route.test.mjs:96 (test)",
@@ -19968,8 +20264,8 @@
    "mentioned_by": [
     "@rightkit/release"
    ],
-   "cross_unit": false,
-   "read_never_set_in_rk": true,
+   "cross_unit": true,
+   "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
@@ -20148,6 +20444,52 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RIGHTKIT_FS_TEST_LOCK_ALIAS_PROBE": {
+   "readers": {
+    "rightkit-fs": [
+     "crates/rightkit-fs/tests/lock_alias.rs:22 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-fs": [
+     "crates/rightkit-fs/tests/lock_alias.rs:40 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-fs": [
+     "crates/rightkit-fs/tests/lock_alias.rs:16 PROBE_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RIGHTKIT_FS_TEST_LOCK_HOLDER": {
+   "readers": {
+    "rightkit-fs": [
+     "crates/rightkit-fs/tests/lock_cross_process.rs:22 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-fs": [
+     "crates/rightkit-fs/tests/lock_cross_process.rs:49 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-fs": [
+     "crates/rightkit-fs/tests/lock_cross_process.rs:16 HOLDER_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RIGHTKIT_FS_TEST_OTHER_VOLUME": {
    "readers": {
     "rightkit-fs": [
@@ -20156,6 +20498,29 @@
    },
    "setters": {},
    "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RIGHTKIT_FS_TEST_WRITE_LOCK_HOLDER": {
+   "readers": {
+    "rightkit-fs": [
+     "crates/rightkit-fs/tests/write_locks.rs:215 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-fs": [
+     "crates/rightkit-fs/tests/write_locks.rs:239 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-fs": [
+     "crates/rightkit-fs/tests/write_locks.rs:208 HOLDER_ENV"
+    ]
+   },
    "removers": {},
    "mentioned_by": [],
    "cross_unit": false,
@@ -20383,6 +20748,30 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RIGHTKIT_INHERITED_TERMINAL_FIXTURE": {
+   "readers": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/inherited_terminal.rs:16 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/inherited_terminal.rs:23 (test)",
+     "crates/rightkit-child-process/tests/inherited_terminal.rs:58 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/inherited_terminal.rs:10 MODE"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RIGHTKIT_INHERITED_TERMINAL_GROUP": {
    "readers": {
     "rightkit-child-process": [
@@ -20584,14 +20973,70 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
-  "RIGHTKIT_JOURNEYS_PROTOCOL": {
+  "RIGHTKIT_JOBS_TEST_LOCK_HOLDER": {
    "readers": {
-    "@rightkit/qa": [
-     "packages/qa/journeys-fixture-adapter.mjs:18",
-     "packages/qa/src/journeys/journeys.test.ts:171 (test)"
+    "rightkit-job-queue": [
+     "crates/rightkit-job-queue/tests/job_lock_process.rs:13 (test)"
     ]
    },
-   "setters": {},
+   "setters": {
+    "rightkit-job-queue": [
+     "crates/rightkit-job-queue/tests/job_lock_process.rs:38 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-job-queue": [
+     "crates/rightkit-job-queue/tests/job_lock_process.rs:9 HOLDER_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RIGHTKIT_JOB_PIDS_HELPER": {
+   "readers": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/src/windows_job.rs:489 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/src/windows_job.rs:541 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/src/windows_job.rs:479 HELPER_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [
+    "rightkit-child-process"
+   ],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RIGHTKIT_JOURNEYS_PROTOCOL": {
+   "readers": {
+    "rightkit-qa": [
+     "crates/rightkit-qa/src/journeys/adapter.rs:52"
+    ],
+    "@rightkit/qa": [
+     "packages/qa/journeys-fixture-adapter.mjs:18",
+     "packages/qa/src/journeys/journeys.test.ts:171 (test)",
+     "packages/qa/src/journeys/protocol.ts:306"
+    ]
+   },
+   "setters": {
+    "@rightkit/qa": [
+     "packages/qa/src/journeys/protocol.ts:110"
+    ]
+   },
    "named_in_consts": {
     "rightkit-qa": [
      "crates/rightkit-qa/src/journeys/adapter.rs:22 ENV_PROTOCOL"
@@ -20916,6 +21361,9 @@
      "packages/release/build-release.mjs:406",
      "packages/release/codesign-shim.mjs:21",
      "packages/release/macos-signing-session.mjs:70"
+    ],
+    "github-workflows": [
+     "scripts/install-right-ctl.sh:12"
     ]
    },
    "setters": {
@@ -20943,6 +21391,67 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RIGHTKIT_MEDIA_PROMOTE_EVIDENCE": {
+   "readers": {
+    "rightkit-ffmpeg": [
+     "crates/rightkit-ffmpeg/tests/promote_evidence_windows.rs:52 (test)"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/ffmpeg-windows.yml:87"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-ffmpeg": [
+     "crates/rightkit-ffmpeg/tests/promote_evidence_windows.rs:23 EVIDENCE_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
+  },
+  "RIGHTKIT_MEDIA_PROMOTE_FFMPEG": {
+   "readers": {
+    "github-workflows": [
+     ".github/workflows/ffmpeg-windows.yml:90"
+    ]
+   },
+   "setters": {},
+   "named_in_consts": {
+    "rightkit-ffmpeg": [
+     "crates/rightkit-ffmpeg/tests/promote_evidence_windows.rs:21 FFMPEG_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": true,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RIGHTKIT_MEDIA_PROMOTE_FFPROBE": {
+   "readers": {
+    "github-workflows": [
+     ".github/workflows/ffmpeg-windows.yml:90"
+    ]
+   },
+   "setters": {},
+   "named_in_consts": {
+    "rightkit-ffmpeg": [
+     "crates/rightkit-ffmpeg/tests/promote_evidence_windows.rs:22 FFPROBE_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": true,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RIGHTKIT_MISSING_ENV": {
    "readers": {
     "rightkit-child-process": [
@@ -20955,6 +21464,52 @@
     ]
    },
    "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RIGHTKIT_MODELS_TEST_CHILD": {
+   "readers": {
+    "rightkit-models": [
+     "crates/rightkit-models/tests/common/mod.rs:24 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-models": [
+     "crates/rightkit-models/tests/common/mod.rs:39 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-models": [
+     "crates/rightkit-models/tests/common/mod.rs:12 CHILD_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RIGHTKIT_NATIVE_CAPTURE_CASE": {
+   "readers": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/native_capture.rs:100 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/native_capture.rs:108 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/native_capture.rs:99 CASE"
+    ]
+   },
    "removers": {},
    "mentioned_by": [],
    "cross_unit": false,
@@ -20982,6 +21537,30 @@
    "mentioned_by": [
     "rightkit-fs"
    ],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RIGHTKIT_NATIVE_CAPTURE_FIXTURE": {
+   "readers": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/native_capture.rs:18 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/native_capture.rs:46 (test)",
+     "crates/rightkit-child-process/tests/native_capture.rs:86 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/native_capture.rs:12 MODE"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
@@ -21015,7 +21594,7 @@
    },
    "setters": {
     "rightkit-ocr": [
-     "crates/rightkit-ocr/tests/real_model_e2e.rs:18 (test)"
+     "crates/rightkit-ocr/tests/real_model_e2e.rs:19 (test)"
     ]
    },
    "named_in_consts": {},
@@ -21034,7 +21613,7 @@
    },
    "setters": {
     "rightkit-ocr": [
-     "crates/rightkit-ocr/tests/real_model_e2e.rs:23 (test)"
+     "crates/rightkit-ocr/tests/real_model_e2e.rs:24 (test)"
     ]
    },
    "named_in_consts": {},
@@ -21118,11 +21697,10 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
-  "RIGHTKIT_ORT_TEST_DLL_DIR": {
+  "RIGHTKIT_ORT_RUNTIME_ROOT": {
    "readers": {
-    "rightkit-onnx": [
-     "crates/rightkit-onnx/tests/common/mod.rs:146 (test)",
-     "crates/rightkit-onnx/tests/common/mod.rs:178 (test)"
+    "github-workflows": [
+     "scripts/ci/provision-ort.mjs:110"
     ]
    },
    "setters": {},
@@ -21130,7 +21708,26 @@
    "removers": {},
    "mentioned_by": [],
    "cross_unit": false,
-   "read_never_set_in_rk": false,
+   "read_never_set_in_rk": true,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RIGHTKIT_ORT_TEST_DLL_DIR": {
+   "readers": {
+    "rightkit-onnx": [
+     "crates/rightkit-onnx/tests/common/mod.rs:146 (test)",
+     "crates/rightkit-onnx/tests/common/mod.rs:178 (test)"
+    ],
+    "github-workflows": [
+     "scripts/ci/provision-ort.mjs:118"
+    ]
+   },
+   "setters": {},
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": true,
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
@@ -21164,7 +21761,7 @@
    },
    "setters": {
     "rightkit-asr": [
-     "crates/rightkit-asr/tests/e2e_parakeet.rs:240 (test)"
+     "crates/rightkit-asr/tests/e2e_parakeet.rs:241 (test)"
     ]
    },
    "named_in_consts": {},
@@ -21265,6 +21862,34 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RIGHTKIT_PROBE_FDS": {
+   "readers": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/descriptor_sanitation.rs:29 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/descriptor_sanitation.rs:162 (test)",
+     "crates/rightkit-child-process/tests/descriptor_sanitation.rs:197 (test)",
+     "crates/rightkit-child-process/tests/descriptor_sanitation.rs:232 (test)",
+     "crates/rightkit-child-process/tests/descriptor_sanitation.rs:389 (test)",
+     "crates/rightkit-child-process/tests/descriptor_sanitation.rs:413 (test)",
+     "crates/rightkit-child-process/tests/descriptor_sanitation.rs:477 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/descriptor_sanitation.rs:22 PROBE_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RIGHTKIT_PROBE_NO_INHERIT": {
    "readers": {
     "rightkit-child-process": [
@@ -21339,13 +21964,16 @@
      "packages/release/gate-stage-host.test.mjs:44 (test)",
      "packages/release/qualify-reuse.test.mjs:64 (test)",
      "packages/release/qualify-reuse.test.mjs:68 (test)"
+    ],
+    "github-workflows": [
+     ".github/workflows/publish-app.yml:114"
     ]
    },
    "named_in_consts": {},
    "removers": {},
    "mentioned_by": [],
-   "cross_unit": false,
-   "read_never_set_in_rk": true,
+   "cross_unit": true,
+   "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
@@ -21401,7 +22029,7 @@
    },
    "setters": {
     "rightkit-qa": [
-     "crates/rightkit-qa/src/control.rs:1570"
+     "crates/rightkit-qa/src/control.rs:1571"
     ]
    },
    "named_in_consts": {},
@@ -21413,7 +22041,15 @@
    "cross_unit": true,
    "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
-   "read_only_by_tests": false
+   "read_only_by_tests": false,
+   "app_readers": {
+    "ember": [
+     "ember/apps/lightcraft-desktop/src/native.rs:287",
+     "ember/apps/lightcraft-desktop/src/native.rs:811",
+     "ember/apps/lightcraft-desktop/src/native.rs:1117",
+     "ember/apps/lightcraft-desktop/src/native.rs:1230"
+    ]
+   }
   },
   "RIGHTKIT_QA_CAPTURE_DIR": {
    "readers": {
@@ -21423,10 +22059,10 @@
    },
    "setters": {
     "rightkit-qa": [
-     "crates/rightkit-qa/src/workspace.rs:138"
+     "crates/rightkit-qa/src/workspace.rs:139"
     ],
     "@rightkit/qa": [
-     "packages/qa/src/workspace.ts:137"
+     "packages/qa/src/workspace.ts:138"
     ]
    },
    "named_in_consts": {},
@@ -21550,15 +22186,15 @@
     ],
     "rightkit-qa": [
      "crates/rightkit-qa/src/workspace.rs:133",
-     "crates/rightkit-qa/src/userdata.rs:1444 (test)",
+     "crates/rightkit-qa/src/userdata.rs:1445 (test)",
      "crates/rightkit-qa/src/scenario.rs:2346 (test)",
      "crates/rightkit-qa/src/scenario.rs:2367 (test)",
-     "crates/rightkit-qa/src/engine.rs:168",
+     "crates/rightkit-qa/src/engine.rs:169",
      "crates/rightkit-qa/src/journeys/run.rs:2091"
     ],
     "@rightkit/qa": [
-     "packages/qa/src/workspace.ts:135",
-     "packages/qa/src/journeys/run.ts:230"
+     "packages/qa/src/workspace.ts:136",
+     "packages/qa/src/journeys/run.ts:231"
     ],
     "@rightkit/release": [
      "packages/release/sign-qa-bundle.test.mjs:16 (test)"
@@ -21588,7 +22224,12 @@
    "cross_unit": true,
    "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
-   "read_only_by_tests": false
+   "read_only_by_tests": false,
+   "app_readers": {
+    "ember": [
+     "ember/apps/lightcraft-desktop/src/native.rs:835"
+    ]
+   }
   },
   "RIGHTKIT_QA_ENGINE": {
    "readers": {
@@ -21617,10 +22258,10 @@
    },
    "setters": {
     "rightkit-qa": [
-     "crates/rightkit-qa/src/workspace.rs:134"
+     "crates/rightkit-qa/src/workspace.rs:135"
     ],
     "@rightkit/qa": [
-     "packages/qa/src/workspace.ts:136"
+     "packages/qa/src/workspace.ts:137"
     ]
    },
    "named_in_consts": {},
@@ -21642,7 +22283,7 @@
    "setters": {
     "rightkit-qa": [
      "crates/rightkit-qa/src/harness.rs:884 (test)",
-     "crates/rightkit-qa/src/harness.rs:886 (test)"
+     "crates/rightkit-qa/src/harness.rs:887 (test)"
     ]
    },
    "named_in_consts": {},
@@ -21659,7 +22300,7 @@
    "readers": {},
    "setters": {
     "rightkit-qa": [
-     "crates/rightkit-qa/src/control.rs:1566",
+     "crates/rightkit-qa/src/control.rs:1567",
      "crates/rightkit-qa/src/control.rs:2935 (test)",
      "crates/rightkit-qa/src/control.rs:2936 (test)",
      "crates/rightkit-qa/src/control.rs:2971 (test)"
@@ -21686,7 +22327,7 @@
    },
    "setters": {
     "rightkit-qa": [
-     "crates/rightkit-qa/src/control.rs:1562",
+     "crates/rightkit-qa/src/control.rs:1563",
      "crates/rightkit-qa/src/embedded/mod.rs:1613 (test)"
     ]
    },
@@ -21703,7 +22344,25 @@
    "cross_unit": true,
    "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
-   "read_only_by_tests": false
+   "read_only_by_tests": false,
+   "app_readers": {
+    "coderight": [
+     "coderight/apps/coderight-tauri/src-tauri/src/lib.rs:35"
+    ],
+    "ember": [
+     "ember/apps/lightcraft-desktop/src/native.rs:286",
+     "ember/apps/lightcraft-desktop/src/native.rs:810"
+    ],
+    "heardright": [
+     "heardright/tauri-app-next/src-tauri/src/app_lib.rs:109"
+    ],
+    "pulse": [
+     "pulse/hub/src-tauri/src/lib.rs:981"
+    ],
+    "viewright": [
+     "viewright/src-tauri/src/lib.rs:112"
+    ]
+   }
   },
   "RIGHTKIT_QA_HOME_MAX_AGE_SECS": {
    "readers": {
@@ -21812,6 +22471,10 @@
   },
   "RIGHTKIT_QA_INTERACTIVE": {
    "readers": {
+    "rightkit-qa": [
+     "crates/rightkit-qa/src/bin/rightkit-qa-interactive.rs:46",
+     "crates/rightkit-qa/src/bin/rightkit-qa-interactive.rs:101"
+    ],
     "@rightkit/qa": [
      "packages/qa/src/journeys/run.ts:294"
     ]
@@ -21831,7 +22494,7 @@
     "rightkit-qa"
    ],
    "cross_unit": true,
-   "read_never_set_in_rk": false,
+   "read_never_set_in_rk": true,
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
@@ -21899,8 +22562,15 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true,
-   "read_only_by_tests": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false,
+   "app_readers": {
+    "cutright": [
+     "cutright/apps/cutright/src-tauri/src/lib.rs:122",
+     "cutright/apps/cutright/src-tauri/src/playback.rs:85"
+    ]
+   },
+   "read_by_apps_only": true
   },
   "RIGHTKIT_QA_NATIVE": {
    "readers": {},
@@ -21909,7 +22579,7 @@
      "crates/rightkit-qa/src/workspace.rs:121"
     ],
     "@rightkit/qa": [
-     "packages/qa/src/workspace.ts:126"
+     "packages/qa/src/workspace.ts:127"
     ]
    },
    "named_in_consts": {
@@ -21923,8 +22593,23 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true,
-   "read_only_by_tests": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false,
+   "app_readers": {
+    "heardright": [
+     "heardright/tauri-app-next/src-tauri/src/app_lib.rs:104"
+    ],
+    "mailright": [
+     "mailright/src-tauri/src/tauri_run.rs:5"
+    ],
+    "scraperight": [
+     "scraperight/src-tauri/src/main.rs:18"
+    ],
+    "viewright": [
+     "viewright/src-tauri/src/lib.rs:105"
+    ]
+   },
+   "read_by_apps_only": true
   },
   "RIGHTKIT_QA_NATIVE_FOCUS_RETURN_EXECUTABLE": {
    "readers": {
@@ -22107,7 +22792,7 @@
      "crates/rightkit-qa/src/workspace.rs:122"
     ],
     "@rightkit/qa": [
-     "packages/qa/src/workspace.ts:127"
+     "packages/qa/src/workspace.ts:128"
     ]
    },
    "named_in_consts": {},
@@ -22117,8 +22802,14 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true,
-   "read_only_by_tests": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false,
+   "app_readers": {
+    "cutright": [
+     "cutright/apps/cutright/src-tauri/src/lib.rs:132"
+    ]
+   },
+   "read_by_apps_only": true
   },
   "RIGHTKIT_QA_SCAN_HOME": {
    "readers": {
@@ -22193,6 +22884,10 @@
   },
   "RIGHTKIT_QA_SIGNING_EVIDENCE": {
    "readers": {
+    "rightkit-qa": [
+     "crates/rightkit-qa/src/signing.rs:223",
+     "crates/rightkit-qa/src/journeys/prebuilt.rs:163"
+    ],
     "@rightkit/release": [
      "packages/release/adapter-registration.test.mjs:109 (test)",
      "packages/release/adapter-registration.test.mjs:154 (test)",
@@ -22228,7 +22923,28 @@
    "cross_unit": true,
    "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
-   "read_only_by_tests": true
+   "read_only_by_tests": false
+  },
+  "RIGHTKIT_QA_STEP_PLUGIN": {
+   "readers": {},
+   "setters": {
+    "rightkit-qa": [
+     "crates/rightkit-qa/src/plugin.rs:294"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-qa": [
+     "crates/rightkit-qa/src/plugin.rs:82 ENV_PROTOCOL"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [
+    "rightkit-qa"
+   ],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": true,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_SUPERVISE_HELPER": {
    "readers": {
@@ -22517,6 +23233,46 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RIGHTKIT_RECORD_MACOS_FIXTURE": {
+   "readers": {
+    "rightkit-record": [
+     "crates/rightkit-record/src/macos/tests/live.rs:46 (test)"
+    ]
+   },
+   "setters": {},
+   "named_in_consts": {
+    "rightkit-record": [
+     "crates/rightkit-record/src/macos/tests/live.rs:38 FIXTURE_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RIGHTKIT_RECORD_MACOS_HELPER": {
+   "readers": {
+    "rightkit-record": [
+     "crates/rightkit-record/src/macos/mod.rs:76"
+    ]
+   },
+   "setters": {},
+   "named_in_consts": {
+    "rightkit-record": [
+     "crates/rightkit-record/src/macos/mod.rs:45 HELPER_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [
+    "rightkit-record"
+   ],
+   "cross_unit": false,
+   "read_never_set_in_rk": true,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RIGHTKIT_REQUIRE_ASSETS": {
    "readers": {
     "rightkit-asr": [
@@ -22625,7 +23381,7 @@
      "packages/release/managed-host-secrets.test.mjs:83 (test)",
      "packages/release/managed-host-secrets.test.mjs:85 (test)",
      "packages/release/model-promote.test.mjs:351 (test)",
-     "packages/release/model-promote.test.mjs:362 (test)"
+     "packages/release/model-promote.test.mjs:363 (test)"
     ]
    },
    "named_in_consts": {},
@@ -22649,7 +23405,7 @@
    "setters": {
     "@rightkit/release": [
      "packages/release/managed-host-secrets.test.mjs:84 (test)",
-     "packages/release/model-promote.test.mjs:363 (test)"
+     "packages/release/model-promote.test.mjs:364 (test)"
     ]
    },
    "named_in_consts": {},
@@ -22700,14 +23456,14 @@
      "crates/rightkit-qa/src/workspace.rs:123"
     ],
     "@rightkit/qa": [
-     "packages/qa/src/workspace.ts:128",
+     "packages/qa/src/workspace.ts:129",
      "packages/qa/src/page.test.ts:831 (test)",
      "packages/qa/src/page.test.ts:839 (test)",
      "packages/qa/src/page.test.ts:1046 (test)",
      "packages/qa/src/page.test.ts:1055 (test)"
     ],
     "@rightkit/release": [
-     "packages/release/rustright-names.mjs:12",
+     "packages/release/rustright-names.mjs:13",
      "packages/release/ios-dev.test.mjs:139 (test)"
     ]
    },
@@ -22747,7 +23503,7 @@
    },
    "setters": {
     "rightkit-sandbox": [
-     "crates/rightkit-sandbox/tests/windows_outbound_denial.rs:285 (test)"
+     "crates/rightkit-sandbox/tests/windows_outbound_denial.rs:286 (test)"
     ]
    },
    "named_in_consts": {},
@@ -22806,7 +23562,7 @@
    },
    "setters": {
     "rightkit-sandbox": [
-     "crates/rightkit-sandbox/tests/windows_outbound_denial.rs:289 (test)"
+     "crates/rightkit-sandbox/tests/windows_outbound_denial.rs:290 (test)"
     ]
    },
    "named_in_consts": {},
@@ -22851,6 +23607,9 @@
      "packages/release/managed-roots.mjs:55",
      "packages/release/item7-linux.test.mjs:358 (test)",
      "packages/release/test-support/real-broker.mjs:184 (test)"
+    ],
+    "github-workflows": [
+     "scripts/ci/rk-release-canary-leg.mjs:207"
     ]
    },
    "setters": {
@@ -22866,7 +23625,7 @@
    "named_in_consts": {},
    "removers": {},
    "mentioned_by": [],
-   "cross_unit": false,
+   "cross_unit": true,
    "read_never_set_in_rk": true,
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
@@ -22916,6 +23675,52 @@
    },
    "setters": {},
    "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RIGHTKIT_SLOW_STREAM_CASE": {
+   "readers": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/streaming_capture.rs:38 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/streaming_capture.rs:46 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/streaming_capture.rs:37 CASE"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RIGHTKIT_SLOW_STREAM_FIXTURE": {
+   "readers": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/streaming_capture.rs:12 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/streaming_capture.rs:60 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/streaming_capture.rs:6 MODE"
+    ]
+   },
    "removers": {},
    "mentioned_by": [],
    "cross_unit": false,
@@ -23000,13 +23805,16 @@
      "crates/rightkit-daemon/tests/e2e.rs:254 (test)",
      "crates/rightkit-daemon/tests/e2e.rs:765 (test)"
     ],
+    "rightkit-models": [
+     "crates/rightkit-models/tests/common/mod.rs:38 (test)"
+    ],
     "rightkit-qa": [
-     "crates/rightkit-qa/src/control.rs:1558",
-     "crates/rightkit-qa/src/workspace.rs:124",
+     "crates/rightkit-qa/src/control.rs:1559",
+     "crates/rightkit-qa/src/workspace.rs:125",
      "crates/rightkit-qa/src/journeys/tests.rs:1334 (test)"
     ],
     "@rightkit/qa": [
-     "packages/qa/src/workspace.ts:129"
+     "packages/qa/src/workspace.ts:130"
     ]
    },
    "named_in_consts": {
@@ -23028,7 +23836,18 @@
    "cross_unit": true,
    "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
-   "read_only_by_tests": false
+   "read_only_by_tests": false,
+   "app_readers": {
+    "coderight": [
+     "coderight/engine/crates/tools/src/mcp_auth.rs:220",
+     "coderight/engine/crates/tools/src/mcp_auth.rs:277",
+     "coderight/engine/crates/tools/src/mcp_auth.rs:335",
+     "coderight/engine/crates/driver_host/src/cli_runtime/profile.rs:308"
+    ],
+    "heardright": [
+     "heardright/tauri-app-next/src-tauri/src/app_run.rs:330"
+    ]
+   }
   },
   "RIGHTKIT_SWAP": {
    "readers": {
@@ -23053,13 +23872,21 @@
   "RIGHTKIT_TEST_REAL_BROKER": {
    "readers": {
     "@rightkit/release": [
-     "packages/release/release-artifact-path-real.test.mjs:25 (test)"
+     "packages/release/release-artifact-path-real.test.mjs:25 (test)",
+     "packages/release/broker-guard.test.mjs:11 (test)",
+     "packages/release/test-support/real-broker.mjs:443 (test)",
+     "packages/release/test-support/real-broker.mjs:444 (test)",
+     "packages/release/test-support/real-broker.mjs:449 (test)",
+     "packages/release/test-support/real-broker.mjs:450 (test)"
     ]
    },
    "setters": {
     "@rightkit/release": [
      "packages/release/qa-snapshot.test.mjs:203 (test)",
-     "packages/release/carried-cargo.test.mjs:375 (test)"
+     "packages/release/carried-cargo.test.mjs:375 (test)",
+     "packages/release/test-support/real-broker.mjs:444 (test)",
+     "packages/release/test-support/real-broker.mjs:450 (test)",
+     "packages/release/test-support/real-broker.mjs:483 (test)"
     ]
    },
    "named_in_consts": {
@@ -23267,7 +24094,12 @@
    },
    "setters": {
     "rightkit-daemon": [
-     "crates/rightkit-daemon/tests/mode.rs:123 (test)"
+     "crates/rightkit-daemon/tests/mode.rs:123 (test)",
+     "crates/rightkit-daemon/tests/mode.rs:187 (test)",
+     "crates/rightkit-daemon/tests/mode.rs:201 (test)",
+     "crates/rightkit-daemon/tests/mode.rs:210 (test)",
+     "crates/rightkit-daemon/tests/mode.rs:229 (test)",
+     "crates/rightkit-daemon/tests/mode.rs:233 (test)"
     ],
     "rightkit-qa": [
      "crates/rightkit-qa/src/workspace.rs:120",
@@ -23276,7 +24108,7 @@
      "crates/rightkit-qa/src/engine.rs:167"
     ],
     "@rightkit/qa": [
-     "packages/qa/src/workspace.ts:123"
+     "packages/qa/src/workspace.ts:126"
     ]
    },
    "named_in_consts": {
@@ -23297,7 +24129,12 @@
    "cross_unit": true,
    "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
-   "read_only_by_tests": false
+   "read_only_by_tests": false,
+   "app_readers": {
+    "heardright": [
+     "heardright/tauri-app-next/heardright_core/src/app_paths.rs:54"
+    ]
+   }
   },
   "RIGHTKIT_VAD_MODEL": {
    "readers": {
@@ -23307,7 +24144,7 @@
    },
    "setters": {
     "rightkit-asr": [
-     "crates/rightkit-asr/tests/e2e_whisper.rs:167 (test)"
+     "crates/rightkit-asr/tests/e2e_whisper.rs:168 (test)"
     ]
    },
    "named_in_consts": {},
@@ -23326,7 +24163,7 @@
    },
    "setters": {
     "rightkit-asr": [
-     "crates/rightkit-asr/tests/e2e_whisper.rs:201 (test)"
+     "crates/rightkit-asr/tests/e2e_whisper.rs:202 (test)"
     ]
    },
    "named_in_consts": {},
@@ -23388,7 +24225,7 @@
    },
    "setters": {
     "@rightkit/release": [
-     "packages/release/cargo-guard.mjs:219"
+     "packages/release/cargo-guard.mjs:220"
     ]
    },
    "named_in_consts": {},
@@ -23430,7 +24267,7 @@
    "setters": {
     "@rightkit/release": [
      "packages/release/gate-contract.test.mjs:221 (test)",
-     "packages/release/heavy-command.mjs:33",
+     "packages/release/heavy-command.mjs:34",
      "packages/release/heavy-command.test.mjs:94 (test)",
      "packages/release/stage-sidecar.test.mjs:725 (test)"
     ]
@@ -23537,7 +24374,7 @@
      "packages/release/release-artifact-path-real.test.mjs:55 (test)",
      "packages/release/release-artifact-path-real.test.mjs:114 (test)",
      "packages/release/build-release.mjs:251",
-     "packages/release/build-release.mjs:379"
+     "packages/release/build-release.mjs:380"
     ]
    },
    "named_in_consts": {},
@@ -23620,8 +24457,8 @@
      "packages/release/swift-build-context.test.mjs:55 (test)",
      "packages/release/ios-cargoless-build.test.mjs:207 (test)",
      "packages/release/ios-cargoless-build.test.mjs:459 (test)",
-     "packages/release/release-state.mjs:108",
-     "packages/release/release-state.mjs:117"
+     "packages/release/release-state.mjs:109",
+     "packages/release/release-state.mjs:118"
     ]
    },
    "named_in_consts": {},
@@ -23788,7 +24625,7 @@
    },
    "setters": {
     "@rightkit/release": [
-     "packages/release/build-release.mjs:573",
+     "packages/release/build-release.mjs:574",
      "packages/release/cache-command.test.mjs:76 (test)",
      "packages/release/cache-command.test.mjs:110 (test)"
     ]
@@ -23907,7 +24744,7 @@
    },
    "setters": {
     "@rightkit/release": [
-     "packages/release/release-qa-installed.mjs:128"
+     "packages/release/release-qa-installed.mjs:129"
     ]
    },
    "named_in_consts": {},
@@ -23952,6 +24789,10 @@
     ]
    },
    "setters": {
+    "@rightkit/ci": [
+     "packages/ci/manifest.mjs:1627",
+     "packages/ci/manifest.mjs:1758"
+    ],
     "@rightkit/release": [
      "packages/release/release-qa-carried.test.mjs:63 (test)",
      "packages/release/release-qa-carried.test.mjs:64 (test)",
@@ -23970,8 +24811,8 @@
    "mentioned_by": [
     "@rightkit/release"
    ],
-   "cross_unit": false,
-   "read_never_set_in_rk": true,
+   "cross_unit": true,
+   "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
@@ -24272,7 +25113,7 @@
    "setters": {
     "@rightkit/release": [
      "packages/release/upload-large.test.mjs:32 (test)",
-     "packages/release/upload-large.test.mjs:76 (test)"
+     "packages/release/upload-large.test.mjs:77 (test)"
     ]
    },
    "named_in_consts": {},
@@ -24323,6 +25164,86 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RK_ADMIN_ACTION": {
+   "readers": {},
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/registry-admin.yml:47"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": true,
+   "read_only_by_tests": false
+  },
+  "RK_ADMIN_MESSAGE": {
+   "readers": {},
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/registry-admin.yml:50"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": true,
+   "read_only_by_tests": false
+  },
+  "RK_ADMIN_PACKAGE": {
+   "readers": {},
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/registry-admin.yml:48"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": true,
+   "read_only_by_tests": false
+  },
+  "RK_ADMIN_VERSION": {
+   "readers": {},
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/registry-admin.yml:49"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": true,
+   "read_only_by_tests": false
+  },
+  "RK_ADMISSION": {
+   "readers": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:78",
+     "scripts/ci/workflow-contract.mjs:46"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:70"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RK_ADVISORY_CACHE_ROOT": {
    "readers": {
     "@rightkit/release": [
@@ -24340,6 +25261,25 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_ALL_UNITS_EXCEPTION": {
+   "readers": {
+    "github-workflows": [
+     "scripts/ci/ci-plan.mjs:53"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/ci.yml:110"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
@@ -24493,6 +25433,55 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RK_CONSUMER_HELPER_NAME": {
+   "readers": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:864",
+     ".github/workflows/publish.yml:882",
+     "scripts/ci/consumer-recipes.mjs:40",
+     "scripts/ci/publish.mjs:682",
+     "scripts/ci/workflow-contract.mjs:82"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:864",
+     ".github/workflows/publish.yml:882"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_CONSUMER_HELPER_TEAM_ID": {
+   "readers": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:865",
+     ".github/workflows/publish.yml:883",
+     "scripts/ci/consumer-recipes.mjs:40",
+     "scripts/ci/publish.mjs:683",
+     "scripts/ci/workflow-contract.mjs:83",
+     "scripts/ci/workflow-contract.mjs:837"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:865",
+     ".github/workflows/publish.yml:883"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RK_CONTROL_TEST_APP": {
    "readers": {
     "rightkit-qa-driver": [
@@ -24501,6 +25490,29 @@
    },
    "setters": {},
    "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_CRASH_E2E_CHILD_DIR": {
+   "readers": {
+    "rightkit-crash": [
+     "crates/rightkit-crash/tests/crash_e2e.rs:43 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-crash": [
+     "crates/rightkit-crash/tests/crash_e2e.rs:74 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-crash": [
+     "crates/rightkit-crash/tests/crash_e2e.rs:20 CHILD_ENV"
+    ]
+   },
    "removers": {},
    "mentioned_by": [],
    "cross_unit": false,
@@ -24540,6 +25552,101 @@
    },
    "setters": {},
    "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_EXPECTED_SHA": {
+   "readers": {
+    "github-workflows": [
+     ".github/workflows/android.yml:39",
+     ".github/workflows/android.yml:40",
+     ".github/workflows/ci.yml:56",
+     ".github/workflows/ci.yml:57",
+     ".github/workflows/publish.yml:76",
+     ".github/workflows/publish.yml:77"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/android.yml:35",
+     ".github/workflows/ci.yml:52",
+     ".github/workflows/publish.yml:72"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_FAKE_CLI_FIXTURE": {
+   "readers": {
+    "rightkit-agents": [
+     "crates/rightkit-agents/tests/common/mod.rs:64 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-agents": [
+     "crates/rightkit-agents/tests/common/mod.rs:40 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-agents": [
+     "crates/rightkit-agents/tests/common/mod.rs:14 FIXTURE_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_FAKE_CLI_KIND": {
+   "readers": {
+    "rightkit-agents": [
+     "crates/rightkit-agents/tests/common/mod.rs:61 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-agents": [
+     "crates/rightkit-agents/tests/common/mod.rs:39 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-agents": [
+     "crates/rightkit-agents/tests/common/mod.rs:13 KIND_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_FAKE_SESSION_KIND": {
+   "readers": {
+    "rightkit-agents": [
+     "crates/rightkit-agents/tests/session.rs:24 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-agents": [
+     "crates/rightkit-agents/tests/session.rs:165 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-agents": [
+     "crates/rightkit-agents/tests/session.rs:17 KIND_ENV"
+    ]
+   },
    "removers": {},
    "mentioned_by": [],
    "cross_unit": false,
@@ -24763,7 +25870,7 @@
    "readers": {},
    "setters": {
     "rightkit-fs": [
-     "crates/rightkit-fs/src/app_dirs.rs:1990 (test)"
+     "crates/rightkit-fs/src/app_dirs.rs:1991 (test)"
     ]
    },
    "named_in_consts": {},
@@ -25053,6 +26160,31 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RK_IMPORT_EFFECTS_REPORT": {
+   "readers": {
+    "github-workflows": [
+     "scripts/ci/publish.mjs:723",
+     "scripts/ci/publish.mjs:728",
+     "scripts/ci/workflow-contract.mjs:751",
+     "scripts/ci/workflow-contract.mjs:752",
+     "scripts/ci/workflow-contract.mjs:755",
+     "scripts/ci/workflow-contract.mjs:756"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:877",
+     ".github/workflows/publish.yml:990"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RK_ISOLATED_CHECKOUT": {
    "readers": {
     "@rightkit/release": [
@@ -25255,6 +26387,29 @@
    "named_in_consts": {
     "rightkit-logs": [
      "crates/rightkit-logs/tests/logging_config.rs:103 REVOKE_PATH"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_LOGS_E2E_CHILD_DIR": {
+   "readers": {
+    "rightkit-logs": [
+     "crates/rightkit-logs/tests/outbox_e2e.rs:50 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-logs": [
+     "crates/rightkit-logs/tests/outbox_e2e.rs:82 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-logs": [
+     "crates/rightkit-logs/tests/outbox_e2e.rs:15 CHILD_ENV"
     ]
    },
    "removers": {},
@@ -25663,6 +26818,110 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RK_QUALIFICATION": {
+   "readers": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:82",
+     "scripts/ci/workflow-contract.mjs:46"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:73"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_R2_CFT_MANAGED_ROOT": {
+   "readers": {
+    "github-workflows": [
+     "scripts/ci/provision-r2-cft-env.mjs:75"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:824"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_R2_CFT_ROOT": {
+   "readers": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:860",
+     ".github/workflows/publish.yml:878",
+     "scripts/ci/consumer-recipes.mjs:30"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:860",
+     ".github/workflows/publish.yml:878"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_R2_CFT_SHA256": {
+   "readers": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:861",
+     ".github/workflows/publish.yml:879"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:861",
+     ".github/workflows/publish.yml:879"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_R2_HEADLESS_SHELL_SHA256": {
+   "readers": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:862",
+     ".github/workflows/publish.yml:880",
+     "scripts/ci/provision-r2-cft-env.mjs:69"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:862",
+     ".github/workflows/publish.yml:880"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RK_REAL_BROKER_READY_MS": {
    "readers": {
     "@rightkit/release": [
@@ -25686,6 +26945,51 @@
     ]
    },
    "setters": {},
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_REGISTRY": {
+   "readers": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:753",
+     ".github/workflows/publish.yml:934"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:751",
+     ".github/workflows/publish.yml:932"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_REQUEST_ID": {
+   "readers": {
+    "github-workflows": [
+     ".github/workflows/android.yml:38",
+     ".github/workflows/ci.yml:55",
+     ".github/workflows/publish.yml:79",
+     "scripts/ci/workflow-contract.mjs:46"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/android.yml:34",
+     ".github/workflows/ci.yml:51",
+     ".github/workflows/publish.yml:71"
+    ]
+   },
    "named_in_consts": {},
    "removers": {},
    "mentioned_by": [],
@@ -25761,12 +27065,67 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RK_RUN_HELPER": {
+   "readers": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/src/run.rs:1816 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/src/run.rs:1842 (test)",
+     "crates/rightkit-child-process/src/run.rs:2005 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/src/run.rs:1770 HELPER_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [
+    "rightkit-child-process"
+   ],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RK_SANDBOX_PROBE": {
    "readers": {},
    "setters": {
     "rightkit-sandbox": [
      "crates/rightkit-sandbox/tests/e2e.rs:108 (test)",
      "crates/rightkit-sandbox/tests/e2e.rs:551 (test)"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_SCANS_JOB_RESULT": {
+   "readers": {
+    "github-workflows": [
+     "scripts/ci/ci-scans-contract.mjs:94",
+     "scripts/ci/ci-scans-contract.mjs:95",
+     "scripts/ci/gate.mjs:749",
+     "scripts/ci/workflow-contract.mjs:682",
+     "scripts/ci/workflow-contract.mjs:683",
+     "scripts/ci/workflow-contract.mjs:684"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/ci.yml:175",
+     ".github/workflows/ci.yml:241",
+     ".github/workflows/ci.yml:307",
+     ".github/workflows/ci.yml:371",
+     ".github/workflows/publish.yml:859",
+     ".github/workflows/publish.yml:977"
     ]
    },
    "named_in_consts": {},
@@ -25953,6 +27312,21 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RK_SIM_LOG": {
+   "readers": {
+    "github-workflows": [
+     "scripts/sim/door-policy.mjs:99"
+    ]
+   },
+   "setters": {},
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": true,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RK_SINGLE_INSTANCE_DOTTED_ROOT": {
    "readers": {
     "rightkit-tauri-shell": [
@@ -25967,6 +27341,29 @@
    "named_in_consts": {
     "rightkit-tauri-shell": [
      "crates/rightkit-tauri-shell/tests/single_instance.rs:138 DOTTED_ROOT_ENV"
+    ]
+   },
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_SINGLE_INSTANCE_TEST_ROOT": {
+   "readers": {
+    "rightkit-tauri-shell": [
+     "crates/rightkit-tauri-shell/tests/single_instance.rs:212 (test)"
+    ]
+   },
+   "setters": {
+    "rightkit-tauri-shell": [
+     "crates/rightkit-tauri-shell/tests/single_instance.rs:47 (test)"
+    ]
+   },
+   "named_in_consts": {
+    "rightkit-tauri-shell": [
+     "crates/rightkit-tauri-shell/tests/single_instance.rs:18 ROOT_ENV"
     ]
    },
    "removers": {},
@@ -25994,6 +27391,31 @@
    "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
    "read_only_by_tests": true
+  },
+  "RK_SOURCE_HELPER_APP": {
+   "readers": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:863",
+     ".github/workflows/publish.yml:881",
+     "scripts/ci/consumer-recipes.mjs:167",
+     "scripts/ci/publish.mjs:684",
+     "scripts/ci/workflow-contract.mjs:81",
+     "scripts/ci/workflow-contract.mjs:836"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/publish.yml:863",
+     ".github/workflows/publish.yml:881"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_SUPERVISOR_HELPER": {
    "readers": {
@@ -26384,6 +27806,46 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RK_UNITS": {
+   "readers": {
+    "github-workflows": [
+     "scripts/ci/ci-plan.mjs:53"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/ci.yml:108"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_UNITS_FILE": {
+   "readers": {
+    "github-workflows": [
+     "scripts/ci/ci-plan.mjs:53"
+    ]
+   },
+   "setters": {
+    "github-workflows": [
+     ".github/workflows/ci.yml:109"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [
+    "@rightkit/release"
+   ],
+   "cross_unit": true,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RK_UPDATE_GOLDEN": {
    "readers": {
     "rightkit-record": [
@@ -26639,6 +28101,21 @@
    "set_never_read_in_rk": false,
    "read_only_by_tests": false
   },
+  "RUSTRIGHT_JOB_ID": {
+   "readers": {
+    "github-workflows": [
+     "scripts/ci/rightkit-dispatch.mjs:452"
+    ]
+   },
+   "setters": {},
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
   "RUSTRIGHT_MANAGED_AGENT_SHIM": {
    "readers": {
     "@rightkit/release": [
@@ -26842,7 +28319,7 @@
    },
    "setters": {
     "@rightkit/release": [
-     "packages/release/development.mjs:48",
+     "packages/release/development.mjs:49",
      "packages/release/tauri-signing-env.test.mjs:24 (test)",
      "packages/release/tauri-signing-env.test.mjs:31 (test)",
      "packages/release/package-recipe-targets.mjs:31",
@@ -26873,7 +28350,7 @@
    },
    "setters": {
     "@rightkit/release": [
-     "packages/release/development.mjs:49",
+     "packages/release/development.mjs:50",
      "packages/release/package-recipe-targets.mjs:31",
      "packages/release/macos-signing-session-cli.test.mjs:55 (test)",
      "packages/release/rightkit-signing-agent.mjs:194",
@@ -26899,13 +28376,13 @@
    },
    "setters": {
     "rightkit-qa": [
-     "crates/rightkit-qa/src/workspace.rs:148"
+     "crates/rightkit-qa/src/workspace.rs:149"
     ],
     "rightkit-tauri-shell": [
      "crates/rightkit-tauri-shell/src/webview2_env.rs:73"
     ],
     "@rightkit/qa": [
-     "packages/qa/src/workspace.ts:145"
+     "packages/qa/src/workspace.ts:146"
     ]
    },
    "named_in_consts": {
@@ -26939,7 +28416,7 @@
      "crates/rightkit-qa/src/journeys/run.rs:2098"
     ],
     "@rightkit/qa": [
-     "packages/qa/src/workspace.ts:134"
+     "packages/qa/src/workspace.ts:135"
     ],
     "@rightkit/release": [
      "packages/release/cache-policy.test.mjs:72 (test)",
@@ -26997,7 +28474,7 @@
      "packages/build-control-policy/src/agent-heavy-write-guard.test.mjs:1595 (test)"
     ],
     "@rightkit/qa": [
-     "packages/qa/src/workspace.ts:144"
+     "packages/qa/src/workspace.ts:145"
     ],
     "@rightkit/release": [
      "packages/release/snapshot-git.mjs:80",
@@ -27046,11 +28523,11 @@
     ],
     "rightkit-qa": [
      "crates/rightkit-qa/src/workspace.rs:146",
-     "crates/rightkit-qa/src/userdata.rs:1327 (test)",
+     "crates/rightkit-qa/src/userdata.rs:1328 (test)",
      "crates/rightkit-qa/src/journeys/run.rs:2096"
     ],
     "@rightkit/qa": [
-     "packages/qa/src/workspace.ts:141"
+     "packages/qa/src/workspace.ts:144"
     ]
    },
    "named_in_consts": {},

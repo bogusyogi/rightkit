@@ -72,7 +72,7 @@ def main():
     w("")
     w("## Totals")
     w("")
-    w(f"| | count |\n|---|---|\n| Rust crates | {len(crates)} |\n| npm packages | {len(npms)} |\n| RightKit-internal dependency edges | {sum(1 for e in d['edges'] if e['kind'] != 'app-pin')} |\n"
+    w(f"| | count |\n|---|---|\n| Rust crates | {len(crates)} |\n| npm packages | {len(npms)} |\n| RightKit-internal dependency edges (a unit's dev-dependency on itself not counted) | {sum(1 for e in d['edges'] if e['kind'] != 'app-pin' and e['from'] != e['to'])} |\n"
       f"| Product apps scanned | {len(d['apps'])} |\n| App pins on RightKit units | {sum(1 for e in d['edges'] if e['kind'] == 'app-pin')} |\n| Environment variables | {len(env)} |\n"
       f"| ... shared across units | {sum(v['cross_unit'] for v in env.values())} |\n| Named files | {len(d['files'])} |\n| Sockets / pipes | {len(d['sockets'])} |\n| Spawned programs | {len(d['spawns'])} |\n"
       f"| Source lines (crates + packages) | {sum(u['loc'] for u in units):,} |")
@@ -117,14 +117,16 @@ def main():
     w("")
     w("## Shared environment variables")
     w("")
-    w("Every variable that more than one unit sets, reads or names. Sites are `file:line`; `(test)` marks a test-only site.")
+    w("Every variable that more than one unit sets, reads or names. `(test)` after a unit means every one of its sites for that variable is in a test; `github-workflows` is RightKit's own CI: `.github/workflows` and the `scripts/` they run.")
     w("")
     w("| variable | set by | read by | also named by | apps reading |\n|---|---|---|---|---|")
     for k, v in sorted(env.items()):
         if not v["cross_unit"]:
             continue
         others = sorted(set(v.get("mentioned_by", [])) - set(v["setters"]) - set(v["readers"]))
-        w(f"| `{k}` | {', '.join(v['setters']) or '—'} | {', '.join(v['readers']) or '—'} | {', '.join(others) or '—'} | {', '.join(v.get('app_readers', {})) or '—'} |")
+        def who(side):
+            return ", ".join(n + (" (test)" if sites and all("(test)" in x for x in sites) else "") for n, sites in side.items())
+        w(f"| `{k}` | {who(v['setters']) or '—'} | {who(v['readers']) or '—'} | {', '.join(others) or '—'} | {', '.join(v.get('app_readers', {})) or '—'} |")
     w("")
     w("## Units")
     w("")

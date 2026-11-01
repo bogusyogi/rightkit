@@ -248,6 +248,17 @@ RS_SPAWN = re.compile(r"Command::new\s*\(\s*\"([^\"]+)\"|OwnedCommand::new\s*\(\
 JS_SPAWN = re.compile(r"\b(?:spawn|spawnSync|execFile|execFileSync|spawnInherit|spawnCapture)\s*\(\s*[\"']([^\"']+)[\"']")
 
 
+def name_start(m):
+    """Where the variable's name starts in a match (its first captured group), so a multi-line call cites the name's line."""
+    return next((m.start(i) for i in range(1, (m.lastindex or 0) + 1) if m.group(i)), m.start())
+
+
+# YAML a JS file builds as text (workflow templates): `  NAME: value` inside a string literal is an environment write
+YAML_ENV_SET = re.compile(r"(?:^|\\n)[ \t]+(" + ENV_NAME + r"):[ \t]+\S", re.M)
+# a workflow's own shell or expression reading a variable: $NAME, ${NAME}, $env:NAME, env.NAME
+WF_ENV_READ = re.compile(r"\$\{?(" + ENV_NAME + r")\b|\$env:(" + ENV_NAME + r")\b|\benv\.(" + ENV_NAME + r")\b")
+
+
 TEST_FILE = re.compile(r"\.test\.|/tests?/|/benches/|/examples/|/test-support/|/test_support|/tests\.rs$|_tests?\.rs$")
 
 
@@ -268,46 +279,52 @@ def runtime_scan(unit):
         is_test = is_test_file(f)
         # a Rust file's own test module is the tail after `#[cfg(test)]`
         spans = test_ranges(code_only(t)) if unit["kind"] == "crate" else []
-        loc = lambda i: {"file": rel(f), "line": line_of(t, i), "test": is_test or in_spans(i, spans)}  # noqa: E731
+        def loc(i, _t=t, _f=f, _spans=spans, _test=is_test):
+            # `i` is a match start; the name may sit on a later line of a multi-line call
+            return {"file": rel(_f), "line": line_of(_t, i), "test": _test or in_spans(i, _spans)}
         if unit["kind"] == "crate":
             for m in RS_ENV_READ.finditer(t):
-                env[m.group(1) or m.group(2)]["read"].append(loc(m.start()))
+                env[m.group(1) or m.group(2)]["read"].append(loc(name_start(m)))
             for m in RS_ENV_SET.finditer(t):
-                env[m.group(1) or m.group(2)]["set"].append(loc(m.start()))
+                env[m.group(1) or m.group(2)]["set"].append(loc(name_start(m)))
             for m in RS_ENV_PAIR.finditer(t):
-                env[m.group(1)]["set"].append({**loc(m.start()), "pair": True, "objkey": True})
+                env[m.group(1)]["set"].append({**loc(name_start(m)), "pair": True, "objkey": True})
             for m in RS_ENV_REMOVE.finditer(t):
-                env[m.group(1)]["removed"].append(loc(m.start()))
+                env[m.group(1)]["removed"].append(loc(name_start(m)))
             for m in RS_CONST.finditer(t):
-                env[m.group(2)]["const"].append({**loc(m.start()), "ident": m.group(1)})
+                env[m.group(2)]["const"].append({**loc(name_start(m)), "ident": m.group(1)})
             for m in RS_SPAWN.finditer(t):
                 spawns[m.group(1) or m.group(2)].append(loc(m.start()))
             for m in RS_ENV_HELPER.finditer(t):
                 if m.group(1):
-                    env[m.group(1)]["read"].append({**loc(m.start()), "via": "helper"})
+                    env[m.group(1)]["read"].append({**loc(name_start(m)), "via": "helper"})
             for m in RUSTC_ENV.finditer(t):
                 if m.group(1):
-                    env[m.group(1)]["set"].append({**loc(m.start()), "compile_time": True})
+                    env[m.group(1)]["set"].append({**loc(name_start(m)), "compile_time": True})
         else:
             for m in JS_ENV_READ.finditer(t):
-                env[m.group(1) or m.group(2)]["read"].append(loc(m.start()))
+                env[m.group(1) or m.group(2)]["read"].append(loc(name_start(m)))
             code = code_only(t, js=True)
             for m in JS_ENV_SET.finditer(code):
                 n = m.group(1) or m.group(2)
                 if interesting_env(n):
-                    env[n]["set"].append({**loc(m.start()), "objkey": bool(m.group(1))})
+                    env[n]["set"].append({**loc(name_start(m)), "objkey": bool(m.group(1))})
             for m in JS_ENV_SET_QUOTED.finditer(t):
                 n = m.group(1) or m.group(2)
                 if interesting_env(n):
-                    env[n]["set"].append({**loc(m.start()), "objkey": bool(m.group(2))})
+                    env[n]["set"].append({**loc(name_start(m)), "objkey": bool(m.group(2))})
+            for m in YAML_ENV_SET.finditer(t):
+                n, i = m.group(1), m.start(1)
+                if interesting_env(n) and code[i] != t[i]:
+                    env[n]["set"].append({**loc(i), "yaml": True})
             for m in JS_CONST.finditer(t):
-                env[m.group(2)]["const"].append({**loc(m.start()), "ident": m.group(1)})
+                env[m.group(2)]["const"].append({**loc(name_start(m)), "ident": m.group(1)})
             for m in JS_SPAWN.finditer(t):
                 spawns[m.group(1)].append(loc(m.start()))
         for m in SCRIPT_ENV_READ.finditer(t):
             n = m.group(1) or m.group(2)
             if interesting_env(n):
-                env[n]["read"].append({**loc(m.start()), "via": "script"})
+                env[n]["read"].append({**loc(name_start(m)), "via": "script"})
         for m in FILE_LIT.finditer(t):
             files_named[m.group(1)].append(loc(m.start()))
         for m in SOCK_LIT.finditer(t):
@@ -344,7 +361,7 @@ def ident_access(unit):
 
 APPS_ROOT = os.path.dirname(ROOT)
 APPS = ["coderight", "cutright", "ember", "genright", "heardright", "legion", "mailright", "postright", "pulse", "scraperight", "sellright", "swiftright", "viewright"]
-APP_ENV_READ = re.compile(r"(?:env::var(?:_os)?|var_os|dev_var_os!|dev_var!|process\.env\.|process\.env\[\s*[\"']|\.env\s*\(\s*)\"?(" + ENV_NAME + r")")
+APP_ENV_READ = re.compile(r"(?:(?:env::var(?:_os)?|var_os|dev_var_os!|dev_var!|option_env!|\benv!)\s*\(\s*\"(" + ENV_NAME + r")\"|process\.env\.(" + ENV_NAME + r")\b|process\.env\[\s*[\"'](" + ENV_NAME + r")[\"']|\.env\s*\(\s*\"(" + ENV_NAME + r")\"\s*\))")
 
 
 def app_info(name):
@@ -377,8 +394,9 @@ def app_info(name):
             elif f.endswith((".rs", ".ts", ".tsx", ".mjs", ".js")) and "/tests/" not in p:
                 txt = read(p)
                 for m in APP_ENV_READ.finditer(txt):
-                    if m.group(1).startswith(("RIGHTKIT_", "RIGHT_RELEASE_", "RK_")):
-                        reads[m.group(1)].append({"file": os.path.relpath(p, APPS_ROOT).replace(os.sep, "/"), "line": line_of(txt, m.start()), "test": False})
+                    n = next(g for g in m.groups() if g)
+                    if n.startswith(("RIGHTKIT_", "RIGHT_RELEASE_", "RK_")):
+                        reads[n].append({"file": os.path.relpath(p, APPS_ROOT).replace(os.sep, "/"), "line": line_of(txt, m.start()), "test": False})
     return {"kind": "app", "name": name, "dir": "../" + name, "deps": [{"name": n, "kind": "pin", "version": ",".join(sorted(v))} for n, v in sorted(deps.items())],
             "env_reads": {k: [f"{s['file']}:{s['line']}" for s in v[:4]] for k, v in sorted(reads.items())}}
 
@@ -426,18 +444,52 @@ def main():
     env_index = defaultdict(lambda: {"readers": defaultdict(list), "setters": defaultdict(list), "removers": defaultdict(list), "consts": defaultdict(list)})
     file_index, sock_index, spawn_index = defaultdict(lambda: defaultdict(list)), defaultdict(lambda: defaultdict(list)), defaultdict(lambda: defaultdict(list))
     scans = {u["name"]: runtime_scan(u) for u in units}
-    const_values = defaultdict(set)
+    const_values, const_in_file, const_in_unit = defaultdict(set), defaultdict(set), defaultdict(set)
     for u in units:
         for k, v in scans[u["name"]][0].items():
             for c in v["const"]:
                 const_values[c["ident"]].add(k)
+                const_in_file[(c["file"], c["ident"])].add(k)
+                const_in_unit[(u["name"], c["ident"])].add(k)
     for u in units:
         env = scans[u["name"]][0]
         for role, ident, site in ident_access(u):
-            vals = const_values.get(ident)
-            if vals and len(vals) == 1:
-                env[next(iter(vals))][role].append({**site, "via": ident})
-    for u in units:
+            for vals in (const_in_file.get((site["file"], ident)), const_in_unit.get((u["name"], ident)), const_values.get(ident)):
+                if vals:
+                    if len(vals) == 1:
+                        env[next(iter(vals))][role].append({**site, "via": ident})
+                    break
+    wf_dir = os.path.join(ROOT, ".github", "workflows")
+    wf_env = defaultdict(lambda: {"read": [], "set": [], "removed": [], "const": []})
+    for f in sorted(os.listdir(wf_dir)) if os.path.isdir(wf_dir) else []:
+        if f.endswith((".yml", ".yaml")):
+            t = read(os.path.join(wf_dir, f))
+            for m in YAML_ENV_SET.finditer(t):
+                if interesting_env(m.group(1)):
+                    wf_env[m.group(1)]["set"].append({"file": rel(os.path.join(wf_dir, f)), "line": line_of(t, m.start(1)), "test": False, "yaml": True})
+            for m in WF_ENV_READ.finditer(t):
+                n = next(g for g in m.groups() if g)
+                if interesting_env(n):
+                    wf_env[n]["read"].append({"file": rel(os.path.join(wf_dir, f)), "line": line_of(t, m.start()), "test": False})
+    # RightKit's CI scripts (scripts/**, not a unit) read what the workflows set
+    for f in walk(os.path.join(ROOT, "scripts"), (".mjs", ".js", ".sh", ".py")):
+        if is_test_file(f) or "/scripts/map/" in f.replace(os.sep, "/"):
+            continue
+        t = read(f)
+        for pat in (JS_ENV_READ, WF_ENV_READ):
+            for m in pat.finditer(t):
+                n = next(g for g in m.groups() if g)
+                if interesting_env(n):
+                    wf_env[n]["read"].append({"file": rel(f), "line": line_of(t, m.start()), "test": False})
+    scans["github-workflows"] = (wf_env, {}, {}, {})
+    for u in units + [{"name": "github-workflows", "kind": "workflows", "deps": []}]:
+        if u["name"] == "github-workflows":
+            for k, v in wf_env.items():
+                if v["set"]:
+                    env_index[k]["setters"]["github-workflows"].extend(v["set"])
+                if v["read"]:
+                    env_index[k]["readers"]["github-workflows"].extend(v["read"])
+            continue
         env, files_named, socks, spawns = scans[u["name"]]
         # only names some unit actually reads or sets through the environment are environment variables (error codes are not)
         u["runtime"] = {"env_read": sorted(k for k, v in env.items() if v["read"]), "env_set": sorted(k for k, v in env.items() if v["set"]),
