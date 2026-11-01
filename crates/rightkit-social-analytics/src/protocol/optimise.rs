@@ -1,4 +1,4 @@
-//! Payload shapes for the optimise module . `optimise.evaluate` reads stored
+//! Payload shapes for the optimise module. `optimise.evaluate` reads stored
 //! analytics observations and stores calendar change proposals. The one rule in this slice is `remake`:
 //! a published post in a channel's top decile by a named metric and window yields a remake proposal.
 //! Proposals are listed, read, accepted or dismissed. Accepting a remake creates one draft calendar entry

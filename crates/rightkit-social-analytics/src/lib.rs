@@ -5,12 +5,15 @@
 //!
 //! - [`metric_import`]: manual CSV metric import (preview, commit, list) over a host-implemented
 //!   [`metric_import::MetricImportStore`].
+//! - [`optimise`]: calendar change proposals (the `remake` rule) over a host-implemented
+//!   [`optimise::OptimiseStore`].
 //! - [`protocol`]: the analytics, metric-import and optimise payload shapes.
 //!
 //! Storing campaigns, links and visits and pulling platform metrics belong to the host app.
 
 pub mod links;
 pub mod metric_import;
+pub mod optimise;
 pub mod protocol;
 
 /// An error: a stable machine-readable code and a human-readable message.
