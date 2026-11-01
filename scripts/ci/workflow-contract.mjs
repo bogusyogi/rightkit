@@ -247,7 +247,7 @@ export const SCANS_ARTIFACT = "scan-receipt-${{ github.run_attempt }}";
 // (compile, lint, test) on their own hosts and carry no scan tools, so each gate.mjs step there receives the scans job result
 // and gate.mjs accepts it as the class A proof (RK_SCANS_JOB_RESULT=success). scans is not a default gate step.
 export const SCANS_RESULT_ENV = "${{ needs.scans.result }}";
-const PLAN_ALLOWED_ACTIONS = ["actions/checkout@", "actions/setup-node@", "dtolnay/rust-toolchain@", "taiki-e/install-action@"];
+const PLAN_ALLOWED_ACTIONS = ["actions/checkout@", "actions/setup-node@", "pnpm/action-setup@", "dtolnay/rust-toolchain@", "taiki-e/install-action@"];
 // Native Windows OpenSSL for the SQLCipher system-crypto dependent checks of a crates run (rightkit-db,
 // rightkit-credentials). verify runs the same committed scripts rk-setup runs for shared CI, only for crates on
 // Windows, before the gate, in exactly these two steps: no env, no inputs, no secrets, no other shell or script.
@@ -946,7 +946,7 @@ export const MUTATIONS = [
   ["the deny checker is unpinned", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).uses = "taiki-e/install-action@v2"; })],
   ["the deny checker version floats", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).with.tool = "cargo-deny"; })],
   ["the deny install gains a token", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).with.token = "${{ secrets.NPM_TOKEN }}"; })],
-  ["plan uses an unlisted action", edit((j) => { j.plan.steps.push(actionStep("pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413")); })],
+  ["plan uses an unlisted action", edit((j) => { j.plan.steps.push(actionStep("actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830")); })],
   ...SCANS_MUTATIONS,
   ...CONDITION_MUTATIONS,
   ...LINUX_MUTATIONS,

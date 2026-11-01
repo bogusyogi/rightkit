@@ -249,6 +249,14 @@ jobs:
         with:
           node-version: "26.8.1"
           package-manager-cache: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12.16.1
+          run_install: false
+      # The contract tests load publish-admission.mjs, whose static closure reaches @rightkit/release's own dependencies (smol-toml via
+      # crate-graph.mjs); install exactly that closure, without lifecycle scripts, as publish-direct.yml does.
+      - name: Install @rightkit/release dependencies without lifecycle scripts
+        run: pnpm install --filter rightkit-shared --filter @rightkit/release... --frozen-lockfile --ignore-scripts
       - name: Check the publish route's own contract
         run: |
           node scripts/ci/workflow-contract.mjs .github/workflows/publish.yml
