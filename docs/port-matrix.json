@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T02:08:57Z",
-  "rightkitHead": "afdc136",
+  "generatedAt": "2026-11-01T02:09:15Z",
+  "rightkitHead": "79a3af8",
   "legend": [
     {
       "state": "adopted",
@@ -9788,7 +9788,7 @@
       "private": false,
       "source": "0.1.0",
       "registry": "",
-      "staged": "",
+      "staged": "0.1.0",
       "dir": "crates/rightkit-mesh",
       "toMoveFrom": {},
       "cells": {
