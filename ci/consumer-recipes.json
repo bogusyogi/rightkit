@@ -1459,7 +1459,7 @@
       "pkId": "PK40",
       "id": "ci/consumers/rightkit-search/src/main.rs",
       "files": {
-        "Cargo.toml": "56582f8553af4e59299ef4e6f656285d730e885a1d92a535d39230e2ea4e6c51",
+        "Cargo.toml": "d7c32b60fef012bad82e2486687db30df3c51f82fa6a64a21ed7f3660f810dc3",
         "README.md": "0ebdf7d0077620309017a5e663f35d5cdf67a44b1080e62ebccb2428e77a342e",
         "src/main.rs": "4aadf55d19cb48b083d6efa2ee6a6aa5d1c964ae40ead25c4652060218cca4ee"
       }
