@@ -81,7 +81,7 @@ impl Conductor {
 
     /// Run all tasks one at a time, in plan order.
     ///
-    /// The plan is expanded via [`expand_plan_for_cache_sharing`] before
+    /// The plan is expanded via `expand_plan_for_cache_sharing` before
     /// dispatch so every sibling task carries the conductor's shared
     /// stable cache key (if the plan was built with conductor identity).
     pub async fn run_sequential(&self, plan: &ConductorPlan) -> Vec<WorkerResult> {
@@ -106,7 +106,7 @@ impl Conductor {
     /// Results are returned in completion order so an early ready result is
     /// never held behind a slow earlier plan item.
     ///
-    /// The plan is expanded via [`expand_plan_for_cache_sharing`] before
+    /// The plan is expanded via `expand_plan_for_cache_sharing` before
     /// dispatch so every sibling task carries the conductor's shared
     /// stable cache key.
     pub async fn run_parallel(&self, plan: &ConductorPlan) -> Vec<WorkerResult> {

@@ -31,6 +31,7 @@ pub mod model;
 pub mod query;
 pub mod security;
 pub mod service;
+pub mod skeletonization;
 pub mod store;
 pub mod watch;
 
@@ -53,6 +54,10 @@ pub use service::{
     execute_one_shot, BlueprintService, EventCollector, LifecycleEvent, LifecycleEventKind,
     LifecycleEventSink, LifecycleState, NativeService, OneShotExecutor, Readiness, ServiceConfig,
     ServiceError, ServiceStatus, Supervisor,
+};
+pub use skeletonization::{
+    expand_region, skeletonize, skeletonize_for_task, Region, SkeletonResult,
+    DEFAULT_SIZE_THRESHOLD,
 };
 
 /// Map a stable error code to lifecycle degradation without requiring callers

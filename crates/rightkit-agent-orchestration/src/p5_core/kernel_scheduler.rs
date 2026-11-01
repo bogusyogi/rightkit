@@ -37,11 +37,14 @@ pub struct LaneContext<'a> {
     pub node_id: &'a str,
 }
 
+/// The work of one lane.
+pub type LaneRun = Box<dyn Fn(&LaneContext) -> Result<Value, KernelError>>;
+
 pub struct LaneNode {
     pub id: String,
     pub dependencies: Vec<String>,
     pub concurrency_key: Option<String>,
-    pub run: Box<dyn Fn(&LaneContext) -> Result<Value, KernelError>>,
+    pub run: LaneRun,
 }
 
 /// Port of `class LaneScheduler`.

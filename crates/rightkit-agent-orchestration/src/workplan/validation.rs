@@ -304,10 +304,12 @@ fn validate_unit(unit: &WorkUnit) -> ValidationResult {
             return Err(failure(Code::StaleEvidence, "evidence", Some(unit), "evidence must match the current unit, owner, unit revision, artifact path, artifact revision and digest"));
         }
         if requirement.independent_review
-            && evidence
-                .reviewer
-                .as_ref()
-                .is_none_or(|reviewer| reviewer.trim().eq_ignore_ascii_case(evidence.author.trim()))
+            && evidence.reviewer.as_ref().is_none_or(|reviewer| {
+                reviewer
+                    .as_str()
+                    .trim()
+                    .eq_ignore_ascii_case(evidence.author.as_str().trim())
+            })
         {
             return Err(failure(
                 Code::IndependentReviewRequired,

@@ -212,7 +212,7 @@ fn bucket_reliability(score: &TasteScore, bucket: DurationBucket) -> f64 {
 pub struct EvolutionHarness {
     tracer: HarnessTracer,
     prompt_registry: PromptRegistry,
-    /// role → currently active prompt version id (format: "<prompt_id>@v<N>")
+    /// role → currently active prompt version id (format: "`<prompt_id>@v<N>`")
     active_versions: HashMap<String, String>,
     /// Minimum GDS threshold to count a run as a "ratchet success" for the
     /// failure-driven ratchet.  Default: 0.90.

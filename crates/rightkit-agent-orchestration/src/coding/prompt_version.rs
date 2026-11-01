@@ -27,7 +27,7 @@ pub struct WorkflowVariant {
 
 /// Manages a registry of prompt versions indexed by id.
 pub struct PromptRegistry {
-    /// All versions per prompt: prompt_id -> Vec<PromptVersion> ordered by version.
+    /// All versions per prompt: prompt_id -> `Vec<PromptVersion>` ordered by version.
     versions: HashMap<String, Vec<PromptVersion>>,
     /// Maps turn_id -> prompt_version_id for tagging turns.
     turn_tags: HashMap<String, String>,
