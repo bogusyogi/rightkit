@@ -10,7 +10,7 @@ ios-native/HeardRight/ContentView(Settings|History)	RightKitLibraryUI	NEW	SwiftU
 ^data/|^docs/	none	NOTCODE	datasets & docs
 tauri-app-next/vendor/rightkit-asr/	rightkit-asr	DROP	vendored copy of rightkit-asr: use published crate
 tauri-app-next/vendor/tauri-runtime-wry/	tauri-runtime-wry	VENDOR-KEEP	patched Tauri runtime fork: upstream the patch, then use crates.io
-ios-native/Vendor/sherpa-onnx	rightkit-asr	VENDOR-OWN	sherpa-onnx xcframework headers: replace with RightKit Rust KWS/ASR (sherpa rewrite)
+ios-native/Vendor/sherpa-onnx	rightkit-asr	DROP	sherpa-onnx: already rewritten in rightkit-asr (Mac & Windows tested); delete once the iOS build is tested
 ios-native/Vendor/onnxruntime	rightkit-onnx	VENDOR-KEEP	ONNX Runtime binary via rightkit-onnx
 ios-native/Vendor/	rightkit-asr	DROP	prebuilt core xcframework: build from RightKit crates
 ^scripts/(wake_|zephyr_|hnm_|omnilingual|watch_int8)|tauri-app-next/scripts/(local-model-training|open-asr-bakeoff|local-model-screening|parakeet-v3-streaming|l1-polish-replay|bias-experiments|sotto-deployment-gate|coreml|whisper|unified_|windows_realtime|test_score_sherpa|test_evaluate_sherpa|test_compact_onnx|verify_audio_conditioning|validate-(sotto|l1|bakeoff))|tauri-app-next/bakeoff/	rightkit-ml-lab	NEW	model training & evaluation tooling: KWS/wake corpora & conditioning, ASR bakeoffs, polish-model training/eval, CoreML export

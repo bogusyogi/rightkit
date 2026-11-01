@@ -54,3 +54,12 @@ Adrian ruled: publishing everything public is fine, and product-specific logic a
 - 39 single-app product packages now map to PRODUCT and stay in their apps.
 - The 6 multi-app ones remain RightKit add-ons.
 - 46 new packages remain.
+
+## v5 (Adrian, 2026-11-01)
+
+Adrian clarified that "product-specific" means only an app's look, its composition of the shared shell, and its declared exceptions. Example: ViewRight's devtools in the HTML iframe. Every capability goes to RightKit, single-app ones included. As a result:
+- The v4 PRODUCT reclassification is reverted: 85 new packages, all public.
+- DOCX: use the published eigenpal packages and carry the React patch; no fork.
+- CodeRight's skill crates are dropped, because CodeRight uses the installed Legion.
+- The sherpa iOS copy is dropped after the iOS test.
+- The publication hold is lifted. Publishing is per package, on Adrian's go-ahead.

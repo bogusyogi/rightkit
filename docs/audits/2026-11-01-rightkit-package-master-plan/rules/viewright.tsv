@@ -1,6 +1,8 @@
+src-tauri/src/html_devtools	app-shell	SHELL	product exception: devtools in the HTML iframe (app declaration over a rightkit-tauri-shell option)
 ^tasks/	none	NOTCODE	handoff pages
-^vendor/docx-editor/packages/(agents|i18n)/	none	DROP	vendored docx-editor agent & i18n packages not needed (use @rightkit/i18n)
-^vendor/docx-editor/	@rightkit/docx-editor	VENDOR-OWN	vendored DOCX editor (core + react): own & trim in RightKit
+^vendor/docx-editor/packages/agents/	none	DROP	unused docx-editor agents package
+^vendor/docx-editor/packages/react/	@eigenpal/docx-editor-react	VENDOR-KEEP	use published 1.9.x + small host-toolbar patch carried by @rightkit/docx-editor; upstream the patch as a PR
+^vendor/docx-editor/	@eigenpal/docx-editor-core	VENDOR-KEEP	identical to published npm 1.9.0 (core, i18n): use the npm package
 ^src/documents/docx/	@rightkit/docx-editor	NEW	DOCX view/edit integration
 ^src/documents/(markdown|mdx)/	@rightkit/markdown-editor	NEW	markdown/MDX hybrid editor: projection, block & inline editing (code, math, mermaid, tables), citations, references, properties, export, safe HTML
 ^src/documents/html/	@rightkit/html-editor	NEW	HTML document view/authoring: sandboxed session, blocks, site-root resources

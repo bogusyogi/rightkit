@@ -32,14 +32,14 @@ for r in N:
     d=json.load(open(f'{S}/md/{r}-rightkit-files.json'))['files']; c=collections.Counter()
     for f in d: c[f['action']]+=f['loc']
     tot[r]=c
-L+=["## Coverage by app","","| App | Code lines | NEW | EXTEND | ADOPT | To Legion | Vendor | DROP | Product (stays) | App tests (stay) | Shell+config (stay) | Stays % |","|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+L+=["## Coverage by app","","| App | Code lines | NEW | EXTEND | ADOPT | To Legion | Vendor | DROP | App tests (stay) | Shell+config (stay) | Shell % |","|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
 G=collections.Counter()
 for r,c in tot.items():
     code=sum(c.values())-c['NOTCODE']; st=c['SHELL']+c['CONFIG']; G.update(c)
-    L.append(f"| {N[r]} | {fn(code)} | {fn(c['NEW'])} | {fn(c['EXTEND'])} | {fn(c['ADOPT'])} | {fn(c['LEGION'])} | {fn(c['VENDOR-OWN']+c['VENDOR-KEEP'])} | {fn(c['DROP'])} | {fn(c['PRODUCT'])} | {fn(c['APPTEST'])} | {fn(st)} | {100*(st+c['PRODUCT'])//code}% |")
+    L.append(f"| {N[r]} | {fn(code)} | {fn(c['NEW'])} | {fn(c['EXTEND'])} | {fn(c['ADOPT'])} | {fn(c['LEGION'])} | {fn(c['VENDOR-OWN']+c['VENDOR-KEEP'])} | {fn(c['DROP'])} | {fn(c['APPTEST'])} | {fn(st)} | {100*st//code}% |")
 code=sum(G.values())-G['NOTCODE']; st=G['SHELL']+G['CONFIG']
-L.append(f"| **All** | **{fn(code)}** | **{fn(G['NEW'])}** | **{fn(G['EXTEND'])}** | **{fn(G['ADOPT'])}** | **{fn(G['LEGION'])}** | **{fn(G['VENDOR-OWN']+G['VENDOR-KEEP'])}** | **{fn(G['DROP'])}** | **{fn(G['PRODUCT'])}** | **{fn(G['APPTEST'])}** | **{fn(st)}** | **{100*(st+G['PRODUCT'])//code}%** |")
-L+=["","Product-specific domain logic and UI stays in the app (P13). Unit tests move with their code; app journey/e2e tests stay with the app. Generated third-party notices, docs and data are not counted. Stays % = product + shell/config, excluding tests.",""]
+L.append(f"| **All** | **{fn(code)}** | **{fn(G['NEW'])}** | **{fn(G['EXTEND'])}** | **{fn(G['ADOPT'])}** | **{fn(G['LEGION'])}** | **{fn(G['VENDOR-OWN']+G['VENDOR-KEEP'])}** | **{fn(G['DROP'])}** | **{fn(G['APPTEST'])}** | **{fn(st)}** | **{100*st//code}%** |")
+L+=["","Every capability goes to RightKit, single-app ones included. The app keeps only its look and composition of the shared shell (shell/config), declared per-app exceptions, and its journey tests. Unit tests move with their code; app journey/e2e tests stay with the app. Generated third-party notices, docs and data are not counted.",""]
 def wave(t):
     a=m[t]['actions']
     if a.get('NEW'):
@@ -50,7 +50,7 @@ for t in m: m[t]['wave']=wave(t) if (m[t]['actions'].get('NEW') or m[t]['actions
 json.dump(m,open(S+'/md/master.json','w'),indent=1)
 # final new list
 crates=[t for t in new if kind(t)=='crate']; npm=[t for t in new if kind(t)=='npm']; sw=[t for t in new if kind(t)=='Swift']
-L+=["## Final list: new RightKit packages to create & publish","",f"**{len(new)} new packages**: {len(crates)} crates, {len(npm)} npm packages, {len(sw)} Swift packages, all public like the rest of RightKit. Wave 2 = used by two or more apps, wave 3 = one app today. Grouped by family; within a family, ordered by size.",""]
+L+=["## Final list: new RightKit packages to create & publish","",f"**{len(new)} new packages**: {len(crates)} crates, {len(npm)} npm packages, {len(sw)} Swift packages, all public like the rest of RightKit. Wave 2 = used by two or more apps, wave 3 = one app today (still RightKit, so the next app can find it). Grouped by family; within a family, ordered by size.",""]
 seen=set()
 for fam,members in FAM:
     mem=[t for t in members if t in new]; seen.update(mem)
@@ -63,9 +63,9 @@ miss=[t for t in new if t not in seen]
 if miss: L+=["### Other",""]+[f"- `{t}` (wave {wave(t)}; {', '.join(N[r] for r in m[t]['repos'])}, {fn(m[t]['loc'])} lines): {caps(m[t])}" for t in miss]+[""]
 # extend
 ext=[t for t,a in m.items() if a['actions'].get('EXTEND') and kind(t)!='other']
-L+=["## Existing RightKit packages to extend","",f"**{len(ext)} existing packages** gain capability now living in apps.","","Check: `check` = only one app adds code here; confirm it is generic, otherwise it is product code and stays in the app.","","| Package | Wave | Check | Used by | Lines moving in | What it gains |","|---|---|---|---|---:|---|"]
+L+=["## Existing RightKit packages to extend","",f"**{len(ext)} existing packages** gain capability now living in apps.","","`single` = only one app adds code here today; `shared` = several apps.","","| Package | Wave | Apps | Used by | Lines moving in | What it gains |","|---|---|---|---|---:|---|"]
 for t in sorted(ext,key=lambda t:-m[t]['actions']['EXTEND']):
-    a=m[t]; L.append(f"| `{t}` | 1 | {'check' if len(a['repos'])==1 else 'shared'} | {', '.join(N[r] for r in a['repos'])} | {fn(a['actions']['EXTEND'])} | {caps(a,5)} |")
+    a=m[t]; L.append(f"| `{t}` | 1 | {'single' if len(a['repos'])==1 else 'shared'} | {', '.join(N[r] for r in a['repos'])} | {fn(a['actions']['EXTEND'])} | {caps(a,5)} |")
 lg=m.get('legion')
 if lg:
     L+=["","## Moves to Legion, not RightKit","","Skills, doctrine, agent personas, skill manifests/loaders and host projection (Claude Code, Codex, AGENTS.md) are owned by Legion. RightKit is the code kit; Legion is the skills owner.","","| From app | Lines | What |","|---|---:|---|"]
@@ -74,12 +74,6 @@ if lg:
         for f in d:
             if f['action']=='LEGION': g[f['capability']]=g.get(f['capability'],0)+f['loc']
         for c,n in g.items(): L.append(f"| {N[r]} | {fn(n)} | {c} |")
-L+=["","## Stays in the app: product-specific code","","Single-app product domain logic and UI (P13 app-specific). Earlier drafts proposed these as packages; they stay in the app.","","| App | Lines | What |","|---|---:|---|"]
-for r in N:
-    d=json.load(open(f'{S}/md/{r}-rightkit-files.json'))['files']; g=collections.OrderedDict()
-    for f in d:
-        if f['action']=='PRODUCT': k=f['origTarget']; g[k]=g.get(k,0)+f['loc']
-    for c,n in sorted(g.items(),key=lambda x:-x[1]): L.append(f"| {N[r]} | {fn(n)} | was `{c}` |")
 ad=[t for t,a in m.items() if a['actions'].get('ADOPT') and kind(t)!='other']
 L+=["","## Already in RightKit: delete app copies & adopt","","| Package | Apps still carrying own copy | Lines to delete |","|---|---|---:|"]
 for t in sorted(ad,key=lambda t:-m[t]['actions']['ADOPT']):

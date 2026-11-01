@@ -1,15 +1,12 @@
-## Decisions for Adrian
+## Decisions (resolved 2026-11-01 by Adrian, except where marked)
 
-1. **D1, vendored code.** Each row of the vendored table:
-   - DOCX: fork & trim (proposed) or keep upstream.
-   - Tree-sitter grammars: crates.io.
-   - WasmKit: SwiftPM.
-   - tauri-runtime-wry: upstream the patch.
-   - sherpa-onnx & prebuilt xcframeworks: replace with `rightkit-asr` built for iOS.
-   - ONNX Runtime: binary via `rightkit-onnx`.
-   - GenRight legacy Node server (8.6k lines): drop once confirmed unused.
-2. **D2, borderline extensions.** 23 existing packages gain code from only one app (marked `check`). Confirm each is generic. Otherwise it is product code and stays in the app.
-3. **D3, publication hold.** `docs/GATE-CONTRACT.md` records a hold on publication. Either lift it or schedule the waves after it.
-4. **D4, Legion as a skills distributor.** CodeRight's skills, plugins & recipes crates move to Legion. Decide how CodeRight consumes Legion's crates (names & route).
-
-Settled: everything extracted is public RightKit (crates.io/npm). Product-specific logic & UI stay in apps (P13). Skills live in Legion. Every NEW/EXTEND package gets an EGM-reviewed design doc before its code moves.
+1. **Scope.** Every capability goes to RightKit, including ones a single app uses today. That way a new app can find it. "Product-specific" means only how each app looks & composes the shared shell, plus declared per-app exceptions. Example: ViewRight's devtools in the HTML iframe is an app declaration over a `rightkit-tauri-shell` option. Everything is public on crates.io/npm.
+2. **DOCX (eigenpal).** Do not fork the 171k lines.
+   - `core` and `i18n` are identical to the published npm 1.9.0, so use those packages.
+   - `agents` is unused, so drop it.
+   - `react` carries ViewRight's host-toolbar bridge. Use the published package plus that small patch, carried by `@rightkit/docx-editor`, and send the patch upstream as a PR (Apache-2.0, active repo). ViewRight's own DOCX integration (`src/documents/docx`) becomes `@rightkit/docx-editor`.
+3. **sherpa-onnx.** It is already rewritten in `rightkit-asr`, and Mac & Windows are tested. Delete the iOS xcframework once the iOS build of `rightkit-asr` is tested.
+4. **GenRight Node server.** Drop it; the suite runs no Node services.
+5. **Tree-sitter grammars, WasmKit, ONNX Runtime, tauri-runtime-wry.** Recommendation: do not own them. Use the upstream crates, SwiftPM package and binary as plain dependencies, and upstream the Tauri patch. Owning them would add maintenance for no product gain, unless one of them needs changes we make.
+6. **Publication.** The hold is lifted. Each package is its own unit with its own `Cargo.lock`, and it is published separately: compile locally, qualify on GitHub, then publish automatically. **Waiting for Adrian's go-ahead before publishing.**
+7. **Skills.** Legion owns them. CodeRight's `skills`, `plugins` and `recipes` crates are deleted, because CodeRight uses the installed Legion. CutRight's skill packs move to Legion.
