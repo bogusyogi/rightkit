@@ -44,6 +44,10 @@
 //! as the `rightkit-job-queue` engine contract:
 //! `hello`, `request{id,method,params}`, `event{id,event}`, `response{id,ok,result|error}`.
 
+#[cfg(feature = "agent_daemon_core")]
+pub mod agent_daemon_core;
+#[cfg(feature = "agent_daemon_runtime")]
+pub mod agent_daemon_runtime;
 mod app_root;
 /// Approval workflow mechanics: request binding, verified decisions, one execution claim,
 /// audit before effect (PK07-4).

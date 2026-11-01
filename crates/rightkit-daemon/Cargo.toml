@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-daemon"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist."
@@ -40,6 +40,8 @@ tempfile = { version = "3", optional = true }
 
 # Windows named pipes with a current-user-only DACL. cfg(windows) only: this
 # backend compiles on the Windows host (see API.md for the exact command).
+rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol", optional = true}
+async-trait = {version = "0.1", optional = true}
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
   "Win32_Foundation",
@@ -89,6 +91,8 @@ testing = ["remote", "dep:rcgen", "dep:tempfile"]
 # `RIGHTKIT-TEST-MODE-COMPILED` marker). Off by default. Apps expose their own `test-mode` feature that
 # enables it, only from qa-native/dev-native; `@rightkit/release` refuses a release build that has it.
 test-mode = ["rightkit-fs/test-mode"]
+agent_daemon_core = ["dep:axum", "dep:rightkit-agent-engine-protocol"]
+agent_daemon_runtime = ["dep:async-trait", "dep:tokio", "tokio/rt"]
 
 [[bench]]
 name = "budget"

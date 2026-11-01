@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0 (unreleased)
+
+- Features `agent_daemon_core` (source-trust authority, daemon discovery) and `agent_daemon_runtime` moved from CodeRight `coderight-daemon-core` and `coderight-daemon-runtime`.
+
 ## Unreleased (rightkit#1222)
 
 - Test: no source change. `Suite::resolve` in a `test-mode` build already honours `RIGHTKIT_SUITE_ROOT` and otherwise follows the real HOME/LOCALAPPDATA, and `mode::decide` returns `Mode::Release` when neither selector is set; the refusal was in `rightkit-models`. Release builds still read no selector. Added a test that pins both.
