@@ -147,3 +147,11 @@ test("data: the no-broker marker means nothing outside a live gate run", () => {
   runCargoSync(["metadata"], { env: { [NO_BROKER_ENV]: "x", HOME: "/Users/x" } }, { platform: "darwin", exists: () => true, spawn: (c, a) => { calls.push([c, ...a]); return { status: 0, stdout: "", stderr: "" }; } });
   assert.notEqual(calls[0]?.[0], "cargo", "outside a door run the Mac keeps the installed client route");
 });
+
+test("a gate run under the no-broker exception is never a broker-managed host, so nothing drops the target the gate pinned", () => {
+  const env = { RUSTRIGHT_BUILD_BROKER_SOCKET: "/tmp/rr.sock", RK_GATE_RUN: "1", RIGHTKIT_GATE_NO_BROKER: "adrian-2026-10-31-hr-blockers" };
+  for (const platform of ["darwin", "win32"]) {
+    assert.equal(brokerManagedHost({ ...env, RIGHTKIT_GATE_NO_BROKER: undefined }, platform, () => false), true, `${platform}: a broker socket alone is broker-managed`);
+    assert.equal(brokerManagedHost(env, platform, () => true), false, `${platform}: the exception runs Cargo directly`);
+  }
+});

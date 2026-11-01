@@ -1372,6 +1372,62 @@ fn fixed_bundle_dir(name: &str) -> Result<PathBuf> {
     Ok(dir)
 }
 
+/// The directory beside a stashed shell that the bundle maps to `Contents/Resources` (right-release qa-layout.mjs MAC_RESOURCES_DIR).
+#[cfg(target_os = "macos")]
+const MAC_RESOURCES_DIR: &str = "Resources";
+
+/// What sits beside a shell in its stash (`<app_root>/.rightkit-qa-bin/<triple>/`): the QA layout right-release staged (the engine,
+/// sidecars, `Resources/`), by name, the shell itself excluded. Empty for a binary that is not in a stash.
+#[cfg(target_os = "macos")]
+fn stash_layout(binary: &Path, exe: &str) -> Result<Vec<(String, PathBuf)>> {
+    let Some(dir) = binary.parent() else {
+        return Ok(Vec::new());
+    };
+    let in_stash = dir
+        .parent()
+        .and_then(Path::file_name)
+        .is_some_and(|n| n == crate::binary::STASH_DIR);
+    if !in_stash {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == exe || name.starts_with('.') {
+            continue;
+        }
+        out.push((name, entry.path()));
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// Copy a file or a tree (regular files and directories only; a link is refused, as the layout stager refuses one), keeping permissions.
+#[cfg(target_os = "macos")]
+fn copy_layout_tree(source: &Path, dest: &Path) -> Result<()> {
+    let meta = fs::symlink_metadata(source)?;
+    if meta.file_type().is_symlink() {
+        return err(format!(
+            "QA layout entry {} is a symbolic link; the bundle carries only regular files",
+            source.display()
+        ));
+    }
+    if meta.is_dir() {
+        fs::create_dir_all(dest)?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            copy_layout_tree(&entry.path(), &dest.join(entry.file_name()))?;
+        }
+        return Ok(());
+    }
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::copy(source, dest)?;
+    Ok(())
+}
+
 /// Build the bundle for a raw binary at its fixed path `<dir>/<exe>.app` with the fixed id. Written to a
 /// staging bundle first (nothing runs from it) and renamed in place, keeping `<exe>.app.previous`; a build
 /// whose executable and Info.plist already match is reused untouched.
@@ -1395,7 +1451,9 @@ fn make_bundle(dir: &Path, binary: &Path, id: &str, background: bool) -> Result<
     );
     let installed_exe = app.join("Contents").join("MacOS").join(exe);
     let installed_plist = app.join("Contents").join("Info.plist");
-    if crate::inplace::same_bytes(&abs, &installed_exe)
+    let layout = stash_layout(&abs, exe)?;
+    if layout.is_empty()
+        && crate::inplace::same_bytes(&abs, &installed_exe)
         && fs::read_to_string(&installed_plist).is_ok_and(|p| p == plist)
     {
         return Ok(app);
@@ -1406,6 +1464,19 @@ fn make_bundle(dir: &Path, binary: &Path, id: &str, background: bool) -> Result<
     fs::create_dir_all(&macos)?;
     // Copy into internal storage; never launch a link back to the build volume.
     fs::copy(&abs, macos.join(exe))?;
+    // The QA layout staged beside a stashed shell (right-release qa-layout.mjs) goes where an install keeps it: `Resources/` into
+    // `Contents/Resources` (Tauri's resource_dir()), everything else (the engine and other sidecars) beside the exe in `Contents/MacOS`.
+    for (name, source) in &layout {
+        let dest = if name == MAC_RESOURCES_DIR {
+            staging.join("Contents").join("Resources")
+        } else {
+            macos.join(name)
+        };
+        if let Err(e) = copy_layout_tree(source, &dest) {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(e);
+        }
+    }
     fs::write(staging.join("Contents").join("Info.plist"), plist)?;
     crate::inplace::swap_in_place(&staging, &app)?;
     Ok(app)
@@ -2949,5 +3020,51 @@ mod launch_path_tests {
         assert_eq!(resolve_window_label(Some(" editor "), None), "editor");
         assert_eq!(resolve_window_label(None, Some(" side ")), "side");
         assert_eq!(WINDOW_LABEL_ENV, "RIGHTKIT_QA_WINDOW_LABEL");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_stashed_shell_bundle_carries_its_qa_layout_where_an_install_keeps_it() {
+        let root =
+            std::env::temp_dir().join(format!("rkqa-bundle-layout-{}", crate::util::new_id()));
+        let stash = root
+            .join("app")
+            .join(crate::binary::STASH_DIR)
+            .join("aarch64-apple-darwin");
+        fs::create_dir_all(stash.join("Resources").join("vad")).unwrap();
+        fs::write(stash.join("shell"), b"shell-bytes").unwrap();
+        fs::write(stash.join("engine"), b"engine-bytes").unwrap();
+        fs::write(
+            stash.join("Resources").join("vad").join("model.onnx"),
+            b"vad",
+        )
+        .unwrap();
+        let bundles = root.join("bundles");
+        fs::create_dir_all(&bundles).unwrap();
+        let app = make_bundle(&bundles, &stash.join("shell"), "layout", true).unwrap();
+        let contents = app.join("Contents");
+        assert_eq!(
+            fs::read(contents.join("MacOS/shell")).unwrap(),
+            b"shell-bytes"
+        );
+        assert_eq!(
+            fs::read(contents.join("MacOS/engine")).unwrap(),
+            b"engine-bytes",
+            "the engine sits beside the exe, as an externalBin does"
+        );
+        assert_eq!(
+            fs::read(contents.join("Resources/vad/model.onnx")).unwrap(),
+            b"vad",
+            "resources are in Contents/Resources"
+        );
+        assert!(!contents.join("MacOS/Resources").exists());
+        // A binary outside a stash carries nothing beside it.
+        let plain = root.join("plain");
+        fs::create_dir_all(&plain).unwrap();
+        fs::write(plain.join("solo"), b"solo").unwrap();
+        fs::write(plain.join("stray"), b"stray").unwrap();
+        let solo = make_bundle(&bundles, &plain.join("solo"), "plain", true).unwrap();
+        assert!(!solo.join("Contents/MacOS/stray").exists());
+        let _ = fs::remove_dir_all(&root);
     }
 }

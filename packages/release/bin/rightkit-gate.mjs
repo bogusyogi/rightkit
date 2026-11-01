@@ -1506,13 +1506,16 @@ async function runStages(o, args, root, git, io) {
   // the ones they sealed, so they are not run again.
   // The release configs of the commit (under this app) that declare `sidecars`: the commit's config decides on the snapshot route, never the checkout's.
   const sidecarConfigsOf = () => committedSidecarConfigs({ o, git, commit, appDir, base: ds ? ds.path : root });
-  const sealedNow = receipt.stages.package?.ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
+  // right-release keeps its outputs (`.right-release`: sealed sets, QA receipts, state) at the checkout's git root, never a nested app's
+  // directory (build-release.mjs gitRootOf): every lookup of a sealed set or a QA receipt reads there.
+  const releaseRoot = root;
+  const sealedNow = receipt.stages.package?.ok ? (o.sealedFor ?? sealedFor)({ root: releaseRoot, commit, platform }) : null;
   // The protected-receipt verifier pulls in the ownership policy modules (and their dependencies): loaded only for a run that qualifies or releases,
   // so an installed copy that only checks or compiles never needs them (GB-14).
   const qualifyReuse = stages.includes("qualify") || stages.includes("release") ? await import("../qualify-reuse.mjs") : null;
   const installedQaReceiptDigest = (...a) => qualifyReuse.installedQaReceiptDigest(...a);
   const qualifyReuseProblem = (...a) => qualifyReuse.qualifyReuseProblem(...a);
-  const qualifyRecordProblem = (recorded) => (o.qualifyReuseProblem ?? qualifyReuseProblem)({ recorded, sealedNow, repoRoot: appRoot, platform, ...(o.verifyQa !== undefined ? { verify: o.verifyQa } : (o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment" ? { verify: null } : {})) });
+  const qualifyRecordProblem = (recorded) => (o.qualifyReuseProblem ?? qualifyReuseProblem)({ recorded, sealedNow, repoRoot: releaseRoot, platform, ...(o.verifyQa !== undefined ? { verify: o.verifyQa } : (o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment" ? { verify: null } : {})) });
   const sealedIntact = Boolean(sealedNow && sealedNow.id === receipt.stages.package.sealed && sealedNow.digest === receipt.stages.package.manifestSha256);
   // Every deterministic scan (full class A) runs before any compile, for every door stage. The app rules run at the tier the stage
   // owes: dev, test and package take the compile-tier rules; qualify and release add the release-only rules (approvals, ratified
@@ -1634,7 +1637,7 @@ async function runStages(o, args, root, git, io) {
       const qaEnv = !mobile && !compiledProblem && Array.isArray(compileDirs) && compileDirs.length ? { ...buildEnv, RIGHT_RELEASE_QA_COMPILED_DIRS: JSON.stringify(compileDirs) } : buildEnv;
       if (ok && !mobile && compiledProblem && Array.isArray(compileDirs)) o.out(`${tag} [package] the compile outputs are not handed to source QA: ${compiledProblem}`);
       ok = ok && (mobile || await rightRelease(stage, ["qa", "--stage", "source", "--platform", platform], qaEnv)) && await rightRelease(stage, ["build", "--platform", platform], packageEnv);
-      const sealed = ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
+      const sealed = ok ? (o.sealedFor ?? sealedFor)({ root: releaseRoot, commit, platform }) : null;
       if (ok && !sealed) { o.err(`${tag} [package] the build reported success but sealed nothing for ${commit.slice(0, 8)} on ${platform}`); ok = false; }
       if (sealed) extra = { platform, sealed: sealed.id, manifestSha256: sealed.digest };
       // The cross-check: the Cargo targets the sealed manifest records are the directory this door resolved itself. A different one voids the stage.
@@ -1679,7 +1682,7 @@ async function runStages(o, args, root, git, io) {
       }
     } else {
       const sealed = receipt.stages.package?.ok ? receipt.stages.package : null;
-      const current = sealed ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
+      const current = sealed ? (o.sealedFor ?? sealedFor)({ root: releaseRoot, commit, platform }) : null;
       if (!sealed || !current || current.id !== sealed.sealed || current.digest !== sealed.manifestSha256) {
         o.err(`${tag} BLOCKED: [${stage}] needs the sealed set the package stage produced for this commit, unchanged (sealed manifest digest)`);
         ok = false;
@@ -1705,7 +1708,7 @@ async function runStages(o, args, root, git, io) {
           ok = owedProblems.length === 0 && await rightRelease(stage, ["qa", "--stage", "installed", "--platform", platform, "--release", sealed.sealed]);
         }
         // The protected installed-QA receipt this run produced is journaled by digest (GB-14), so the record can be re-verified before any reuse.
-        extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, ruleTier: "release", ...(ok ? { qaReceiptDigest: (o.installedQaReceiptDigest ?? installedQaReceiptDigest)({ repoRoot: appRoot, releaseId: sealed.sealed, platform }) } : {}) };
+        extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, ruleTier: "release", ...(ok ? { qaReceiptDigest: (o.installedQaReceiptDigest ?? installedQaReceiptDigest)({ repoRoot: releaseRoot, releaseId: sealed.sealed, platform }) } : {}) };
       } else {
         if (!receipt.stages.qualify?.ok || receipt.stages.qualify.manifestSha256 !== sealed.manifestSha256) { o.err(`${tag} BLOCKED: [release] the sealed set was not qualified (installed QA) in this door run's receipt`); ok = false; }
         else if (qualifyRecordProblem(receipt.stages.qualify)) { o.err(`${tag} BLOCKED: [release] the recorded qualification no longer stands: ${qualifyRecordProblem(receipt.stages.qualify)}; nothing was uploaded`); ok = false; }
@@ -1753,7 +1756,9 @@ function stageForPublisher(o, args, root, git) {
   const { appRoot, appDir } = appRootOf({ root, cwd: o.cwd, configDirs: inventory.dirs });
   const receipt = (o.readReceipt ?? readReceipt)({ commonDir, commit, app: appDir });
   const pack = receipt?.stages?.package; const qual = receipt?.stages?.qualify;
-  const sealed = pack?.ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
+  // right-release's outputs live at the checkout's git root (see runStages).
+  const releaseRoot = root;
+  const sealed = pack?.ok ? (o.sealedFor ?? sealedFor)({ root: releaseRoot, commit, platform }) : null;
   if (!pack?.ok || !qual?.ok || pack.platform !== platform || qual.manifestSha256 !== pack.manifestSha256 || !sealed || sealed.id !== pack.sealed || sealed.digest !== pack.manifestSha256) {
     o.err(`${tag} BLOCKED: stage needs this host's receipt for ${commit.slice(0, 12)} with package and qualify passed on ${platform} and the sealed set unchanged; run rightkit-gate --to qualify --platform ${platform} first`);
     return 1;
@@ -1765,7 +1770,7 @@ function stageForPublisher(o, args, root, git) {
     const receiptFile = path.join(work, `receipt-${platform}.json`);
     fs.writeFileSync(receiptFile, `${JSON.stringify(receipt, null, 2)}\n`);
     const archive = path.join(work, `sealed-${platform}.tar.gz`);
-    const tar = o.spawn("tar", ["-czf", archive, "-C", appRoot, path.join(".right-release", "sealed", sealed.id, platformDirOf(platform))]);
+    const tar = o.spawn("tar", ["-czf", archive, "-C", releaseRoot, path.join(".right-release", "sealed", sealed.id, platformDirOf(platform))]);
     if (failed(tar)) { o.err(`${tag} could not pack ${sealed.id}/${platform}`); return 1; }
     const gh = (...a) => o.spawn("gh", a, { cwd: root });
     if (failed(gh("release", "view", releaseTag))) {
@@ -1836,7 +1841,12 @@ export async function closeSnapshotStage({ o, ds, root, stage, step = "stage", t
   const prior = new Map((ds.ledger?.entries ?? []).map((e) => [e.path, e]));
   const now = new Map(walked.entries.map((e) => [e.path, e]));
   const problems = [...walked.problems];
-  for (const [p, e] of prior) if (e.kind === "staged" && (!now.has(p) || entryKey(now.get(p)) !== entryKey(e))) problems.push(`${p} is a staged sidecar output and ${now.has(p) ? "changed" : "was removed"} after it was staged (a staged entry is immutable for the door run)`);
+  // The package stage builds for the package triple (universal-apple-darwin on a Mac recipe with `stageSidecars`), so right-release's own
+  // stage-sidecar may stage again there. A staged entry it changed or removed is admitted only through the receipt it wrote: a valid receipt
+  // of the same config, every file it names present with that digest; the files it names become this stage's staged entries.
+  const restaged = stage === "package" ? await restagedSidecars({ o, ds, prior, now }) : { paths: new Set(), receipts: new Set(), producers: new Set(), problems: [] };
+  problems.push(...restaged.problems);
+  for (const [p, e] of prior) if (e.kind === "staged" && !restaged.paths.has(p) && !restaged.receipts.has(p) && !(restaged.producers.has(e.producer?.step) && !now.has(p)) && (!now.has(p) || entryKey(now.get(p)) !== entryKey(e))) problems.push(`${p} is a staged sidecar output and ${now.has(p) ? "changed" : "was removed"} after it was staged (a staged entry is immutable for the door run)`);
   if (problems.length) { for (const p of problems.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [${stage}] ${p}`); return { ok: false, entries: ds.ledger?.entries ?? [] }; }
   // The compile's own verify (snapshot-check.mjs, 5.09d) returned the entries it admitted: they must be the entries this walk found.
   if (Array.isArray(ds.compileAdmitted) && stage === "compile") {
@@ -1847,6 +1857,7 @@ export async function closeSnapshotStage({ o, ds, root, stage, step = "stage", t
   ds.compileAdmitted = null;
   const entries = walked.entries.map((e) => {
     const was = prior.get(e.path);
+    if (restaged.paths.has(e.path) || restaged.receipts.has(e.path)) return { ...e, kind: "staged", producer: { stage, step: "stage-sidecar" } };
     if (was?.kind === "staged") return { ...e, kind: "staged", producer: was.producer };
     return { ...e, kind: "generated", producer: was && entryKey(was) === entryKey(e) ? was.producer : { stage, step } };
   });
@@ -1861,6 +1872,39 @@ export async function closeSnapshotStage({ o, ds, root, stage, step = "stage", t
   } catch (e) { o.err(`${tag} RK_CHECK_ERROR: [${stage}] ${e.message}`); return { ok: false, entries: ds.ledger?.entries ?? [] }; }
   ds.ledger = { entries };
   return { ok: true, entries };
+}
+
+/**
+ * The sidecar re-staging a package stage did, proven by its receipts: for each staged receipt (`<config dir>/.../stage-sidecar.json`) that
+ * changed, the new receipt must be a valid stage-sidecar receipt and every file it names must be on disk with its recorded digest. Returns the
+ * snapshot paths it names (`paths`), the receipts themselves (`receipts`), the producer steps whose earlier staged files it replaces
+ * (`producers`, whose removed files are admitted) and the problems found.
+ */
+async function restagedSidecars({ o, ds, prior, now }) {
+  const { entryKey } = await import("../stage-ledger.mjs");
+  const { validateStageSidecarReceipt } = await import("../stage-sidecar.mjs");
+  const out = { paths: new Set(), receipts: new Set(), producers: new Set(), problems: [] };
+  for (const [p, e] of prior) {
+    if (e.kind !== "staged" || !/(^|\/)stage-sidecar\.json$/.test(p) || !now.has(p) || entryKey(now.get(p)) === entryKey(e)) continue;
+    const config = e.producer?.step;
+    const configDir = typeof config === "string" ? path.posix.dirname(config.replaceAll("\\", "/")) : ".";
+    let receipt;
+    try { receipt = validateStageSidecarReceipt(JSON.parse(String(o.readFile(path.join(ds.path, ...p.split("/")))))); }
+    catch (error) { out.problems.push(`${p} was rewritten in the package stage but is not a valid stage-sidecar receipt (${error.message})`); continue; }
+    const named = [];
+    for (const file of receipt.files) {
+      const rel = (configDir === "." ? file.path : `${configDir}/${file.path}`).replaceAll("\\", "/");
+      const entry = now.get(rel);
+      if (!entry) { out.problems.push(`${p} names ${rel}, which is not in the snapshot`); continue; }
+      if (entry.sha256 !== undefined && entry.sha256 !== file.sha256) { out.problems.push(`${rel} does not have the digest ${p} records for it`); continue; }
+      named.push(rel);
+    }
+    if (named.length !== receipt.files.length) continue;
+    out.receipts.add(p);
+    for (const rel of named) out.paths.add(rel);
+    if (typeof config === "string") out.producers.add(config);
+  }
+  return out;
 }
 
 /** The release configs of `commit` (under `appDir`) that declare `sidecars`, read from `base` (the snapshot on the snapshot route): the commit's config decides, never the checkout's. */
