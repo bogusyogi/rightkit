@@ -19,31 +19,31 @@ Each pass was re-run after its false positives were traced to their cause in the
 | RightKit-internal dependency edges | 171 |
 | Product apps scanned | 13 |
 | App pins on RightKit units | 450 |
-| Environment variables | 408 |
-| ... shared across units | 52 |
+| Environment variables | 385 |
+| ... shared across units | 41 |
 | Named files | 729 |
 | Sockets / pipes | 50 |
 | Spawned programs | 120 |
-| Source lines (crates + packages) | 1,097,310 |
+| Source lines (crates + packages) | 1,097,356 |
 
 ## Findings
 
 ### Dependencies (pass 2 against pass 1)
 
-- `@rightkit/legal`: a normal dependency used only by tests: `@rightkit/release`
+- none
 - Nested projects scanned apart from their parent: `crates/rightkit-qa/examples/control-test-app` (in `rightkit-qa`), `crates/rightkit-tauri-shell/example-app` (in `rightkit-tauri-shell`)
 
 ### Environment contracts (pass 3)
 
-- **Set by RightKit, read by nothing scanned (41):** a hand-off to an app or tool outside the scan, or a dead value. `RIGHTKIT_DATA_DIR`, `RIGHTKIT_ISOLATED_CHECKOUT`, `RIGHTKIT_MANAGED_AGENT_SHIM`, `RIGHTKIT_NPM_TOKEN`, `RIGHTKIT_QA_CAPTURE_DIR`, `RIGHTKIT_QA_CONTROL_SOCKET`, `RIGHTKIT_QA_EVIDENCE_DIR`, `RIGHTKIT_QA_FOCUS`, `RIGHTKIT_QA_INTERACTIVE_CHILD`, `RIGHTKIT_QA_MUTE`, `RIGHTKIT_QA_NATIVE`, `RIGHTKIT_QA_PORT_END`, `RIGHTKIT_QA_PORT_START`, `RIGHTKIT_QA_RUN_ID`, `RIGHTKIT_QA_SCAN_HOME`, `RIGHTKIT_QA_SIGNED_FILES`, `RIGHTKIT_QA_TIER`, `RIGHTKIT_QA_TOKENS`, `RIGHTKIT_QA_WORLD_DATA`, `RIGHTKIT_QA_WORLD_DIR`, `RIGHTKIT_QA_WORLD_HOME`, `RIGHTKIT_QA_WORLD_TEMP`, `RIGHT_RELEASE_QA_COMMIT`, `RIGHT_RELEASE_QA_INSTALLED_APP`, `RIGHT_RELEASE_QA_INSTALLED_KIND`, `RK_MINE`, `RK_OWNERSHIP_INCOMPLETE_COVERAGE`, `RK_OWNERSHIP_INVALID_REGISTRATION`, `RK_OWNERSHIP_MALFORMED_REPORT`, `RK_OWNERSHIP_POLICY_DOWNGRADE`, `RK_OWNERSHIP_REPORT_FAILED`, `RK_OWNERSHIP_UNVERIFIED`, `RK_OWNERSHIP_VIOLATION`, `RK_SNAPSHOT_TARGETS`, `RK_TRUST_CHECK_TARGET`, `RK_TRUST_DIR`, `RK_TRUST_FILE`, `RK_TTS_OUT`, `RK_TTS_RATE`, `RK_TTS_TEXT`, `RK_TTS_VOICE`
-- **Set by RightKit, read only by product apps (2):** `RIGHTKIT_BUILD_MODE`, `RIGHTKIT_CARGO_PROFILE`
-- **Read by RightKit, set by nothing in RightKit (86):** operator or host inputs (paths, keys, tuning knobs); each is a value a run depends on that RightKit itself never provides. `RIGHTKIT_ADB`, `RIGHTKIT_AGENT_VOLUMES`, `RIGHTKIT_ANDROID_SERIAL`, `RIGHTKIT_ARTIFACT_DIR`, `RIGHTKIT_ARTIFACT_STORAGE_THRESHOLD_BYTES`, `RIGHTKIT_BUILD_PROFILE`, `RIGHTKIT_BUILD_UTC`, `RIGHTKIT_CHANNEL`, `RIGHTKIT_CHROME_FOR_TESTING`, `RIGHTKIT_CHROME_HEADLESS_SHELL`, `RIGHTKIT_COMPILE_INPUTS`, `RIGHTKIT_CONTROL_STACK_ON_TIMEOUT`, `RIGHTKIT_CONTROL_TRACE`, `RIGHTKIT_DATA_ROOT`, `RIGHTKIT_DEV_SIGNING`, `RIGHTKIT_DISABLE_VENDOR_CLIS`, `RIGHTKIT_EXEC_TEST_SECRET`, `RIGHTKIT_EXTERNAL_ROOT`, `RIGHTKIT_FFMPEG`, `RIGHTKIT_GIT_DIRTY`, `RIGHTKIT_GIT_REV`, `RIGHTKIT_HW_JSON`, `RIGHTKIT_IOS_DEVICE`, `RIGHTKIT_LINUX_BROKER_CLIENT_SHA256`, `RIGHTKIT_MAKENSIS`, `RIGHTKIT_MANAGED_AGENT_BIN`, `RIGHTKIT_PUBLISHER`, `RIGHTKIT_QA_CONFIG`, `RIGHTKIT_QA_ENGINE`, `RIGHTKIT_QA_FFPROBE`, `RIGHTKIT_QA_HOME_MAX_AGE_SECS`, `RIGHTKIT_QA_HOME_ROOT`, `RIGHTKIT_QA_HOME_SWEEP`, `RIGHTKIT_QA_KEEP_FAILED_HOME`, `RIGHTKIT_QA_PACE_MS`, `RIGHTKIT_QA_RECEIPT_KEY`, `RIGHTKIT_QA_SETTINGS`, `RIGHTKIT_QA_UI_BINARY`, `RIGHTKIT_QTS_DUMP_CODES`, `RIGHTKIT_QTS_TRACE_CB6`, `RIGHTKIT_RUNTIME_ARTIFACT_KEY_ID`, `RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY`, `RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY_FILE`, `RIGHTKIT_SCRATCH_ROOT`, `RIGHTKIT_SEVEN_ZIP`, `RIGHTKIT_SHELL_HOME`, `RIGHTKIT_SWAP`, `RIGHTKIT_TTS_MODEL_DIR`, `RIGHTKIT_TTS_WORKER`, `RIGHTKIT_WORKSPACE_ROOT`, `RIGHTKIT_WORKSPACE_ROOTS`, `RIGHT_RELEASE_ABSOLUTE_MS`, `RIGHT_RELEASE_BACKUP_RETENTION_DAYS`, `RIGHT_RELEASE_CACHE_KEY`, `RIGHT_RELEASE_CACHE_MODE`, `RIGHT_RELEASE_CACHE_ROOT`, `RIGHT_RELEASE_DESIRED_FREE_BYTES`, `RIGHT_RELEASE_HARD_FREE_BYTES`, `RIGHT_RELEASE_INSTALLED_CLI`, `RIGHT_RELEASE_LEGACY_REGISTRY_RELEASES`, `RIGHT_RELEASE_MIN_FREE_GB`, `RIGHT_RELEASE_NOTES`, `RIGHT_RELEASE_QA_ALLOW_INSTALL`, `RIGHT_RELEASE_QA_POLICY_BASELINE_REF`, `RIGHT_RELEASE_QA_RECEIPT`, `RIGHT_RELEASE_RUSTC_VERBOSE`, `RIGHT_RELEASE_SCCACHE_MAX_BYTES`, `RIGHT_RELEASE_SEVENZIP`, `RIGHT_RELEASE_STALL_MS`, `RIGHT_RELEASE_TARGET_MAX_BYTES`, `RIGHT_RELEASE_TEST_FIXTURE`, `RIGHT_RELEASE_UPLOAD_DRY_RUN`, `RK_ADVISORY_CACHE_ROOT`, `RK_BROKER_HEALTH_FILE`, `RK_GATE_CACHE`, `RK_GATE_CLASS_B_JOBS`, `RK_GATE_JOBS`, `RK_GATE_QUIET_TESTS`, `RK_GATE_STAGE_DEADLINE_AT`, `RK_GATE_TEST_JOBS`, `RK_GATE_TMPDIR`, `RK_HARNESS_DEV`, `RK_HARNESS_OUT`, `RK_LOCALQ_REMOTE_NODE`, `RK_OWNERSHIP_DESKTOP_DELEGATED`, `RK_UPDATE_GOLDEN`
+- **Set by RightKit, read by nothing scanned (5):** a hand-off to an app or tool outside the scan, or a dead value. `RIGHTKIT_QA_FOCUS`, `RIGHTKIT_QA_INTERACTIVE_CHILD`, `RIGHTKIT_QA_MUTE`, `RIGHTKIT_QA_NATIVE`, `RIGHTKIT_QA_RUN_ID`
+- **Set by RightKit, read only by product apps (0):** none
+- **Read by RightKit, set by nothing in RightKit (83):** operator or host inputs (paths, keys, tuning knobs); each is a value a run depends on that RightKit itself never provides. `RIGHTKIT_ADB`, `RIGHTKIT_AGENT_VOLUMES`, `RIGHTKIT_ANDROID_SERIAL`, `RIGHTKIT_ARTIFACT_DIR`, `RIGHTKIT_ARTIFACT_STORAGE_THRESHOLD_BYTES`, `RIGHTKIT_CHROME_FOR_TESTING`, `RIGHTKIT_CHROME_HEADLESS_SHELL`, `RIGHTKIT_COMPILE_INPUTS`, `RIGHTKIT_CONTROL_STACK_ON_TIMEOUT`, `RIGHTKIT_CONTROL_TRACE`, `RIGHTKIT_DATA_ROOT`, `RIGHTKIT_DEV_SIGNING`, `RIGHTKIT_DISABLE_VENDOR_CLIS`, `RIGHTKIT_EXEC_TEST_SECRET`, `RIGHTKIT_EXTERNAL_ROOT`, `RIGHTKIT_FFMPEG`, `RIGHTKIT_HW_JSON`, `RIGHTKIT_IOS_DEVICE`, `RIGHTKIT_LINUX_BROKER_CLIENT_SHA256`, `RIGHTKIT_MAKENSIS`, `RIGHTKIT_MANAGED_AGENT_BIN`, `RIGHTKIT_PUBLISHER`, `RIGHTKIT_QA_CONFIG`, `RIGHTKIT_QA_ENGINE`, `RIGHTKIT_QA_FFPROBE`, `RIGHTKIT_QA_HOME_MAX_AGE_SECS`, `RIGHTKIT_QA_HOME_ROOT`, `RIGHTKIT_QA_HOME_SWEEP`, `RIGHTKIT_QA_KEEP_FAILED_HOME`, `RIGHTKIT_QA_PACE_MS`, `RIGHTKIT_QA_RECEIPT_KEY`, `RIGHTKIT_QA_SETTINGS`, `RIGHTKIT_QA_UI_BINARY`, `RIGHTKIT_QA_WORLD`, `RIGHTKIT_QTS_DUMP_CODES`, `RIGHTKIT_QTS_TRACE_CB6`, `RIGHTKIT_RUNTIME_ARTIFACT_KEY_ID`, `RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY`, `RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY_FILE`, `RIGHTKIT_SCRATCH_ROOT`, `RIGHTKIT_SEVEN_ZIP`, `RIGHTKIT_SHELL_HOME`, `RIGHTKIT_SWAP`, `RIGHTKIT_TTS_MODEL_DIR`, `RIGHTKIT_TTS_WORKER`, `RIGHTKIT_WORKSPACE_ROOT`, `RIGHTKIT_WORKSPACE_ROOTS`, `RIGHT_RELEASE_ABSOLUTE_MS`, `RIGHT_RELEASE_BACKUP_RETENTION_DAYS`, `RIGHT_RELEASE_CACHE_KEY`, `RIGHT_RELEASE_CACHE_MODE`, `RIGHT_RELEASE_CACHE_ROOT`, `RIGHT_RELEASE_DESIRED_FREE_BYTES`, `RIGHT_RELEASE_HARD_FREE_BYTES`, `RIGHT_RELEASE_INSTALLED_CLI`, `RIGHT_RELEASE_LEGACY_REGISTRY_RELEASES`, `RIGHT_RELEASE_MIN_FREE_GB`, `RIGHT_RELEASE_NOTES`, `RIGHT_RELEASE_QA_ALLOW_INSTALL`, `RIGHT_RELEASE_QA_POLICY_BASELINE_REF`, `RIGHT_RELEASE_QA_RECEIPT`, `RIGHT_RELEASE_RUSTC_VERBOSE`, `RIGHT_RELEASE_SCCACHE_MAX_BYTES`, `RIGHT_RELEASE_SEVENZIP`, `RIGHT_RELEASE_STALL_MS`, `RIGHT_RELEASE_TARGET_MAX_BYTES`, `RIGHT_RELEASE_TEST_FIXTURE`, `RIGHT_RELEASE_UPLOAD_DRY_RUN`, `RK_ADVISORY_CACHE_ROOT`, `RK_BROKER_HEALTH_FILE`, `RK_FIXTURE_MODE`, `RK_GATE_CACHE`, `RK_GATE_CLASS_B_JOBS`, `RK_GATE_JOBS`, `RK_GATE_QUIET_TESTS`, `RK_GATE_STAGE_DEADLINE_AT`, `RK_GATE_TEST_JOBS`, `RK_GATE_TMPDIR`, `RK_HARNESS_DEV`, `RK_HARNESS_OUT`, `RK_LOCALQ_REMOTE_NODE`, `RK_OWNERSHIP_DESKTOP_DELEGATED`, `RK_UPDATE_GOLDEN`
 
 ### App pins against RightKit source
 
 | app | pins | current | behind | ahead | path/other |
 |---|---|---|---|---|---|
-| coderight | 48 | 17 | 6 | 0 | 25 |
+| coderight | 48 | 28 | 20 | 0 | 0 |
 | cutright | 51 | 34 | 17 | 0 | 0 |
 | ember | 32 | 2 | 30 | 0 | 0 |
 | genright | 45 | 27 | 18 | 0 | 0 |
@@ -66,8 +66,8 @@ Every variable that more than one unit sets, reads or names. Sites are `file:lin
 | variable | set by | read by | also named by | apps reading |
 |---|---|---|---|---|
 | `CARGO_CFG_TARGET_OS` | — | rightkit-onnx, rightkit-tauri-shell | — | — |
-| `CARGO_MANIFEST_DIR` | rightkit-qa | rightkit-qa, rightkit-tauri-shell, rightkit-tts-qwen-sys | @rightkit/release, rightkit-credentials, rightkit-daemon, rightkit-ffmpeg, rightkit-ownership, rightkit-record, rightkit-tts-qwen | — |
-| `RIGHTKIT_BUILD_BROKER_SOCKET` | @rightkit/release | @rightkit/release | rightkit-mcp | — |
+| `CARGO_MANIFEST_DIR` | rightkit-qa | rightkit-agent-tools, rightkit-agents, rightkit-align, rightkit-asr, rightkit-channel-memory, rightkit-child-process, rightkit-compose, rightkit-contracts, rightkit-credentials, rightkit-daemon, rightkit-embed, rightkit-ffmpeg, rightkit-fsindex, rightkit-hooks, rightkit-http, rightkit-logs, rightkit-ocr, rightkit-onnx, rightkit-ownership, rightkit-pdf, rightkit-qa, rightkit-qa-driver, rightkit-record, rightkit-speech-client, rightkit-sync, rightkit-tauri-shell, rightkit-transcript, rightkit-tts-qwen, rightkit-tts-qwen-sys, rightkit-vad | @rightkit/release | — |
+| `CARGO_PKG_VERSION` | — | rightkit-agents, rightkit-android, rightkit-cache, rightkit-daemon, rightkit-file-watch, rightkit-fsindex, rightkit-http, rightkit-identity, rightkit-job-queue, rightkit-license, rightkit-logs, rightkit-mcp, rightkit-models, rightkit-ownership, rightkit-qa, rightkit-record, rightkit-send, rightkit-sync, rightkit-tauri-shell, rightkit-tts | — | — |
 | `RIGHTKIT_CHROME_FOR_TESTING` | rightkit-browser, @rightkit/qa-chrome | rightkit-browser, @rightkit/qa-chrome | — | legion |
 | `RIGHTKIT_CHROME_FOR_TESTING_ROOT` | rightkit-browser, @rightkit/qa-chrome | @rightkit/qa-chrome | — | — |
 | `RIGHTKIT_CHROME_HEADLESS_SHELL` | @rightkit/qa-chrome | rightkit-browser, @rightkit/qa-chrome | — | legion |
@@ -99,19 +99,8 @@ Every variable that more than one unit sets, reads or names. Sites are `file:lin
 | `RIGHTKIT_UNDER_TEST` | rightkit-daemon, rightkit-qa, @rightkit/qa | rightkit-daemon, @rightkit/qa | rightkit-fs | — |
 | `RIGHTKIT_WORKSPACE_ROOT` | — | rightkit-ffmpeg, @rightkit/release | — | — |
 | `RIGHT_RELEASE_QA_STAGE` | @rightkit/qa, @rightkit/release | @rightkit/qa, @rightkit/release | rightkit-qa | — |
-| `RK_FIXTURE_MODE` | rightkit-qa-driver, @rightkit/qa | rightkit-qa-driver, @rightkit/qa | — | — |
 | `RK_HARNESS_OUT` | @rightkit/react-shell, @rightkit/settings-ui | @rightkit/react-shell, @rightkit/settings-ui | — | — |
-| `RK_OWNERSHIP_INCOMPLETE_COVERAGE` | rightkit-ownership, @rightkit/release | — | — | — |
-| `RK_OWNERSHIP_INPUTS_CHANGED` | rightkit-ownership | — | @rightkit/release | — |
-| `RK_OWNERSHIP_INVALID_INPUTS` | rightkit-ownership | — | @rightkit/release | — |
-| `RK_OWNERSHIP_INVALID_REGISTRATION` | rightkit-ownership, @rightkit/release | — | — | — |
-| `RK_OWNERSHIP_MALFORMED_REPORT` | rightkit-ownership, @rightkit/release | — | — | — |
-| `RK_OWNERSHIP_POLICY_DOWNGRADE` | rightkit-ownership, @rightkit/release | — | — | — |
-| `RK_OWNERSHIP_REPORT_FAILED` | rightkit-ownership, @rightkit/release | — | — | — |
-| `RK_OWNERSHIP_UNVERIFIED` | rightkit-ownership, @rightkit/release | — | — | — |
-| `RK_OWNERSHIP_VIOLATION` | rightkit-ownership, @rightkit/release | — | — | — |
-| `RK_TRUST_CHECK_TARGET` | rightkit-ownership, @rightkit/release | @rightkit/release | — | — |
-| `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` | rightkit-tauri-shell | — | @rightkit/release | — |
+| `RK_TRUST_CHECK_TARGET` | rightkit-ownership, @rightkit/release | rightkit-ownership, @rightkit/release | — | — |
 | `WEBVIEW2_USER_DATA_FOLDER` | rightkit-qa, rightkit-tauri-shell, @rightkit/qa | @rightkit/qa | — | — |
 | `XDG_CACHE_HOME` | rightkit-fs, rightkit-qa, @rightkit/qa, @rightkit/release | rightkit-tauri-shell | — | — |
 | `XDG_CONFIG_HOME` | rightkit-fs, rightkit-qa, rightkit-tauri-shell, @rightkit/build-control-policy, @rightkit/qa, @rightkit/release | rightkit-tauri-shell, @rightkit/build-control-policy, @rightkit/release | rightkit-child-process | — |
@@ -132,7 +121,7 @@ One typed tool interface for agents over rightkit-automation, rightkit-browser a
 - **Features:** `default`, `automation`, `browser`, `speech`, `demo`
 - **Public modules:** `applicability`, `backends`, `exposure`
 - **Binaries:** `right-ctl`
-- **Reads env:** `RIGHT_CTL_DESKTOP_ALLOW`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `RIGHT_CTL_DESKTOP_ALLOW`
 - **Size:** 4,547 lines in 20 files, 59 tests
 
 #### `rightkit-agents` 0.2.0
@@ -144,7 +133,7 @@ Supervised vendor agent sessions for Right Suite apps: shared agent event model,
 - **Apps:** coderight `=0.2.0`, legion `=0.1.0` (behind)
 - **Features:** `default`, `claude`, `codex`, `session`
 - **Public modules:** `claude`, `codex`, `discovery`, `event`, `rate_limit`, `session`
-- **Reads env:** `RIGHTKIT_DISABLE_VENDOR_CLIS`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `CARGO_PKG_VERSION`, `RIGHTKIT_DISABLE_VENDOR_CLIS`
 - **Size:** 4,742 lines in 13 files, 67 tests
 
 #### `rightkit-align` 0.1.0 (not published)
@@ -154,6 +143,7 @@ Product-neutral script-to-ASR word alignment: pronunciation normalisation, edit-
 - **Depends on:** `rightkit-transcript`
 - **Used by:** no RightKit unit
 - **Public modules:** `contract`, `normalise`, `script`, `timing`
+- **Reads env:** `CARGO_MANIFEST_DIR`
 - **Size:** 2,418 lines in 8 files, 51 tests
 
 #### `rightkit-android` 0.3.0
@@ -165,6 +155,7 @@ Android bridge for Right Suite apps: the UniFFI surface and JNI context capture 
 - **Features:** `bindgen`, `platform-verifier`
 - **Public modules:** `abi`, `context`, `crash`, `error`, `jni_entry`, `keystore`, `logcat`, `paths`, `toolchain`
 - **Binaries:** `uniffi-bindgen`
+- **Reads env:** `CARGO_PKG_VERSION`
 - **Size:** 1,580 lines in 11 files, 38 tests
 
 #### `rightkit-app-settings` 0.3.0
@@ -188,7 +179,7 @@ Parakeet ONNX + Whisper (CoreML / whisper.cpp) speech decoding runtime for Right
 - **Apps:** cutright `=0.3.0` (behind), heardright `=0.3.0` (behind), scraperight `=0.3.0` (behind)
 - **Features:** `default`, `cpu`, `whisper-tokenizers`, `ort-defaults`, `ort-tracing`, `ort-download`, `cuda`, `tensorrt`, `coreml`, `directml`, `migraphx`, `openvino`, `webgpu`, `nnapi`, `xnnpack`, `sortformer`, `multitalker`, `cohere`, `load-dynamic`, `preload-dylibs`
 - **Public modules:** `chunked`, `cohere`, `conditioning`, `longform`, `multitalker`, `parakeet_core`, `parakeet_coreml`, `platform`, `routing`, `sortformer`, `whisper`
-- **Reads env:** `RIGHTKIT_ASR_CERTIFY`, `RIGHTKIT_ASR_CERTIFY_REPORT`, `RIGHTKIT_ORT_TEST_DYLIB`, `RIGHTKIT_PARAKEET_COREML_DIR`, `RIGHTKIT_REQUIRE_ASSETS`, `RIGHTKIT_WHISPER_LIB`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `RIGHTKIT_ASR_CERTIFY`, `RIGHTKIT_ASR_CERTIFY_REPORT`, `RIGHTKIT_ORT_TEST_DYLIB`, `RIGHTKIT_PARAKEET_COREML_DIR`, `RIGHTKIT_REQUIRE_ASSETS`, `RIGHTKIT_WHISPER_LIB`
 - **Sets env:** `ORT_DYLIB_PATH`, `RIGHTKIT_PARAKEET_COREML_DIR`, `RIGHTKIT_PARAKEET_COREML_PKG_DIR`, `RIGHTKIT_VAD_MODEL`, `RIGHTKIT_WHISPER_COREML_DIR`, `RIGHTKIT_WHISPER_GGML`, `RIGHTKIT_WHISPER_LIB`, `RK_ORT_TEST_DYLIB`, `RK_PARAKEET_ONNX_DIR`
 - **Size:** 19,473 lines in 68 files, 193 tests
 
@@ -224,7 +215,7 @@ Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sess
 
 - **Depends on:** `rightkit-child-process`, `rightkit-fs`, `rightkit-models`, `rightkit-sandbox`; tests also use `rightkit-fs`
 - **Used by:** `rightkit-agent-tools`, `rightkit-qa`
-- **Apps:** coderight `=0.3.6,workspace`, genright `=0.3.6` (behind), legion `=0.3.1` (behind), pulse `=0.3.6` (behind), scraperight `=0.3.6` (behind)
+- **Apps:** coderight `=0.3.6,workspace` (behind), genright `=0.3.6` (behind), legion `=0.3.1` (behind), pulse `=0.3.6` (behind), scraperight `=0.3.6` (behind)
 - **Features:** `default`, `install`, `cookie-export`
 - **Public modules:** `cookie_export`, `cookies`, `design_mode`, `install`
 - **Reads env:** `GITHUB_ACTIONS`, `RIGHTKIT_CHROME_FOR_TESTING`, `RIGHTKIT_CHROME_HEADLESS_SHELL`, `RIGHTKIT_REQUIRE_ASSETS`, `RK_SIGKILL_HOST`
@@ -240,6 +231,7 @@ Disk cache primitive with a hard size cap, LRU eviction that survives restarts, 
 - **Used by:** no RightKit unit
 - **Apps:** coderight `=0.2.3,workspace`, cutright `=0.2.3`, ember `=0.2.2` (behind), legion `=0.2.0` (behind), mailright `=0.2.3`, postright `=0.2.3`
 - **Public modules:** `disk`, `key`, `prefix`, `reservation`, `set`
+- **Reads env:** `CARGO_PKG_VERSION`
 - **Size:** 3,643 lines in 15 files, 54 tests
 
 #### `rightkit-channel-memory` 0.2.2
@@ -249,6 +241,7 @@ Channel memory for the content pipeline: the channel-memory.v1 schema with serde
 - **Depends on:** no RightKit unit
 - **Used by:** no RightKit unit
 - **Apps:** postright `=0.2.1` (behind)
+- **Reads env:** `CARGO_MANIFEST_DIR`
 - **Size:** 4,405 lines in 20 files, 122 tests
 
 #### `rightkit-child-process` 0.5.7
@@ -257,10 +250,10 @@ Ownership-safe child lifecycle, restart, and health primitives for Right Suite a
 
 - **Depends on:** no RightKit unit
 - **Used by:** `rightkit-agents`, `rightkit-browser`, `rightkit-cache`, `rightkit-daemon`, `rightkit-ffmpeg`, `rightkit-file-watch`, `rightkit-job-queue`, `rightkit-llm`, `rightkit-logs`, `rightkit-oauth`, `rightkit-playback`, `rightkit-qa`, `rightkit-record`, `rightkit-sandbox`, `rightkit-send`, `rightkit-sync`, `rightkit-tauri-shell`, `rightkit-tts`
-- **Apps:** coderight `=0.5.6,workspace`, cutright `=0.5.6` (behind), ember `=0.5.2` (behind), genright `=0.5.6` (behind), heardright `=0.5.6` (behind), legion `=0.5.6` (behind), mailright `=0.5.6` (behind), postright `=0.5.6` (behind), pulse `=0.5.6` (behind), scraperight `=0.5.6` (behind), viewright `=0.5.6` (behind)
+- **Apps:** coderight `=0.5.6,workspace` (behind), cutright `=0.5.6` (behind), ember `=0.5.2` (behind), genright `=0.5.6` (behind), heardright `=0.5.6` (behind), legion `=0.5.6` (behind), mailright `=0.5.6` (behind), postright `=0.5.6` (behind), pulse `=0.5.6` (behind), scraperight `=0.5.6` (behind), viewright `=0.5.6` (behind)
 - **Features:** `tokio`
 - **Public modules:** `login_shell`, `reveal`, `tokio_support`, `windows_job`
-- **Reads env:** `RIGHTKIT_EXPECTED_CWD`, `RIGHTKIT_INHERITED_TERMINAL_GROUP`, `RIGHTKIT_KEPT_ENV`, `RIGHTKIT_MISSING_ENV`, `RIGHTKIT_NATIVE_CAPTURE_DIRECTORY`, `RIGHTKIT_PROBE_NO_INHERIT`, `RIGHTKIT_PROCESS_PARENT_DEATH_ROLE`, `RIGHTKIT_STDERR_LIVE_PIPE_WRITER`, `RIGHTKIT_STRIPPED_ENV`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `RIGHTKIT_EXPECTED_CWD`, `RIGHTKIT_INHERITED_TERMINAL_GROUP`, `RIGHTKIT_KEPT_ENV`, `RIGHTKIT_MISSING_ENV`, `RIGHTKIT_NATIVE_CAPTURE_DIRECTORY`, `RIGHTKIT_PROBE_NO_INHERIT`, `RIGHTKIT_PROCESS_PARENT_DEATH_ROLE`, `RIGHTKIT_STDERR_LIVE_PIPE_WRITER`, `RIGHTKIT_STRIPPED_ENV`, `RK_RUN_COMMAND_VAR`
 - **Sets env:** `RIGHTKIT_EXPECTED_CWD`, `RIGHTKIT_INHERITED_TERMINAL_GROUP`, `RIGHTKIT_KEPT_ENV`, `RIGHTKIT_MISSING_ENV`, `RIGHTKIT_NATIVE_CAPTURE_DIRECTORY`, `RIGHTKIT_PROBE_NO_INHERIT`, `RIGHTKIT_PROCESS_PARENT_DEATH_ROLE`, `RIGHTKIT_STDERR_LIVE_PIPE_WRITER`, `RIGHTKIT_STRIPPED_ENV`, `RK_M3_ENV_EXTRA`, `RK_M3_ENV_SECRET`, `RK_RUN_COMMAND_VAR`, `RK_TEST_ADDED`, `RK_TEST_HIDDEN`, `RK_TEST_KEEP`, `RK_TEST_OTHER`
 - **Spawns:** `/bin/ps`, `/bin/sh`, `/bin/sleep`, `/usr/bin/env`, `/usr/bin/touch`, `C:\\Program Files\\daemon.exe`, `cat`, `cmd`, `cmd.exe`, `ping`, `ping.exe`, `powershell`, `powershell.exe`, `program`, `ps`, `rightkit-no-such-program-for-strict-detach`, `script.cmd`, `sh`, `sleep`, `sort`
 - **Sockets/pipes:** `\\\\.\\pipe\\rightkit-capture-disconnected-{}`, `\\\\.\\pipe\\rightkit-process-{}-{}`
@@ -274,6 +267,7 @@ Product-neutral evaluated composition model: layered video, stills, cursor sprit
 - **Used by:** no RightKit unit
 - **Apps:** cutright `=0.2.0`
 - **Public modules:** `error`, `eval`, `model`, `opacity`, `retime`, `ticks`, `track`, `validate`
+- **Reads env:** `CARGO_MANIFEST_DIR`
 - **Size:** 5,646 lines in 18 files, 95 tests
 
 #### `rightkit-contracts` 0.1.8
@@ -286,6 +280,7 @@ Versioned content-pipeline contracts for the Right Suite: content brief, deliver
 - **Features:** `default`, `schema`
 - **Public modules:** `fixtures`, `review`, `types`
 - **Binaries:** `rightkit-contracts`
+- **Reads env:** `CARGO_MANIFEST_DIR`
 - **Size:** 3,948 lines in 19 files, 42 tests
 
 #### `rightkit-crash` 0.3.6
@@ -313,7 +308,7 @@ Per-app OS credential storage for Right Suite apps: Keychain / Credential Manage
 - **Features:** `settings-probe`, `isolated-test-keychain`, `os-auth`, `db-adapter`
 - **Public modules:** `android`, `apple_helper`, `db_adapter`, `handoff`, `macos`, `os_auth`
 - **Binaries:** `rightkit-credentials`
-- **Reads env:** `DBUS_SESSION_BUS_ADDRESS`, `RIGHTKIT_CREDENTIALS_CHILD_KEYCHAIN`, `RIGHTKIT_CREDENTIALS_CHILD_PASSWORD`, `RIGHTKIT_CREDENTIALS_LOCK_CHILD`, `RIGHTKIT_CREDENTIALS_LOCK_DIR`, `RIGHTKIT_CREDENTIALS_LOCK_NAMESPACE`, `RIGHTKIT_EXEC_TEST_SECRET`, `RIGHTKIT_TEST_SIGNED_HELPER`, `RIGHTKIT_TEST_SIGNED_TEAM`, `RK_ROTATION_PROCESS_ROLE`, `RK_ROTATION_PROCESS_ROOT`, `XDG_RUNTIME_DIR`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `DBUS_SESSION_BUS_ADDRESS`, `RIGHTKIT_CREDENTIALS_CHILD_KEYCHAIN`, `RIGHTKIT_CREDENTIALS_CHILD_PASSWORD`, `RIGHTKIT_CREDENTIALS_LOCK_CHILD`, `RIGHTKIT_CREDENTIALS_LOCK_DIR`, `RIGHTKIT_CREDENTIALS_LOCK_NAMESPACE`, `RIGHTKIT_EXEC_TEST_SECRET`, `RIGHTKIT_TEST_SIGNED_HELPER`, `RIGHTKIT_TEST_SIGNED_TEAM`, `RK_ROTATION_PROCESS_ROLE`, `RK_ROTATION_PROCESS_ROOT`, `XDG_RUNTIME_DIR`
 - **Sets env:** `GITHUB_ACTIONS`, `GROQ_API_KEY`, `RIGHTKIT_CREDENTIALS_CHILD_KEYCHAIN`, `RIGHTKIT_CREDENTIALS_CHILD_PASSWORD`, `RIGHTKIT_CREDENTIALS_LOCK_CHILD`, `RIGHTKIT_CREDENTIALS_LOCK_DIR`, `RIGHTKIT_CREDENTIALS_LOCK_NAMESPACE`, `RIGHTKIT_TEST_REAL_USER_STORES`, `RK_ROTATION_PROCESS_ROLE`, `RK_ROTATION_PROCESS_ROOT`
 - **Spawns:** `kill`, `sidecar`
 - **Size:** 16,102 lines in 33 files, 238 tests
@@ -334,10 +329,10 @@ One discovery/auth convention for Right Suite local services: service.json, rank
 
 - **Depends on:** `rightkit-child-process`, `rightkit-contracts`, `rightkit-fs`, `rightkit-oauth`, `rightkit-sidecar`; tests also use `rightkit-contracts`, `rightkit-http`
 - **Used by:** `rightkit-agent-tools`, `rightkit-automation`, `rightkit-job-queue`, `rightkit-models`, `rightkit-qa`, `rightkit-speech-client`, `rightkit-tauri-shell`
-- **Apps:** coderight `=0.4.0,workspace`, cutright `=0.4.0` (behind), genright `=0.4.0` (behind), heardright `=0.5.0`, mailright `=0.4.0` (behind), postright `=0.4.0` (behind), pulse `=0.4.0` (behind), scraperight `=0.4.0` (behind), viewright `=0.4.0` (behind)
+- **Apps:** coderight `=0.4.0,workspace` (behind), cutright `=0.4.0` (behind), genright `=0.4.0` (behind), heardright `=0.5.0`, mailright `=0.4.0` (behind), postright `=0.4.0` (behind), pulse `=0.4.0` (behind), scraperight `=0.4.0` (behind), viewright `=0.4.0` (behind)
 - **Features:** `default`, `local`, `link`, `relay`, `remote`, `remote-loopback`, `testing`, `test-mode`
 - **Public modules:** `approval`, `chunk`, `contract`, `lifecycle`, `link`, `loopback`, `mode`, `private`, `relay`, `remote`, `stop`, `supervisor`, `ticker`
-- **Reads env:** `RIGHTKIT_DAEMON_BUDGET_TLS_CERT`, `RIGHTKIT_DAEMON_BUDGET_TLS_KEY`, `RIGHTKIT_DAEMON_DB_PHASE_CHILD_ROOT`, `RIGHTKIT_DAEMON_DB_PHASE_CHILD_STOP`, `RIGHTKIT_QA_DATA_DIR`, `RIGHTKIT_RUNTIME_SCRATCH_ROOT`, `RIGHTKIT_UNDER_TEST`, `RK_CHILD_EXPECT_ROOT`, `RK_CHILD_PROFILE`, `RK_CHILD_QA`, `RK_SERVICE_FOREIGN_SOCKET`, `RK_SUPERVISOR_HELPER`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `CARGO_PKG_VERSION`, `RIGHTKIT_DAEMON_BUDGET_TLS_CERT`, `RIGHTKIT_DAEMON_BUDGET_TLS_KEY`, `RIGHTKIT_DAEMON_DB_PHASE_CHILD_ROOT`, `RIGHTKIT_DAEMON_DB_PHASE_CHILD_STOP`, `RIGHTKIT_QA_DATA_DIR`, `RIGHTKIT_RUNTIME_SCRATCH_ROOT`, `RIGHTKIT_UNDER_TEST`, `RK_CHILD_EXPECT_ROOT`, `RK_CHILD_PROFILE`, `RK_CHILD_QA`, `RK_SERVICE_FOREIGN_SOCKET`, `RK_SUPERVISOR_HELPER`
 - **Sets env:** `AUTH_REJECTED`, `DEVICE_FORGOTTEN`, `DEVICE_REVOKED`, `JOB_UPDATED`, `LINK_DOWN`, `LINK_FRAME_REJECTED`, `LINK_UP`, `OAUTH_COMPLETED`, `OPERATOR_PING`, `ORTHIC_SHARED_DIR`, `PAIRING_CLOSED`, `PAIRING_CONFIRMED`, `PAIRING_FAILED`, `PAIRING_OPENED`, `PAIRING_READY`, `PAIRING_STARTED`, `RIGHTKIT_DAEMON_DB_PHASE_CHILD_ROOT`, `RIGHTKIT_DAEMON_DB_PHASE_CHILD_STOP`, `RIGHTKIT_QA_DATA_DIR`, `RIGHTKIT_SUITE_ROOT`, `RIGHTKIT_UNDER_TEST`, `RIGHT_SUITE_DIR`, `RK_CHILD_EXPECT_ROOT`, `RK_CHILD_PROFILE`, `RK_CHILD_QA`, `RK_SUPERVISOR_HELPER`, `STORAGE_ERROR`, `TASK_FAILED`, `TASK_LEASED`, `TASK_LEASE_LOST` …
 - **Spawns:** `cmd`, `date`, `icacls`, `mkfifo`, `ps`, `reg`, `sh`
 - **Sockets/pipes:** `h.sock`, `rk-0badc0de-3a43f919c4e992b6.sock`, `rk-0badc0de-c1d6288e168cb0d7.sock`, `rk-{tag}-{:016x}.sock`, `rk-{tag}-{service}.sock`, `t.sock`, `{service}.sock`
@@ -349,7 +344,7 @@ Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite app
 
 - **Depends on:** `rightkit-fs`
 - **Used by:** `rightkit-app-settings`, `rightkit-credentials`, `rightkit-embed`, `rightkit-job-queue`, `rightkit-spend`
-- **Apps:** coderight `=0.5.2,workspace`, genright `=0.5.2` (behind), heardright `=0.5.2` (behind), mailright `=0.5.2` (behind), postright `=0.5.2` (behind), pulse `=0.5.2` (behind), scraperight `=0.5.2` (behind), viewright `=0.5.2` (behind)
+- **Apps:** coderight `=0.5.2,workspace` (behind), genright `=0.5.2` (behind), heardright `=0.5.2` (behind), mailright `=0.5.2` (behind), postright `=0.5.2` (behind), pulse `=0.5.2` (behind), scraperight `=0.5.2` (behind), viewright `=0.5.2` (behind)
 - **Features:** `default`, `bundled`, `statement-cache`, `sqlcipher`, `sqlcipher-system`, `cipher`, `encrypted-lifecycle`, `hooks`
 - **Public modules:** `encrypted_lifecycle`
 - **Reads env:** `RIGHTKIT_DB_RELOCATION_CHILD_PHASE`, `RKDB_PATH`
@@ -383,9 +378,9 @@ Product-neutral local text embeddings and persistent cosine vector store.
 
 - **Depends on:** `rightkit-db`, `rightkit-fs`, `rightkit-onnx`
 - **Used by:** no RightKit unit
-- **Apps:** coderight `=0.6.1,workspace`, mailright `=0.6.1` (behind), pulse `=0.6.1` (behind)
+- **Apps:** coderight `=0.6.1,workspace` (behind), mailright `=0.6.1` (behind), pulse `=0.6.1` (behind)
 - **Features:** `default`, `inference`, `vector`, `bench-internals`
-- **Reads env:** `RIGHTKIT_EMBED_MODEL_DIR`, `RK_ORT_TEST_DYLIB`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `RIGHTKIT_EMBED_MODEL_DIR`, `RK_ORT_TEST_DYLIB`
 - **Size:** 7,766 lines in 20 files, 100 tests
 
 #### `rightkit-ffmpeg` 0.2.11
@@ -397,7 +392,7 @@ Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipeline
 - **Apps:** coderight `=0.2.10` (behind), cutright `=0.2.10` (behind), ember `=0.2.9` (behind), genright `=0.2.10` (behind), heardright `=0.2.10` (behind), pulse `=0.2.10` (behind), scraperight `=0.2.10` (behind)
 - **Features:** `default`, `native`, `dev-overrides`
 - **Public modules:** `bundled`, `command`, `content_digest`, `decode`, `dev_resolve`, `encoders`, `handle`, `loudnorm`, `native`, `probe`, `quickprobe`, `runner`, `staging`, `unverified`, `verify_cache`
-- **Reads env:** `RIGHTKIT_FFMPEG`, `RIGHTKIT_REQUIRE_ASSETS`, `RIGHTKIT_WORKSPACE_ROOT`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `RIGHTKIT_FFMPEG`, `RIGHTKIT_REQUIRE_ASSETS`, `RIGHTKIT_WORKSPACE_ROOT`
 - **Sets env:** `APP_FFMPEG`, `APP_FFPROBE`
 - **Spawns:** `/usr/bin/codesign`, `ffmpeg`, `pgrep`, `powershell.exe`, `ps`
 - **Size:** 17,345 lines in 30 files, 230 tests
@@ -408,9 +403,10 @@ Filesystem watching for Right Suite apps: ref-counted async subscribers, debounc
 
 - **Depends on:** `rightkit-child-process`
 - **Used by:** no RightKit unit
-- **Apps:** coderight `=0.4.1,workspace`, ember `=0.4.1` (behind), pulse `=0.4.1` (behind), viewright `=0.4.1` (behind)
+- **Apps:** coderight `=0.4.1,workspace` (behind), ember `=0.4.1` (behind), pulse `=0.4.1` (behind), viewright `=0.4.1` (behind)
 - **Features:** `default`, `async`
 - **Public modules:** `coalesce`, `native`, `options`, `session`, `subscribe`, `sync`, `typed`
+- **Reads env:** `CARGO_PKG_VERSION`
 - **Size:** 9,591 lines in 21 files, 113 tests
 
 #### `rightkit-fs` 0.4.8
@@ -419,7 +415,7 @@ Safe state directories, atomic writes, cross-process locks, owner-only files, an
 
 - **Depends on:** no RightKit unit
 - **Used by:** `rightkit-app-settings`, `rightkit-browser`, `rightkit-cache`, `rightkit-crash`, `rightkit-daemon`, `rightkit-db`, `rightkit-docs`, `rightkit-embed`, `rightkit-ffmpeg`, `rightkit-http`, `rightkit-identity`, `rightkit-job-queue`, `rightkit-logs`, `rightkit-mcp`, `rightkit-models`, `rightkit-pdf`, `rightkit-playback`, `rightkit-qa`, `rightkit-sync`, `rightkit-tts`
-- **Apps:** coderight `=0.4.7,workspace`, cutright `=0.4.7` (behind), ember `=0.4.4` (behind), genright `=0.4.7` (behind), heardright `=0.4.8`, legion `=0.4.3` (behind), mailright `=0.4.7` (behind), postright `=0.4.7` (behind), pulse `=0.4.7` (behind), scraperight `=0.4.7` (behind), viewright `=0.4.7` (behind)
+- **Apps:** coderight `=0.4.7,workspace` (behind), cutright `=0.4.7` (behind), ember `=0.4.4` (behind), genright `=0.4.7` (behind), heardright `=0.4.8`, legion `=0.4.3` (behind), mailright `=0.4.7` (behind), postright `=0.4.7` (behind), pulse `=0.4.7` (behind), scraperight `=0.4.7` (behind), viewright `=0.4.7` (behind)
 - **Features:** `default`, `fs`, `lock`, `transaction`, `json`, `digest`, `blake3`, `zip`, `testing`, `test-seams`, `app-dirs`, `test-mode`
 - **Public modules:** `acl`, `app_dirs`, `append`, `atomic`, `clone`, `contain`, `digest`, `error`, `file_key`, `handle`, `identity`, `lease`, `lock`, `migrate`, `names`, `netfs`, `plain`, `private`, `publish_dir`, `replaced`, `space`, `state`, `swap`, `test_mode`, `transaction`, `trash`, `tree`, `verified`, `write_locks`, `zip`
 - **Binaries:** `rightkit-clonefile`, `rightkit-swap`
@@ -437,7 +433,7 @@ Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware fo
 - **Apps:** pulse `=0.5.0` (behind)
 - **Features:** `default`, `content`
 - **Public modules:** `backend`
-- **Reads env:** `FSINDEX_SYNTH_ENTRIES`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `CARGO_PKG_VERSION`, `FSINDEX_SYNTH_ENTRIES`
 - **Sets env:** `FSINDEX_BENCH_DIRS`, `FSINDEX_BENCH_FILES_PER_DIR`
 - **Spawns:** `cp`, `df`
 - **Size:** 14,342 lines in 31 files, 161 tests
@@ -458,6 +454,7 @@ Typed Claude Code and Codex hook payloads, a deadline-bound exit-0 dispatcher, e
 - **Used by:** no RightKit unit
 - **Apps:** pulse `=0.2.0`
 - **Public modules:** `dispatch`, `event`, `membrane`, `output`, `receipt`
+- **Reads env:** `CARGO_MANIFEST_DIR`
 - **Size:** 2,250 lines in 7 files, 33 tests
 
 #### `rightkit-hotkeys` 0.1.2
@@ -476,9 +473,10 @@ Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff
 
 - **Depends on:** `rightkit-fs`
 - **Used by:** `rightkit-license`, `rightkit-llm`, `rightkit-mcp`, `rightkit-models`, `rightkit-oauth`, `rightkit-sync`, `rightkit-vault`
-- **Apps:** coderight `=0.3.8,workspace`, ember `=0.3.6` (behind), genright `=0.3.8` (behind), heardright `=0.3.8` (behind), mailright `=0.3.8` (behind), postright `=0.3.8` (behind), pulse `=0.3.8` (behind), scraperight `=0.3.8` (behind)
+- **Apps:** coderight `=0.3.8,workspace` (behind), ember `=0.3.6` (behind), genright `=0.3.8` (behind), heardright `=0.3.8` (behind), mailright `=0.3.8` (behind), postright `=0.3.8` (behind), pulse `=0.3.8` (behind), scraperight `=0.3.8` (behind)
 - **Features:** `default`, `untrusted`, `gzip`, `async`, `testing`
 - **Public modules:** `async_client`, `cancel`, `client`, `error`, `multipart`, `netpolicy`, `quota`, `retry`, `secret`, `sse`, `testing`, `untrusted`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `CARGO_PKG_VERSION`
 - **Sets env:** `ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`
 - **Size:** 19,087 lines in 48 files, 351 tests
 
@@ -489,7 +487,8 @@ Installation identity with clone detection and startup claim, device pairing wit
 - **Depends on:** `rightkit-fs`
 - **Used by:** no RightKit unit
 - **Public modules:** `bearer`, `build_info`, `installation`, `pairing`
-- **Reads env:** `RIGHTKIT_BUILD_PROFILE`, `RIGHTKIT_BUILD_UTC`, `RIGHTKIT_CHANNEL`, `RIGHTKIT_GIT_DIRTY`, `RIGHTKIT_GIT_REV`
+- **Reads env:** `CARGO_PKG_VERSION`, `RIGHTKIT_BUILD_PROFILE`, `RIGHTKIT_BUILD_UTC`, `RIGHTKIT_CHANNEL`, `RIGHTKIT_GIT_DIRTY`, `RIGHTKIT_GIT_REV`
+- **Sets env:** `RIGHTKIT_BUILD_PROFILE`, `RIGHTKIT_BUILD_UTC`, `RIGHTKIT_CHANNEL`, `RIGHTKIT_GIT_DIRTY`, `RIGHTKIT_GIT_REV`
 - **Spawns:** `git`
 - **Size:** 1,592 lines in 6 files, 20 tests
 
@@ -502,7 +501,7 @@ Persistent job store, runner, and stdio/CLI command contract for Right Suite eng
 - **Apps:** coderight `=0.5.1,workspace`, cutright `=0.5.1`, genright `=0.5.1`, heardright `=0.5.1`, mailright `=0.5.1`, postright `=0.5.1`, pulse `=0.5.1`, scraperight `=0.5.1`
 - **Features:** `default`, `store`, `protocol`, `contract`, `supervisor`, `doctor`, `service`, `crash`, `ffi`
 - **Public modules:** `db`, `ffi`, `pool`
-- **Reads env:** `FX_DIR`, `FX_LAUNCH`, `FX_LOG_METHODS`, `FX_PLAN`, `FX_RECORD_STDIN`, `FX_TRACE`, `RIGHTKIT_JOBS_TEST_CRASH_DIR`, `RIGHTKIT_JOBS_TEST_CRASH_ID`, `RIGHTKIT_JOBS_TEST_FIFO_DIR`, `RIGHTKIT_JOBS_TEST_FIFO_HOLD_MS`, `RIGHTKIT_JOBS_TEST_FIFO_INDEX`, `RIGHTKIT_JOBS_TEST_FIFO_OUT`, `RIGHTKIT_RUNTIME_SCRATCH_ROOT`, `RK_BUDGET_ENGINE`
+- **Reads env:** `CARGO_PKG_VERSION`, `FX_DIR`, `FX_LAUNCH`, `FX_LOG_METHODS`, `FX_PLAN`, `FX_RECORD_STDIN`, `FX_TRACE`, `RIGHTKIT_JOBS_TEST_CRASH_DIR`, `RIGHTKIT_JOBS_TEST_CRASH_ID`, `RIGHTKIT_JOBS_TEST_FIFO_DIR`, `RIGHTKIT_JOBS_TEST_FIFO_HOLD_MS`, `RIGHTKIT_JOBS_TEST_FIFO_INDEX`, `RIGHTKIT_JOBS_TEST_FIFO_OUT`, `RIGHTKIT_RUNTIME_SCRATCH_ROOT`, `RK_BUDGET_ENGINE`
 - **Sets env:** `FX_DIR`, `FX_LAUNCH`, `FX_LOG_METHODS`, `FX_PLAN`, `FX_RECORD_STDIN`, `FX_TRACE`, `RIGHTKIT_JOBS_TEST_CRASH_DIR`, `RIGHTKIT_JOBS_TEST_CRASH_ID`, `RIGHTKIT_JOBS_TEST_FIFO_DIR`, `RIGHTKIT_JOBS_TEST_FIFO_INDEX`, `RIGHTKIT_JOBS_TEST_FIFO_OUT`, `RK_BUDGET_ENGINE`, `RK_M3_JOBS_KEEP`, `RK_M3_JOBS_SECRET`
 - **Spawns:** `kill`, `ps`, `sh`
 - **Size:** 35,012 lines in 77 files, 408 tests
@@ -513,10 +512,10 @@ Right Suite license enforcement primitive — offline verification of server-sig
 
 - **Depends on:** `rightkit-credentials`, `rightkit-http`; tests also use `rightkit-http`
 - **Used by:** `rightkit-device`, `rightkit-tauri-shell`
-- **Apps:** coderight `=0.2.5,workspace`, cutright `=0.2.5` (behind), genright `=0.2.5` (behind), heardright `=0.2.6`, mailright `=0.2.5` (behind), postright `=0.2.5` (behind), pulse `=0.2.5` (behind), scraperight `=0.2.5` (behind), viewright `=0.2.5` (behind)
+- **Apps:** coderight `=0.2.5,workspace` (behind), cutright `=0.2.5` (behind), genright `=0.2.5` (behind), heardright `=0.2.6`, mailright `=0.2.5` (behind), postright `=0.2.5` (behind), pulse `=0.2.5` (behind), scraperight `=0.2.5` (behind), viewright `=0.2.5` (behind)
 - **Features:** `default`, `subject-entitlement`, `engine-gate`, `client`, `engine-snapshot`, `update-auth`, `client-testing`
 - **Public modules:** `suite_api`
-- **Reads env:** `RK_LICENSE_TEST_CHILD_DIR`, `RK_LICENSE_TEST_CHILD_ROLE`
+- **Reads env:** `CARGO_PKG_VERSION`, `RK_LICENSE_TEST_CHILD_DIR`, `RK_LICENSE_TEST_CHILD_ROLE`
 - **Sets env:** `HEARDRIGHT_ENGINE_TEST_MODE`, `RIGHTKIT_FORCE_PRO`, `RK_LICENSE_TEST_CHILD_DIR`, `RK_LICENSE_TEST_CHILD_ROLE`
 - **Size:** 27,754 lines in 59 files, 442 tests
 
@@ -540,10 +539,10 @@ Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps.
 
 - **Depends on:** `rightkit-child-process`, `rightkit-fs`
 - **Used by:** `rightkit-crash`, `rightkit-tauri-shell`
-- **Apps:** coderight `=0.3.5,workspace`, cutright `=0.3.5` (behind), ember `=0.3.3` (behind), genright `=0.3.5` (behind), heardright `=0.3.5` (behind), mailright `=0.3.5` (behind), postright `=0.3.5` (behind), pulse `=0.3.5` (behind), scraperight `=0.3.5` (behind), swiftright `=0.3.0` (behind), viewright `=0.3.5` (behind)
+- **Apps:** coderight `=0.3.5,workspace` (behind), cutright `=0.3.5` (behind), ember `=0.3.3` (behind), genright `=0.3.5` (behind), heardright `=0.3.5` (behind), mailright `=0.3.5` (behind), postright `=0.3.5` (behind), pulse `=0.3.5` (behind), scraperight `=0.3.5` (behind), swiftright `=0.3.0` (behind), viewright `=0.3.5` (behind)
 - **Features:** `default`, `http`, `testing`, `tracing`, `log-bridge`
 - **Public modules:** `android`, `identity`, `scrub`, `system`, `testing`
-- **Reads env:** `RIGHTKIT_LOGS_INHERITED_STDERR_CHILD`, `RK_LOGS_CONFIG_CHILD_REVOKE_PATH`, `RK_PURGE_LOCK_CHILD`, `RUST_LOG`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `CARGO_PKG_VERSION`, `RIGHTKIT_LOGS_INHERITED_STDERR_CHILD`, `RK_LOGS_CONFIG_CHILD_REVOKE_PATH`, `RK_PURGE_LOCK_CHILD`, `RUST_LOG`
 - **Sets env:** `RIGHTKIT_LOGS_INHERITED_STDERR_CHILD`, `RK_LOGS_CONFIG_CHILD_REVOKE_PATH`, `RK_PURGE_LOCK_CHILD`
 - **Spawns:** `cmd`
 - **Size:** 11,199 lines in 42 files, 207 tests
@@ -554,10 +553,10 @@ Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and se
 
 - **Depends on:** `rightkit-fs`, `rightkit-http`
 - **Used by:** no RightKit unit
-- **Apps:** coderight `=0.7.0,workspace`, pulse `=0.7.0` (behind)
+- **Apps:** coderight `=0.7.0,workspace` (behind), pulse `=0.7.0` (behind)
 - **Features:** `default`, `advanced-http`, `exact-json-ids`, `testing`
 - **Public modules:** `auth`, `client`, `client_features`, `config`, `events`, `leased_pool`, `pool`, `server`, `trust`
-- **Reads env:** `EXAMPLE_ALLOW_MUTATE`, `EXAMPLE_TOKEN`, `RK_MCP_INIT_DELAY`, `RK_MCP_INIT_MARKER`, `RK_MCP_LARGE_PREFIX`, `RK_MCP_STALL_INIT`, `RK_MCP_STDIO_FIXTURE`
+- **Reads env:** `CARGO_PKG_VERSION`, `EXAMPLE_ALLOW_MUTATE`, `EXAMPLE_TOKEN`, `RK_MCP_INIT_DELAY`, `RK_MCP_INIT_MARKER`, `RK_MCP_LARGE_PREFIX`, `RK_MCP_STALL_INIT`, `RK_MCP_STDIO_FIXTURE`
 - **Sets env:** `EXAMPLE_ALLOW_MUTATE`, `EXAMPLE_TOKEN`, `NODE_OPTIONS`, `RK_EXACT_ENV`, `RK_MCP_STDIO_FIXTURE`
 - **Sockets/pipes:** `/tmp/broker.sock`
 - **Size:** 12,736 lines in 28 files, 165 tests
@@ -568,10 +567,10 @@ Shared local-model manifest and installer for Right Suite apps: revisions and qu
 
 - **Depends on:** `rightkit-daemon`, `rightkit-fs`, `rightkit-http`; tests also use `rightkit-http`
 - **Used by:** `rightkit-browser`, `rightkit-onnx`, `rightkit-tauri-shell`
-- **Apps:** coderight `=0.5.1,workspace`, cutright `=0.5.1` (behind), ember `=0.3.2` (behind), genright `=0.5.1` (behind), heardright `=0.5.2`, mailright `=0.5.1` (behind), scraperight `=0.5.1` (behind)
+- **Apps:** coderight `=0.5.1,workspace` (behind), cutright `=0.5.1` (behind), ember `=0.3.2` (behind), genright `=0.5.1` (behind), heardright `=0.5.2`, mailright `=0.5.1` (behind), scraperight `=0.5.1` (behind)
 - **Features:** `default`, `rightapps`, `dev-worker-override`, `test-mode`
 - **Public modules:** `android`, `archive`, `disk`, `download`, `error`, `hardware`, `hash`, `http`, `ids`, `install`, `lock`, `platform`, `probe`, `rightapps`, `spec`, `store`, `suite`
-- **Reads env:** `RIGHTKIT_HW_JSON`
+- **Reads env:** `CARGO_PKG_VERSION`, `CARGO_TARGET_TMPDIR`, `RIGHTKIT_HW_JSON`
 - **Sets env:** `HTTP_PROXY`, `ORTHIC_SHARED_DIR`, `RIGHT_SUITE_DIR`
 - **Spawns:** `cmd`, `df`, `nvidia-smi`, `reg`, `system_profiler`
 - **Size:** 26,710 lines in 62 files, 280 tests
@@ -611,7 +610,7 @@ Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-l
 - **Features:** `default`, `native`, `onnx`
 - **Public modules:** `worker`
 - **Binaries:** `rightkit-ocr`
-- **Reads env:** `RIGHTKIT_OCR_MODEL_DIR`, `RIGHTKIT_OCR_ORT_RUNTIME`, `RIGHTKIT_REQUIRE_ASSETS`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `RIGHTKIT_OCR_MODEL_DIR`, `RIGHTKIT_OCR_ORT_RUNTIME`, `RIGHTKIT_REQUIRE_ASSETS`
 - **Sets env:** `RIGHTKIT_OCR_MODEL_DIR`, `RIGHTKIT_OCR_ORT_RUNTIME`
 - **Spawns:** `/bin/sh`, `/bin/sleep`, `/nonexistent/rightkit-ocr-no-such-worker`
 - **Size:** 4,320 lines in 21 files, 48 tests
@@ -622,11 +621,11 @@ Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-
 
 - **Depends on:** `rightkit-ffmpeg`, `rightkit-models`; tests also use `rightkit-ffmpeg`
 - **Used by:** `rightkit-asr`, `rightkit-embed`, `rightkit-ocr`, `rightkit-tts`, `rightkit-tts-qwen`, `rightkit-vad`
-- **Apps:** coderight `=0.2.7,workspace`, cutright `=0.2.7` (behind), ember `=0.2.3` (behind), genright `=0.2.7` (behind), heardright `=0.2.7` (behind), mailright `=0.2.7` (behind), pulse `=0.2.7` (behind), scraperight `=0.2.7` (behind)
+- **Apps:** coderight `=0.2.7,workspace` (behind), cutright `=0.2.7` (behind), ember `=0.2.3` (behind), genright `=0.2.7` (behind), heardright `=0.2.7` (behind), mailright `=0.2.7` (behind), pulse `=0.2.7` (behind), scraperight `=0.2.7` (behind)
 - **Features:** `dev-overrides`, `catalog`, `provision`, `default`, `session`, `coreml`, `directml`, `half`, `ndarray`, `tracing`, `download-binaries`, `tls-native`, `copy-dylibs`, `preload-dylibs`, `acl`, `armnn`, `azure`, `cann`, `cuda`, `migraphx`, `nnapi`, `nvrtx`, `onednn`, `openvino`, `qnn`, `rknpu`, `tensorrt`, `tvm`, `vitis`, `webgpu`, `xnnpack`
 - **Public modules:** `bind`, `environment`, `kleidiai`, `probe`, `provision`, `runtime_bundle`, `session`
 - **Binaries:** `rightkit-onnx-provision`
-- **Reads env:** `CARGO_CFG_TARGET_ARCH`, `CARGO_CFG_TARGET_OS`, `ORT_DYLIB_PATH`, `RIGHTKIT_ORT_HELPER_TEST_OVERRIDE`, `RIGHTKIT_ORT_TEST_DLL_DIR`, `RIGHTKIT_ORT_TEST_DYLIB`, `RIGHTKIT_REQUIRE_ASSETS`, `RK_ORT_TEST_DLL_DIR`, `RK_ORT_TEST_DYLIB`
+- **Reads env:** `CARGO_CFG_TARGET_ARCH`, `CARGO_CFG_TARGET_OS`, `CARGO_MANIFEST_DIR`, `ORT_DYLIB_PATH`, `RIGHTKIT_ORT_HELPER_TEST_OVERRIDE`, `RIGHTKIT_ORT_TEST_DLL_DIR`, `RIGHTKIT_ORT_TEST_DYLIB`, `RIGHTKIT_REQUIRE_ASSETS`, `RK_ORT_TEST_DLL_DIR`, `RK_ORT_TEST_DYLIB`
 - **Sets env:** `MYAPP_ORT_DYLIB`, `ORT_DYLIB_PATH`
 - **Size:** 9,538 lines in 32 files, 152 tests
 
@@ -658,6 +657,7 @@ RightKit ownership scanner, verdict and admission: the single Rust implementatio
 - **Used by:** no RightKit unit
 - **Apps:** legion `=0.3.1` (behind)
 - **Public modules:** `admission`, `approval`, `autorelease`, `clock`, `committed`, `deps`, `error`, `evidence`, `gitio`, `inventory`, `json`, `keyauth`, `keylog`, `limits`, `lockfiles`, `paths`, `runner`, `scan`, `source`, `trust`, `types`, `verdict`, `worker`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `CARGO_PKG_VERSION`, `RK_TRUST_CHECK_TARGET`
 - **Sets env:** `GIT_AUTHOR_DATE`, `GIT_AUTHOR_EMAIL`, `GIT_AUTHOR_NAME`, `GIT_COMMITTER_DATE`, `GIT_COMMITTER_EMAIL`, `GIT_COMMITTER_NAME`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_NOSYSTEM`, `GIT_OPTIONAL_LOCKS`, `GIT_TERMINAL_PROMPT`, `RK_OWNERSHIP_INCOMPLETE_COVERAGE`, `RK_OWNERSHIP_INPUTS_CHANGED`, `RK_OWNERSHIP_INVALID_INPUTS`, `RK_OWNERSHIP_INVALID_REGISTRATION`, `RK_OWNERSHIP_MALFORMED_REPORT`, `RK_OWNERSHIP_POLICY_DOWNGRADE`, `RK_OWNERSHIP_REPORT_FAILED`, `RK_OWNERSHIP_UNVERIFIED`, `RK_OWNERSHIP_VIOLATION`, `RK_TRUST_CHECK_TARGET`
 - **Spawns:** `git`
 - **Size:** 14,943 lines in 26 files, 108 tests
@@ -671,7 +671,7 @@ Product-neutral PDF engine: inspect, compose (source-text replace / add text / O
 - **Apps:** viewright `=0.3.3` (behind)
 - **Features:** `default`, `fonts`, `edit`, `merge`, `extract`, `raster`, `redact`, `forms`, `optimize`, `host`
 - **Public modules:** `commit`, `compose`, `extract`, `font`, `forms`, `host`, `inspect`, `merge`, `model`, `optimize`, `organize`, `raster`, `redact`, `save`, `scan`, `write`
-- **Reads env:** `RIGHTKIT_PDF_CORPUS_FILE`, `RIGHTKIT_PDF_QUALITY_ALLOW_SKIP`, `RIGHTKIT_PDF_QUALITY_CORPUS`, `RIGHTKIT_PDF_QUALITY_PIN_DIR`, `RIGHTKIT_PDF_QUALITY_SOURCE`, `RK_PDFTOTEXT`, `RK_PDF_CORPUS_DIR`, `RK_PDF_EDITED_DIR`, `RK_PDF_QUALITY_RECORD`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `RIGHTKIT_PDF_CORPUS_FILE`, `RIGHTKIT_PDF_QUALITY_ALLOW_SKIP`, `RIGHTKIT_PDF_QUALITY_CORPUS`, `RIGHTKIT_PDF_QUALITY_PIN_DIR`, `RIGHTKIT_PDF_QUALITY_SOURCE`, `RK_PDFTOTEXT`, `RK_PDF_CORPUS_DIR`, `RK_PDF_EDITED_DIR`, `RK_PDF_QUALITY_RECORD`
 - **Spawns:** `/bin/chmod`, `/usr/bin/sips`
 - **Size:** 30,293 lines in 26 files, 389 tests
 
@@ -706,7 +706,7 @@ Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native 
 - **Features:** `default`, `android`, `browser`, `control`, `wv2-0_38`, `wv2-0_39`
 - **Public modules:** `a11y`, `android`, `audio`, `binary`, `browser`, `budget`, `check`, `config`, `control`, `embedded`, `engine`, `evidence`, `frametrace`, `guard`, `harness`, `http`, `in_app`, `inplace`, `installed`, `interactive`, `journeys`, `lock`, `loudness`, `media`, `mock`, `page`, `plugin`, `pool`, `process`, `retention`, `run_tests`, `scenario`, `settings`, `signing`, `steps`, `storage`, `suite`, `supervise`, `tart`, `userdata`, `util`, `worker`, `worker_main`, `workspace`
 - **Binaries:** `rightkit-qa`
-- **Reads env:** `CARGO_MANIFEST_DIR`, `CARGO_PKG_NAME`, `GENRIGHT_FFPROBE`, `RIGHTKIT_CONTROL_SERVICE`, `RIGHTKIT_CONTROL_STACK_ON_TIMEOUT`, `RIGHTKIT_CONTROL_TRACE`, `RIGHTKIT_JOURNEYS_RESULTS`, `RIGHTKIT_JOURNEYS_SELECTION`, `RIGHTKIT_MANAGED_ROOT`, `RIGHTKIT_QA_APP_BINARY`, `RIGHTKIT_QA_CONFIG`, `RIGHTKIT_QA_CONTROL_TOKEN_FILE`, `RIGHTKIT_QA_DATA_DIR`, `RIGHTKIT_QA_ENGINE`, `RIGHTKIT_QA_FFPROBE`, `RIGHTKIT_QA_HIDDEN`, `RIGHTKIT_QA_HOME_MAX_AGE_SECS`, `RIGHTKIT_QA_HOME_ROOT`, `RIGHTKIT_QA_HOME_SWEEP`, `RIGHTKIT_QA_KEEP_FAILED_HOME`, `RIGHTKIT_QA_NATIVE_FOCUS_RETURN_EXECUTABLE`, `RIGHTKIT_QA_NATIVE_FOCUS_RETURN_PID`, `RIGHTKIT_QA_NATIVE_FOCUS_TARGET_EXECUTABLE`, `RIGHTKIT_QA_NATIVE_FOCUS_TARGET_PID`, `RIGHTKIT_QA_PACE_MS`, `RIGHTKIT_QA_ROOT_CAP_BYTES`, `RIGHTKIT_QA_ROOT_CEILING_BYTES`, `RIGHTKIT_QA_SETTINGS`, `RIGHTKIT_QA_SUPERVISE_HELPER`, `RIGHTKIT_QA_SUPERVISE_MARKER_SLEEP` …
+- **Reads env:** `CARGO_MANIFEST_DIR`, `CARGO_PKG_NAME`, `CARGO_PKG_VERSION`, `CARGO_TARGET_TMPDIR`, `GENRIGHT_FFPROBE`, `RIGHTKIT_CONTROL_SERVICE`, `RIGHTKIT_CONTROL_STACK_ON_TIMEOUT`, `RIGHTKIT_CONTROL_TRACE`, `RIGHTKIT_JOURNEYS_RESULTS`, `RIGHTKIT_JOURNEYS_SELECTION`, `RIGHTKIT_MANAGED_ROOT`, `RIGHTKIT_QA_APP_BINARY`, `RIGHTKIT_QA_CONFIG`, `RIGHTKIT_QA_CONTROL_SOCKET`, `RIGHTKIT_QA_CONTROL_TOKEN_FILE`, `RIGHTKIT_QA_DATA_DIR`, `RIGHTKIT_QA_ENGINE`, `RIGHTKIT_QA_FFPROBE`, `RIGHTKIT_QA_HIDDEN`, `RIGHTKIT_QA_HOME_MAX_AGE_SECS`, `RIGHTKIT_QA_HOME_ROOT`, `RIGHTKIT_QA_HOME_SWEEP`, `RIGHTKIT_QA_KEEP_FAILED_HOME`, `RIGHTKIT_QA_NATIVE_FOCUS_RETURN_EXECUTABLE`, `RIGHTKIT_QA_NATIVE_FOCUS_RETURN_PID`, `RIGHTKIT_QA_NATIVE_FOCUS_TARGET_EXECUTABLE`, `RIGHTKIT_QA_NATIVE_FOCUS_TARGET_PID`, `RIGHTKIT_QA_PACE_MS`, `RIGHTKIT_QA_ROOT_CAP_BYTES`, `RIGHTKIT_QA_ROOT_CEILING_BYTES` …
 - **Sets env:** `CARGO_MANIFEST_DIR`, `CARGO_PKG_NAME`, `CARGO_TARGET_DIR`, `FX_DATA`, `GIT_TERMINAL_PROMPT`, `MYAPP_API_KEY`, `MYAPP_MODE`, `MYAPP_MODE_X`, `MYAPP_OTHER`, `MYAPP_PROFILE`, `MYAPP_TOKEN`, `POSTRIGHT_DATA`, `RIGHTKIT_APP_MODE`, `RIGHTKIT_APP_TOKEN`, `RIGHTKIT_CONTROL_SERVICE`, `RIGHTKIT_DATA_DIR`, `RIGHTKIT_MANAGED_ROOT`, `RIGHTKIT_POSTRIGHT_DATA_SOURCE`, `RIGHTKIT_POSTRIGHT_SEED`, `RIGHTKIT_QA_BACKGROUND`, `RIGHTKIT_QA_CAPTURE_DIR`, `RIGHTKIT_QA_CONTROL_SOCKET`, `RIGHTKIT_QA_CONTROL_TOKEN_FILE`, `RIGHTKIT_QA_DATA_DIR`, `RIGHTKIT_QA_EVIDENCE_DIR`, `RIGHTKIT_QA_FFPROBE`, `RIGHTKIT_QA_FOCUS`, `RIGHTKIT_QA_HIDDEN`, `RIGHTKIT_QA_INTERACTIVE`, `RIGHTKIT_QA_INTERACTIVE_CHILD` …
 - **Spawns:** `/usr/bin/ditto`, `/usr/bin/osascript`, `app`, `cmd`, `cmd.exe`, `git`, `icacls`, `kill`, `open`, `osascript`, `pgrep`, `ping`, `plutil`, `ps`, `rightkit-qa-no-such-helper-binary`, `sh`, `shasum`, `sleep`, `taskkill.exe`, `true`
 - **Sockets/pipes:** `control.sock`, `rk-12345678-control-12345678.sock`, `{dir}/control.sock`
@@ -721,7 +721,7 @@ Deprecated shim: use rightkit-qa (`control` feature) for the in-app QA control s
 - **Features:** `default`, `tauri-plugin`, `qa-control`, `offscreen-private-spi`, `wv2-0_38`, `wv2-0_39`
 - **Public modules:** `cli`, `offscreen`, `webdriver`
 - **Binaries:** `rightkit-qa-driver`
-- **Reads env:** `RK_CONTROL_TEST_APP`, `RK_FIXTURE_MODE`, `RK_FIXTURE_OUT`, `RK_FIXTURE_STOP`, `RK_FIXTURE_TTL`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `RK_CONTROL_TEST_APP`, `RK_FIXTURE_MODE`, `RK_FIXTURE_OUT`, `RK_FIXTURE_STOP`, `RK_FIXTURE_TTL`
 - **Sets env:** `RIGHTKIT_CONTROL_POLICY`, `RIGHTKIT_OFFSCREEN`, `RK_FIXTURE_MODE`, `RK_FIXTURE_OUT`, `RK_FIXTURE_STOP`, `RK_FIXTURE_TTL`
 - **Spawns:** `kill`, `open`
 - **Size:** 3,137 lines in 14 files, 26 tests
@@ -735,7 +735,7 @@ Per-window screen capture for any app, chosen by window id and pid: ScreenCaptur
 - **Apps:** cutright `=0.3.3`
 - **Public modules:** `backend`, `clock`, `error`, `fake`, `hash`, `macos`, `media`, `plan`, `process`, `protocol`, `reader`, `recorder`, `redact`, `support`, `verify`, `windows`
 - **Binaries:** `rightkit-record-helper`
-- **Reads env:** `RK_RECORD_KEEP`, `RK_UPDATE_GOLDEN`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `CARGO_PKG_VERSION`, `CARGO_TARGET_TMPDIR`, `RK_RECORD_KEEP`, `RK_UPDATE_GOLDEN`
 - **Sets env:** `MF_MT_AVG_BITRATE`, `MF_MT_FRAME_RATE`, `MF_MT_FRAME_SIZE`, `MF_MT_INTERLACE_MODE`, `MF_MT_MAJOR_TYPE`, `MF_MT_PIXEL_ASPECT_RATIO`, `MF_MT_SUBTYPE`, `MF_MT_VIDEO_NOMINAL_RANGE`, `MF_MT_YUV_MATRIX`, `RIGHTKIT_RECORD_TEST_PERMISSION`, `RK_RECORD_LIVE_SECONDS`
 - **Spawns:** `/bin/kill`
 - **Size:** 12,358 lines in 37 files, 176 tests
@@ -759,7 +759,7 @@ Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource au
 - **Apps:** coderight `=0.6.1`, legion `=0.6.1`
 - **Features:** `default`, `pty`
 - **Public modules:** `process_tree`, `seatbelt`
-- **Reads env:** `GITHUB_ACTIONS`, `RIGHTKIT_MACOS_FIXTURE_NETWORK_PORT`, `RIGHTKIT_MACOS_FIXTURE_NETWORK_ROLE`, `RIGHTKIT_SANDBOX_PROFILE_SWEEP_CHILD`, `RK_BLOCK_READY`
+- **Reads env:** `GITHUB_ACTIONS`, `RIGHTKIT_MACOS_FIXTURE_NETWORK_PORT`, `RIGHTKIT_MACOS_FIXTURE_NETWORK_ROLE`, `RIGHTKIT_SANDBOX_OUTBOUND_HOLD`, `RIGHTKIT_SANDBOX_OUTBOUND_HOST`, `RIGHTKIT_SANDBOX_OUTBOUND_PORT`, `RIGHTKIT_SANDBOX_OUTBOUND_TIMEOUT_MS`, `RIGHTKIT_SANDBOX_PROFILE_SWEEP_CHILD`, `RK_BLOCK_READY`
 - **Sets env:** `GITHUB_ACTIONS`, `GIT_CEILING_DIRECTORIES`, `NODE_OPTIONS`, `RIGHTKIT_MACOS_FIXTURE_NETWORK_PORT`, `RIGHTKIT_MACOS_FIXTURE_NETWORK_ROLE`, `RIGHTKIT_SANDBOX_OUTBOUND_HOLD`, `RIGHTKIT_SANDBOX_OUTBOUND_HOST`, `RIGHTKIT_SANDBOX_OUTBOUND_PORT`, `RIGHTKIT_SANDBOX_OUTBOUND_TIMEOUT_MS`, `RIGHTKIT_SANDBOX_PROFILE_SWEEP_CHILD`, `RIGHTKIT_TEST_REAL_USER_STORES`, `RK_BLOCK_READY`, `RK_SANDBOX_PROBE`, `RK_SET`, `RK_VISIBLE`
 - **Spawns:** `/bin/cat`, `/bin/echo`, `/bin/sh`, `/bin/sleep`, `/bin/true`, `/usr/bin/env`, `cmd`, `cmd.exe`, `findstr.exe`, `icacls.exe`, `ipconfig.exe`, `powershell.exe`, `ps`, `rightkit-never-launched.exe`, `tool`
 - **Size:** 16,933 lines in 30 files, 213 tests
@@ -770,7 +770,7 @@ Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 pre
 
 - **Depends on:** no RightKit unit
 - **Used by:** no RightKit unit
-- **Apps:** coderight `=0.4.0,workspace`, cutright `=0.4.0` (behind), genright `=0.4.0` (behind), mailright `=0.4.0` (behind), pulse `=0.4.0` (behind), scraperight `=0.4.0` (behind)
+- **Apps:** coderight `=0.4.0,workspace` (behind), cutright `=0.4.0` (behind), genright `=0.4.0` (behind), mailright `=0.4.0` (behind), pulse `=0.4.0` (behind), scraperight `=0.4.0` (behind)
 - **Features:** `default`, `sqlite`, `filename-index`
 - **Public modules:** `ast`, `filename`, `fold`, `lexer`, `matcher`, `page`, `scan`, `snippet`, `sql`, `terms`, `values`
 - **Size:** 4,952 lines in 21 files, 86 tests
@@ -784,6 +784,7 @@ Nearby file and text sharing over the open LocalSend v2 protocol, with Pulse ext
 - **Apps:** pulse `=0.2.0` (behind)
 - **Features:** `default`, `multicast`, `bonjour`
 - **Public modules:** `discovery`, `net`, `proto`, `send`, `trust`
+- **Reads env:** `CARGO_PKG_VERSION`
 - **Spawns:** `/usr/bin/xattr`
 - **Size:** 7,791 lines in 13 files, 65 tests
 
@@ -806,6 +807,7 @@ Client and contract for the Orthic Labs shared speech service (one resident engi
 - **Depends on:** `rightkit-daemon`, `rightkit-sidecar`, `rightkit-transcript`
 - **Used by:** `rightkit-agent-tools`
 - **Apps:** cutright `=0.4.0` (behind), heardright `=0.4.1`, scraperight `=0.4.0` (behind)
+- **Reads env:** `CARGO_MANIFEST_DIR`
 - **Sets env:** `E_ENGINE`, `E_PERMISSION`, `E_QUEUE_FULL`, `HR_ASR_BACKEND`
 - **Spawns:** `sleep`
 - **Sockets/pipes:** `runtime/speech-service/speech.sock`, `speech.sock`
@@ -830,7 +832,7 @@ Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-
 - **Features:** `default`, `helper`, `process-usage`, `cipher`, `http`, `drive`
 - **Public modules:** `cipher`, `drive`, `helper`, `http`, `wire`
 - **Binaries:** `rightkit-sync-fake-helper`
-- **Reads env:** `RIGHTKIT_CLOUDKIT_HELPER`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `CARGO_PKG_VERSION`, `RIGHTKIT_CLOUDKIT_HELPER`
 - **Size:** 12,144 lines in 31 files, 92 tests
 
 #### `rightkit-sync-keys` 0.1.0 (not published)
@@ -851,7 +853,7 @@ Shared Tauri desktop shell for Right Suite apps: webview hardening, window state
 - **Apps:** coderight `=0.6.0` (behind), cutright `=0.6.0` (behind), ember `=0.4.0` (behind), genright `=0.6.0` (behind), heardright `=0.7.0`, mailright `=0.6.0` (behind), postright `=0.6.0` (behind), pulse `=0.6.0` (behind), scraperight `=0.6.0` (behind), viewright `=0.6.0` (behind)
 - **Features:** `default`, `wv2-0_38`, `wv2-0_39`, `engine`, `content-devtools`, `dev-overrides`, `qa-probes`, `logs`, `host-services`, `crash`, `license`, `update`, `update-license`, `overlay`, `pdf-host`, `models`, `app-lock`
 - **Public modules:** `app_lock`, `associations`, `autostart`, `b64`, `broker`, `caller_gate`, `clipboard`, `commands`, `crash_commands`, `deep_link`, `devtools`, `engine`, `error`, `frameless`, `harden`, `host`, `idle`, `instance`, `lifecycle`, `login_item`, `logs_commands`, `menu`, `modules`, `nav`, `notify`, `open_paths`, `open_url`, `opener`, `os_settings`, `overlay_host`, `pdf_host`, `presence`, `preview`, `print`, `quit`, `recovery`, `single_instance`, `site`, `startup_cache`, `stream`, `surface`, `tray`, `update`, `watchdog`, `webview2_env`, `webview2_menu`, `winapi`, `window_state`, `windows`
-- **Reads env:** `CARGO_CFG_TARGET_ENV`, `CARGO_CFG_TARGET_OS`, `CARGO_MANIFEST_DIR`, `RIGHTKIT_QA_BACKGROUND`, `RIGHTKIT_QA_HIDDEN`, `RIGHTKIT_SHELL_HOME`, `RK_LEGACY_FIXTURE_MODE`, `RK_LEGACY_FIXTURE_SOCKET`, `RK_NATIVE_BUDGET_ROOT`, `RK_SHELL_INSTANCE_DOTTED_ROOT`, `RK_SHELL_INSTANCE_TEST_ROOT`, `RK_SINGLE_INSTANCE_DOTTED_ROOT`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`
+- **Reads env:** `CARGO_CFG_TARGET_ENV`, `CARGO_CFG_TARGET_OS`, `CARGO_MANIFEST_DIR`, `CARGO_PKG_VERSION`, `RIGHTKIT_QA_BACKGROUND`, `RIGHTKIT_QA_HIDDEN`, `RIGHTKIT_SHELL_HOME`, `RK_LEGACY_FIXTURE_MODE`, `RK_LEGACY_FIXTURE_SOCKET`, `RK_NATIVE_BUDGET_ROOT`, `RK_SHELL_INSTANCE_DOTTED_ROOT`, `RK_SHELL_INSTANCE_TEST_ROOT`, `RK_SINGLE_INSTANCE_DOTTED_ROOT`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`
 - **Sets env:** `A_TWO`, `GITHUB_ACTIONS`, `QA_MODE`, `RIGHTKIT_QA_NATIVE_REAL`, `RIGHTKIT_SHELL_HOME`, `RIGHTKIT_TEST_REAL_USER_STORES`, `RK_LEGACY_FIXTURE_MODE`, `RK_LEGACY_FIXTURE_SOCKET`, `RK_NATIVE_BUDGET_ROOT`, `RK_SHELL_INSTANCE_DOTTED_ROOT`, `RK_SHELL_INSTANCE_TEST_ROOT`, `RK_SINGLE_INSTANCE_DOTTED_ROOT`, `SOMETHING_ELSE`, `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, `WEBVIEW2_USER_DATA_FOLDER`, `XDG_CONFIG_HOME`
 - **Spawns:** `/bin/kill`, `/bin/sleep`, `/usr/bin/open`, `/usr/bin/osascript`, `explorer.exe`, `reg.exe`, `rundll32.exe`, `xdg-open`
 - **Sockets/pipes:** `/tmp/app_heardright_next_si.sock`, `/tmp/com_some_co_app_si.sock`, `/tmp/{stem}_si.sock`, `/tmp/{}_si.sock`, `_si.sock`
@@ -874,6 +876,7 @@ Product-neutral word-timed transcript contract, cue segmentation, and SRT/VTT/JS
 - **Used by:** `rightkit-align`, `rightkit-asr`, `rightkit-motion`, `rightkit-speech-client`, `rightkit-tts`
 - **Apps:** cutright `=0.4.0`, genright `=0.4.0`, heardright `=0.4.0`, scraperight `=0.4.0`
 - **Public modules:** `align`, `contract`, `export`, `parse`, `segment`, `words`
+- **Reads env:** `CARGO_MANIFEST_DIR`
 - **Size:** 2,848 lines in 12 files, 57 tests
 
 #### `rightkit-tts` 0.2.3
@@ -886,7 +889,7 @@ Shared local text-to-speech for Right Suite apps: OS voices (say / SAPI) and a Q
 - **Features:** `default`, `system`, `client`, `engine`, `metal`, `vulkan`, `dev-overrides`
 - **Public modules:** `chunk`, `client`, `mode_location`, `models`, `protocol`, `system`, `wav`, `worker`, `worker_args`
 - **Binaries:** `rightkit-tts-worker`
-- **Reads env:** `GENRIGHT_DATA_ROOT`, `GENRIGHT_QTS_IDLE_SECS`, `GENRIGHT_QTS_MODEL_DIR`, `GENRIGHT_QTS_WORKER`, `ORT_DYLIB_PATH`, `RIGHTKIT_DATA_ROOT`, `RIGHTKIT_REQUIRE_ASSETS`, `RIGHTKIT_TTS_IDLE_SECS`, `RIGHTKIT_TTS_MODEL_DIR`, `RIGHTKIT_TTS_WORKER`
+- **Reads env:** `CARGO_PKG_VERSION`, `GENRIGHT_DATA_ROOT`, `GENRIGHT_QTS_IDLE_SECS`, `GENRIGHT_QTS_MODEL_DIR`, `GENRIGHT_QTS_WORKER`, `ORT_DYLIB_PATH`, `RIGHTKIT_DATA_ROOT`, `RIGHTKIT_REQUIRE_ASSETS`, `RIGHTKIT_TTS_IDLE_SECS`, `RIGHTKIT_TTS_MODEL_DIR`, `RIGHTKIT_TTS_WORKER`, `RK_TTS_OUT`, `RK_TTS_RATE`, `RK_TTS_TEXT`, `RK_TTS_VOICE`
 - **Sets env:** `GENRIGHT_QTS_IDLE_SECS`, `GENRIGHT_QTS_WORKER`, `ORT_DYLIB_PATH`, `QWEN3_TTS_BACKEND`, `QWEN3_TTS_BACKEND_FALLBACK`, `QWEN3_TTS_VOCODER_EP`, `QWEN3_TTS_VOCODER_EP_FALLBACK`, `RIGHTKIT_TTS_IDLE_SECS`, `RIGHTKIT_TTS_MODEL_DIR`, `RIGHTKIT_TTS_WORKER`, `RK_TTS_OUT`, `RK_TTS_RATE`, `RK_TTS_TEXT`, `RK_TTS_VOICE`
 - **Spawns:** `afconvert`, `powershell.exe`, `say`
 - **Size:** 4,502 lines in 16 files, 61 tests
@@ -899,7 +902,7 @@ Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for R
 - **Used by:** `rightkit-tts`
 - **Features:** `default`, `metal`, `vulkan`, `blas`, `native`, `acl`, `armnn`, `azure`, `cann`, `coreml`, `cuda`, `directml`, `migraphx`, `nnapi`, `nvrtx`, `onednn`, `openvino`, `qnn`, `rknpu`, `tensorrt`, `tvm`, `vitis`, `webgpu`, `xnnpack`
 - **Public modules:** `pipeline`
-- **Reads env:** `QTS_GREEDY`, `QTS_REPLAY_CB0`, `QTS_REPLAY_HIDDEN`, `QTS_REPLAY_PREDICTOR`, `QTS_REPLAY_PREFIX`, `QTS_REPLAY_RECYCLE_HIDDEN`, `QTS_REPLAY_TALKER`, `QWEN3_TTS_BACKEND`, `QWEN3_TTS_BACKEND_FALLBACK`, `QWEN3_TTS_DEBUG_BACKEND`, `QWEN3_TTS_GPU_DEVICE`, `QWEN3_TTS_VOCODER_EP`, `QWEN3_TTS_VOCODER_EP_FALLBACK`, `RIGHTKIT_QTS_DUMP_CODES`, `RIGHTKIT_QTS_TRACE_CB6`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `QTS_GREEDY`, `QTS_REPLAY_CB0`, `QTS_REPLAY_HIDDEN`, `QTS_REPLAY_PREDICTOR`, `QTS_REPLAY_PREFIX`, `QTS_REPLAY_RECYCLE_HIDDEN`, `QTS_REPLAY_TALKER`, `QWEN3_TTS_BACKEND`, `QWEN3_TTS_BACKEND_FALLBACK`, `QWEN3_TTS_DEBUG_BACKEND`, `QWEN3_TTS_GPU_DEVICE`, `QWEN3_TTS_VOCODER_EP`, `QWEN3_TTS_VOCODER_EP_FALLBACK`, `RIGHTKIT_QTS_DUMP_CODES`, `RIGHTKIT_QTS_TRACE_CB6`
 - **Sets env:** `QWEN3_TTS_VOCODER_EP`, `QWEN3_TTS_VOCODER_EP_FALLBACK`
 - **Size:** 11,749 lines in 18 files, 53 tests
 
@@ -933,7 +936,7 @@ Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chun
 - **Used by:** `rightkit-asr`
 - **Apps:** cutright `=0.1.2`, heardright `=0.1.2`
 - **Features:** `default`, `silero`, `ort-tracing`, `download-binaries`, `tls-native`, `copy-dylibs`
-- **Reads env:** `ORT_DYLIB_PATH`, `RIGHTKIT_ORT_TEST_DYLIB`, `RIGHTKIT_REQUIRE_ASSETS`, `RIGHTKIT_VAD_MODEL`
+- **Reads env:** `CARGO_MANIFEST_DIR`, `ORT_DYLIB_PATH`, `RIGHTKIT_ORT_TEST_DYLIB`, `RIGHTKIT_REQUIRE_ASSETS`, `RIGHTKIT_VAD_MODEL`
 - **Size:** 1,832 lines in 7 files, 33 tests
 
 #### `rightkit-vault` 0.2.0
@@ -1166,7 +1169,7 @@ Zero-dependency Chrome for Testing resolver, launcher and graceful close for Rig
 - **Apps:** coderight `0.1.11` (behind), cutright `0.1.11` (behind), ember `0.1.8` (behind), genright `0.1.11` (behind), heardright `0.1.12`, legion `0.1.8` (behind), mailright `0.1.11` (behind), postright `0.1.11` (behind), pulse `0.1.12`, scraperight `0.1.11` (behind), viewright `0.1.11` (behind)
 - **Exports:** `.`
 - **Binaries:** `rightkit-qa-chrome`
-- **Reads env:** `PLAYWRIGHT_BROWSERS_PATH`, `PUPPETEER_CACHE_DIR`, `RIGHTKIT_CHROME_FOR_TESTING`, `RIGHTKIT_CHROME_FOR_TESTING_ROOT`, `RIGHTKIT_CHROME_HEADLESS_SHELL`, `RIGHTKIT_REQUIRE_ASSETS`, `RK_QA_REMOVE_DIR`, `XDG_DATA_HOME`
+- **Reads env:** `PLAYWRIGHT_BROWSERS_PATH`, `PUPPETEER_CACHE_DIR`, `RIGHTKIT_CHROME_FOR_TESTING`, `RIGHTKIT_CHROME_FOR_TESTING_ROOT`, `RIGHTKIT_CHROME_HEADLESS_SHELL`, `RIGHTKIT_REQUIRE_ASSETS`, `RK_QA_KILL`, `RK_QA_PROFILE`, `RK_QA_REMOVE_DIR`, `RK_QA_ROWS`, `XDG_DATA_HOME`
 - **Sets env:** `RIGHTKIT_CHROME_FOR_TESTING`, `RIGHTKIT_CHROME_FOR_TESTING_ROOT`, `RIGHTKIT_CHROME_HEADLESS_SHELL`, `RK_QA_KILL`, `RK_QA_PROFILE`, `RK_QA_REMOVE_DIR`, `RK_QA_ROWS`
 - **Spawns:** `ditto`, `getconf`, `powershell.exe`, `ps`, `taskkill.exe`, `unzip`
 - **Size:** 3,722 lines in 9 files, 4 test files
@@ -1196,7 +1199,7 @@ Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 
 - **Sets env:** `CARGO_BUILD_JOBS`, `CARGO_BUILD_TARGET`, `CARGO_BUILD_TARGET_DIR`, `CARGO_FEATURES`, `CARGO_HOME`, `CARGO_HTTP_PROXY`, `CARGO_INCREMENTAL`, `CARGO_JOBS`, `CARGO_LOG`, `CARGO_NET_GIT_FETCH_WITH_CLI`, `CARGO_NET_RETRY`, `CARGO_PROFILE_DEV_OPT_LEVEL`, `CARGO_REGISTRIES_FOO_TOKEN`, `CARGO_TARGET_DIR`, `CARGO_TERM_COLOR`, `RIGHTAPPS_ADMIN_TOKEN`, `RIGHTAPPS_API_URL`, `RIGHTAPPS_RELEASE_TOKEN`, `RIGHTAPPS_RELEASE_TOKEN_FILE`, `RIGHTAPPS_STORE_SLUG`, `RIGHTKIT_ADAPTER_ENV`, `RIGHTKIT_ADB`, `RIGHTKIT_AGENT`, `RIGHTKIT_ANDROID_SERIAL`, `RIGHTKIT_ANDROID_SIGNING_PROPERTIES`, `RIGHTKIT_ATTEST_NONCE`, `RIGHTKIT_ATTEST_STAGE_NONCE`, `RIGHTKIT_BROKER_GUARD_LOG`, `RIGHTKIT_BUILD_BROKER_SOCKET`, `RIGHTKIT_BUILD_MODE` …
 - **Spawns:** `${OLD}`, `/bin/chmod`, `/bin/sh`, `/bin/sleep`, `/bin/zsh`, `/usr/bin/codesign`, `/usr/bin/hdiutil`, `/usr/sbin/chown`, `C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`, `bash`, `cargo`, `cmd.exe`, `codesign`, `definitely-not-tsc-xyz`, `df`, `du`, `esbuild`, `fixture`, `gh`, `git`
 - **Sockets/pipes:** `/Volumes/D/.rightkit-managed/broker.sock`, `/broker.sock`, `/ctl/broker.sock`, `/elsewhere.sock`, `/elsewhere/broker.sock`, `/fake/rightkit-broker.sock`, `/home/test/.local/state/rightkit/broker.sock`, `/managed/broker.sock`, `/nope/b.sock`, `/run/r.sock`
-- **Size:** 185,477 lines in 713 files, 340 test files
+- **Size:** 185,523 lines in 714 files, 362 test files
 
 #### `@rightkit/settings-ui` 0.7.0
 

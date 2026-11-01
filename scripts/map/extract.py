@@ -112,10 +112,11 @@ def npm_info(d):
     for kind, key in (("normal", "dependencies"), ("dev", "devDependencies"), ("peer", "peerDependencies"), ("optional", "optionalDependencies")):
         for n, v in (p.get(key) or {}).items():
             if n.startswith("@rightkit/"):
-                deps.append({"name": n, "kind": kind, "version": v})
+                optional = kind == "peer" and bool(((p.get("peerDependenciesMeta") or {}).get(n) or {}).get("optional"))
+                deps.append({"name": n, "kind": kind, "version": v, **({"optional": True} if optional else {})})
     files = list(walk(d, (".mjs", ".js", ".ts", ".tsx", ".cjs")))
     loc = sum(read(f).count("\n") for f in files)
-    tests = sum(1 for f in files if re.search(r"\.test\.|/tests?/", f))
+    tests = sum(1 for f in files if is_test_file(f))
     exp = p.get("exports")
     return {
         "kind": "npm", "name": p.get("name"), "dir": rel(d), "version": p.get("version"), "private": bool(p.get("private")),
@@ -194,7 +195,7 @@ def used_rust(d, own, idents):
     keys = list(idents)
     for f in walk(d, (".rs",)):
         t = code_only(read(f))
-        is_test = "/tests/" in f or "/benches/" in f or "/examples/" in f
+        is_test = is_test_file(f)
         spans = test_ranges(t)
         for m in pattern.finditer(t):
             n = idents[keys[int(m.lastgroup[1:])]]
@@ -208,7 +209,7 @@ def used_js(d, own):
     used = defaultdict(list)
     for f in walk(d, (".mjs", ".js", ".ts", ".tsx", ".cjs")):
         t = code_only(read(f), js=True)
-        is_test = bool(re.search(r"\.test\.|/tests?/|/test-support/", f))
+        is_test = is_test_file(f)
         for m in JS_USE.finditer(t):
             n = m.group(1)
             if n == own:
@@ -219,7 +220,7 @@ def used_js(d, own):
 
 # ---------------------------------------------------------------- pass 3: runtime contracts
 ENV_NAME = r"[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+"
-RS_ENV_READ = re.compile(r"(?:env::var(?:_os)?|var_os|dev_var_os!|dev_var!|option_env!|std::env::var(?:_os)?)\s*\(\s*\"(" + ENV_NAME + r")\"|\.(?:env|get_env|var)\s*\(\s*\"(" + ENV_NAME + r")\"\s*\)")
+RS_ENV_READ = re.compile(r"(?:env::var(?:_os)?|var_os|dev_var_os!|dev_var!|option_env!|\benv!|std::env::var(?:_os)?)\s*\(\s*\"(" + ENV_NAME + r")\"|\.(?:env|get_env|var)\s*\(\s*\"(" + ENV_NAME + r")\"\s*\)")
 RS_ENV_SET = re.compile(r"\.(?:env|set_var|remove_var|insert)\s*\(\s*\"(" + ENV_NAME + r")\"(?:\s*\.into\(\))?\s*,|set_var\s*\(\s*\"(" + ENV_NAME + r")\"")
 # An environment entry built as a pair: `("NAME".into(), value)`, `(NAME.to_string(), value)`, `pair(NAME, value)` (world_env, launch envs).
 RS_ENV_PAIR = re.compile(r"(?:\(|\bpair\s*\()\s*\"(" + ENV_NAME + r")\"(?:\.(?:into|to_string|to_owned)\(\))?\s*,")
@@ -231,6 +232,11 @@ JS_ENV_SET = re.compile(r"(?:^|[{,(])\s*(" + ENV_NAME + r")\s*:(?!:)|(?:process\
 JS_ENV_SET_QUOTED = re.compile(r"(?:process\.env|\benv)\[\s*[\"'](" + ENV_NAME + r")[\"']\s*\]\s*=(?!=)|[{,]\s*[\"'](" + ENV_NAME + r")[\"']\s*:")
 JS_CONST = re.compile(r"(?:export\s+)?const\s+([A-Z_0-9]+)\s*=\s*[\"'](" + ENV_NAME + r")[\"']")
 IDENT = r"(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Z][A-Z0-9_]+)"
+# reads through a one-argument helper (`need(ENV_X)`, `require_env("X")`), and inside embedded PowerShell or batch (`$env:X`, `%X%`)
+RS_ENV_HELPER = re.compile(r"\b(?:need|require|required|require_env|need_env|env_var|read_env|get_env_var)\s*\(\s*&?(?:\"(" + ENV_NAME + r")\"|" + IDENT + r")\s*\)")
+SCRIPT_ENV_READ = re.compile(r"\$env:(" + ENV_NAME + r")\b|%(" + ENV_NAME + r")%")
+# compile-time environment an app's build.rs hands its crate: `cargo:rustc-env=NAME=` (literal or `{CONST}`)
+RUSTC_ENV = re.compile(r"cargo:rustc-env=(?:(" + ENV_NAME + r")|\{([A-Z][A-Z0-9_]+)\})=")
 RS_ENV_READ_ID = re.compile(r"(?:env::var(?:_os)?|var_os|std::env::var(?:_os)?|dev_var_os!|dev_var!|\.env|\.get_env)\s*\(\s*&?" + IDENT + r"\s*\)")
 RS_ENV_SET_ID = re.compile(r"\.(?:env|insert|set_var)\s*\(\s*&?" + IDENT + r"(?:\.(?:into|to_string|to_owned)\(\))?\s*,|set_var\s*\(\s*&?" + IDENT + r"\s*,|(?:\(|\bpair\s*\()\s*&?" + IDENT + r"(?:\.(?:into|to_string|to_owned)\(\))?\s*,")
 JS_ENV_READ_ID = re.compile(r"(?:process\.env|\benv|\bo\.env|options\.env|deps\.env)(?:\?\.)?\[\s*([A-Z][A-Z0-9_]+)\s*\]")
@@ -240,6 +246,13 @@ FILE_LIT = re.compile(r"[\"']([A-Za-z0-9_.\-]+\.(?:json|toml|token|sock|lock|jso
 SOCK_LIT = re.compile(r"[\"'](\\\\\\\\\.\\\\pipe\\\\[^\"']*|[^\"'\s]*\.sock)[\"']")
 RS_SPAWN = re.compile(r"Command::new\s*\(\s*\"([^\"]+)\"|OwnedCommand::new\s*\(\s*\"([^\"]+)\"")
 JS_SPAWN = re.compile(r"\b(?:spawn|spawnSync|execFile|execFileSync|spawnInherit|spawnCapture)\s*\(\s*[\"']([^\"']+)[\"']")
+
+
+TEST_FILE = re.compile(r"\.test\.|/tests?/|/benches/|/examples/|/test-support/|/test_support|/tests\.rs$|_tests?\.rs$")
+
+
+def is_test_file(f):
+    return bool(TEST_FILE.search(f.replace(os.sep, "/")))
 
 
 def interesting_env(n):
@@ -252,7 +265,7 @@ def runtime_scan(unit):
     files_named, socks, spawns = defaultdict(list), defaultdict(list), defaultdict(list)
     for f in walk(os.path.join(ROOT, unit["dir"]), exts):
         t = read(f)
-        is_test = bool(re.search(r"\.test\.|/tests?/|/benches/|/examples/|/test-support/", f)) or "#[cfg(test)]" in t[: max(0, t.find("#[cfg(test)]") + 1)] and False
+        is_test = is_test_file(f)
         # a Rust file's own test module is the tail after `#[cfg(test)]`
         spans = test_ranges(code_only(t)) if unit["kind"] == "crate" else []
         loc = lambda i: {"file": rel(f), "line": line_of(t, i), "test": is_test or in_spans(i, spans)}  # noqa: E731
@@ -262,13 +275,19 @@ def runtime_scan(unit):
             for m in RS_ENV_SET.finditer(t):
                 env[m.group(1) or m.group(2)]["set"].append(loc(m.start()))
             for m in RS_ENV_PAIR.finditer(t):
-                env[m.group(1)]["set"].append({**loc(m.start()), "pair": True})
+                env[m.group(1)]["set"].append({**loc(m.start()), "pair": True, "objkey": True})
             for m in RS_ENV_REMOVE.finditer(t):
                 env[m.group(1)]["removed"].append(loc(m.start()))
             for m in RS_CONST.finditer(t):
                 env[m.group(2)]["const"].append({**loc(m.start()), "ident": m.group(1)})
             for m in RS_SPAWN.finditer(t):
                 spawns[m.group(1) or m.group(2)].append(loc(m.start()))
+            for m in RS_ENV_HELPER.finditer(t):
+                if m.group(1):
+                    env[m.group(1)]["read"].append({**loc(m.start()), "via": "helper"})
+            for m in RUSTC_ENV.finditer(t):
+                if m.group(1):
+                    env[m.group(1)]["set"].append({**loc(m.start()), "compile_time": True})
         else:
             for m in JS_ENV_READ.finditer(t):
                 env[m.group(1) or m.group(2)]["read"].append(loc(m.start()))
@@ -280,11 +299,15 @@ def runtime_scan(unit):
             for m in JS_ENV_SET_QUOTED.finditer(t):
                 n = m.group(1) or m.group(2)
                 if interesting_env(n):
-                    env[n]["set"].append(loc(m.start()))
+                    env[n]["set"].append({**loc(m.start()), "objkey": bool(m.group(2))})
             for m in JS_CONST.finditer(t):
                 env[m.group(2)]["const"].append({**loc(m.start()), "ident": m.group(1)})
             for m in JS_SPAWN.finditer(t):
                 spawns[m.group(1)].append(loc(m.start()))
+        for m in SCRIPT_ENV_READ.finditer(t):
+            n = m.group(1) or m.group(2)
+            if interesting_env(n):
+                env[n]["read"].append({**loc(m.start()), "via": "script"})
         for m in FILE_LIT.finditer(t):
             files_named[m.group(1)].append(loc(m.start()))
         for m in SOCK_LIT.finditer(t):
@@ -299,13 +322,23 @@ def ident_access(unit):
     for f in walk(os.path.join(ROOT, unit["dir"]), exts):
         raw = read(f)
         code = code_only(raw, js=unit["kind"] != "crate")
-        is_test = bool(re.search(r"\.test\.|/tests?/|/benches/|/examples/|/test-support/", f))
+        is_test = is_test_file(f)
         spans = test_ranges(code) if unit["kind"] == "crate" else []
         pats = ((RS_ENV_READ_ID, "read"), (RS_ENV_SET_ID, "set")) if unit["kind"] == "crate" else ((JS_ENV_READ_ID, "read"), (JS_ENV_SET_ID, "set"))
         for pat, role in pats:
             for m in pat.finditer(code):
                 ident = next(g for g in m.groups() if g)
-                hits.append((role, ident, {"file": rel(f), "line": line_of(code, m.start()), "test": is_test or in_spans(m.start(), spans)}))
+                site = {"file": rel(f), "line": line_of(code, m.start()), "test": is_test or in_spans(m.start(), spans)}
+                if role == "set" and re.match(r"\(|pair\s*\(", m.group(0)):
+                    site.update(pair=True, objkey=True)
+                hits.append((role, ident, site))
+        if unit["kind"] == "crate":
+            for m in RS_ENV_HELPER.finditer(code):
+                if m.group(2):
+                    hits.append(("read", m.group(2), {"file": rel(f), "line": line_of(code, m.start()), "test": is_test or in_spans(m.start(), spans), "via": "helper"}))
+            for m in RUSTC_ENV.finditer(raw):
+                if m.group(2):
+                    hits.append(("set", m.group(2), {"file": rel(f), "line": line_of(raw, m.start()), "test": is_test, "compile_time": True}))
     return hits
 
 
@@ -382,7 +415,7 @@ def main():
                         used[e["name"]].append({"file": rel(f), "line": line_of(t, i), "test": bool(re.search(r"\.test\.|/tests?/", f)), "by_name": True})
         u["used"] = {n: {"sites": len(s), "non_test_sites": sum(1 for x in s if not x["test"]), "first": s[0]} for n, s in used.items()}
         declared = {e["name"] for e in u["deps"]}
-        declared_normal = {e["name"] for e in u["deps"] if e["kind"] in ("normal", "build", "peer", "optional")}
+        declared_normal = {e["name"] for e in u["deps"] if e["kind"] in ("normal", "build", "peer", "optional") and not (e["kind"] == "peer" and e.get("optional"))}
         u["declared_unused"] = sorted(n for n in declared if n not in used and n in by_name and n != u["name"])
         u["self_dev_dep"] = u["name"] in declared
         u["used_undeclared"] = sorted(n for n in used if n not in declared and n in by_name)
@@ -441,7 +474,7 @@ def main():
     for u in units:
         exts = (".rs",) if u["kind"] == "crate" else (".mjs", ".js", ".ts", ".tsx", ".cjs")
         for f in walk(os.path.join(ROOT, u["dir"]), exts):
-            if re.search(r"\.test\.|/tests?/|/benches/|/test-support/", f):
+            if is_test_file(f):
                 continue
             raw = read(f)
             for lit in set(re.findall(r"[\"'`](" + ENV_NAME + r")[\"'`]", raw)) & wanted:
@@ -478,7 +511,8 @@ def main():
             "cross_unit": len(prod_rt | cons_rt | set(mentioned)) > 1,
             # Flags only when nothing else in RightKit names the variable: an outside input (an operator or app setting) or a dead end.
             "read_never_set_in_rk": bool(cons_rt) and not prod_rt and not (others - cons_rt) and k.startswith(("RIGHTKIT_", "RIGHT_RELEASE_", "RK_")),
-            "set_never_read_in_rk": bool(prod_rt) and not cons_rt and not (others - prod_rt) and k.startswith(("RIGHTKIT_", "RIGHT_RELEASE_", "RK_")),
+            "set_never_read_in_rk": bool(prod_rt) and not readers and not (others - prod_rt) and k.startswith(("RIGHTKIT_", "RIGHT_RELEASE_", "RK_")),
+            "read_only_by_tests": bool(prod_rt) and bool(readers) and not cons_rt,
         }
 
     def flat(idx):

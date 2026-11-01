@@ -2551,6 +2551,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
      "RIGHT_CTL_DESKTOP_ALLOW"
     ],
     "env_set": [],
@@ -2623,6 +2624,8 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
+     "CARGO_PKG_VERSION",
      "RIGHTKIT_DISABLE_VENDOR_CLIS"
     ],
     "env_set": [],
@@ -2686,7 +2689,9 @@
    "used_only_in_tests_but_normal_dep": [],
    "unknown_rightkit_refs": [],
    "runtime": {
-    "env_read": [],
+    "env_read": [
+     "CARGO_MANIFEST_DIR"
+    ],
     "env_set": [],
     "files": [],
     "sockets": [],
@@ -2764,7 +2769,9 @@
    "used_only_in_tests_but_normal_dep": [],
    "unknown_rightkit_refs": [],
    "runtime": {
-    "env_read": [],
+    "env_read": [
+     "CARGO_PKG_VERSION"
+    ],
     "env_set": [],
     "files": [],
     "sockets": [],
@@ -3150,6 +3157,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
      "RIGHTKIT_ASR_CERTIFY",
      "RIGHTKIT_ASR_CERTIFY_REPORT",
      "RIGHTKIT_ORT_TEST_DYLIB",
@@ -3647,7 +3655,9 @@
    "used_only_in_tests_but_normal_dep": [],
    "unknown_rightkit_refs": [],
    "runtime": {
-    "env_read": [],
+    "env_read": [
+     "CARGO_PKG_VERSION"
+    ],
     "env_set": [],
     "files": [],
     "sockets": [],
@@ -3694,7 +3704,9 @@
    "used_only_in_tests_but_normal_dep": [],
    "unknown_rightkit_refs": [],
    "runtime": {
-    "env_read": [],
+    "env_read": [
+     "CARGO_MANIFEST_DIR"
+    ],
     "env_set": [],
     "files": [
      "channel-memory.v1.schema.json",
@@ -3773,6 +3785,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
      "RIGHTKIT_EXPECTED_CWD",
      "RIGHTKIT_INHERITED_TERMINAL_GROUP",
      "RIGHTKIT_KEPT_ENV",
@@ -3781,7 +3794,8 @@
      "RIGHTKIT_PROBE_NO_INHERIT",
      "RIGHTKIT_PROCESS_PARENT_DEATH_ROLE",
      "RIGHTKIT_STDERR_LIVE_PIPE_WRITER",
-     "RIGHTKIT_STRIPPED_ENV"
+     "RIGHTKIT_STRIPPED_ENV",
+     "RK_RUN_COMMAND_VAR"
     ],
     "env_set": [
      "RIGHTKIT_EXPECTED_CWD",
@@ -3878,7 +3892,9 @@
    "used_only_in_tests_but_normal_dep": [],
    "unknown_rightkit_refs": [],
    "runtime": {
-    "env_read": [],
+    "env_read": [
+     "CARGO_MANIFEST_DIR"
+    ],
     "env_set": [],
     "files": [],
     "sockets": [],
@@ -3934,7 +3950,9 @@
    "used_only_in_tests_but_normal_dep": [],
    "unknown_rightkit_refs": [],
    "runtime": {
-    "env_read": [],
+    "env_read": [
+     "CARGO_MANIFEST_DIR"
+    ],
     "env_set": [],
     "files": [
      "capture.json",
@@ -4189,6 +4207,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
      "DBUS_SESSION_BUS_ADDRESS",
      "RIGHTKIT_CREDENTIALS_CHILD_KEYCHAIN",
      "RIGHTKIT_CREDENTIALS_CHILD_PASSWORD",
@@ -4502,6 +4521,8 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
+     "CARGO_PKG_VERSION",
      "RIGHTKIT_DAEMON_BUDGET_TLS_CERT",
      "RIGHTKIT_DAEMON_BUDGET_TLS_KEY",
      "RIGHTKIT_DAEMON_DB_PHASE_CHILD_ROOT",
@@ -5095,6 +5116,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
      "RIGHTKIT_EMBED_MODEL_DIR",
      "RK_ORT_TEST_DYLIB"
     ],
@@ -5205,6 +5227,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
      "RIGHTKIT_FFMPEG",
      "RIGHTKIT_REQUIRE_ASSETS",
      "RIGHTKIT_WORKSPACE_ROOT"
@@ -5288,7 +5311,9 @@
    "used_only_in_tests_but_normal_dep": [],
    "unknown_rightkit_refs": [],
    "runtime": {
-    "env_read": [],
+    "env_read": [
+     "CARGO_PKG_VERSION"
+    ],
     "env_set": [],
     "files": [],
     "sockets": [],
@@ -5563,6 +5588,8 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
+     "CARGO_PKG_VERSION",
      "FSINDEX_SYNTH_ENTRIES"
     ],
     "env_set": [
@@ -5673,7 +5700,9 @@
    "used_only_in_tests_but_normal_dep": [],
    "unknown_rightkit_refs": [],
    "runtime": {
-    "env_read": [],
+    "env_read": [
+     "CARGO_MANIFEST_DIR"
+    ],
     "env_set": [],
     "files": [
      "abc.json",
@@ -5843,7 +5872,10 @@
    "used_only_in_tests_but_normal_dep": [],
    "unknown_rightkit_refs": [],
    "runtime": {
-    "env_read": [],
+    "env_read": [
+     "CARGO_MANIFEST_DIR",
+     "CARGO_PKG_VERSION"
+    ],
     "env_set": [
      "ALL_PROXY",
      "HTTPS_PROXY",
@@ -5919,13 +5951,20 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_PKG_VERSION",
      "RIGHTKIT_BUILD_PROFILE",
      "RIGHTKIT_BUILD_UTC",
      "RIGHTKIT_CHANNEL",
      "RIGHTKIT_GIT_DIRTY",
      "RIGHTKIT_GIT_REV"
     ],
-    "env_set": [],
+    "env_set": [
+     "RIGHTKIT_BUILD_PROFILE",
+     "RIGHTKIT_BUILD_UTC",
+     "RIGHTKIT_CHANNEL",
+     "RIGHTKIT_GIT_DIRTY",
+     "RIGHTKIT_GIT_REV"
+    ],
     "files": [
      "Cargo.toml",
      "installation-identity.json",
@@ -6139,6 +6178,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_PKG_VERSION",
      "FX_DIR",
      "FX_LAUNCH",
      "FX_LOG_METHODS",
@@ -6315,6 +6355,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_PKG_VERSION",
      "RK_LICENSE_TEST_CHILD_DIR",
      "RK_LICENSE_TEST_CHILD_ROLE"
     ],
@@ -6583,6 +6624,8 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
+     "CARGO_PKG_VERSION",
      "RIGHTKIT_LOGS_INHERITED_STDERR_CHILD",
      "RK_LOGS_CONFIG_CHILD_REVOKE_PATH",
      "RK_PURGE_LOCK_CHILD",
@@ -6742,6 +6785,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_PKG_VERSION",
      "EXAMPLE_ALLOW_MUTATE",
      "EXAMPLE_TOKEN",
      "RK_MCP_INIT_DELAY",
@@ -6911,6 +6955,8 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_PKG_VERSION",
+     "CARGO_TARGET_TMPDIR",
      "RIGHTKIT_HW_JSON"
     ],
     "env_set": [
@@ -7289,6 +7335,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
      "RIGHTKIT_OCR_MODEL_DIR",
      "RIGHTKIT_OCR_ORT_RUNTIME",
      "RIGHTKIT_REQUIRE_ASSETS"
@@ -7524,6 +7571,7 @@
     "env_read": [
      "CARGO_CFG_TARGET_ARCH",
      "CARGO_CFG_TARGET_OS",
+     "CARGO_MANIFEST_DIR",
      "ORT_DYLIB_PATH",
      "RIGHTKIT_ORT_HELPER_TEST_OVERRIDE",
      "RIGHTKIT_ORT_TEST_DLL_DIR",
@@ -7718,7 +7766,11 @@
    "used_only_in_tests_but_normal_dep": [],
    "unknown_rightkit_refs": [],
    "runtime": {
-    "env_read": [],
+    "env_read": [
+     "CARGO_MANIFEST_DIR",
+     "CARGO_PKG_VERSION",
+     "RK_TRUST_CHECK_TARGET"
+    ],
     "env_set": [
      "GIT_AUTHOR_DATE",
      "GIT_AUTHOR_EMAIL",
@@ -7887,6 +7939,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
      "RIGHTKIT_PDF_CORPUS_FILE",
      "RIGHTKIT_PDF_QUALITY_ALLOW_SKIP",
      "RIGHTKIT_PDF_QUALITY_CORPUS",
@@ -8272,6 +8325,8 @@
     "env_read": [
      "CARGO_MANIFEST_DIR",
      "CARGO_PKG_NAME",
+     "CARGO_PKG_VERSION",
+     "CARGO_TARGET_TMPDIR",
      "GENRIGHT_FFPROBE",
      "RIGHTKIT_CONTROL_SERVICE",
      "RIGHTKIT_CONTROL_STACK_ON_TIMEOUT",
@@ -8281,6 +8336,7 @@
      "RIGHTKIT_MANAGED_ROOT",
      "RIGHTKIT_QA_APP_BINARY",
      "RIGHTKIT_QA_CONFIG",
+     "RIGHTKIT_QA_CONTROL_SOCKET",
      "RIGHTKIT_QA_CONTROL_TOKEN_FILE",
      "RIGHTKIT_QA_DATA_DIR",
      "RIGHTKIT_QA_ENGINE",
@@ -8297,12 +8353,18 @@
      "RIGHTKIT_QA_PACE_MS",
      "RIGHTKIT_QA_ROOT_CAP_BYTES",
      "RIGHTKIT_QA_ROOT_CEILING_BYTES",
+     "RIGHTKIT_QA_SCAN_HOME",
      "RIGHTKIT_QA_SETTINGS",
      "RIGHTKIT_QA_SUPERVISE_HELPER",
      "RIGHTKIT_QA_SUPERVISE_MARKER_SLEEP",
      "RIGHTKIT_QA_SUPERVISE_WORLD",
      "RIGHTKIT_QA_UI_BINARY",
      "RIGHTKIT_QA_WINDOW_LABEL",
+     "RIGHTKIT_QA_WORLD",
+     "RIGHTKIT_QA_WORLD_DATA",
+     "RIGHTKIT_QA_WORLD_DIR",
+     "RIGHTKIT_QA_WORLD_HOME",
+     "RIGHTKIT_QA_WORLD_TEMP",
      "RIGHTKIT_SUITE_ROOT",
      "RKQA_FAKE_BROKER_ID",
      "RKQA_FAKE_BROKER_STDOUT",
@@ -8608,6 +8670,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
      "RK_CONTROL_TEST_APP",
      "RK_FIXTURE_MODE",
      "RK_FIXTURE_OUT",
@@ -8755,6 +8818,9 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
+     "CARGO_PKG_VERSION",
+     "CARGO_TARGET_TMPDIR",
      "RK_RECORD_KEEP",
      "RK_UPDATE_GOLDEN"
     ],
@@ -8912,6 +8978,10 @@
      "GITHUB_ACTIONS",
      "RIGHTKIT_MACOS_FIXTURE_NETWORK_PORT",
      "RIGHTKIT_MACOS_FIXTURE_NETWORK_ROLE",
+     "RIGHTKIT_SANDBOX_OUTBOUND_HOLD",
+     "RIGHTKIT_SANDBOX_OUTBOUND_HOST",
+     "RIGHTKIT_SANDBOX_OUTBOUND_PORT",
+     "RIGHTKIT_SANDBOX_OUTBOUND_TIMEOUT_MS",
      "RIGHTKIT_SANDBOX_PROFILE_SWEEP_CHILD",
      "RK_BLOCK_READY"
     ],
@@ -9084,7 +9154,9 @@
    "used_only_in_tests_but_normal_dep": [],
    "unknown_rightkit_refs": [],
    "runtime": {
-    "env_read": [],
+    "env_read": [
+     "CARGO_PKG_VERSION"
+    ],
     "env_set": [],
     "files": [
      "aside.json",
@@ -9234,7 +9306,9 @@
    "used_only_in_tests_but_normal_dep": [],
    "unknown_rightkit_refs": [],
    "runtime": {
-    "env_read": [],
+    "env_read": [
+     "CARGO_MANIFEST_DIR"
+    ],
     "env_set": [
      "E_ENGINE",
      "E_PERMISSION",
@@ -9483,6 +9557,8 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
+     "CARGO_PKG_VERSION",
      "RIGHTKIT_CLOUDKIT_HELPER"
     ],
     "env_set": [],
@@ -9908,7 +9984,7 @@
     },
     "rightkit-credentials": {
      "sites": 4,
-     "non_test_sites": 4,
+     "non_test_sites": 3,
      "first": {
       "file": "crates/rightkit-tauri-shell/src/app_lock.rs",
       "line": 9,
@@ -9944,6 +10020,7 @@
      "CARGO_CFG_TARGET_ENV",
      "CARGO_CFG_TARGET_OS",
      "CARGO_MANIFEST_DIR",
+     "CARGO_PKG_VERSION",
      "RIGHTKIT_QA_BACKGROUND",
      "RIGHTKIT_QA_HIDDEN",
      "RIGHTKIT_SHELL_HOME",
@@ -10089,7 +10166,9 @@
    "used_only_in_tests_but_normal_dep": [],
    "unknown_rightkit_refs": [],
    "runtime": {
-    "env_read": [],
+    "env_read": [
+     "CARGO_MANIFEST_DIR"
+    ],
     "env_set": [],
     "files": [],
     "sockets": [],
@@ -10265,6 +10344,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_PKG_VERSION",
      "GENRIGHT_DATA_ROOT",
      "GENRIGHT_QTS_IDLE_SECS",
      "GENRIGHT_QTS_MODEL_DIR",
@@ -10274,7 +10354,11 @@
      "RIGHTKIT_REQUIRE_ASSETS",
      "RIGHTKIT_TTS_IDLE_SECS",
      "RIGHTKIT_TTS_MODEL_DIR",
-     "RIGHTKIT_TTS_WORKER"
+     "RIGHTKIT_TTS_WORKER",
+     "RK_TTS_OUT",
+     "RK_TTS_RATE",
+     "RK_TTS_TEXT",
+     "RK_TTS_VOICE"
     ],
     "env_set": [
      "GENRIGHT_QTS_IDLE_SECS",
@@ -10455,6 +10539,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
      "QTS_GREEDY",
      "QTS_REPLAY_CB0",
      "QTS_REPLAY_HIDDEN",
@@ -10700,6 +10785,7 @@
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [
+     "CARGO_MANIFEST_DIR",
      "ORT_DYLIB_PATH",
      "RIGHTKIT_ORT_TEST_DYLIB",
      "RIGHTKIT_REQUIRE_ASSETS",
@@ -11268,7 +11354,8 @@
     {
      "name": "@rightkit/release",
      "kind": "peer",
-     "version": "^0.4.1 || ^0.5.0 || ^0.6.0"
+     "version": "^0.4.1 || ^0.5.0 || ^0.6.0",
+     "optional": true
     }
    ],
    "external_deps": [],
@@ -11307,9 +11394,7 @@
    "declared_unused": [],
    "self_dev_dep": false,
    "used_undeclared": [],
-   "used_only_in_tests_but_normal_dep": [
-    "@rightkit/release"
-   ],
+   "used_only_in_tests_but_normal_dep": [],
    "unknown_rightkit_refs": [],
    "runtime": {
     "env_read": [],
@@ -11958,7 +12043,10 @@
      "RIGHTKIT_CHROME_FOR_TESTING_ROOT",
      "RIGHTKIT_CHROME_HEADLESS_SHELL",
      "RIGHTKIT_REQUIRE_ASSETS",
+     "RK_QA_KILL",
+     "RK_QA_PROFILE",
      "RK_QA_REMOVE_DIR",
+     "RK_QA_ROWS",
      "XDG_DATA_HOME"
     ],
     "env_set": [
@@ -12139,9 +12227,9 @@
     "test:signer:windows",
     "verify:standalone"
    ],
-   "files": 713,
-   "loc": 185477,
-   "test_files": 340,
+   "files": 714,
+   "loc": 185523,
+   "test_files": 362,
    "used": {
     "@rightkit/outdated": {
      "sites": 1,
@@ -12227,6 +12315,7 @@
      "PROBE_OUT",
      "QA_RECORDER_EXIT",
      "READY_FILE",
+     "RIGHTAPPS_ADMIN_TOKEN",
      "RIGHTAPPS_API_URL",
      "RIGHTAPPS_PUBLIC_DOWNLOAD_BASE",
      "RIGHTAPPS_RELEASE_TOKEN",
@@ -12331,6 +12420,7 @@
      "RIGHT_RELEASE_VAULT_STATE_ROOT",
      "RIGHT_SUITE_CONTRACT_WORKSPACE",
      "RIGHT_TEST_ENV",
+     "RK_ACL_PROBE_TARGET",
      "RK_ADVISORY_CACHE_ROOT",
      "RK_BROKER_HEALTH_FILE",
      "RK_CLI_SPY_LOG",
@@ -13121,22 +13211,26 @@
     {
      "name": "@rightkit/license",
      "kind": "peer",
-     "version": ">=0.3.0 <0.4"
+     "version": ">=0.3.0 <0.4",
+     "optional": true
     },
     {
      "name": "@rightkit/logs",
      "kind": "peer",
-     "version": ">=0.1.0"
+     "version": ">=0.1.0",
+     "optional": true
     },
     {
      "name": "@rightkit/theme",
      "kind": "peer",
-     "version": ">=0.2.0 <1"
+     "version": ">=0.2.0 <1",
+     "optional": true
     },
     {
      "name": "@rightkit/app-update",
      "kind": "peer",
-     "version": ">=0.2.0"
+     "version": ">=0.2.0",
+     "optional": true
     }
    ],
    "external_deps": [],
@@ -14904,7 +14998,7 @@
    "path": "../rightkit-credentials",
    "version": "0.4.0",
    "used_sites": 4,
-   "used_non_test": 4
+   "used_non_test": 3
   },
   {
    "from": "rightkit-tauri-shell",
@@ -15053,7 +15147,7 @@
    "from": "@rightkit/legal",
    "to": "@rightkit/release",
    "kind": "peer",
-   "optional": false,
+   "optional": true,
    "target": null,
    "path": null,
    "version": "^0.4.1 || ^0.5.0 || ^0.6.0",
@@ -15273,7 +15367,7 @@
    "from": "@rightkit/settings-ui",
    "to": "@rightkit/license",
    "kind": "peer",
-   "optional": false,
+   "optional": true,
    "target": null,
    "path": null,
    "version": ">=0.3.0 <0.4",
@@ -15284,7 +15378,7 @@
    "from": "@rightkit/settings-ui",
    "to": "@rightkit/logs",
    "kind": "peer",
-   "optional": false,
+   "optional": true,
    "target": null,
    "path": null,
    "version": ">=0.1.0",
@@ -15295,7 +15389,7 @@
    "from": "@rightkit/settings-ui",
    "to": "@rightkit/theme",
    "kind": "peer",
-   "optional": false,
+   "optional": true,
    "target": null,
    "path": null,
    "version": ">=0.2.0 <1",
@@ -15306,7 +15400,7 @@
    "from": "@rightkit/settings-ui",
    "to": "@rightkit/app-update",
    "kind": "peer",
-   "optional": false,
+   "optional": true,
    "target": null,
    "path": null,
    "version": ">=0.2.0",
@@ -18070,7 +18164,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "CARGO_BUILD_TARGET_DIR": {
    "readers": {
@@ -18097,7 +18192,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "CARGO_CFG_TARGET_ARCH": {
    "readers": {
@@ -18113,7 +18209,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "CARGO_CFG_TARGET_ENV": {
    "readers": {
@@ -18129,7 +18226,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "CARGO_CFG_TARGET_OS": {
    "readers": {
@@ -18149,7 +18247,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "CARGO_HOME": {
    "readers": {
@@ -18175,7 +18274,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "CARGO_HTTP_PROXY": {
    "readers": {
@@ -18194,7 +18294,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "CARGO_INCREMENTAL": {
    "readers": {
@@ -18216,7 +18317,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "CARGO_LOG": {
    "readers": {
@@ -18240,18 +18342,147 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "CARGO_MANIFEST_DIR": {
    "readers": {
+    "rightkit-agent-tools": [
+     "crates/rightkit-agent-tools/tests/schema_control_conformance.rs:172 (test)"
+    ],
+    "rightkit-agents": [
+     "crates/rightkit-agents/tests/scope.rs:51 (test)",
+     "crates/rightkit-agents/tests/scope.rs:108 (test)",
+     "crates/rightkit-agents/tests/scope.rs:151 (test)",
+     "crates/rightkit-agents/tests/scope.rs:171 (test)",
+     "crates/rightkit-agents/tests/common/mod.rs:21 (test)"
+    ],
+    "rightkit-align": [
+     "crates/rightkit-align/tests/contract.rs:79 (test)"
+    ],
+    "rightkit-asr": [
+     "crates/rightkit-asr/tests/certify_heardright.rs:25 (test)",
+     "crates/rightkit-asr/tests/e2e_whisper_ggml.rs:31 (test)",
+     "crates/rightkit-asr/tests/transcript_roundtrip.rs:39 (test)",
+     "crates/rightkit-asr/tests/e2e_parakeet.rs:37 (test)",
+     "crates/rightkit-asr/tests/e2e_parakeet.rs:82 (test)",
+     "crates/rightkit-asr/tests/e2e_whisper.rs:80 (test)"
+    ],
+    "rightkit-channel-memory": [
+     "crates/rightkit-channel-memory/tests/proof_rules.rs:19 (test)",
+     "crates/rightkit-channel-memory/tests/consumers.rs:20 (test)",
+     "crates/rightkit-channel-memory/tests/schema_copy.rs:9 (test)",
+     "crates/rightkit-channel-memory/tests/record_rules.rs:21 (test)",
+     "crates/rightkit-channel-memory/tests/fixtures.rs:12 (test)",
+     "crates/rightkit-channel-memory/tests/conflicts.rs:15 (test)"
+    ],
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/tests/package_metadata.rs:5 (test)"
+    ],
+    "rightkit-compose": [
+     "crates/rightkit-compose/tests/camera_conformance.rs:27 (test)"
+    ],
+    "rightkit-contracts": [
+     "crates/rightkit-contracts/tests/schema_copy.rs:8 (test)",
+     "crates/rightkit-contracts/tests/fixtures.rs:13 (test)",
+     "crates/rightkit-contracts/tests/contracts.rs:109 (test)",
+     "crates/rightkit-contracts/tests/contracts.rs:128 (test)",
+     "crates/rightkit-contracts/tests/contracts.rs:148 (test)",
+     "crates/rightkit-contracts/tests/contracts.rs:161 (test)"
+    ],
+    "rightkit-credentials": [
+     "crates/rightkit-credentials/tests/store.rs:1610 (test)",
+     "crates/rightkit-credentials/src/macos.rs:1335 (test)",
+     "crates/rightkit-credentials/src/macos.rs:1362 (test)"
+    ],
+    "rightkit-daemon": [
+     "crates/rightkit-daemon/tests/remote_conformance.rs:16 (test)",
+     "crates/rightkit-daemon/tests/remote_conformance.rs:20 (test)",
+     "crates/rightkit-daemon/tests/remote_conformance.rs:27 (test)",
+     "crates/rightkit-daemon/tests/remote_conformance.rs:405 (test)"
+    ],
+    "rightkit-embed": [
+     "crates/rightkit-embed/tests/batch_real_model_e2e.rs:20 (test)",
+     "crates/rightkit-embed/tests/accelerator_parity_e2e.rs:19 (test)",
+     "crates/rightkit-embed/tests/gemma2_real_model_e2e.rs:17 (test)",
+     "crates/rightkit-embed/tests/e40_real_model_e2e.rs:22 (test)",
+     "crates/rightkit-embed/tests/coreml_real_model_e2e.rs:23 (test)",
+     "crates/rightkit-embed/tests/e40_common/mod.rs:11 (test)"
+    ],
+    "rightkit-ffmpeg": [
+     "crates/rightkit-ffmpeg/tests/native_catalog_e2e.rs:16 (test)",
+     "crates/rightkit-ffmpeg/tests/native_catalog_e2e.rs:321 (test)",
+     "crates/rightkit-ffmpeg/tests/native_catalog_e2e.rs:351 (test)",
+     "crates/rightkit-ffmpeg/tests/promote_evidence_windows.rs:167 (test)",
+     "crates/rightkit-ffmpeg/tests/common/mod.rs:52 (test)",
+     "crates/rightkit-ffmpeg/tests/common/mod.rs:62 (test)"
+    ],
+    "rightkit-fsindex": [
+     "crates/rightkit-fsindex/tests/index.rs:347 (test)"
+    ],
+    "rightkit-hooks": [
+     "crates/rightkit-hooks/tests/hooks.rs:14 (test)"
+    ],
+    "rightkit-http": [
+     "crates/rightkit-http/tests/classify_parity.rs:65 (test)"
+    ],
+    "rightkit-logs": [
+     "crates/rightkit-logs/tests/scrub_parity.rs:150 (test)"
+    ],
+    "rightkit-ocr": [
+     "crates/rightkit-ocr/tests/artifact_contract.rs:153 (test)",
+     "crates/rightkit-ocr/tests/native_e2e.rs:29 (test)",
+     "crates/rightkit-ocr/tests/common/mod.rs:28 (test)"
+    ],
+    "rightkit-onnx": [
+     "crates/rightkit-onnx/tests/common/mod.rs:27 (test)"
+    ],
+    "rightkit-ownership": [
+     "crates/rightkit-ownership/tests/ownership_fixtures.rs:61 (test)",
+     "crates/rightkit-ownership/src/tests.rs:878 (test)"
+    ],
+    "rightkit-pdf": [
+     "crates/rightkit-pdf/tests/extract_quality.rs:173 (test)",
+     "crates/rightkit-pdf/tests/e2e.rs:22 (test)"
+    ],
     "rightkit-qa": [
-     "crates/rightkit-qa/tests/run_tests.rs:65 (test)"
+     "crates/rightkit-qa/tests/run_tests.rs:65 (test)",
+     "crates/rightkit-qa/tests/media_ffmpeg.rs:14 (test)",
+     "crates/rightkit-qa/src/harness.rs:23"
+    ],
+    "rightkit-qa-driver": [
+     "crates/rightkit-qa-driver/tests/offscreen_macos.rs:121 (test)"
+    ],
+    "rightkit-record": [
+     "crates/rightkit-record/src/macos/golden.rs:30"
+    ],
+    "rightkit-speech-client": [
+     "crates/rightkit-speech-client/tests/e2e.rs:125 (test)"
+    ],
+    "rightkit-sync": [
+     "crates/rightkit-sync/tests/helper_e2e.rs:568 (test)"
     ],
     "rightkit-tauri-shell": [
-     "crates/rightkit-tauri-shell/build.rs:21"
+     "crates/rightkit-tauri-shell/build.rs:21",
+     "crates/rightkit-tauri-shell/tests/engine_composition.rs:362 (test)",
+     "crates/rightkit-tauri-shell/tests/engine_composition.rs:369 (test)",
+     "crates/rightkit-tauri-shell/tests/devtools_policy.rs:734 (test)",
+     "crates/rightkit-tauri-shell/tests/devtools_policy.rs:881 (test)",
+     "crates/rightkit-tauri-shell/tests/devtools_policy.rs:901 (test)"
+    ],
+    "rightkit-transcript": [
+     "crates/rightkit-transcript/tests/caption_parity.rs:40 (test)"
+    ],
+    "rightkit-tts-qwen": [
+     "crates/rightkit-tts-qwen/src/voice_clone_prompt.rs:206 (test)"
     ],
     "rightkit-tts-qwen-sys": [
-     "crates/rightkit-tts-qwen-sys/build.rs:9"
+     "crates/rightkit-tts-qwen-sys/build.rs:9",
+     "crates/rightkit-tts-qwen-sys/tests/bindings_match.rs:18 (test)"
+    ],
+    "rightkit-vad": [
+     "crates/rightkit-vad/tests/e2e_silero.rs:26 (test)",
+     "crates/rightkit-vad/tests/e2e_silero.rs:112 (test)"
     ]
    },
    "setters": {
@@ -18266,7 +18497,6 @@
     "rightkit-credentials",
     "rightkit-daemon",
     "rightkit-ffmpeg",
-    "rightkit-ownership",
     "rightkit-qa",
     "rightkit-record",
     "rightkit-tauri-shell",
@@ -18275,7 +18505,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "CARGO_NET_GIT_FETCH_WITH_CLI": {
    "readers": {
@@ -18293,7 +18524,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "CARGO_PKG_NAME": {
    "readers": {
@@ -18313,7 +18545,116 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
+  },
+  "CARGO_PKG_VERSION": {
+   "readers": {
+    "rightkit-agents": [
+     "crates/rightkit-agents/src/session.rs:807"
+    ],
+    "rightkit-android": [
+     "crates/rightkit-android/src/crash.rs:139",
+     "crates/rightkit-android/src/lib.rs:69",
+     "crates/rightkit-android/src/lib.rs:116 (test)"
+    ],
+    "rightkit-cache": [
+     "crates/rightkit-cache/benches/budget.rs:60 (test)"
+    ],
+    "rightkit-daemon": [
+     "crates/rightkit-daemon/benches/budget.rs:118 (test)",
+     "crates/rightkit-daemon/benches/budget.rs:244 (test)",
+     "crates/rightkit-daemon/benches/remote_budget.rs:149 (test)"
+    ],
+    "rightkit-file-watch": [
+     "crates/rightkit-file-watch/benches/budget.rs:180 (test)"
+    ],
+    "rightkit-fsindex": [
+     "crates/rightkit-fsindex/benches/budget.rs:152 (test)"
+    ],
+    "rightkit-http": [
+     "crates/rightkit-http/src/client.rs:823"
+    ],
+    "rightkit-identity": [
+     "crates/rightkit-identity/src/build_info.rs:94",
+     "crates/rightkit-identity/src/build_info.rs:104"
+    ],
+    "rightkit-job-queue": [
+     "crates/rightkit-job-queue/benches/budget.rs:105 (test)",
+     "crates/rightkit-job-queue/benches/pool_budget.rs:174 (test)"
+    ],
+    "rightkit-license": [
+     "crates/rightkit-license/src/client/types.rs:324"
+    ],
+    "rightkit-logs": [
+     "crates/rightkit-logs/benches/budget.rs:61 (test)",
+     "crates/rightkit-logs/benches/budget_detached.rs:110 (test)"
+    ],
+    "rightkit-mcp": [
+     "crates/rightkit-mcp/src/client.rs:57",
+     "crates/rightkit-mcp/src/advanced_http.rs:316"
+    ],
+    "rightkit-models": [
+     "crates/rightkit-models/tests/vetted_http.rs:1070 (test)",
+     "crates/rightkit-models/tests/vetted_http.rs:1096 (test)",
+     "crates/rightkit-models/tests/vetted_http.rs:1103 (test)",
+     "crates/rightkit-models/tests/http_options.rs:20 (test)",
+     "crates/rightkit-models/src/http.rs:134",
+     "crates/rightkit-models/src/suite/grant.rs:194"
+    ],
+    "rightkit-ownership": [
+     "crates/rightkit-ownership/src/worker.rs:51"
+    ],
+    "rightkit-qa": [
+     "crates/rightkit-qa/benches/budget.rs:94 (test)",
+     "crates/rightkit-qa/src/plugin.rs:434",
+     "crates/rightkit-qa/src/bin/rightkit-qa.rs:665",
+     "crates/rightkit-qa/src/bin/rightkit-qa.rs:871 (test)",
+     "crates/rightkit-qa/src/journeys/run.rs:2477",
+     "crates/rightkit-qa/src/journeys/run.rs:2588"
+    ],
+    "rightkit-record": [
+     "crates/rightkit-record/src/recorder.rs:282"
+    ],
+    "rightkit-send": [
+     "crates/rightkit-send/benches/budget.rs:77 (test)"
+    ],
+    "rightkit-sync": [
+     "crates/rightkit-sync/benches/budget.rs:257 (test)"
+    ],
+    "rightkit-tauri-shell": [
+     "crates/rightkit-tauri-shell/benches/budget.rs:196 (test)",
+     "crates/rightkit-tauri-shell/benches/budget_native.rs:286 (test)",
+     "crates/rightkit-tauri-shell/benches/budget_native.rs:382 (test)",
+     "crates/rightkit-tauri-shell/benches/budget_native.rs:581 (test)",
+     "crates/rightkit-tauri-shell/src/crash_commands.rs:10",
+     "crates/rightkit-tauri-shell/src/logs_commands.rs:10"
+    ],
+    "rightkit-tts": [
+     "crates/rightkit-tts/src/worker.rs:180"
+    ]
+   },
+   "setters": {},
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [
+    "rightkit-agents",
+    "rightkit-android",
+    "rightkit-http",
+    "rightkit-identity",
+    "rightkit-license",
+    "rightkit-mcp",
+    "rightkit-models",
+    "rightkit-ownership",
+    "rightkit-qa",
+    "rightkit-record",
+    "rightkit-tauri-shell",
+    "rightkit-tts"
+   ],
+   "cross_unit": true,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "CARGO_TARGET_DIR": {
    "readers": {
@@ -18348,7 +18689,49 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "CARGO_TARGET_TMPDIR": {
+   "readers": {
+    "rightkit-models": [
+     "crates/rightkit-models/tests/common/mod.rs:32 (test)"
+    ],
+    "rightkit-qa": [
+     "crates/rightkit-qa/tests/run_tests.rs:100 (test)"
+    ],
+    "rightkit-record": [
+     "crates/rightkit-record/tests/common/mod.rs:27 (test)"
+    ]
+   },
+   "setters": {},
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RIGHTAPPS_ADMIN_TOKEN": {
+   "readers": {
+    "@rightkit/release": [
+     "packages/release/right-suite-contract.test.mjs:856 (test)"
+    ]
+   },
+   "setters": {
+    "@rightkit/release": [
+     "packages/release/release-token.test.mjs:9 (test)",
+     "packages/release/publish-update.test.mjs:282 (test)"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTAPPS_API_URL": {
    "readers": {
@@ -18367,7 +18750,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTAPPS_PUBLIC_DOWNLOAD_BASE": {
    "readers": {
@@ -18381,7 +18765,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTAPPS_RELEASE_TOKEN": {
    "readers": {
@@ -18407,7 +18792,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTAPPS_RELEASE_TOKEN_FILE": {
    "readers": {
@@ -18433,7 +18819,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTAPPS_STORE_SLUG": {
    "readers": {
@@ -18451,7 +18838,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTAPPS_UPDATE_DOWNLOAD_BASE": {
    "readers": {
@@ -18465,7 +18853,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_ADB": {
    "readers": {
@@ -18483,7 +18872,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_AGENT_VOLUMES": {
    "readers": {
@@ -18507,7 +18897,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_ANDROID_SERIAL": {
    "readers": {
@@ -18525,7 +18916,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_ANDROID_SIGNING_PROPERTIES": {
    "readers": {
@@ -18551,39 +18943,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RIGHTKIT_APP_MODE": {
-   "readers": {},
-   "setters": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/scenario.rs:2764 (test)"
-    ]
-   },
-   "named_in_consts": {},
-   "removers": {},
-   "mentioned_by": [
-    "rightkit-qa"
-   ],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RIGHTKIT_APP_TOKEN": {
-   "readers": {},
-   "setters": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/scenario.rs:2790 (test)"
-    ]
-   },
-   "named_in_consts": {},
-   "removers": {},
-   "mentioned_by": [
-    "rightkit-qa"
-   ],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_ARTIFACT_DIR": {
    "readers": {
@@ -18606,7 +18967,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_ARTIFACT_STORAGE_THRESHOLD_BYTES": {
    "readers": {
@@ -18620,7 +18982,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_ASR_CERTIFY": {
    "readers": {
@@ -18634,7 +18997,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_ASR_CERTIFY_REPORT": {
    "readers": {
@@ -18648,7 +19012,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_ATTEST_STAGE_NONCE": {
    "readers": {
@@ -18681,7 +19046,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_BROKER_GUARD_LOG": {
    "readers": {
@@ -18708,7 +19074,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_BUILD_BROKER_SOCKET": {
    "readers": {
@@ -18742,12 +19109,12 @@
     ]
    },
    "mentioned_by": [
-    "@rightkit/release",
-    "rightkit-mcp"
+    "@rightkit/release"
    ],
-   "cross_unit": true,
+   "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_BUILD_MODE": {
    "readers": {
@@ -18772,6 +19139,7 @@
    "cross_unit": false,
    "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
+   "read_only_by_tests": true,
    "app_readers": {
     "cutright": [
      "cutright/apps/cutright/right-release.config.mjs:19",
@@ -18788,8 +19156,7 @@
     "scraperight": [
      "scraperight/scripts/prepare-runtime.mjs:95"
     ]
-   },
-   "read_by_apps_only": true
+   }
   },
   "RIGHTKIT_BUILD_OWNERSHIP": {
    "readers": {
@@ -18823,7 +19190,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_BUILD_OWNERSHIP_FILE": {
    "readers": {
@@ -18857,7 +19225,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_BUILD_PROFILE": {
    "readers": {
@@ -18866,7 +19235,11 @@
      "crates/rightkit-identity/src/build_info.rs:161"
     ]
    },
-   "setters": {},
+   "setters": {
+    "rightkit-identity": [
+     "crates/rightkit-identity/src/build_info.rs:175"
+    ]
+   },
    "named_in_consts": {
     "rightkit-identity": [
      "crates/rightkit-identity/src/build_info.rs:11 ENV_PROFILE"
@@ -18877,8 +19250,9 @@
     "rightkit-identity"
    ],
    "cross_unit": false,
-   "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_BUILD_UTC": {
    "readers": {
@@ -18887,7 +19261,11 @@
      "crates/rightkit-identity/src/build_info.rs:166"
     ]
    },
-   "setters": {},
+   "setters": {
+    "rightkit-identity": [
+     "crates/rightkit-identity/src/build_info.rs:177"
+    ]
+   },
    "named_in_consts": {
     "rightkit-identity": [
      "crates/rightkit-identity/src/build_info.rs:13 ENV_UTC"
@@ -18898,13 +19276,14 @@
     "rightkit-identity"
    ],
    "cross_unit": false,
-   "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CALLING_GATE": {
    "readers": {
     "@rightkit/release": [
-     "packages/release/bin/rightkit-gate.mjs:4095"
+     "packages/release/bin/rightkit-gate.mjs:4113"
     ]
    },
    "setters": {
@@ -18919,7 +19298,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CARGO_PROFILE": {
    "readers": {
@@ -18939,6 +19319,7 @@
    "cross_unit": false,
    "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
+   "read_only_by_tests": true,
    "app_readers": {
     "genright": [
      "genright/right-release.config.mjs:18"
@@ -18946,8 +19327,7 @@
     "heardright": [
      "heardright/tauri-app-next/scripts/prepare-macos-dev-app.mjs:10"
     ]
-   },
-   "read_by_apps_only": true
+   }
   },
   "RIGHTKIT_CARGO_SCAN": {
    "readers": {
@@ -18979,7 +19359,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CARRIED_CARGO_MAP": {
    "readers": {
@@ -19013,7 +19394,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CHANNEL": {
    "readers": {
@@ -19022,7 +19404,11 @@
      "crates/rightkit-identity/src/build_info.rs:165"
     ]
    },
-   "setters": {},
+   "setters": {
+    "rightkit-identity": [
+     "crates/rightkit-identity/src/build_info.rs:176"
+    ]
+   },
    "named_in_consts": {
     "rightkit-identity": [
      "crates/rightkit-identity/src/build_info.rs:12 ENV_CHANNEL"
@@ -19033,8 +19419,9 @@
     "rightkit-identity"
    ],
    "cross_unit": false,
-   "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CHROME_FOR_TESTING": {
    "readers": {
@@ -19075,6 +19462,7 @@
    "cross_unit": true,
    "read_never_set_in_rk": true,
    "set_never_read_in_rk": false,
+   "read_only_by_tests": false,
    "app_readers": {
     "legion": [
      "legion/engine/crates/legion-audit/src/native_providers/legacy_checks/runtime_capture.rs:3121"
@@ -19118,7 +19506,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CHROME_HEADLESS_SHELL": {
    "readers": {
@@ -19151,6 +19540,7 @@
    "cross_unit": true,
    "read_never_set_in_rk": true,
    "set_never_read_in_rk": false,
+   "read_only_by_tests": false,
    "app_readers": {
     "legion": [
      "legion/engine/crates/legion-audit/src/native_providers/legacy_checks/runtime_capture.rs:3122"
@@ -19173,7 +19563,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CLONE_XVOL_DIR": {
    "readers": {
@@ -19187,7 +19578,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CLOUDKIT_HELPER": {
    "readers": {
@@ -19201,12 +19593,13 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_COMPILE_INPUTS": {
    "readers": {
     "@rightkit/release": [
-     "packages/release/bin/rightkit-gate.mjs:3114"
+     "packages/release/bin/rightkit-gate.mjs:3132"
     ]
    },
    "setters": {
@@ -19219,7 +19612,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CONTROL_POLICY": {
    "readers": {},
@@ -19239,7 +19633,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CONTROL_SERVICE": {
    "readers": {
@@ -19263,7 +19658,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CONTROL_STACK_ON_TIMEOUT": {
    "readers": {
@@ -19279,7 +19675,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CONTROL_TRACE": {
    "readers": {
@@ -19295,7 +19692,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CREDENTIALS_CHILD_KEYCHAIN": {
    "readers": {
@@ -19313,7 +19711,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CREDENTIALS_CHILD_PASSWORD": {
    "readers": {
@@ -19331,7 +19730,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CREDENTIALS_LOCK_CHILD": {
    "readers": {
@@ -19353,7 +19753,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CREDENTIALS_LOCK_DIR": {
    "readers": {
@@ -19371,7 +19772,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_CREDENTIALS_LOCK_NAMESPACE": {
    "readers": {
@@ -19389,7 +19791,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_DAEMON_BUDGET_TLS_CERT": {
    "readers": {
@@ -19403,7 +19806,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_DAEMON_BUDGET_TLS_KEY": {
    "readers": {
@@ -19417,7 +19821,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_DAEMON_DB_PHASE_CHILD_ROOT": {
    "readers": {
@@ -19439,7 +19844,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_DAEMON_DB_PHASE_CHILD_STOP": {
    "readers": {
@@ -19461,26 +19867,26 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_DATA_DIR": {
    "readers": {},
    "setters": {
     "rightkit-qa": [
-     "crates/rightkit-qa/src/journeys/tests.rs:2078",
-     "crates/rightkit-qa/src/journeys/tests.rs:2092",
-     "crates/rightkit-qa/src/journeys/tests.rs:2162",
-     "crates/rightkit-qa/src/journeys/tests.rs:1333"
+     "crates/rightkit-qa/src/journeys/tests.rs:2078 (test)",
+     "crates/rightkit-qa/src/journeys/tests.rs:2092 (test)",
+     "crates/rightkit-qa/src/journeys/tests.rs:2162 (test)",
+     "crates/rightkit-qa/src/journeys/tests.rs:1333 (test)"
     ]
    },
    "named_in_consts": {},
    "removers": {},
-   "mentioned_by": [
-    "rightkit-qa"
-   ],
+   "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_DATA_ROOT": {
    "readers": {
@@ -19514,7 +19920,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_DB_RELOCATION_CHILD_PHASE": {
    "readers": {
@@ -19532,7 +19939,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_DEV_SIGNING": {
    "readers": {
@@ -19562,7 +19970,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_DISABLE_VENDOR_CLIS": {
    "readers": {
@@ -19582,7 +19991,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_EMBED_MODEL_DIR": {
    "readers": {
@@ -19596,7 +20006,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_EXEC_TEST_SECRET": {
    "readers": {
@@ -19614,7 +20025,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_EXPECTED_CWD": {
    "readers": {
@@ -19632,7 +20044,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_EXTERNAL_ROOT": {
    "readers": {
@@ -19644,7 +20057,7 @@
    },
    "setters": {
     "@rightkit/release": [
-     "packages/release/build-ownership.test.mjs:1324 (test)"
+     "packages/release/build-ownership.test.mjs:1329 (test)"
     ]
    },
    "named_in_consts": {},
@@ -19652,7 +20065,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_FFMPEG": {
    "readers": {
@@ -19668,7 +20082,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_FORCE_PRO": {
    "readers": {},
@@ -19682,7 +20097,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_FS_LEASE_KILL_HELPER": {
    "readers": {
@@ -19706,7 +20122,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_FS_LOCK_PROBE": {
    "readers": {
@@ -19728,7 +20145,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_FS_TEST_OTHER_VOLUME": {
    "readers": {
@@ -19742,7 +20160,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_FS_TXN_KILL_ASIDE": {
    "readers": {
@@ -19764,7 +20183,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_FS_TXN_KILL_HELPER": {
    "readers": {
@@ -19786,7 +20206,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_FS_TXN_KILL_MODE": {
    "readers": {
@@ -19808,13 +20229,14 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_GATE_NO_BROKER": {
    "readers": {
     "@rightkit/release": [
      "packages/release/managed-cargo.mjs:41",
-     "packages/release/bin/rightkit-gate.mjs:2866"
+     "packages/release/bin/rightkit-gate.mjs:2884"
     ]
    },
    "setters": {
@@ -19838,7 +20260,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_GATE_TARGET_DIRS": {
    "readers": {
@@ -19851,7 +20274,7 @@
     "@rightkit/release": [
      "packages/release/test-command.test.mjs:268 (test)",
      "packages/release/suite-signing.test.mjs:239 (test)",
-     "packages/release/bin/rightkit-gate.mjs:1636"
+     "packages/release/bin/rightkit-gate.mjs:1654"
     ]
    },
    "named_in_consts": {
@@ -19865,7 +20288,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_GIT_DIRTY": {
    "readers": {
@@ -19874,7 +20298,11 @@
      "crates/rightkit-identity/src/build_info.rs:155"
     ]
    },
-   "setters": {},
+   "setters": {
+    "rightkit-identity": [
+     "crates/rightkit-identity/src/build_info.rs:174"
+    ]
+   },
    "named_in_consts": {
     "rightkit-identity": [
      "crates/rightkit-identity/src/build_info.rs:10 ENV_GIT_DIRTY"
@@ -19885,8 +20313,9 @@
     "rightkit-identity"
    ],
    "cross_unit": false,
-   "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_GIT_REV": {
    "readers": {
@@ -19895,7 +20324,11 @@
      "crates/rightkit-identity/src/build_info.rs:151"
     ]
    },
-   "setters": {},
+   "setters": {
+    "rightkit-identity": [
+     "crates/rightkit-identity/src/build_info.rs:173"
+    ]
+   },
    "named_in_consts": {
     "rightkit-identity": [
      "crates/rightkit-identity/src/build_info.rs:9 ENV_GIT_REV"
@@ -19906,8 +20339,9 @@
     "rightkit-identity"
    ],
    "cross_unit": false,
-   "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_GUARD_DATA_ROOT": {
    "readers": {
@@ -19929,7 +20363,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_HW_JSON": {
    "readers": {
@@ -19945,7 +20380,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_INHERITED_TERMINAL_GROUP": {
    "readers": {
@@ -19967,7 +20403,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_IOS_DEVICE": {
    "readers": {
@@ -19986,7 +20423,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_ISOLATED_CHECKOUT": {
    "readers": {
@@ -20009,7 +20447,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RIGHTKIT_JOBS_TEST_CRASH_DIR": {
    "readers": {
@@ -20031,7 +20470,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_JOBS_TEST_CRASH_ID": {
    "readers": {
@@ -20053,7 +20493,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_JOBS_TEST_FIFO_DIR": {
    "readers": {
@@ -20075,7 +20516,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_JOBS_TEST_FIFO_HOLD_MS": {
    "readers": {
@@ -20093,7 +20535,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_JOBS_TEST_FIFO_INDEX": {
    "readers": {
@@ -20115,7 +20558,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_JOBS_TEST_FIFO_OUT": {
    "readers": {
@@ -20137,7 +20581,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_JOURNEYS_PROTOCOL": {
    "readers": {
@@ -20162,7 +20607,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_JOURNEYS_RESULTS": {
    "readers": {
@@ -20194,7 +20640,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_JOURNEYS_SELECTION": {
    "readers": {
@@ -20227,7 +20674,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_KEPT_ENV": {
    "readers": {
@@ -20245,7 +20693,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_LINUX_BROKER_CLIENT": {
    "readers": {},
@@ -20270,7 +20719,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_LINUX_BROKER_CLIENT_SHA256": {
    "readers": {
@@ -20299,7 +20749,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_LINUX_BROKER_SOCKET": {
    "readers": {},
@@ -20324,7 +20775,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_LOGS_INHERITED_STDERR_CHILD": {
    "readers": {
@@ -20346,7 +20798,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_MACOS_FIXTURE_NETWORK_PORT": {
    "readers": {
@@ -20368,7 +20821,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_MACOS_FIXTURE_NETWORK_ROLE": {
    "readers": {
@@ -20390,7 +20844,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_MAKENSIS": {
    "readers": {
@@ -20404,7 +20859,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_MANAGED_AGENT_BIN": {
    "readers": {
@@ -20418,7 +20874,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_MANAGED_AGENT_SHIM": {
    "readers": {
@@ -20441,7 +20898,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RIGHTKIT_MANAGED_ROOT": {
    "readers": {
@@ -20482,7 +20940,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_MISSING_ENV": {
    "readers": {
@@ -20500,7 +20959,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_NATIVE_CAPTURE_DIRECTORY": {
    "readers": {
@@ -20524,7 +20984,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_NPM_TOKEN": {
    "readers": {
@@ -20543,7 +21004,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RIGHTKIT_OCR_MODEL_DIR": {
    "readers": {
@@ -20561,7 +21023,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_OCR_ORT_RUNTIME": {
    "readers": {
@@ -20579,7 +21042,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_OFFSCREEN": {
    "readers": {
@@ -20606,7 +21070,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_OFFSCREEN_REPORT": {
    "readers": {
@@ -20630,7 +21095,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_ORT_HELPER_TEST_OVERRIDE": {
    "readers": {
@@ -20649,7 +21115,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_ORT_TEST_DLL_DIR": {
    "readers": {
@@ -20664,7 +21131,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_ORT_TEST_DYLIB": {
    "readers": {
@@ -20684,7 +21152,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_PARAKEET_COREML_DIR": {
    "readers": {
@@ -20703,21 +21172,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RIGHTKIT_PARAKEET_COREML_PKG_DIR": {
-   "readers": {},
-   "setters": {
-    "rightkit-asr": [
-     "crates/rightkit-asr/tests/e2e_parakeet.rs:250 (test)"
-    ]
-   },
-   "named_in_consts": {},
-   "removers": {},
-   "mentioned_by": [],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_PDF_CORPUS_FILE": {
    "readers": {
@@ -20731,7 +21187,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_PDF_QUALITY_ALLOW_SKIP": {
    "readers": {
@@ -20745,7 +21202,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_PDF_QUALITY_CORPUS": {
    "readers": {
@@ -20759,7 +21217,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_PDF_QUALITY_PIN_DIR": {
    "readers": {
@@ -20773,7 +21232,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_PDF_QUALITY_SOURCE": {
    "readers": {
@@ -20787,7 +21247,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_PLAYBACK_FFMPEG": {
    "readers": {
@@ -20801,39 +21262,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RIGHTKIT_POSTRIGHT_DATA_SOURCE": {
-   "readers": {},
-   "setters": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/scenario.rs:2456 (test)"
-    ]
-   },
-   "named_in_consts": {},
-   "removers": {},
-   "mentioned_by": [
-    "rightkit-qa"
-   ],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RIGHTKIT_POSTRIGHT_SEED": {
-   "readers": {},
-   "setters": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/scenario.rs:2457 (test)"
-    ]
-   },
-   "named_in_consts": {},
-   "removers": {},
-   "mentioned_by": [
-    "rightkit-qa"
-   ],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_PROBE_NO_INHERIT": {
    "readers": {
@@ -20851,7 +21281,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_PROCESS_PARENT_DEATH_ROLE": {
    "readers": {
@@ -20873,7 +21304,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_PROVENANCE_FIXTURE": {
    "readers": {
@@ -20888,14 +21320,15 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_PUBLISHER": {
    "readers": {
     "@rightkit/release": [
-     "packages/release/bin/rightkit-gate.mjs:1450",
-     "packages/release/bin/rightkit-gate.mjs:1518",
-     "packages/release/bin/rightkit-gate.mjs:2443"
+     "packages/release/bin/rightkit-gate.mjs:1468",
+     "packages/release/bin/rightkit-gate.mjs:1536",
+     "packages/release/bin/rightkit-gate.mjs:2461"
     ]
    },
    "setters": {
@@ -20913,7 +21346,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_APP_BINARY": {
    "readers": {
@@ -20956,7 +21390,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_BACKGROUND": {
    "readers": {
@@ -20977,7 +21412,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_CAPTURE_DIR": {
    "readers": {
@@ -21000,7 +21436,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RIGHTKIT_QA_CONFIG": {
    "readers": {
@@ -21026,10 +21463,15 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_CONTROL_SOCKET": {
-   "readers": {},
+   "readers": {
+    "rightkit-qa": [
+     "crates/rightkit-qa/src/pool.rs:532"
+    ]
+   },
    "setters": {
     "rightkit-qa": [
      "crates/rightkit-qa/src/pool.rs:493"
@@ -21046,17 +21488,19 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_CONTROL_TOKEN_FILE": {
    "readers": {
     "rightkit-qa": [
-     "crates/rightkit-qa/src/control.rs:296"
+     "crates/rightkit-qa/src/control.rs:296",
+     "crates/rightkit-qa/src/pool.rs:533"
     ]
    },
    "setters": {
     "rightkit-qa": [
-     "crates/rightkit-qa/src/journeys/tests.rs:1337",
+     "crates/rightkit-qa/src/journeys/tests.rs:1337 (test)",
      "crates/rightkit-qa/src/control.rs:335",
      "crates/rightkit-qa/src/control.rs:548 (test)",
      "crates/rightkit-qa/src/control.rs:552 (test)",
@@ -21076,7 +21520,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_DATA_DIR": {
    "readers": {
@@ -21142,7 +21587,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_ENGINE": {
    "readers": {
@@ -21158,7 +21604,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_EVIDENCE_DIR": {
    "readers": {
@@ -21183,7 +21630,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RIGHTKIT_QA_FFPROBE": {
    "readers": {
@@ -21204,7 +21652,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_FOCUS": {
    "readers": {},
@@ -21223,7 +21672,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": true,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_HIDDEN": {
    "readers": {
@@ -21252,7 +21702,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_HOME_MAX_AGE_SECS": {
    "readers": {
@@ -21280,7 +21731,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_HOME_ROOT": {
    "readers": {
@@ -21301,7 +21753,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_HOME_SWEEP": {
    "readers": {
@@ -21328,7 +21781,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_INSTALLED_DIRS": {
    "readers": {
@@ -21353,7 +21807,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RIGHTKIT_QA_INTERACTIVE": {
    "readers": {
@@ -21377,7 +21832,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_INTERACTIVE_CHILD": {
    "readers": {},
@@ -21397,7 +21853,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": true,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_KEEP_FAILED_HOME": {
    "readers": {
@@ -21424,7 +21881,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_MUTE": {
    "readers": {},
@@ -21441,7 +21899,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": true,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_NATIVE": {
    "readers": {},
@@ -21464,7 +21923,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": true,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_NATIVE_FOCUS_RETURN_EXECUTABLE": {
    "readers": {
@@ -21480,7 +21940,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_NATIVE_FOCUS_RETURN_PID": {
    "readers": {
@@ -21496,7 +21957,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_NATIVE_FOCUS_TARGET_EXECUTABLE": {
    "readers": {
@@ -21512,7 +21974,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_NATIVE_FOCUS_TARGET_PID": {
    "readers": {
@@ -21528,24 +21991,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RIGHTKIT_QA_NATIVE_REAL": {
-   "readers": {},
-   "setters": {
-    "rightkit-tauri-shell": [
-     "crates/rightkit-tauri-shell/tests/never_show.rs:157 (test)",
-     "crates/rightkit-tauri-shell/tests/never_show.rs:168 (test)"
-    ]
-   },
-   "named_in_consts": {},
-   "removers": {},
-   "mentioned_by": [
-    "rightkit-tauri-shell"
-   ],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_PACE_MS": {
    "readers": {
@@ -21561,47 +22008,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
-  },
-  "RIGHTKIT_QA_PORT_END": {
-   "readers": {},
-   "setters": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/pool.rs:492"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/pool.rs:289 ENV_PORT_END"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "rightkit-qa"
-   ],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
-  },
-  "RIGHTKIT_QA_PORT_START": {
-   "readers": {},
-   "setters": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/pool.rs:491"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/pool.rs:288 ENV_PORT_START"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "rightkit-qa"
-   ],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_RECEIPT_KEY": {
    "readers": {
@@ -21626,7 +22034,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_ROOT_CAP_BYTES": {
    "readers": {
@@ -21657,7 +22066,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_ROOT_CEILING_BYTES": {
    "readers": {
@@ -21687,7 +22097,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_RUN_ID": {
    "readers": {},
@@ -21706,30 +22117,15 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
-  },
-  "RIGHTKIT_QA_RUN_TOKEN": {
-   "readers": {},
-   "setters": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/journeys/bridge.rs:1559 (test)"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/journeys/run.rs:865 RUN_TOKEN_ENV"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "rightkit-qa"
-   ],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": true,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_SCAN_HOME": {
-   "readers": {},
+   "readers": {
+    "rightkit-qa": [
+     "crates/rightkit-qa/src/workspace.rs:395"
+    ]
+   },
    "setters": {
     "rightkit-qa": [
      "crates/rightkit-qa/src/workspace.rs:412"
@@ -21742,7 +22138,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_SETTINGS": {
    "readers": {
@@ -21764,7 +22161,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_SIGNED_FILES": {
    "readers": {
@@ -21790,7 +22188,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RIGHTKIT_QA_SIGNING_EVIDENCE": {
    "readers": {
@@ -21828,7 +22227,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RIGHTKIT_QA_SUPERVISE_HELPER": {
    "readers": {
@@ -21852,7 +22252,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_SUPERVISE_MARKER_SLEEP": {
    "readers": {
@@ -21877,7 +22278,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_SUPERVISE_WORLD": {
    "readers": {
@@ -21901,53 +22303,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RIGHTKIT_QA_TIER": {
-   "readers": {},
-   "setters": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/suite.rs:274"
-    ],
-    "@rightkit/release": [
-     "packages/release/adapter-env-qa.test.mjs:197 (test)",
-     "packages/release/qa-snapshot.test.mjs:101 (test)",
-     "packages/release/qa-snapshot.test.mjs:156 (test)",
-     "packages/release/qa-snapshot.test.mjs:236 (test)"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/harness.rs:51 DEFAULT_TIER_KEY"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "rightkit-qa"
-   ],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
-  },
-  "RIGHTKIT_QA_TOKENS": {
-   "readers": {},
-   "setters": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/pool.rs:498"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/pool.rs:293 ENV_TOKENS"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "rightkit-qa"
-   ],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_UI_BINARY": {
    "readers": {
@@ -21967,7 +22324,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_WINDOW_LABEL": {
    "readers": {
@@ -21996,10 +22354,15 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_WORLD": {
-   "readers": {},
+   "readers": {
+    "rightkit-qa": [
+     "crates/rightkit-qa/src/pool.rs:536"
+    ]
+   },
    "setters": {
     "rightkit-qa": [
      "crates/rightkit-qa/src/journeys/bridge.rs:1558 (test)",
@@ -22016,11 +22379,16 @@
     "rightkit-qa"
    ],
    "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "read_never_set_in_rk": true,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_WORLD_DATA": {
-   "readers": {},
+   "readers": {
+    "rightkit-qa": [
+     "crates/rightkit-qa/src/pool.rs:527"
+    ]
+   },
    "setters": {
     "rightkit-qa": [
      "crates/rightkit-qa/src/pool.rs:488"
@@ -22037,10 +22405,15 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_WORLD_DIR": {
-   "readers": {},
+   "readers": {
+    "rightkit-qa": [
+     "crates/rightkit-qa/src/pool.rs:526"
+    ]
+   },
    "setters": {
     "rightkit-qa": [
      "crates/rightkit-qa/src/pool.rs:487"
@@ -22057,10 +22430,15 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_WORLD_HOME": {
-   "readers": {},
+   "readers": {
+    "rightkit-qa": [
+     "crates/rightkit-qa/src/pool.rs:528"
+    ]
+   },
    "setters": {
     "rightkit-qa": [
      "crates/rightkit-qa/src/pool.rs:489"
@@ -22077,10 +22455,15 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QA_WORLD_TEMP": {
-   "readers": {},
+   "readers": {
+    "rightkit-qa": [
+     "crates/rightkit-qa/src/pool.rs:529"
+    ]
+   },
    "setters": {
     "rightkit-qa": [
      "crates/rightkit-qa/src/pool.rs:490"
@@ -22097,7 +22480,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QTS_DUMP_CODES": {
    "readers": {
@@ -22113,7 +22497,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_QTS_TRACE_CB6": {
    "readers": {
@@ -22129,21 +22514,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
-  },
-  "RIGHTKIT_RECORD_TEST_PERMISSION": {
-   "readers": {},
-   "setters": {
-    "rightkit-record": [
-     "crates/rightkit-record/src/macos/tests/live.rs:292 (test)"
-    ]
-   },
-   "named_in_consts": {},
-   "removers": {},
-   "mentioned_by": [],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_REQUIRE_ASSETS": {
    "readers": {
@@ -22166,7 +22538,7 @@
     ],
     "rightkit-ffmpeg": [
      "crates/rightkit-ffmpeg/tests/common/mod.rs:16 (test)",
-     "crates/rightkit-ffmpeg/src/test_support.rs:13"
+     "crates/rightkit-ffmpeg/src/test_support.rs:13 (test)"
     ],
     "rightkit-motion": [
      "crates/rightkit-motion/tests/encode_e2e.rs:28 (test)"
@@ -22203,12 +22575,12 @@
    "named_in_consts": {},
    "removers": {},
    "mentioned_by": [
-    "rightkit-asr",
-    "rightkit-ffmpeg"
+    "rightkit-asr"
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_REQUIRE_DESKTOP": {
    "readers": {
@@ -22222,7 +22594,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_RUNTIME_ARTIFACT_KEY_ID": {
    "readers": {
@@ -22236,7 +22609,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY": {
    "readers": {
@@ -22261,7 +22635,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY_FILE": {
    "readers": {
@@ -22284,7 +22659,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_RUNTIME_SCRATCH_ROOT": {
    "readers": {
@@ -22302,7 +22678,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_RUN_ROOT": {
    "readers": {
@@ -22342,6 +22719,7 @@
    "cross_unit": true,
    "read_never_set_in_rk": false,
    "set_never_read_in_rk": false,
+   "read_only_by_tests": false,
    "app_readers": {
     "mailright": [
      "mailright/scripts/qa-journeys.mjs:18",
@@ -22362,7 +22740,11 @@
    }
   },
   "RIGHTKIT_SANDBOX_OUTBOUND_HOLD": {
-   "readers": {},
+   "readers": {
+    "rightkit-sandbox": [
+     "crates/rightkit-sandbox/tests/windows_outbound_denial.rs:263 (test)"
+    ]
+   },
    "setters": {
     "rightkit-sandbox": [
      "crates/rightkit-sandbox/tests/windows_outbound_denial.rs:285 (test)"
@@ -22373,10 +22755,16 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_SANDBOX_OUTBOUND_HOST": {
-   "readers": {},
+   "readers": {
+    "rightkit-sandbox": [
+     "crates/rightkit-sandbox/tests/windows_outbound_denial.rs:239 (test)",
+     "crates/rightkit-sandbox/tests/windows_outbound_denial.rs:247 (test)"
+    ]
+   },
    "setters": {
     "rightkit-sandbox": [
      "crates/rightkit-sandbox/tests/windows_outbound_denial.rs:283 (test)"
@@ -22387,10 +22775,16 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_SANDBOX_OUTBOUND_PORT": {
-   "readers": {},
+   "readers": {
+    "rightkit-sandbox": [
+     "crates/rightkit-sandbox/tests/windows_outbound_denial.rs:239 (test)",
+     "crates/rightkit-sandbox/tests/windows_outbound_denial.rs:247 (test)"
+    ]
+   },
    "setters": {
     "rightkit-sandbox": [
      "crates/rightkit-sandbox/tests/windows_outbound_denial.rs:284 (test)"
@@ -22401,10 +22795,15 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_SANDBOX_OUTBOUND_TIMEOUT_MS": {
-   "readers": {},
+   "readers": {
+    "rightkit-sandbox": [
+     "crates/rightkit-sandbox/tests/windows_outbound_denial.rs:237 (test)"
+    ]
+   },
    "setters": {
     "rightkit-sandbox": [
      "crates/rightkit-sandbox/tests/windows_outbound_denial.rs:289 (test)"
@@ -22415,7 +22814,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_SANDBOX_PROFILE_SWEEP_CHILD": {
    "readers": {
@@ -22439,7 +22839,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_SCRATCH_ROOT": {
    "readers": {
@@ -22467,23 +22868,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
-  },
-  "RIGHTKIT_SECRET": {
-   "readers": {},
-   "setters": {
-    "rightkit-qa": [
-     "crates/rightkit-qa/src/control.rs:2811 (test)"
-    ]
-   },
-   "named_in_consts": {},
-   "removers": {},
-   "mentioned_by": [
-    "rightkit-qa"
-   ],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_SEVEN_ZIP": {
    "readers": {
@@ -22497,7 +22883,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_SHELL_HOME": {
    "readers": {
@@ -22518,7 +22905,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_SHIKI_EVIDENCE_DIR": {
    "readers": {
@@ -22532,12 +22920,13 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_SNAPSHOT_ROOT": {
    "readers": {
     "@rightkit/release": [
-     "packages/release/build-ownership.test.mjs:1383 (test)"
+     "packages/release/build-ownership.test.mjs:1388 (test)"
     ]
    },
    "setters": {
@@ -22555,7 +22944,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_STDERR_LIVE_PIPE_WRITER": {
    "readers": {
@@ -22575,7 +22965,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_STRIPPED_ENV": {
    "readers": {
@@ -22593,7 +22984,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_SUITE_ROOT": {
    "readers": {
@@ -22611,7 +23003,7 @@
     "rightkit-qa": [
      "crates/rightkit-qa/src/control.rs:1558",
      "crates/rightkit-qa/src/workspace.rs:124",
-     "crates/rightkit-qa/src/journeys/tests.rs:1334"
+     "crates/rightkit-qa/src/journeys/tests.rs:1334 (test)"
     ],
     "@rightkit/qa": [
      "packages/qa/src/workspace.ts:129"
@@ -22635,7 +23027,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_SWAP": {
    "readers": {
@@ -22654,7 +23047,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_TEST_REAL_BROKER": {
    "readers": {
@@ -22677,7 +23071,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_TEST_REAL_DMG": {
    "readers": {
@@ -22691,7 +23086,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_TEST_REAL_MANAGED_ROOT": {
    "readers": {
@@ -22718,40 +23114,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RIGHTKIT_TEST_REAL_USER_STORES": {
-   "readers": {},
-   "setters": {
-    "rightkit-credentials": [
-     "crates/rightkit-credentials/tests/common/mod.rs:15 (test)"
-    ],
-    "rightkit-sandbox": [
-     "crates/rightkit-sandbox/src/windows_appcontainer.rs:3741 (test)",
-     "crates/rightkit-sandbox/tests/common/mod.rs:15 (test)"
-    ],
-    "rightkit-tauri-shell": [
-     "crates/rightkit-tauri-shell/tests/common/mod.rs:15 (test)"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-credentials": [
-     "crates/rightkit-credentials/tests/common/mod.rs:10 OPT_IN"
-    ],
-    "rightkit-sandbox": [
-     "crates/rightkit-sandbox/tests/common/mod.rs:10 OPT_IN"
-    ],
-    "rightkit-tauri-shell": [
-     "crates/rightkit-tauri-shell/tests/common/mod.rs:10 OPT_IN"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "rightkit-sandbox"
-   ],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_TEST_SCRATCH": {
    "readers": {
@@ -22768,7 +23132,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_TEST_SIGNED_HELPER": {
    "readers": {
@@ -22784,7 +23149,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_TEST_SIGNED_TEAM": {
    "readers": {
@@ -22800,7 +23166,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_TEST_TMP": {
    "readers": {
@@ -22819,7 +23186,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_TTS_IDLE_SECS": {
    "readers": {
@@ -22841,7 +23209,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_TTS_MODEL_DIR": {
    "readers": {
@@ -22861,7 +23230,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_TTS_WORKER": {
    "readers": {
@@ -22883,7 +23253,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_UNDER_TEST": {
    "readers": {
@@ -22925,7 +23296,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_VAD_MODEL": {
    "readers": {
@@ -22943,35 +23315,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RIGHTKIT_WHISPER_COREML_DIR": {
-   "readers": {},
-   "setters": {
-    "rightkit-asr": [
-     "crates/rightkit-asr/tests/e2e_whisper.rs:100 (test)"
-    ]
-   },
-   "named_in_consts": {},
-   "removers": {},
-   "mentioned_by": [],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RIGHTKIT_WHISPER_GGML": {
-   "readers": {},
-   "setters": {
-    "rightkit-asr": [
-     "crates/rightkit-asr/tests/e2e_whisper.rs:205 (test)"
-    ]
-   },
-   "named_in_consts": {},
-   "removers": {},
-   "mentioned_by": [],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_WHISPER_LIB": {
    "readers": {
@@ -22991,7 +23336,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_WORKSPACE_ROOT": {
    "readers": {
@@ -23012,7 +23358,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTKIT_WORKSPACE_ROOTS": {
    "readers": {
@@ -23030,7 +23377,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTSUITE_CARGO_CACHE_GUARD": {
    "readers": {
@@ -23048,7 +23396,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RIGHTSUITE_COMPUTE_POLICY": {
    "readers": {
@@ -23066,7 +23415,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTSUITE_HEAVY_WORK_OWNER": {
    "readers": {
@@ -23090,7 +23440,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTSUITE_HEAVY_WORK_ROOT": {
    "readers": {
@@ -23106,7 +23457,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTSUITE_REAL_CARGO": {
    "readers": {
@@ -23124,7 +23476,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHTSUITE_REAL_RUSTC": {
    "readers": {
@@ -23142,7 +23495,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_ABSOLUTE_MS": {
    "readers": {
@@ -23162,7 +23516,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_ARTIFACT_DIR": {
    "readers": {
@@ -23190,7 +23545,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_BACKUP_RETENTION_DAYS": {
    "readers": {
@@ -23204,7 +23560,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_CACHE_KEY": {
    "readers": {
@@ -23222,7 +23579,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_CACHE_MODE": {
    "readers": {
@@ -23245,7 +23603,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_CACHE_OWNER": {
    "readers": {
@@ -23272,7 +23631,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_CACHE_ROOT": {
    "readers": {
@@ -23298,7 +23658,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_DESIRED_FREE_BYTES": {
    "readers": {
@@ -23312,7 +23673,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_HARD_FREE_BYTES": {
    "readers": {
@@ -23326,7 +23688,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_INSTALLED_CLI": {
    "readers": {
@@ -23345,7 +23708,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_LEGACY_REGISTRY_RELEASES": {
    "readers": {
@@ -23373,7 +23737,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_MIN_FREE_GB": {
    "readers": {
@@ -23395,7 +23760,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_NOTES": {
    "readers": {
@@ -23411,7 +23777,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_PLATFORM": {
    "readers": {
@@ -23431,7 +23798,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_QA_ALLOW_INSTALL": {
    "readers": {
@@ -23458,7 +23826,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_QA_COMMIT": {
    "readers": {
@@ -23476,7 +23845,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RIGHT_RELEASE_QA_COMPILED_DIRS": {
    "readers": {
@@ -23487,7 +23857,7 @@
    },
    "setters": {
     "@rightkit/release": [
-     "packages/release/bin/rightkit-gate.mjs:1637",
+     "packages/release/bin/rightkit-gate.mjs:1655",
      "packages/release/release-qa-layout.test.mjs:55 (test)",
      "packages/release/release-qa-layout.test.mjs:103 (test)",
      "packages/release/qa-layout.test.mjs:60 (test)",
@@ -23506,7 +23876,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_QA_INSTALLED_APP": {
    "readers": {
@@ -23524,7 +23895,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RIGHT_RELEASE_QA_INSTALLED_KIND": {
    "readers": {
@@ -23543,7 +23915,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RIGHT_RELEASE_QA_POLICY_BASELINE_REF": {
    "readers": {
@@ -23569,7 +23942,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_QA_RECEIPT": {
    "readers": {
@@ -23598,7 +23972,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_QA_STAGE": {
    "readers": {
@@ -23640,7 +24015,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_RIGHTKIT_OFFLINE": {
    "readers": {
@@ -23655,7 +24031,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_RIGHTKIT_SNAPSHOT": {
    "readers": {
@@ -23682,7 +24059,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_RUSTC_VERBOSE": {
    "readers": {
@@ -23700,7 +24078,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_SCCACHE_MAX_BYTES": {
    "readers": {
@@ -23718,7 +24097,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_SEVENZIP": {
    "readers": {
@@ -23737,7 +24117,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_STALL_MS": {
    "readers": {
@@ -23758,7 +24139,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_STATE_ROOT": {
    "readers": {
@@ -23783,7 +24165,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_SWIFT_BUILD_DIR": {
    "readers": {
@@ -23797,7 +24180,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_TARGET_MAX_BYTES": {
    "readers": {
@@ -23811,7 +24195,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_TEST_FIXTURE": {
    "readers": {
@@ -23831,7 +24216,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_TEST_TOOL_LOG": {
    "readers": {
@@ -23850,7 +24236,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_TIER": {
    "readers": {
@@ -23873,7 +24260,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_UPLOAD_DRY_RUN": {
    "readers": {
@@ -23892,7 +24280,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RIGHT_RELEASE_VAULT_STATE_ROOT": {
    "readers": {
@@ -23916,7 +24305,23 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_ACL_PROBE_TARGET": {
+   "readers": {
+    "@rightkit/release": [
+     "packages/release/background-process.test.mjs:107 (test)"
+    ]
+   },
+   "setters": {},
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_ADVISORY_CACHE_ROOT": {
    "readers": {
@@ -23935,7 +24340,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_BLOCK_READY": {
    "readers": {
@@ -23954,7 +24360,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_BROKER_HEALTH_FILE": {
    "readers": {
@@ -23972,7 +24379,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_BUDGET_ENGINE": {
    "readers": {
@@ -23990,7 +24398,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_CHILD_EXPECT_ROOT": {
    "readers": {
@@ -24008,7 +24417,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_CHILD_PROFILE": {
    "readers": {
@@ -24026,7 +24436,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_CHILD_QA": {
    "readers": {
@@ -24044,7 +24455,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_CLI_SPY_LOG": {
    "readers": {
@@ -24063,7 +24475,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_CLI_TEST_PLANTED": {
    "readers": {},
@@ -24077,7 +24490,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_CONTROL_TEST_APP": {
    "readers": {
@@ -24091,7 +24505,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_CRASH_E2E_NATIVE": {
    "readers": {
@@ -24113,7 +24528,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_DEBUG": {
    "readers": {
@@ -24128,35 +24544,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RK_EXACT_ENV": {
-   "readers": {},
-   "setters": {
-    "rightkit-mcp": [
-     "crates/rightkit-mcp/tests/client_features.rs:216 (test)"
-    ]
-   },
-   "named_in_consts": {},
-   "removers": {},
-   "mentioned_by": [],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RK_FIXED": {
-   "readers": {},
-   "setters": {
-    "rightkit-llm": [
-     "crates/rightkit-llm/tests/cli.rs:492 (test)"
-    ]
-   },
-   "named_in_consts": {},
-   "removers": {},
-   "mentioned_by": [],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_FIXTURE_MODE": {
    "readers": {
@@ -24177,12 +24566,11 @@
    },
    "named_in_consts": {},
    "removers": {},
-   "mentioned_by": [
-    "rightkit-qa-driver"
-   ],
-   "cross_unit": true,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": true,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_FIXTURE_OUT": {
    "readers": {
@@ -24197,12 +24585,11 @@
    },
    "named_in_consts": {},
    "removers": {},
-   "mentioned_by": [
-    "rightkit-qa-driver"
-   ],
+   "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_FIXTURE_STOP": {
    "readers": {
@@ -24217,12 +24604,11 @@
    },
    "named_in_consts": {},
    "removers": {},
-   "mentioned_by": [
-    "rightkit-qa-driver"
-   ],
+   "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_FIXTURE_TTL": {
    "readers": {
@@ -24238,12 +24624,11 @@
    },
    "named_in_consts": {},
    "removers": {},
-   "mentioned_by": [
-    "rightkit-qa-driver"
-   ],
+   "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_FRAMED_MODE": {
    "readers": {
@@ -24261,7 +24646,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_FS_APP_DIRS_CHILD": {
    "readers": {
@@ -24285,7 +24671,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_FS_EXPECT_CACHE": {
    "readers": {},
@@ -24301,7 +24688,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_FS_EXPECT_CONFIG": {
    "readers": {},
@@ -24317,7 +24705,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_FS_EXPECT_DATA": {
    "readers": {},
@@ -24333,7 +24722,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_FS_EXPECT_HOME": {
    "readers": {},
@@ -24349,7 +24739,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_FS_EXPECT_LOCAL": {
    "readers": {},
@@ -24365,7 +24756,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_FS_EXPECT_TEMPLATE": {
    "readers": {},
@@ -24381,7 +24773,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_FS_PROBE_VAR": {
    "readers": {},
@@ -24399,13 +24792,14 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_GATE_CACHE": {
    "readers": {
     "@rightkit/release": [
-     "packages/release/bin/rightkit-gate.mjs:3816",
-     "packages/release/bin/rightkit-gate.mjs:3833"
+     "packages/release/bin/rightkit-gate.mjs:3834",
+     "packages/release/bin/rightkit-gate.mjs:3851"
     ]
    },
    "setters": {
@@ -24423,7 +24817,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_GATE_CHECKOUT": {
    "readers": {
@@ -24458,12 +24853,13 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_GATE_CLASS_B_JOBS": {
    "readers": {
     "@rightkit/release": [
-     "packages/release/bin/rightkit-gate.mjs:3721"
+     "packages/release/bin/rightkit-gate.mjs:3739"
     ]
    },
    "setters": {},
@@ -24472,12 +24868,13 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_GATE_JOBS": {
    "readers": {
     "@rightkit/release": [
-     "packages/release/bin/rightkit-gate.mjs:3719"
+     "packages/release/bin/rightkit-gate.mjs:3737"
     ]
    },
    "setters": {
@@ -24490,12 +24887,13 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_GATE_QUIET_TESTS": {
    "readers": {
     "@rightkit/release": [
-     "packages/release/bin/rightkit-gate.mjs:3688"
+     "packages/release/bin/rightkit-gate.mjs:3706"
     ]
    },
    "setters": {},
@@ -24504,7 +24902,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_GATE_RUN": {
    "readers": {
@@ -24538,7 +24937,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_GATE_STAGE_DEADLINE_AT": {
    "readers": {
@@ -24564,12 +24964,13 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_GATE_TEST_JOBS": {
    "readers": {
     "@rightkit/release": [
-     "packages/release/bin/rightkit-gate.mjs:3720"
+     "packages/release/bin/rightkit-gate.mjs:3738"
     ]
    },
    "setters": {},
@@ -24578,7 +24979,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_GATE_TMPDIR": {
    "readers": {
@@ -24600,7 +25002,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_HARNESS_DEV": {
    "readers": {
@@ -24618,7 +25021,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_HARNESS_OUT": {
    "readers": {
@@ -24646,7 +25050,8 @@
    "mentioned_by": [],
    "cross_unit": true,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_ISOLATED_CHECKOUT": {
    "readers": {
@@ -24673,7 +25078,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_L5S_ARGS": {
    "readers": {
@@ -24691,7 +25097,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_LEGACY_FIXTURE_MODE": {
    "readers": {
@@ -24713,7 +25120,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_LEGACY_FIXTURE_SOCKET": {
    "readers": {
@@ -24735,7 +25143,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_LICENSE_TEST_CHILD_DIR": {
    "readers": {
@@ -24757,7 +25166,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_LICENSE_TEST_CHILD_ROLE": {
    "readers": {
@@ -24779,7 +25189,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_LINK_LOG": {
    "readers": {
@@ -24793,7 +25204,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_LLM_PDEATH_BASE": {
    "readers": {
@@ -24811,7 +25223,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_LOCALQ_REMOTE_NODE": {
    "readers": {
@@ -24825,7 +25238,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_LOGS_CONFIG_CHILD_REVOKE_PATH": {
    "readers": {
@@ -24847,7 +25261,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_M3_ENV_EXTRA": {
    "readers": {},
@@ -24861,7 +25276,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_M3_ENV_SECRET": {
    "readers": {},
@@ -24875,7 +25291,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_M3_JOBS_KEEP": {
    "readers": {},
@@ -24889,7 +25306,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_M3_JOBS_SECRET": {
    "readers": {},
@@ -24904,7 +25322,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_MCP_INIT_DELAY": {
    "readers": {
@@ -24918,7 +25337,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_MCP_INIT_MARKER": {
    "readers": {
@@ -24932,7 +25352,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_MCP_LARGE_PREFIX": {
    "readers": {
@@ -24946,7 +25367,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_MCP_STALL_INIT": {
    "readers": {
@@ -24960,7 +25382,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_MCP_STDIO_FIXTURE": {
    "readers": {
@@ -24978,23 +25401,23 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_MINE": {
    "readers": {},
    "setters": {
     "rightkit-qa": [
-     "crates/rightkit-qa/src/run_tests/tests.rs:534"
+     "crates/rightkit-qa/src/run_tests/tests.rs:534 (test)"
     ]
    },
    "named_in_consts": {},
    "removers": {},
-   "mentioned_by": [
-    "rightkit-qa"
-   ],
+   "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_NATIVE_BUDGET_ROOT": {
    "readers": {
@@ -25012,7 +25435,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_ORT_TEST_DLL_DIR": {
    "readers": {
@@ -25027,7 +25451,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_ORT_TEST_DYLIB": {
    "readers": {
@@ -25048,7 +25473,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_OWNERSHIP_DESKTOP_DELEGATED": {
    "readers": {
@@ -25074,232 +25500,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
-  },
-  "RK_OWNERSHIP_INCOMPLETE_COVERAGE": {
-   "readers": {},
-   "setters": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:451"
-    ],
-    "@rightkit/release": [
-     "packages/release/ownership-admission.mjs:56"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:26 INCOMPLETE_COVERAGE"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "@rightkit/release",
-    "rightkit-ownership"
-   ],
-   "cross_unit": true,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
-  },
-  "RK_OWNERSHIP_INPUTS_CHANGED": {
-   "readers": {},
-   "setters": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/worker.rs:293"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:32 INPUTS_CHANGED"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "@rightkit/release",
-    "rightkit-ownership"
-   ],
-   "cross_unit": true,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RK_OWNERSHIP_INVALID_INPUTS": {
-   "readers": {},
-   "setters": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/error.rs:29"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:31 INVALID_INPUTS"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "@rightkit/release",
-    "rightkit-ownership"
-   ],
-   "cross_unit": true,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RK_OWNERSHIP_INVALID_REGISTRATION": {
-   "readers": {},
-   "setters": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:420",
-     "crates/rightkit-ownership/src/verdict.rs:426"
-    ],
-    "@rightkit/release": [
-     "packages/release/ownership-admission.mjs:56"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:27 INVALID_REGISTRATION"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "@rightkit/release",
-    "rightkit-ownership"
-   ],
-   "cross_unit": true,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
-  },
-  "RK_OWNERSHIP_MALFORMED_REPORT": {
-   "readers": {},
-   "setters": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:396"
-    ],
-    "@rightkit/release": [
-     "packages/release/ownership-admission.mjs:55"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:25 MALFORMED_REPORT"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "@rightkit/release",
-    "rightkit-ownership"
-   ],
-   "cross_unit": true,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
-  },
-  "RK_OWNERSHIP_POLICY_DOWNGRADE": {
-   "readers": {},
-   "setters": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:433"
-    ],
-    "@rightkit/release": [
-     "packages/release/ownership-admission.mjs:57"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:28 POLICY_DOWNGRADE"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "@rightkit/release",
-    "rightkit-ownership"
-   ],
-   "cross_unit": true,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
-  },
-  "RK_OWNERSHIP_REPORT_FAILED": {
-   "readers": {},
-   "setters": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:467"
-    ],
-    "@rightkit/release": [
-     "packages/release/ownership-admission.mjs:57"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:29 REPORT_FAILED"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "@rightkit/release",
-    "rightkit-ownership"
-   ],
-   "cross_unit": true,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
-  },
-  "RK_OWNERSHIP_UNVERIFIED": {
-   "readers": {},
-   "setters": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:464"
-    ],
-    "@rightkit/release": [
-     "packages/release/ownership-admission.mjs:58"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:30 UNVERIFIED"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "@rightkit/release",
-    "rightkit-ownership"
-   ],
-   "cross_unit": true,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
-  },
-  "RK_OWNERSHIP_VIOLATION": {
-   "readers": {},
-   "setters": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:460"
-    ],
-    "@rightkit/release": [
-     "packages/release/ownership-admission.mjs:55"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-ownership": [
-     "crates/rightkit-ownership/src/verdict.rs:23 VIOLATION"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "@rightkit/release",
-    "rightkit-ownership"
-   ],
-   "cross_unit": true,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
-  },
-  "RK_PARAKEET_ONNX_DIR": {
-   "readers": {},
-   "setters": {
-    "rightkit-asr": [
-     "crates/rightkit-asr/tests/e2e_parakeet.rs:572 (test)"
-    ]
-   },
-   "named_in_consts": {},
-   "removers": {},
-   "mentioned_by": [],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_PDFTOTEXT": {
    "readers": {
@@ -25313,7 +25515,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_PDF_CORPUS_DIR": {
    "readers": {
@@ -25331,7 +25534,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_PDF_EDITED_DIR": {
    "readers": {
@@ -25345,7 +25549,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_PDF_QUALITY_RECORD": {
    "readers": {
@@ -25359,7 +25564,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_PURGE_LOCK_CHILD": {
    "readers": {
@@ -25377,7 +25583,47 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_QA_KILL": {
+   "readers": {
+    "@rightkit/qa-chrome": [
+     "packages/qa-chrome/src/index.ts:560"
+    ]
+   },
+   "setters": {
+    "@rightkit/qa-chrome": [
+     "packages/qa-chrome/src/index.ts:561"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_QA_PROFILE": {
+   "readers": {
+    "@rightkit/qa-chrome": [
+     "packages/qa-chrome/src/spawn-guard.test.ts:72 (test)",
+     "packages/qa-chrome/src/index.ts:677"
+    ]
+   },
+   "setters": {
+    "@rightkit/qa-chrome": [
+     "packages/qa-chrome/src/index.ts:678"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_QA_REMOVE_DIR": {
    "readers": {
@@ -25395,7 +25641,27 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
+  },
+  "RK_QA_ROWS": {
+   "readers": {
+    "@rightkit/qa-chrome": [
+     "packages/qa-chrome/src/index.ts:661"
+    ]
+   },
+   "setters": {
+    "@rightkit/qa-chrome": [
+     "packages/qa-chrome/src/index.ts:661"
+    ]
+   },
+   "named_in_consts": {},
+   "removers": {},
+   "mentioned_by": [],
+   "cross_unit": false,
+   "read_never_set_in_rk": false,
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_REAL_BROKER_READY_MS": {
    "readers": {
@@ -25409,7 +25675,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_RECORD_KEEP": {
    "readers": {
@@ -25424,21 +25691,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "RK_RECORD_LIVE_SECONDS": {
-   "readers": {},
-   "setters": {
-    "rightkit-record": [
-     "crates/rightkit-record/src/macos/tests/live.rs:407 (test)"
-    ]
-   },
-   "named_in_consts": {},
-   "removers": {},
-   "mentioned_by": [],
-   "cross_unit": false,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_ROTATION_PROCESS_ROLE": {
    "readers": {
@@ -25460,7 +25714,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_ROTATION_PROCESS_ROOT": {
    "readers": {
@@ -25482,10 +25737,15 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_RUN_COMMAND_VAR": {
-   "readers": {},
+   "readers": {
+    "rightkit-child-process": [
+     "crates/rightkit-child-process/src/run.rs:1180 (test)"
+    ]
+   },
    "setters": {
     "rightkit-child-process": [
      "crates/rightkit-child-process/src/run.rs:1185 (test)"
@@ -25498,7 +25758,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_SANDBOX_PROBE": {
    "readers": {},
@@ -25513,7 +25774,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_SCRATCH": {
    "readers": {
@@ -25531,7 +25793,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_SERVICE_FOREIGN_SOCKET": {
    "readers": {
@@ -25547,7 +25810,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_SET": {
    "readers": {},
@@ -25563,7 +25827,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_SETTINGS_NAME": {
    "readers": {
@@ -25581,7 +25846,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_SETTINGS_ROOT": {
    "readers": {
@@ -25599,7 +25865,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_SHELL_INSTANCE_DOTTED_ROOT": {
    "readers": {
@@ -25619,7 +25886,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_SHELL_INSTANCE_TEST_ROOT": {
    "readers": {
@@ -25639,7 +25907,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_SHOTS_DIR": {
    "readers": {
@@ -25662,7 +25931,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_SIGKILL_HOST": {
    "readers": {
@@ -25680,7 +25950,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_SINGLE_INSTANCE_DOTTED_ROOT": {
    "readers": {
@@ -25702,7 +25973,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_SNAPSHOT_TARGETS": {
    "readers": {
@@ -25720,7 +25992,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RK_SUPERVISOR_HELPER": {
    "readers": {
@@ -25738,7 +26011,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TEST_ADDED": {
    "readers": {},
@@ -25752,7 +26026,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TEST_HIDDEN": {
    "readers": {},
@@ -25766,7 +26041,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TEST_KEEP": {
    "readers": {},
@@ -25780,7 +26056,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TEST_OTHER": {
    "readers": {},
@@ -25794,7 +26071,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TEST_REGISTRY_ROOT": {
    "readers": {
@@ -25812,7 +26090,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TEST_SHARDS": {
    "readers": {
@@ -25826,7 +26105,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TEST_SIMULATED_PLATFORM": {
    "readers": {
@@ -25848,7 +26128,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TEST_UNIT_LOG": {
    "readers": {
@@ -25871,7 +26152,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TEST_UNIT_NONCE": {
    "readers": {
@@ -25895,7 +26177,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TEST_UNIT_SCRATCH": {
    "readers": {
@@ -25918,7 +26201,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TEST_UNIT_TGZ": {
    "readers": {
@@ -25940,11 +26224,17 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TRUST_CHECK_TARGET": {
    "readers": {
+    "rightkit-ownership": [
+     "crates/rightkit-ownership/src/trust.rs:135"
+    ],
     "@rightkit/release": [
+     "packages/release/ownership-approval.mjs:339",
+     "packages/release/ownership-key-trust.mjs:226",
      "packages/release/ownership-approval.test.mjs:158 (test)",
      "packages/release/ownership-approval.test.mjs:172 (test)"
     ]
@@ -25965,12 +26255,15 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TRUST_DIR": {
    "readers": {
     "@rightkit/release": [
-     "packages/release/ownership-key-trust.test.mjs:154 (test)"
+     "packages/release/ownership-key-trust.test.mjs:154 (test)",
+     "packages/release/ownership-key-trust.mjs:164",
+     "packages/release/ownership-key-trust.mjs:184"
     ]
    },
    "setters": {
@@ -25984,12 +26277,14 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TRUST_FILE": {
    "readers": {
     "@rightkit/release": [
-     "packages/release/ownership-key-trust.test.mjs:155 (test)"
+     "packages/release/ownership-key-trust.test.mjs:155 (test)",
+     "packages/release/ownership-key-trust.mjs:164"
     ]
    },
    "setters": {
@@ -26002,10 +26297,15 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TTS_OUT": {
-   "readers": {},
+   "readers": {
+    "rightkit-tts": [
+     "crates/rightkit-tts/src/system.rs:310"
+    ]
+   },
    "setters": {
     "rightkit-tts": [
      "crates/rightkit-tts/src/system.rs:317"
@@ -26018,10 +26318,15 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TTS_RATE": {
-   "readers": {},
+   "readers": {
+    "rightkit-tts": [
+     "crates/rightkit-tts/src/system.rs:310"
+    ]
+   },
    "setters": {
     "rightkit-tts": [
      "crates/rightkit-tts/src/system.rs:322"
@@ -26034,10 +26339,15 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TTS_TEXT": {
-   "readers": {},
+   "readers": {
+    "rightkit-tts": [
+     "crates/rightkit-tts/src/system.rs:310"
+    ]
+   },
    "setters": {
     "rightkit-tts": [
      "crates/rightkit-tts/src/system.rs:317"
@@ -26050,10 +26360,15 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_TTS_VOICE": {
-   "readers": {},
+   "readers": {
+    "rightkit-tts": [
+     "crates/rightkit-tts/src/system.rs:310"
+    ]
+   },
    "setters": {
     "rightkit-tts": [
      "crates/rightkit-tts/src/system.rs:319"
@@ -26066,7 +26381,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": true
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_UPDATE_GOLDEN": {
    "readers": {
@@ -26082,7 +26398,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": true,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_VISIBLE": {
    "readers": {},
@@ -26097,7 +26414,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RK_WIRE_MODE": {
    "readers": {
@@ -26116,7 +26434,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RUSTRIGHT_ADAPTER_ENV": {
    "readers": {
@@ -26149,7 +26468,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RUSTRIGHT_ATTEST_NONCE": {
    "readers": {
@@ -26178,7 +26498,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RUSTRIGHT_BUILD_BROKER_SOCKET": {
    "readers": {
@@ -26205,12 +26526,13 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RUSTRIGHT_CALLING_GATE": {
    "readers": {
     "@rightkit/release": [
-     "packages/release/bin/rightkit-gate.mjs:4094",
+     "packages/release/bin/rightkit-gate.mjs:4112",
      "packages/release/snapshot-broker.mjs:340",
      "packages/release/snapshot-broker.mjs:462"
     ]
@@ -26236,7 +26558,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RUSTRIGHT_CANCEL_WAIT_MS": {
    "readers": {
@@ -26266,7 +26589,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RUSTRIGHT_DATA_ROOT": {
    "readers": {
@@ -26289,7 +26613,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RUSTRIGHT_FORWARD_ENV": {
    "readers": {
@@ -26311,7 +26636,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RUSTRIGHT_MANAGED_AGENT_SHIM": {
    "readers": {
@@ -26336,7 +26662,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RUSTRIGHT_OPERATION_DEADLINE_MS": {
    "readers": {
@@ -26369,7 +26696,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "RUSTRIGHT_REQUEST_ID_FILE": {
    "readers": {
@@ -26394,7 +26722,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "RUSTRIGHT_SNAPSHOT_REQUEST": {
    "readers": {
@@ -26425,7 +26754,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "TAURI_BUNDLER_DMG_IGNORE_CI": {
    "readers": {
@@ -26445,7 +26775,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "TAURI_CONFIG": {
    "readers": {
@@ -26455,7 +26786,7 @@
      "packages/release/door-ledger.test.mjs:232 (test)",
      "packages/release/door-real-cargo.test.mjs:57 (test)",
      "packages/release/door-package.test.mjs:58 (test)",
-     "packages/release/bin/rightkit-gate.mjs:2243"
+     "packages/release/bin/rightkit-gate.mjs:2261"
     ]
    },
    "setters": {
@@ -26473,7 +26804,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "TAURI_ENV_TARGET_TRIPLE": {
    "readers": {
@@ -26494,7 +26826,8 @@
    "mentioned_by": [],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "TAURI_SIGNING_PRIVATE_KEY": {
    "readers": {
@@ -26524,7 +26857,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "TAURI_SIGNING_PRIVATE_KEY_PASSWORD": {
    "readers": {
@@ -26554,28 +26888,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
-  },
-  "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": {
-   "readers": {},
-   "setters": {
-    "rightkit-tauri-shell": [
-     "crates/rightkit-tauri-shell/src/webview2_env.rs:79"
-    ]
-   },
-   "named_in_consts": {
-    "rightkit-tauri-shell": [
-     "crates/rightkit-tauri-shell/src/webview2_env.rs:24 ENV_ADDITIONAL_BROWSER_ARGUMENTS"
-    ]
-   },
-   "removers": {},
-   "mentioned_by": [
-    "@rightkit/release",
-    "rightkit-tauri-shell"
-   ],
-   "cross_unit": true,
-   "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "WEBVIEW2_USER_DATA_FOLDER": {
    "readers": {
@@ -26606,7 +26920,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": true
   },
   "XDG_CACHE_HOME": {
    "readers": {
@@ -26644,7 +26959,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "XDG_CONFIG_HOME": {
    "readers": {
@@ -26704,7 +27020,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "XDG_DATA_HOME": {
    "readers": {
@@ -26748,7 +27065,8 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "XDG_RUNTIME_DIR": {
    "readers": {
@@ -26766,13 +27084,14 @@
    ],
    "cross_unit": true,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   },
   "XDG_STATE_HOME": {
    "readers": {
     "@rightkit/release": [
      "packages/release/unit-gate.mjs:350",
-     "packages/release/build-ownership.test.mjs:1383 (test)",
+     "packages/release/build-ownership.test.mjs:1388 (test)",
      "packages/release/snapshot.mjs:141",
      "packages/release/snapshot.mjs:142"
     ]
@@ -26794,7 +27113,8 @@
    ],
    "cross_unit": false,
    "read_never_set_in_rk": false,
-   "set_never_read_in_rk": false
+   "set_never_read_in_rk": false,
+   "read_only_by_tests": false
   }
  },
  "files": {
@@ -28710,9 +29030,9 @@
   },
   "group-800.json": {
    "@rightkit/release": [
-    "packages/release/build-ownership.test.mjs:1905",
-    "packages/release/build-ownership.test.mjs:1928",
-    "packages/release/build-ownership.test.mjs:1932"
+    "packages/release/build-ownership.test.mjs:1910",
+    "packages/release/build-ownership.test.mjs:1933",
+    "packages/release/build-ownership.test.mjs:1937"
    ]
   },
   "group-8100.json": {
@@ -28801,8 +29121,8 @@
   },
   "holder-h.json": {
    "@rightkit/release": [
-    "packages/release/build-ownership.test.mjs:268",
-    "packages/release/build-ownership.test.mjs:302"
+    "packages/release/build-ownership.test.mjs:273",
+    "packages/release/build-ownership.test.mjs:307"
    ]
   },
   "holder.json": {
@@ -28894,7 +29214,7 @@
   },
   "info.json": {
    "@rightkit/release": [
-    "packages/release/build-ownership.test.mjs:2190"
+    "packages/release/build-ownership.test.mjs:2195"
    ]
   },
   "input.json": {
@@ -29544,7 +29864,7 @@
   },
   "measure.json": {
    "@rightkit/release": [
-    "packages/release/build-ownership.test.mjs:1034"
+    "packages/release/build-ownership.test.mjs:1039"
    ]
   },
   "media-sidecar.json": {
@@ -30687,7 +31007,7 @@
    ],
    "@rightkit/release": [
     "packages/release/ownership-report-command.test.mjs:11",
-    "packages/release/bin/rightkit-gate.mjs:3105"
+    "packages/release/bin/rightkit-gate.mjs:3123"
    ]
   },
   "report.schema.json": {
@@ -30733,7 +31053,7 @@
     "packages/doc-render/test/shiki-browser.mjs:56"
    ],
    "@rightkit/release": [
-    "packages/release/build-ownership.test.mjs:2047"
+    "packages/release/build-ownership.test.mjs:2052"
    ]
   },
   "results-mac.jsonl": {
@@ -32373,7 +32693,7 @@
    "@rightkit/release": [
     "packages/release/ownership-key-elevation.test.mjs:36",
     "packages/release/ownership-key-elevation.test.mjs:49",
-    "packages/release/build-ownership.test.mjs:927"
+    "packages/release/build-ownership.test.mjs:932"
    ]
   },
   "/bin/sleep": {
@@ -32395,8 +32715,8 @@
     "crates/rightkit-tauri-shell/tests/single_instance.rs:424"
    ],
    "@rightkit/release": [
-    "packages/release/build-ownership.test.mjs:907",
-    "packages/release/build-ownership.test.mjs:934"
+    "packages/release/build-ownership.test.mjs:912",
+    "packages/release/build-ownership.test.mjs:939"
    ]
   },
   "/bin/true": {
@@ -32408,8 +32728,8 @@
   },
   "/bin/zsh": {
    "@rightkit/release": [
-    "packages/release/build-ownership.test.mjs:2019",
-    "packages/release/build-ownership.test.mjs:2060"
+    "packages/release/build-ownership.test.mjs:2024",
+    "packages/release/build-ownership.test.mjs:2065"
    ]
   },
   "/nonexistent/rightkit-ocr-no-such-worker": {
@@ -32598,9 +32918,9 @@
     "crates/rightkit-sandbox/tests/e2e.rs:741"
    ],
    "@rightkit/release": [
-    "packages/release/build-ownership.test.mjs:948",
-    "packages/release/build-ownership.test.mjs:1073",
-    "packages/release/build-ownership.test.mjs:2193"
+    "packages/release/build-ownership.test.mjs:953",
+    "packages/release/build-ownership.test.mjs:1078",
+    "packages/release/build-ownership.test.mjs:2198"
    ]
   },
   "codesign": {
@@ -32698,7 +33018,7 @@
     "packages/issues-tracker/cli/right-issues.mjs:59"
    ],
    "@rightkit/release": [
-    "packages/release/bin/rightkit-gate.mjs:1775"
+    "packages/release/bin/rightkit-gate.mjs:1793"
    ]
   },
   "git": {
@@ -32835,7 +33155,7 @@
   "lsof": {
    "@rightkit/release": [
     "packages/release/disk-policy.mjs:606",
-    "packages/release/build-ownership.test.mjs:1978"
+    "packages/release/build-ownership.test.mjs:1983"
    ]
   },
   "mkdir": {
@@ -32850,8 +33170,8 @@
     "crates/rightkit-daemon/src/app_root.rs:3169"
    ],
    "@rightkit/release": [
-    "packages/release/build-ownership.test.mjs:1506",
-    "packages/release/build-ownership.test.mjs:1529"
+    "packages/release/build-ownership.test.mjs:1511",
+    "packages/release/build-ownership.test.mjs:1534"
    ]
   },
   "node": {
@@ -32911,9 +33231,9 @@
     "crates/rightkit-qa/src/process.rs:511"
    ],
    "@rightkit/release": [
-    "packages/release/build-ownership.test.mjs:1507",
-    "packages/release/build-ownership.test.mjs:1509",
-    "packages/release/build-ownership.test.mjs:2056"
+    "packages/release/build-ownership.test.mjs:1512",
+    "packages/release/build-ownership.test.mjs:1514",
+    "packages/release/build-ownership.test.mjs:2061"
    ]
   },
   "ping": {
@@ -32933,7 +33253,7 @@
     "crates/rightkit-child-process/src/process_table.rs:501"
    ],
    "@rightkit/release": [
-    "packages/release/build-ownership.test.mjs:1044"
+    "packages/release/build-ownership.test.mjs:1049"
    ]
   },
   "plutil": {
@@ -33047,9 +33367,9 @@
    ],
    "@rightkit/release": [
     "packages/release/release.mjs:2128",
-    "packages/release/build-ownership.test.mjs:911",
-    "packages/release/build-ownership.test.mjs:932",
-    "packages/release/build-ownership.test.mjs:1947"
+    "packages/release/build-ownership.test.mjs:916",
+    "packages/release/build-ownership.test.mjs:937",
+    "packages/release/build-ownership.test.mjs:1952"
    ]
   },
   "pwsh": {
@@ -33066,9 +33386,9 @@
   },
   "python3": {
    "@rightkit/release": [
-    "packages/release/build-ownership.test.mjs:859",
-    "packages/release/build-ownership.test.mjs:946",
-    "packages/release/build-ownership.test.mjs:1233"
+    "packages/release/build-ownership.test.mjs:864",
+    "packages/release/build-ownership.test.mjs:951",
+    "packages/release/build-ownership.test.mjs:1238"
    ]
   },
   "qlmanage": {
@@ -33276,7 +33596,7 @@
     "packages/qa-chrome/src/index.ts:584"
    ],
    "@rightkit/release": [
-    "packages/release/build-ownership.test.mjs:1064"
+    "packages/release/build-ownership.test.mjs:1069"
    ]
   },
   "textutil": {

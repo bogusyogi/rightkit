@@ -12,14 +12,20 @@ MAP = os.path.join(ROOT, "docs", "map")
 
 
 def semver(v):
-    m = re.search(r"(\d+)\.(\d+)\.(\d+)", str(v or ""))
-    return tuple(int(x) for x in m.groups()) if m else None
+    """The first version in `v`: x.y.z, or x.y read as x.y.0 (a two-part Cargo requirement)."""
+    m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", str(v or ""))
+    return tuple(int(x or 0) for x in m.groups()) if m else None
 
 
 def pin_status(pin, current):
-    """`pin` an app's requirement string(s), `current` RightKit's source version: current | behind | ahead | path | unknown."""
-    if "path" in pin or "workspace" in pin or "link:" in pin or "file:" in pin:
-        return "path"
+    """`pin` an app's requirement string(s), `current` RightKit's source version: current | behind | ahead | path | unknown.
+    The extractor joins every requirement it found (`=0.3.6,workspace`): a version among them is the pin; only a pin with no
+    version at all and a path, link or file source is `path`."""
+    parts = [p.strip() for p in str(pin or "").split(",")]
+    versioned = [p for p in parts if semver(p) and not any(k in p for k in ("path", "link:", "file:"))]
+    if not versioned:
+        return "path" if any(k in str(pin) for k in ("path", "workspace", "link:", "file:")) else "unknown"
+    pin = versioned[0]
     want, have = semver(pin), semver(current)
     if not want or not have:
         return "unknown"
@@ -79,7 +85,7 @@ def main():
     for u in units:
         rows = []
         for k, label in (("declared_unused", "declared, never used"), ("used_undeclared", "used, not declared"),
-                         ("used_only_in_tests_but_normal_dep", "a normal dependency used only by tests"), ("unknown_rightkit_refs", "names a RightKit unit that does not exist")):
+                         ("used_only_in_tests_but_normal_dep", "a runtime (normal, build or required peer) dependency used only by tests"), ("unknown_rightkit_refs", "names a RightKit unit that does not exist")):
             if u.get(k):
                 rows.append(f"{label}: {', '.join(f'`{x}`' for x in u[k])}")
         if rows:
