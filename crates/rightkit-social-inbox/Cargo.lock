@@ -795,11 +795,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-social-analytics"
+version = "0.1.1"
+dependencies = [
+ "rightkit-fs",
+ "rightkit-http",
+ "rightkit-social-publish",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rightkit-social-inbox"
 version = "0.1.1"
 dependencies = [
  "rightkit-crypto",
+ "rightkit-http",
  "rightkit-logs",
+ "rightkit-social-analytics",
  "rightkit-social-publish",
  "rightkit-time",
  "serde",

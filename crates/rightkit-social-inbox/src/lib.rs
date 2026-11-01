@@ -7,10 +7,13 @@
 //!
 //! - [`inbox`]: the store-bound commands (`inbox.receive`, `list`, `get`, `set_state`, `stats`) over a
 //!   host-implemented [`inbox::InboxStore`].
+//! - [`automation`]: keyword comment to one private reply per account, over a host-implemented
+//!   [`automation::AutomationStore`] and [`automation::Transport`] (the platform call).
 //! - [`protocol`]: the inbox and DM-automation payload shapes.
 //!
-//! The tables and sending replies belong to the host app.
+//! The tables and the platform call belong to the host app.
 
+pub mod automation;
 pub mod inbox;
 pub mod keywords;
 pub mod protocol;
