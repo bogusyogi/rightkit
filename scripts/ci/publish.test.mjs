@@ -1194,13 +1194,23 @@ test("pack (crates) packages each crate from its own workspace, reads the packag
       return { status: 0 };
     }
   };
-  const { spawn, calls } = spy({ cargo, git: () => ({ status: 0, stdout: `${SHA}\n` }) });
+  // `git archive HEAD` of the fixture: the crates are packed from that export (no .git, as rightkit-gate's snapshot; rightkit#1341).
+  const git = (args) => {
+    if (args[2] !== "archive") return { status: 0, stdout: `${SHA}\n` };
+    return spawnSync("tar", ["-cf", args[args.indexOf("--output") + 1], "-C", tarDir(root), "crates"], { encoding: "utf8" });
+  };
+  const { spawn, calls } = spy({ cargo, git });
   const env = actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b", RUNNER_TEMP: outRoot });
   const manifest = commandPack({ env, spawn, root });
+  assert.deepEqual(calls.filter((c) => c.command === "git" && c.args[2] === "archive").map((c) => c.args.slice(0, 4)), [["-C", root, "archive", "--format=tar"]]);
   const packageCalls = calls.filter((c) => c.command === "cargo" && c.args[0] === "package");
   assert.equal(packageCalls.length, 2);
   assert.deepEqual(packageCalls.map((c) => c.args), [["package", "--locked", "-p", "rightkit-a"], ["package", "--locked", "-p", "rightkit-b"]]);
-  assert.deepEqual(packageCalls.map((c) => c.options.cwd), [path.join(root, "crates", "rightkit-a"), path.join(root, "crates", "rightkit-b")]);
+  for (const [i, name] of ["rightkit-a", "rightkit-b"].entries()) {
+    const cwd = packageCalls[i].options.cwd;
+    assert.ok(cwd.startsWith(outRoot) && cwd.endsWith(path.join("tree", "crates", name)) && !cwd.startsWith(root), cwd);
+    assert.equal(packageCalls[i].options.env.CARGO_TARGET_DIR, targets[name]);
+  }
   assert.deepEqual(manifest.units.map((u) => u.dir), ["crates/rightkit-a", "crates/rightkit-b"]);
   assert.equal(calls.filter((c) => c.command === "cargo" && c.args[0] === "publish").length, 0, "pack never publishes");
   const upload = JSON.parse(fs.readFileSync(path.join(outRoot, "rk-pack", manifest.units[1].metaFile), "utf8"));
