@@ -6637,6 +6637,7 @@ dependencies = [
  "rsa",
  "serde_json",
  "sha1 0.11.0",
+ "sha2 0.10.9",
  "sha2 0.11.1",
  "spki 0.8.1",
  "toml 1.1.8+spec-1.1.0",
