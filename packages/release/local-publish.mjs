@@ -585,6 +585,7 @@ async function* publishUnitStages(parsed, deps, batch) {
 
   // 1. Preconditions, fail closed.
   const platform = assertLocalHost(deps, workspaceRoot, kind);
+  if (platform === "linux" && !parsed.qualifyOnly) refuse("a Linux direct origin qualifies only (--qualify-only); the upload is publish.yml with admission=direct (GB-29, rightkit#1341)");
   if (parsed.qualifyOnly && fs.existsSync(parsed.bundleDir)) refuse(`qualification bundle already exists: ${parsed.bundleDir}`);
   const dir = kind === "npm" ? `packages/${unit.slice("@rightkit/".length)}` : `crates/${unit}`;
   const unitPath = path.join(workspaceRoot, dir);
@@ -784,7 +785,10 @@ async function* publishUnitStages(parsed, deps, batch) {
     fs.mkdirSync(path.dirname(evidencePath), { recursive: true });
     fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { flag: parsed.qualifyOnly ? "wx" : "w" });
     log(`[right-release] wrote ${evidencePath} (artifact sha256 ${artifactSha256})`);
-    const gateOptions = { kind, name: unit, version, packagePath: unitPath, evidencePath, artifactBytes: fs.readFileSync(artifactFile) };
+    // The gate reads source identity through the same git the stages use (a unit snapshot has no .git; sourceGit answers for its commit).
+    // A Linux direct origin only ever qualifies (GB-29): its bundle proves the Linux run, and the upload's own native jobs prove Mac and Windows.
+    const gateOptions = { kind, name: unit, version, packagePath: unitPath, evidencePath, artifactBytes: fs.readFileSync(artifactFile),
+      ...(deps.git ? { git: deps.git } : {}), ...(platform === "linux" && parsed.qualifyOnly ? { directLinux: true } : {}) };
     (deps.enforceGate ?? enforcePublicationGate)(gateOptions, { write: (line) => log(line.replace(/\n$/, "")) });
 
     if (parsed.qualifyOnly) {
@@ -826,6 +830,7 @@ async function runLocalPublishBatch(parsed, deps) {
   const readJson = deps.readJson ?? defaultReadJson;
   const run = deps.run ?? defaultRunAsync;
   const platform = assertLocalHost(deps, workspaceRoot, "cargo");
+  if (platform === "linux") refuse("a Linux direct origin qualifies one unit at a time; batch publish runs on the Mac or Windows (GB-29, rightkit#1341)");
 
   // 1. The crate list and its dependency layers.
   const requested = parsed.batch.file ? parseCrateLayers((deps.readText ?? ((file) => fs.readFileSync(file, "utf8")))(parsed.batch.file)) : [parsed.batch.crates];
