@@ -221,7 +221,7 @@ fn resolve_brand(input: &Value) -> GenResult<String> {
     if brand.is_empty() {
         return Ok(tstr(t, "default_brand"));
     }
-    if strings(t, "brands").iter().any(|b| *b == brand) {
+    if strings(t, "brands").contains(&brand) {
         Ok(brand)
     } else {
         Err(invalid(format!("unknown brand: {brand}")))
@@ -455,7 +455,7 @@ fn canvas(campaign: &Value) -> Value {
     let variants = campaign["variants"].as_array().cloned().unwrap_or_default();
     let missing = !campaign["required_assets"]
         .as_array()
-        .map_or(true, Vec::is_empty);
+        .is_none_or(Vec::is_empty);
 
     let mut nodes = vec![
         node(
@@ -531,7 +531,7 @@ fn canvas(campaign: &Value) -> Value {
         ),
     ];
     for (i, sc) in scenes.iter().enumerate() {
-        let needs = !sc["required_refs"].as_array().map_or(true, Vec::is_empty);
+        let needs = !sc["required_refs"].as_array().is_none_or(Vec::is_empty);
         nodes.push(node(
             &format!("scene-{}", i + 1),
             "scene",

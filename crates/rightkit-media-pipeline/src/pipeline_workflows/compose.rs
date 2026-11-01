@@ -354,9 +354,8 @@ fn build_args(
     let trim = || Filter::new("atrim").pos(0).pos(video_duration);
     let pad = || Filter::new("apad").opt("whole_dur", video_duration);
     let music_gain = || Filter::new("volume").pos(0.22);
-    if !audio.is_empty() && music_in.is_some() {
+    if let (false, Some(mi)) = (audio.is_empty(), music_in) {
         let ai = n;
-        let mi = music_in.unwrap();
         let amix = Filter::new("amix")
             .opt("inputs", 2)
             .opt("duration", "first")
@@ -791,7 +790,6 @@ mod tests {
             &fixed_caps(),
             Loudnorm::Single,
         )
-        .ok()
         .expect("build_args")
     }
 
@@ -852,7 +850,6 @@ mod tests {
             &fixed_caps(),
             Loudnorm::Linear(&m),
         )
-        .ok()
         .expect("pass 2 build");
         let (filter, args) = render(&b, &dir);
         assert!(filter.ends_with(
@@ -871,7 +868,6 @@ mod tests {
             &fixed_caps(),
             Loudnorm::Measure,
         )
-        .ok()
         .expect("pass 1 build");
         let (filter, args) = render(&b, &dir);
         assert!(

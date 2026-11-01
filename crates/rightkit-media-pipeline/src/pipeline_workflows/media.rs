@@ -395,12 +395,12 @@ pub fn loudness(ffmpeg: &impl FfmpegBinary, path: &Path) -> GenResult<Value> {
             if let Ok(x) = v.trim_end_matches(" LUFS").trim().parse::<f64>() {
                 integrated = Some(x);
             }
-        } else if l.starts_with("LRA:") {
-            if let Ok(x) = l[4..].trim().trim_end_matches(" LU").trim().parse::<f64>() {
+        } else if let Some(rest) = l.strip_prefix("LRA:") {
+            if let Ok(x) = rest.trim().trim_end_matches(" LU").trim().parse::<f64>() {
                 lra = Some(x);
             }
         } else if l.starts_with("Peak:") || l.starts_with("True peak:") {
-            let tail = l.split(':').last().unwrap_or("");
+            let tail = l.split(':').next_back().unwrap_or("");
             if let Ok(x) = tail.trim().trim_end_matches(" dBFS").trim().parse::<f64>() {
                 true_peak = Some(x);
             }

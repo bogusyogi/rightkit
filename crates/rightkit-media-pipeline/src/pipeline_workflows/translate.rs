@@ -154,17 +154,31 @@ enum Charge {
     Unknown,
 }
 
-struct CallFailure {
+struct CallFailure(Box<CallFailureData>);
+
+struct CallFailureData {
     error: GenError,
     charge: Charge,
+}
+
+impl std::ops::Deref for CallFailure {
+    type Target = CallFailureData;
+    fn deref(&self) -> &CallFailureData {
+        &self.0
+    }
+}
+
+impl CallFailure {
+    fn new(error: GenError, charge: Charge) -> Self {
+        CallFailure(Box::new(CallFailureData { error, charge }))
+    }
 }
 
 /// Drive one text request through a provider adapter to a terminal state.
 /// Bounded polling (90 × 1 s): text routes are short-lived queue jobs.
 fn run_text(p: &dyn Provider, req: &GenRequest, key: &str) -> Result<String, CallFailure> {
-    let fail = |e: providers::ProviderError, charge: Charge| CallFailure {
-        error: GenError::new(e.code, e.message),
-        charge,
+    let fail = |e: providers::ProviderError, charge: Charge| {
+        CallFailure::new(GenError::new(e.code, e.message), charge)
     };
     let submit = p.submit(req, key).map_err(|e| {
         let charge = if e.ambiguous {
@@ -189,10 +203,10 @@ fn run_text(p: &dyn Provider, req: &GenRequest, key: &str) -> Result<String, Cal
                         break;
                     }
                     PollOutcome::Failed { message } => {
-                        return Err(CallFailure {
-                            error: GenError::new("provider_failed", message),
-                            charge: Charge::Nothing,
-                        });
+                        return Err(CallFailure::new(
+                            GenError::new("provider_failed", message),
+                            Charge::Nothing,
+                        ));
                     }
                     // The provider answered with something this adapter cannot classify: it may
                     // still run or bill. Held like any other unknown outcome (reservation stays
@@ -202,28 +216,27 @@ fn run_text(p: &dyn Provider, req: &GenRequest, key: &str) -> Result<String, Cal
                         detail,
                         completed,
                     } => {
-                        return Err(CallFailure {
-                            error: GenError::new(
+                        return Err(CallFailure::new(
+                            GenError::new(
                                 "outcome_unknown",
                                 format!("{} answered text job {provider_job_id} with {status:?}, which is not a recognised outcome. Provider reply: {detail}", p.id()),
                             ),
-                            charge: if completed { Charge::Estimate } else { Charge::Unknown },
-                        });
+                            if completed { Charge::Estimate } else { Charge::Unknown },
+                        ));
                     }
                 }
             }
-            done.ok_or_else(|| CallFailure {
-                error: GenError::new("timeout", "text job did not complete in 90 s"),
-                charge: Charge::Unknown,
+            done.ok_or_else(|| {
+                CallFailure::new(
+                    GenError::new("timeout", "text job did not complete in 90 s"),
+                    Charge::Unknown,
+                )
             })?
         }
     };
     // The provider ran the job from here on, so its estimate is owed even when
     // the output cannot be used.
-    let owed = |error: GenError| CallFailure {
-        error,
-        charge: Charge::Estimate,
-    };
+    let owed = |error: GenError| CallFailure::new(error, Charge::Estimate);
     for o in &outputs {
         let (bytes, _mime) = p
             .fetch(o)
@@ -521,7 +534,7 @@ fn run_items(
                                     }
                                     Charge::Unknown => uncertain[i] = true,
                                 }
-                                stop = Some((i, f.error));
+                                stop = Some((i, f.error.clone()));
                                 break;
                             }
                         }
@@ -860,10 +873,10 @@ mod tests {
     }
 
     fn fail(code: &str, charge: Charge) -> Scripted {
-        Err(CallFailure {
-            error: GenError::new(code, "scripted failure"),
+        Err(CallFailure::new(
+            GenError::new(code, "scripted failure"),
             charge,
-        })
+        ))
     }
 
     fn segs(texts: &[&str]) -> Vec<Value> {
