@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-agent-engine-api-integrations",
+  "capabilities": [
+    {
+      "capability": "agent-api-integrations",
+      "summary": "Agent engine integrations HTTP API: plugin discovery, manifest projection and plugin middleware wiring; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}
