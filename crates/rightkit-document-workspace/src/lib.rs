@@ -13,13 +13,19 @@
 //! [`DocumentBackend`] (format classification and document IO) and [`WorkspaceWatcher`] (OS
 //! watchers). It runs the functions on its blocking pool and keeps its IPC wrappers.
 
+#[cfg(feature = "app-paths")]
+pub mod app_paths;
+#[cfg(feature = "tauri")]
+pub mod commands;
 pub mod document_io;
 pub mod documents;
 pub mod error;
 pub mod explorer;
 pub mod grants;
 pub mod library;
+pub mod markdown_index;
 pub mod markdown_resources;
+pub mod persistence_status;
 pub mod settings;
 pub mod store;
 pub mod watch;

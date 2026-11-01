@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- `commands` (feature `tauri`): async command bodies generic over `WorkspaceHost`. `app_paths` (feature `app-paths`, `qa-home`): app root, migration and test isolation from a config. `persistence_status` and the `markdown_index` module are declared.
+
 ## 0.1.1
 
 - Added the viewer command bodies (library, document IO, explorer, markdown resources, settings) behind `PathGrants`, `DocumentBackend` and `WorkspaceWatcher`, returning `WorkspaceError`. Additive.
