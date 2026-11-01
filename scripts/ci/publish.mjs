@@ -522,12 +522,21 @@ function packCrates({ units, root, outDir, env, spawn, perCrate }) {
   const scratch = fs.mkdtempSync(path.join(env.RUNNER_TEMP || os.tmpdir(), "rk-crate-"));
   const entries = [];
   try {
+    // rightkit-gate qualifies a crate from the commit's snapshot, which is not a Git checkout, so its archive has no
+    // .cargo_vcs_info.json (rightkit#1341). Pack from the same thing, an export of the commit's tree with no .git, so the sealed
+    // bytes are the qualified bytes; each crate still builds into its checkout's target directory.
+    const exported = path.join(scratch, "tree");
+    fs.mkdirSync(exported);
+    const archive = spawn("git", ["-C", root, "archive", "--format=tar", "--output", path.join(scratch, "tree.tar"), "HEAD"], { encoding: "utf8", env: childEnv(env) });
+    if (archive.error || archive.status !== 0) throw new Error(`cannot export the commit's tree for packing: ${archive.stderr ?? archive.error?.message ?? ""}`);
+    const extract = spawn("tar", ["-xf", path.join(scratch, "tree.tar"), "-C", exported], { encoding: "utf8", env: childEnv(env) });
+    if (extract.error || extract.status !== 0) throw new Error("cannot unpack the commit's tree for packing");
     for (const unit of units) {
       const crate = `${unit.name}-${unit.version}.crate`;
       const owner = perCrate.get(unit.name);
       if (!owner) throw new Error(`${unit.name}: no crate workspace metadata`);
       // Each crate is its own workspace with its own Cargo.lock (#1285): package from that workspace root, into its own target directory.
-      const packed = spawn("cargo", ["package", "--locked", "-p", unit.name], { cwd: path.join(root, owner.dir), stdio: "inherit", env });
+      const packed = spawn("cargo", ["package", "--locked", "-p", unit.name], { cwd: path.join(exported, owner.dir), stdio: "inherit", env: { ...env, CARGO_TARGET_DIR: owner.metadata.target_directory } });
       if (packed.error || packed.status !== 0) throw new Error(`cargo package failed for ${unit.name}; it compiles and verifies the crate without any token`);
       const source = path.join(owner.metadata.target_directory, "package", crate);
       if (!fs.existsSync(source)) throw new Error(`cargo package did not produce ${crate} under ${owner.metadata.target_directory}/package`);
