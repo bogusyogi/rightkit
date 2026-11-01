@@ -225,7 +225,8 @@
           "--all-features"
         ]
       ],
-      "alsoSerial": true
+      "alsoSerial": true,
+      "allowIgnored": "tests/native_macos.rs (2 tests: watching_the_root_with_exclusions_stays_bounded watches the whole filesystem, probe_cursor_older_than_retained_history only prints how FSEvents answers an old event id) are #[ignore] on purpose and run by hand with --ignored; every other file-watch test runs and asserts on every default run (2 ignored per default run on macOS, 4 with alsoSerial; 0 elsewhere, the file is cfg(target_os = \"macos\"))"
     },
     "rightkit-credentials": {
       "featureSets": [
