@@ -11,7 +11,7 @@ const select = (extra = {}) => publicationContent({ registry: "crates", units: "
 test("publication content includes full selected units, external sources & shared inputs without unrelated Rust", () => {
   const selected = select({ readBlob: (f) => f.endsWith("src/lib.rs") ? 'include!("../../../shared/api.rs");' : "" });
   assert.deepEqual(selected.scope, { registry: "crates", units: ["rightkit-daemon"] });
-  assert.deepEqual(selected.rustUnits, [{ name: "rightkit-daemon", dir: "crates/rightkit-daemon" }]);
+  assert.deepEqual(selected.rustUnits, [{ name: "rightkit-daemon", dir: "crates/rightkit-daemon", cargoDir: "crates/rightkit-daemon", crate: "rightkit-daemon" }]);
   assert.deepEqual(selected.npmUnits, []);
   assert.deepEqual(selected.files, files.filter((f) => !["crates/rightkit-other/Cargo.lock", "crates/rightkit-other/src/lib.rs", "desktop-app-template/src/lib.rs", "vendor/example/src/lib.rs", "ci/consumers/other/src/lib.rs"].includes(f)));
 });

@@ -142,7 +142,7 @@ test("a scan result is evidence only when complete, passed and undeferred", () =
 
 test("the scans job runs class A only and the native verify jobs keep class B", () => {
   const runner = fs.readFileSync(new URL("./run-deterministic-scans.mjs", import.meta.url), "utf8");
-  assert.match(runner, /runScans\(plan, \{ classes: \["A"\] \}\)/);
+  assert.match(runner, /runScans\(plan, \{ classes: \["A"\], toolPolicy \}\)/);
   assert.doesNotMatch(runner, /classes: \["A", "B"\]/);
   assert.match(runner, /resultProblems\(result, plannedClassA, cargoLocks\)/);
   assert.match(runner, /buildScanReceipt\(\{\s*result, plannedClassA,/);

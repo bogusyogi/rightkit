@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseUnitNames, readCrateWorkspace, readNpmWorkspace } from "./publish.mjs";
 import { externalInputs } from "../../packages/release/bin/rightkit-gate.mjs";
-import { planScans, runScans, scanDeferrals, scanFailures } from "../../packages/release/deterministic-scans.mjs";
+import { planScans, runScans, scanDeferrals, scanFailures, scanToolPolicyFromPipeline } from "../../packages/release/deterministic-scans.mjs";
 import { brokerManagedHost } from "../../packages/release/cargo-contract.mjs";
 import { buildScanReceipt, candidateCargoLocks, observeToolVersions, resultProblems, SCAN_RECEIPT_FILE, toolVersionProblems } from "./scan-receipt.mjs";
 
@@ -46,7 +46,8 @@ export function publicationContent({ registry, units: text, files, workspace, cr
       if (reach.unresolved) throw new Error(`publication scan inputs unresolved for ${name}: ${reach.unresolved}`);
       dirs.push(...reach.paths);
     }
-    return { name: registry === "npm" ? path.posix.basename(unit.dir) : name, dir: unit.dir };
+    // Each crate is its own Cargo workspace with its own lock (#1285): its cargo scans run in its directory, as ci.yml's gate plans them.
+    return registry === "npm" ? { name: path.posix.basename(unit.dir), dir: unit.dir } : { name, dir: unit.dir, cargoDir: unit.dir, crate: name };
   });
   return {
     scope: { registry, units },
@@ -75,7 +76,10 @@ export async function runCandidateScans({ contentRoot, liveRoot, outDir, env = p
   const plannedClassA = plan.scans.filter((x) => x.class === "A");
   console.log(`scans: ${plannedClassA.length} class A scans planned over ${selection.files.length} tracked files for ${selection.scope.registry}:${selection.scope.units.join(",")} (class B runs in the native verify jobs)`);
   const observedTools = observeToolVersions(spawn);
-  const result = await runScans(plan, { classes: ["A"] });
+  // Enrolled scan tools only (TRUSTED_SCAN_TOOLS): the candidate's ci/rk-pipeline.json tools.<name>.<platform>, the paths this job's
+  // install steps put each binary at (rightkit#1323), as scripts/ci/gate.mjs hands them; without it every such scan is TOOL_UNTRUSTED.
+  const toolPolicy = scanToolPolicyFromPipeline(JSON.parse(fs.readFileSync(path.join(contentRoot, "ci", "rk-pipeline.json"), "utf8")).tools, process.platform);
+  const result = await runScans(plan, { classes: ["A"], toolPolicy });
   for (const line of scanDeferrals(result)) console.log(`DEFERRED ${line}`);
   for (const line of scanFailures(result)) console.log(`FAIL ${line}`);
   // Each crate unit is bound to its own crates/<x>/Cargo.lock (#1285): no root lock exists.
