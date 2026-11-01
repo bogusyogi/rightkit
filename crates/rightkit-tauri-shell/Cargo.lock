@@ -3581,7 +3581,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "dirs 7.0.0",
  "flate2",

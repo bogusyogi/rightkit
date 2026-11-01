@@ -18,7 +18,7 @@ test-mode = ["rightkit-ffmpeg/dev-overrides"]
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde", "clock"] }
-rightkit-models = { version = "0.5.1", path = "../rightkit-models" }
+rightkit-models = { version = "0.6.0", path = "../rightkit-models" }
 rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline" }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 rightkit-ffmpeg = { version = "0.3.0", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
