@@ -133,7 +133,7 @@ let package = Package(
         .target(name: "RightKitEngineClient"),
         .target(name: "RightKitEngine", dependencies: ["CRightKitEngine", "RightKitEngineClient"]),
         .target(name: "RightKitHub", dependencies: ["RightKitEngineClient"]),
-        .target(name: "RightKitHubQA", dependencies: ["RightKitHub"]),
+        .target(name: "RightKitHubQA", dependencies: ["RightKitAccessibility", "RightKitHub", "RightKitSystemUI"]),
         .testTarget(name: "RightKitEngineClientTests", dependencies: ["RightKitEngineClient"]),
         .testTarget(name: "RightKitHubTests", dependencies: ["RightKitHub", "RightKitHubQA"]),
         // Extracted from the Right Suite apps (agent client UI, notch, system UI, dictation, library, media worker).
@@ -142,7 +142,7 @@ let package = Package(
         .testTarget(name: "RightKitMediaTests", dependencies: ["RightKitMedia"]),
         .target(name: "RightKitDictation", dependencies: ["RightKitImportQueue", "RightKitLiveActivity", "RightKitSpeech"]),
         .testTarget(name: "RightKitDictationTests", dependencies: ["RightKitDictation"]),
-        .target(name: "RightKitLibrary", dependencies: ["RightKitCloudSync"]),
+        .target(name: "RightKitLibrary", dependencies: ["RightKitCloudSync", "RightKitFS"]),
         .testTarget(name: "RightKitLibraryTests", dependencies: ["RightKitLibrary"]),
         .target(name: "RightKitAgent", dependencies: ["RightKitCloudSync", "RightKitCredentials", "RightKitLiveActivity", "RightKitSpeech", "RightKitUI"]),
         .testTarget(name: "RightKitAgentTests", dependencies: ["RightKitAgent"]),
