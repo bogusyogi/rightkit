@@ -2451,6 +2451,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
+ "rightkit-agent-engine-history",
  "rightkit-agent-engine-protocol",
  "rightkit-agent-engine-runtime-middleware",
  "rightkit-agent-host-traits",
@@ -2474,7 +2475,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-history"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
