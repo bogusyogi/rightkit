@@ -6,7 +6,7 @@
   "versionPolicy": "Reuse compatible installed/project-pinned versions. Resolve and record a supported exact release before a new install; provenance commit pins are source-review evidence, not asserted package versions. Homebrew formulas are moving releases: inspect and disclose the resolved version before approval. Never silently upgrade or reinstall.",
   "tools": [
     {
-      "id": "legion-apple",
+      "id": "rightkit-apple-ops",
       "name": "Legion Apple native CLI/MCP",
       "source": "local Legion engine/crates/legion-apple",
       "executables": [

@@ -64,7 +64,7 @@ pub trait DocumentBackend {
     fn fingerprint(&self, path: &str) -> Result<FileFingerprint, String>;
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) mod testing {
     use super::*;
 

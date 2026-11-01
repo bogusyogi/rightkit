@@ -258,7 +258,7 @@ fn spawn_child(launch: &ProcessLaunch) -> Result<ChildHandles, EffectError> {
         return Err(last_error("make stderr reader private"));
     }
     let job = configure_job()?;
-    let (executable, command) = command_application_and_line(&launch);
+    let (executable, command) = command_application_and_line(launch);
     let mut command = wide(&command);
     let executable = wide(&executable);
     let cwd = wide(&launch.cwd);

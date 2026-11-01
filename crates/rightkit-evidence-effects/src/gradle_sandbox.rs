@@ -456,6 +456,8 @@ mod tests {
         .unwrap();
         if mode == "hang" || mode == "orphan" || mode == "grandchild" {
             if mode != "grandchild" {
+                // The worker is left running on purpose: this test checks that the sandbox reaps it.
+                #[allow(clippy::zombie_processes)]
                 let _child = std::process::Command::new(std::env::current_exe().unwrap())
                     .args([
                         "--exact",
