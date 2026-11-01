@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-notch-ui",
+  "capabilities": [
+    {
+      "capability": "notch-ui",
+      "summary": "Notch drawing core: edge-aware geometry, spring motion, hover card model and a software renderer for ring gauges and cards; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}
