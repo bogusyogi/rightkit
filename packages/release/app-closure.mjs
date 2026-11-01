@@ -1,4 +1,5 @@
-// Executing scans follow the selected unit's committed dependency closure. File-only scans stay repository-wide.
+// Executing scans follow the selected unit's committed dependency closure. File-only scans stay repository-wide. A pnpm root's lockfile
+// install and audit are workspace scans (they read that root's whole install graph and the network advisory data): they follow the closure.
 // A Cargo scan (metadata, package list, deny, audit) executes cargo, through the broker on a broker host: it is an executing scan,
 // never a file-only one, and follows the Rust closure (no Rust unit in the closure, no Cargo scan).
 // Unknown local dependency edges refuse; they never silently omit checks or authorize every repository unit.
@@ -169,7 +170,10 @@ export const isCargoScan = (s) => CARGO_WORKSPACE_SCAN.test(String(s.id)) || CAR
 export const isExecutingScan = (s) => s.executes === true || s.kind === "test" || s.id === "suite-api" || isCargoScan(s);
 
 /** Keep file-only checks; filter every executing unit check (Cargo scans included) & refuse unclassified repository execution. */
-export function scopeScans(scans, closure, { rustUnits = [] } = {}) {
+export function scopeScans(scans, closure, { rustUnits = [], npmUnits = [] } = {}) {
+  // The pnpm roots that hold a unit of the closure: a root's lockfile install and audit (pnpm-lockfile[:<root>], pnpm-audit[:<root>])
+  // read that root's whole install graph, so they run only for these (GC-A03). A Rust-only closure, or a sample app's own root, has none.
+  const closureNpmRoots = new Set(npmUnits.filter((u) => closure.npm.has(u.name)).map((u) => cleanWorkspace(u.root ?? ".")));
   const names = rustUnits.map((u) => u.name).sort((a, b) => b.length - a.length);
   // The Cargo workspaces that hold a unit of the closure: a workspace-level Cargo scan (metadata, deny, audit) runs only for these.
   const closureWorkspaces = new Set(rustUnits.filter((u) => closure.rust.has(u.name)).map((u) => cleanWorkspace(u.cargoDir)));
@@ -186,6 +190,7 @@ export function scopeScans(scans, closure, { rustUnits = [] } = {}) {
       include = closure.rust.has(cargoList[1]);
     }
     else if (CARGO_WORKSPACE_SCAN.test(s.id)) include = closureWorkspaces.has(cleanWorkspace(s.cwd));
+    else if (/^pnpm-(?:lockfile|audit)(?::.+)?$/.test(s.id)) include = closureNpmRoots.has(cleanWorkspace(s.cwd));
     else if (/^cargo-/.test(s.id)) throw problem(`executing scan ${s.id} has no exact scope owner`);
     else if (Array.isArray(s.batch?.units)) {
       const selected = s.batch.units.filter((n) => closure.rust.has(n));

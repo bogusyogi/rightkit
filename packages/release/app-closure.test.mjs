@@ -40,10 +40,10 @@ test("unknown, unreadable, invalid & escaped dependency closures refuse instead 
 
 test("selected Rust scope retains dependencies & repository file-only scans, excludes unrelated Rust/npm execution", () => {
   // Cargo scans (metadata, package list, deny, audit) execute cargo: they are not file-only and have their own test below.
-  const ids = ["secret-scan", "license", "pnpm-audit:templates/desktop", "pnpm-lockfile:templates/desktop", "rustfmt:2021", "check:app", "test:rust:core", "test:rust:other", "tsc:desktop", "test:npm:desktop", "generated-docs", "suite-api", "test:scripts-ci"];
+  const ids = ["secret-scan", "license", "rustfmt:2021", "check:app", "test:rust:core", "test:rust:other", "tsc:desktop", "test:npm:desktop", "generated-docs", "suite-api", "test:scripts-ci"];
   const { scans, dropped } = scopeScans(ids.map((id) => ({ id })), closure(), { rustUnits });
-  assert.deepEqual(scans.map((s) => s.id), ids.slice(0, 7));
-  assert.deepEqual(dropped.map((s) => s.id), ids.slice(7));
+  assert.deepEqual(scans.map((s) => s.id), ids.slice(0, 5));
+  assert.deepEqual(dropped.map((s) => s.id), ids.slice(5));
   const blockedBy = (red) => scans.some((s) => red.includes(s.id));
   assert.equal(blockedBy(["test:rust:other", "test:npm:desktop"]), false);
   assert.equal(blockedBy(["test:rust:core"]), true);
@@ -121,7 +121,8 @@ test("a unit of one workspace keeps only that workspace's Cargo scans; every oth
   for (const id of ["cargo-metadata", "cargo-metadata:engine", "cargo-deny:engine", "cargo-audit:engine"]) assert.ok(gone.some((s) => s.id === id), id);
   assert.equal(kept.length + gone.length, cargo.length, "every Cargo scan is either kept or excluded, never lost");
   // Repository-wide file-only Class A scans stay whatever the scope (GC-A03).
-  const fileOnly = plan.scans.filter((s) => s.class === "A" && !isExecutingScan(s));
+  // (A pnpm root's lockfile install and audit are workspace scans, not file-only: see the pnpm test at the end of this file.)
+  const fileOnly = plan.scans.filter((s) => s.class === "A" && !isExecutingScan(s) && !/^pnpm-/.test(s.id));
   assert.ok(fileOnly.length > 0);
   for (const s of fileOnly) assert.ok(scans.includes(s), `${s.id} stays`);
 });
@@ -293,4 +294,15 @@ test("[GB-15] a red unit outside the app's closure does not block the app; a red
   assert.notEqual(r.code, 0, "a red test inside the closure blocks");
   r = await fx.door(["--to", "check", "--commit", fx.commit()], seams(["secret-scan"]));
   assert.notEqual(r.code, 0, "a red repository-wide scan blocks");
+});
+
+// ---- GC-A03: a pnpm root's lockfile install and audit follow the closure's roots, like cargo-deny follows its workspaces --------------------------
+test("pnpm-lockfile and pnpm-audit run only for the pnpm roots that hold a unit of the closure (a sample app's red lock or katex advisory refuses nothing else)", () => {
+  const npmUnits = [{ name: "release", dir: "packages/release", root: "." }, { name: "ci", dir: "packages/ci", root: "." }, { name: "e2e", dir: "e2e-app", root: "e2e-app" }, { name: "tpl", dir: "templates/desktop", root: "templates/desktop" }];
+  const pnpm = (root) => [{ id: root === "." ? "pnpm-lockfile" : `pnpm-lockfile:${root}`, ...(root === "." ? {} : { cwd: root }) }, { id: root === "." ? "pnpm-audit" : `pnpm-audit:${root}`, ...(root === "." ? {} : { cwd: root }) }];
+  const scans = [{ id: "secret-scan" }, ...["." , "e2e-app", "templates/desktop"].flatMap(pnpm)];
+  const ids = (dirs) => scopeScans(scans, closureOf({ scopeDirs: dirs, npmUnits, rustUnits, readFile: (f) => (f.endsWith("package.json") ? "{}" : read(f)) }), { rustUnits, npmUnits }).scans.map((s) => s.id);
+  assert.deepEqual(ids(["packages/release"]), ["secret-scan", "pnpm-lockfile", "pnpm-audit"], "an npm unit of the root workspace runs the root's pair, never e2e-app's or the template's");
+  assert.deepEqual(ids(["e2e-app"]), ["secret-scan", "pnpm-lockfile:e2e-app", "pnpm-audit:e2e-app"], "the sample app's own unit still runs its own pair: its red lock still refuses it");
+  assert.deepEqual(ids(["crates/app"]), ["secret-scan"], "a Rust-only closure reads no pnpm root");
 });
