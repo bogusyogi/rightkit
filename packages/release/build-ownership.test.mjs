@@ -159,7 +159,12 @@ test("spawnUnderOwnership: only a detached POSIX spawn under a held ownership is
   fs.writeFileSync(file, JSON.stringify({ schema: OWNERSHIP_SCHEMA, handle: "h-9", host: os.hostname(), platform: "darwin", pid: 999_999, startedMs: before - 5000, containment: { kind: "group", group: 777 }, snapshot: null, acquiredAt: iso(before - 4000), broker: { submitted: false } }));
   const member = { members: [{ pid: 4400, ppid: 1, startedMs: before }], byPid: new Map(), own: new Set() };
   assert.throws(() => acquire(file, "darwin", fakeProbe("darwin", { groupSnapshot: (g) => (g === 4400 ? member : group([])) })), /detached process group 4400 \(eslint\) still has 1 member/);
-  fs.rmSync(file);
+  // A group id the kernel handed to a new process (its leader started after the entry was written) is not the recorded group.
+  const reused = { members: [{ pid: 4400, ppid: 1, startedMs: Date.now() + 60_000 }], byPid: new Map(), own: new Set() };
+  const own = acquire(file, "darwin", fakeProbe("darwin", { groupSnapshot: (g) => (g === 4400 ? reused : group([])) }));
+  assert.match(own.reclaimed.proofs.join("; "), /the 1 detached process group\(s\) it started are empty/);
+  own.release();
+  fs.rmSync(file, { force: true });
   fs.rmSync(reg, { recursive: true, force: true });
   assert.throws(() => spawnUnderOwnership(() => { throw new Error("ENOENT"); }, "x", [], { detached: true }, { env, platform: "darwin" }), /ENOENT/);
   assert.deepEqual(fs.readdirSync(reg), [], "a spawn that failed leaves nothing behind");
