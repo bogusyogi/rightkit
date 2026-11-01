@@ -189,39 +189,22 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-web-session` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | web-session | Agent browser logins: one owner-approved Chromium session at a time on the login profile, with a network policy limited to the approved sites, a live view for the owner and signed approvals. |
 | `rightkit-workflow` | crates.io | 0.2.1 | 0.2.0 | 0.2.1 | staged, not yet published | scenario-runtime | Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary |
 
-## npm packages (49)
+## npm packages (26)
 
 | Package | Registry | Source | Published | Staged | Flag | CLI | Owns | What it is |
 |---|---|---|---|---|---|---|---|---|
-| `@rightkit/agent-ui-approvals` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-approvals | Agent approval queue and cards, agent settings, remote approvals, owner PIN and secure-box settings views. |
-| `@rightkit/agent-ui-components` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-components | Coding-agent UI components: app frame, chat, composer, review, panels, delivery, remote and usage. |
-| `@rightkit/agent-ui-core` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-core | Coding-agent UI core: daemon client, session and transcript types, stores and helpers. |
-| `@rightkit/agent-ui-hooks` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-hooks | React hooks for coding-agent UIs: sessions, composer, workspace files, approvals and runtime. |
-| `@rightkit/agent-ui-settings` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-settings | Settings panes for coding-agent UIs. |
-| `@rightkit/agent-ui-web` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-web | Browser client for a coding-agent daemon: transcript, input bar, diff, model and usage panels. |
-| `@rightkit/agent-ui-workbench` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-workbench | Workbench and runtime panels for coding-agent UIs. |
 | `@rightkit/app-update` | npm | 0.4.2 | 0.4.2 | 0.4.2 | ok |  | update-policy | Shared runtime update policy helper for Right Suite Tauri apps. |
 | `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 0.3.2 | ok | right-ax | agent-experience-gates | Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface. |
 | `@rightkit/build-control-policy` | private | 0.1.4-phase1 | none recorded |  | private |  |  | `ownership-write-hook-cli.mjs` adds secondary feedback for Claude `Write`/`Edit`/`MultiEdit` and shell (`Bash`) calls, and for Codex `apply_patch` and shell (`exec_command`) calls. Both adapters deny writes targeting ownership exception or platform trust records. `ownership-session-hook-cli.mjs` adds the current RightKit ownership index at session start. Hook feedback is fail-open for ambiguous edits; build admission remains authoritative. |
 | `@rightkit/ci` | npm | 0.3.2 | 0.3.1 | 0.3.2 | staged, not yet published | right-git | github-workflows | Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git. |
-| `@rightkit/config` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | shared-presets | Shared presets for desktop apps: TypeScript configs, a Vite base config, a flat ESLint preset and Rust toolchain, cargo-deny, cargo-audit, rustfmt and cargo-about templates. |
-| `@rightkit/dictation-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | dictation-ui | Dictation UI: recording pill, microphone and hotkey hooks, voice conversation and dictation pages. |
 | `@rightkit/doc-render` | npm | 0.2.1 | 0.2.1 | 0.2.1 | ok |  | document-rendering | Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers. |
-| `@rightkit/document-core` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | document-core | Shared base for the document editors: platform bridge, settings, state, PDF helpers and the format registry. |
-| `@rightkit/document-workspace` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | document-workspace-ui | Multi-format document workspace shell: tabs, sidebar, document router, loaders, savers and actions. |
-| `@rightkit/docx-editor` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | docx-editor | DOCX editing pane over @eigenpal/docx-editor with a host-owned toolbar, find, print and Markdown export. |
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 0.1.2 | ok | rightkit-hooks | lifecycle-hooks | Neutral lifecycle runtime shared by independently installable agent systems. |
-| `@rightkit/html-editor` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | html-editor | HTML document editor and viewer: ProseMirror editing, sanitising and source view. |
 | `@rightkit/i18n` | npm | 0.2.0 | 0.2.0 | 0.2.0 | ok |  | localization | Shared locale catalog and React provider for Right Suite apps. |
 | `@rightkit/issues-tracker` | npm | 0.1.0 | 0.1.0 | 0.1.0 | ok | right-issues | issues-tracker | Writes issues.html at a repository root from its GitHub issues: grouped by feature, status chips from labels, offline, light and dark. |
 | `@rightkit/legal` | npm | 0.6.3 | 0.6.3 | 0.6.3 | ok | legal-snapshot, generate-npm-license-appendix, rightkit-legal | legal-assent | Legal manifest, assent receipt, and release-contract primitives for proprietary Right Suite desktop apps. |
 | `@rightkit/legal-ui` | npm | 0.4.1 | 0.4.1 | 0.4.1 | ok |  | legal-ui | The one first-run / re-acceptance legal gate screen for Right Suite desktop apps. |
-| `@rightkit/library-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | library-ui | Library and queue UI for transcripts and downloads: queue board, job cards, library list, detail reader and history. |
 | `@rightkit/license` | npm | 0.3.0 | 0.3.0 | 0.3.0 | ok |  | licensing | Native licence invoke client & safe display views for Right Suite apps. |
 | `@rightkit/logs` | npm | 0.1.6 | 0.1.6 | 0.1.6 | ok |  | structured-logging | Local-only structured logging and diagnostics client for Right Suite apps. |
-| `@rightkit/mail-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | mail-ui | Mail client UI: inbox, reader, compose editor, recipients, attachments, account switcher and the mail store. |
-| `@rightkit/markdown-editor` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | markdown-editor | Markdown and MDX editor: ProseMirror WYSIWYG, source mode, math, diagrams and properties panel. |
-| `@rightkit/media-gen-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | media-gen-ui | Generative media studio UI: generate, jobs, gallery, recipes, voices and production panels. |
 | `@rightkit/media-ui` | npm | 0.3.4 | 0.3.4 | 0.3.4 | ok |  | media-ui | Brand-neutral media player and image viewer/editor for Right Suite apps. |
 | `@rightkit/onboarding` | npm | 0.6.3 | 0.6.3 | 0.6.3 | ok |  | onboarding-ui | First-run onboarding framework: ordered steps, progress, skip/resume, legal gate first, permissions, model download and licence/trial steps. |
 | `@rightkit/outdated` | npm | 0.3.0 | 0.3.0 | 0.3.0 | ok | right-update | dependency-updates | Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler). |
@@ -232,16 +215,10 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 0.7.2 | ok |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
 | `@rightkit/release` | npm | 0.6.17 | 0.6.13 | 0.6.17 | staged, not yet published | right-release, rightkit-gate, rightkit-agent-hook | release-tooling | Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution. |
 | `@rightkit/settings-ui` | npm | 0.7.0 | 0.7.0 | 0.7.0 | ok |  | settings-ui | Settings panel frame, search and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-app-settings. The panel shell and primitives (/core) need only React. |
-| `@rightkit/social-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | social-ui | Social media management UI: accounts, drafts, approvals and analytics screens with their data layer. |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded |  | private |  | sync-worker | Cloudflare Worker (D1 + R2) implementing the server side of rightkit-sync-http/1: opaque encrypted records, per-account auth, version preconditions, paged change feeds, rate limits, account erase and tombstone compaction. |
-| `@rightkit/system-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | system-ui | System monitor views (activity, storage, cleanup, duplicates, drive health, apps, chat) and chart helpers for desktop utility apps. |
 | `@rightkit/tauri` | npm | 0.3.0 | 0.3.0 | 0.3.0 | ok |  | tauri-host-adapters | Typed host adapters for shared Right Suite Tauri commands. |
 | `@rightkit/tauri-shell` | npm | 0.1.3 | 0.1.3 | 0.1.3 | ok |  | desktop-shell | Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls. |
-| `@rightkit/terminal-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | terminal-ui-components | Persistent terminal pane and its React hook. |
 | `@rightkit/theme` | npm | 0.3.1 | 0.3.1 | 0.3.1 | ok | rightkit-theme | theme-ui | Brand file to CSS tokens generator for Right Suite apps: light/dark/system, derived dark accent, WCAG contrast and hard-coded-colour checks, runtime brand application. |
-| `@rightkit/video-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | video-ui | Video editor UI: timeline, inspector, preview and project views. |
-| `@rightkit/waitlist-worker` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | waitlist-worker | Cloudflare Worker that captures waitlist email signups in KV, rate-limits per IP and sends an optional Resend confirmation email. |
-| `@rightkit/workspace-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | workspace-ui | Calendar, contacts, drive, tasks and meeting views for workspace-style apps. |
 
 ## Version records without a manifest
 

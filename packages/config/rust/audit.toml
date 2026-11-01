@@ -1,3 +1,0 @@
-# cargo-audit template (copy to .cargo/audit.toml). Reasons live in deny.toml [advisories] ignore.
-[advisories]
-ignore = []

@@ -15,7 +15,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 221 (172 crates, 49 npm packages).
+- Packages in RightKit: 198 (172 crates, 26 npm packages).
 - Packages with at least one app pin: 151.
 - App pins: 1920. Stale: 40. Ahead of published: 103. Unpublished: 114. Local: 1234. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 476.
@@ -197,35 +197,18 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-web-extract` | crates.io | 0.1.1 | none recorded | 0 | none | - |
 | `rightkit-web-session` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-workflow` | crates.io | 0.2.1 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `@rightkit/agent-ui-approvals` | npm | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/agent-ui-components` | npm | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/agent-ui-core` | npm | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/agent-ui-hooks` | npm | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/agent-ui-settings` | npm | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/agent-ui-web` | npm | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/agent-ui-workbench` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/app-update` | npm | 0.4.2 | 0.4.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
 | `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 0 | none | 4 vendored copies |
 | `@rightkit/build-control-policy` | private | 0.1.4-phase1 | none recorded | 0 | none | 4 vendored copies |
 | `@rightkit/ci` | npm | 0.3.2 | 0.3.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 8 stale |
-| `@rightkit/config` | npm | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/dictation-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/doc-render` | npm | 0.2.1 | 0.2.1 | 0 | none | 4 vendored copies |
-| `@rightkit/document-core` | npm | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/document-workspace` | npm | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/docx-editor` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 0 | none | 4 vendored copies |
-| `@rightkit/html-editor` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/i18n` | npm | 0.2.0 | 0.2.0 | 0 | none | 4 vendored copies |
 | `@rightkit/issues-tracker` | npm | 0.1.0 | 0.1.0 | 0 | none | 4 vendored copies |
 | `@rightkit/legal` | npm | 0.6.3 | 0.6.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `@rightkit/legal-ui` | npm | 0.4.1 | 0.4.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `@rightkit/library-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/license` | npm | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `@rightkit/logs` | npm | 0.1.6 | 0.1.6 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `@rightkit/mail-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/markdown-editor` | npm | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/media-gen-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/media-ui` | npm | 0.3.4 | 0.3.4 | 0 | none | 4 vendored copies |
 | `@rightkit/onboarding` | npm | 0.6.3 | 0.6.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `@rightkit/outdated` | npm | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
@@ -234,18 +217,12 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/qa` | npm | 0.6.2 | 0.6.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `@rightkit/qa-chrome` | npm | 0.1.12 | 0.1.12 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `@rightkit/release` | npm | 0.6.17 | 0.6.13 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
+| `@rightkit/release` | npm | 0.6.16 | 0.6.13 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
 | `@rightkit/settings-ui` | npm | 0.7.0 | 0.7.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `@rightkit/social-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded | 0 | none | 4 vendored copies |
-| `@rightkit/system-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/tauri` | npm | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `@rightkit/tauri-shell` | npm | 0.1.3 | 0.1.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `@rightkit/terminal-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/theme` | npm | 0.3.1 | 0.3.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `@rightkit/video-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/waitlist-worker` | npm | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/workspace-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 
 ## Pins
 
