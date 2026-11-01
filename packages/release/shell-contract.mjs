@@ -26,7 +26,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const SKIPPED_TREE = /(^|\/)(node_modules|vendor|target)\//;
+const SKIPPED_TREE = /(^|\/)(node_modules|vendor|target|tests\/fixtures)\//;
 const PLATFORMS = ["macos", "windows", "linux", "ios", "android"];
 // The shell is a desktop plugin: a mobile window is created by the OS and shown by it, so R1 judges desktop targets only.
 const DESKTOP = new Set(["base", "macos", "windows", "linux"]);

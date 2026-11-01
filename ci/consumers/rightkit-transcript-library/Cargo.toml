@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-transcript-library-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-transcript-library = { version = "=0.1.0" }

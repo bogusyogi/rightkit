@@ -1,0 +1,210 @@
+//! Immutable request-bound context passed to every native provider.
+
+use crate::source::{ScopeGrantView, SourceQuery, SourceSet};
+use rightkit_context_protocol::{FederationRequestV1, FreshnessSnapshotV1};
+use std::time::{Duration, Instant};
+use tokio_util::sync::CancellationToken;
+
+/// The validated grant view exposed to providers.  It is intentionally a
+/// narrow alias rather than the signing/envelope type.
+pub type ValidatedScopeGrantView = ScopeGrantView;
+
+/// Immutable provider input.  Composition creates one instance per request;
+/// providers receive references and cannot replace request identity, grant,
+/// freshness, deadline, or source handles.
+#[derive(Clone, Debug)]
+pub struct ProviderContext {
+    pub request_id: String,
+    pub repository_root: String,
+    pub repository_id: String,
+    pub task: String,
+    pub session_id: String,
+    pub client: String,
+    pub anchors: Vec<String>,
+    pub scope_grant: Option<ValidatedScopeGrantView>,
+    /// Authenticated Cortex scope descriptor propagated from the federation request.
+    pub cortex_scope_descriptor: Option<serde_json::Value>,
+    pub release_generation: Option<String>,
+    pub freshness: FreshnessSnapshotV1,
+    /// Absolute monotonic deadline.  It is never serialized or reset by a
+    /// provider.
+    pub deadline: Instant,
+    pub cancellation: CancellationToken,
+    pub trace_id: String,
+    pub sources: SourceSet,
+}
+
+impl ProviderContext {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        request_id: impl Into<String>,
+        repository_root: impl Into<String>,
+        repository_id: impl Into<String>,
+        task: impl Into<String>,
+        session_id: impl Into<String>,
+        client: impl Into<String>,
+        anchors: Vec<String>,
+        scope_grant: Option<ValidatedScopeGrantView>,
+        release_generation: Option<String>,
+        freshness: FreshnessSnapshotV1,
+        deadline: Instant,
+        cancellation: CancellationToken,
+        trace_id: impl Into<String>,
+        sources: SourceSet,
+    ) -> Self {
+        Self {
+            request_id: request_id.into(),
+            repository_root: repository_root.into(),
+            repository_id: repository_id.into(),
+            task: task.into(),
+            session_id: session_id.into(),
+            client: client.into(),
+            anchors,
+            scope_grant,
+            cortex_scope_descriptor: None,
+            release_generation,
+            freshness,
+            deadline,
+            cancellation,
+            trace_id: trace_id.into(),
+            sources,
+        }
+    }
+
+    /// Construct from the serialized federation request after the caller has
+    /// validated root, budget, grant, and freshness.
+    pub fn from_request(
+        request: &FederationRequestV1,
+        repository_id: impl Into<String>,
+        scope_grant: Option<ValidatedScopeGrantView>,
+        freshness: FreshnessSnapshotV1,
+        deadline: Instant,
+        cancellation: CancellationToken,
+        sources: SourceSet,
+    ) -> Self {
+        Self::new(
+            request.request_id.clone(),
+            request.repository_root.clone(),
+            repository_id,
+            request.task.clone(),
+            request.session_id.clone(),
+            request.client.clone(),
+            request.anchors.clone(),
+            scope_grant,
+            request.release_generation.clone(),
+            freshness,
+            deadline,
+            cancellation,
+            request.trace_id.clone(),
+            sources,
+        )
+        .with_cortex_scope_descriptor(request.extensions.get("cortexScopeDescriptor").cloned())
+    }
+
+    /// Attach the request-authorized Cortex scope descriptor after validation.
+    pub fn with_cortex_scope_descriptor(mut self, descriptor: Option<serde_json::Value>) -> Self {
+        self.cortex_scope_descriptor = descriptor;
+        self
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation.is_cancelled()
+    }
+
+    pub fn is_deadline_exhausted(&self) -> bool {
+        Instant::now() >= self.deadline
+    }
+
+    pub fn remaining(&self) -> Duration {
+        self.deadline.saturating_duration_since(Instant::now())
+    }
+
+    pub fn query(&self) -> SourceQuery {
+        SourceQuery {
+            request_id: self.request_id.clone(),
+            repository_id: self.repository_id.clone(),
+            repository_root: self.repository_root.clone(),
+            task: self.task.clone(),
+            session_id: self.session_id.clone(),
+            generation: self.release_generation.clone(),
+            cortex_scope_descriptor: self.cortex_scope_descriptor.clone(),
+            anchors: self.anchors.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn from_request_preserves_cortex_scope_descriptor() {
+        let descriptor =
+            serde_json::json!({"kind": "filesystem", "path": "coderight-absorption-20260922"});
+        let request = FederationRequestV1 {
+            schema_version: 1,
+            request_id: "request".into(),
+            trace_id: "trace".into(),
+            task: "task".into(),
+            repository_root: "C:/repo".into(),
+            client: "client".into(),
+            session_id: "session".into(),
+            deadline_ms: 1000,
+            max_tokens: 100,
+            anchors: Vec::new(),
+            scope_grant_id: None,
+            manifest_digest: None,
+            release_generation: None,
+            blueprint_generation: None,
+            skills_generation: None,
+            extensions: BTreeMap::from([("cortexScopeDescriptor".into(), descriptor.clone())]),
+        };
+        let context = ProviderContext::from_request(
+            &request,
+            "repo-id",
+            None,
+            FreshnessSnapshotV1 {
+                graph_state: "ready".into(),
+                generation: None,
+                snapshot_id: None,
+                base_commit: None,
+                overlay_digest: None,
+                stale: false,
+            },
+            Instant::now() + Duration::from_secs(1),
+            CancellationToken::new(),
+            SourceSet::default(),
+        );
+
+        assert_eq!(context.query().cortex_scope_descriptor, Some(descriptor));
+    }
+
+    #[test]
+    fn legacy_constructor_keeps_scope_descriptor_absent() {
+        let context = ProviderContext::new(
+            "request",
+            "C:/repo",
+            "repo-id",
+            "task",
+            "session",
+            "client",
+            Vec::new(),
+            None,
+            None,
+            FreshnessSnapshotV1 {
+                graph_state: "ready".into(),
+                generation: None,
+                snapshot_id: None,
+                base_commit: None,
+                overlay_digest: None,
+                stale: false,
+            },
+            Instant::now() + Duration::from_secs(1),
+            CancellationToken::new(),
+            "trace",
+            SourceSet::default(),
+        );
+        assert_eq!(context.query().cortex_scope_descriptor, None);
+    }
+}

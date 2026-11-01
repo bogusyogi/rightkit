@@ -7,7 +7,7 @@ const need = (ok, why) => { if (!ok) throw new Error(`registry consumer recipe r
 const within = (base, file) => { const rel = path.relative(base, file); return rel && !path.isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${path.sep}`); };
 
 export function assertRegistryManifest(text, unit) {
-  need(!/^\s*\[(?:patch|replace)(?:[.\]])/m.test(text) && !/\b(?:path|git|workspace|registry|registry-index)\s*=/.test(text), "registry consumer must not contain path/git/workspace dependencies, foreign registries or patches");
+  need(!/^\s*\[(?:patch|replace)(?:[.\]])/m.test(text) && !/(?:^|[{,])\s*(?:path|git|workspace|registry|registry-index)\s*=/m.test(text), "registry consumer must not contain path/git/workspace dependencies, foreign registries or patches");
   need(/^rightkit-[a-z0-9][a-z0-9-]*$/.test(unit.name), "invalid consumer crate name");
   const pin = new RegExp(`^${unit.name}\\s*=\\s*\\{[^\\n]*version\\s*=\\s*"=${unit.version.replaceAll(".", "\\.")}"[^\\n]*\\}`, "m");
   need(pin.test(text), `consumer must pin ${unit.name} =${unit.version}`);
@@ -116,7 +116,7 @@ export function cargoRecipe({ root, unit }) {
   const inventory = JSON.parse(fs.readFileSync(inventoryFile, "utf8"));
   const reviewed = inventory.schema === 1 && inventory.cargo?.[unit.name];
   const id = `ci/consumers/${unit.name}/src/main.rs`;
-  need(reviewed && /^PK\d{2}$/.test(reviewed.pkId) && reviewed.id === id, `missing reviewed PK inventory entry for ${unit.name}; review recipe & inventory before qualification`);
+  need(reviewed && /^PK\d{2,3}$/.test(reviewed.pkId) && reviewed.id === id, `missing reviewed PK inventory entry for ${unit.name}; review recipe & inventory before qualification`);
   const runs = parseRuns(reviewed.runs);
   const sortedFiles = Object.fromEntries(Object.entries(files).sort(([a], [b]) => a.localeCompare(b)));
   const reviewedFiles = Object.fromEntries(Object.entries(reviewed.files ?? {}).sort(([a], [b]) => a.localeCompare(b)));

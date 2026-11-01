@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T08:27:07Z",
-  "rightkitHead": "dd9df6e",
+  "generatedAt": "2026-11-01T09:04:20Z",
+  "rightkitHead": "2ccea7f",
   "legend": [
     {
       "state": "adopted",
@@ -127,7 +127,7 @@
     {
       "id": "other",
       "name": "Other (no domain assigned)",
-      "packages": 10
+      "packages": 69
     }
   ],
   "triage": null,
@@ -6474,6 +6474,1078 @@
       }
     },
     {
+      "name": "rightkit-adapt",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "adapt"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-adapt",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-adapt-taste",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "adaptive-learning"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-adapt-taste",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-engine-api-platform",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-api-platform"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-engine-api-platform",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-engine-api-sessions",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-api-sessions"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-engine-api-sessions",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-engine-api-workflows",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-api-workflows"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-engine-api-workflows",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-engine-attention",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-attention"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-engine-attention",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-engine-cli",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-cli"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-engine-cli",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-engine-history",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-history"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-engine-history",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-engine-protocol",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-protocol"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-engine-protocol",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-engine-runtime-middleware",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-runtime-middleware"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-engine-runtime-middleware",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-engine-runtime-resources",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-runtime-resources"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-engine-runtime-resources",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-engine-storage",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-storage"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-engine-storage",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-engine-tasks",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-tasks"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-engine-tasks",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-orchestration",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-orchestration"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-orchestration",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-orchestration-handoff",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-orchestration-handoff"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-orchestration-handoff",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-policy",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-policy"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-policy",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-agent-tools",
       "kind": "cargo",
       "class": "foundation",
@@ -6563,6 +7635,73 @@
         "legion": {
           "state": "stale",
           "detail": "0.1.2→0.3.0"
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-transcript",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-transcript"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-transcript",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
         }
       }
     },
@@ -6788,6 +7927,73 @@
       }
     },
     {
+      "name": "rightkit-app-manager",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "app-manager"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-app-manager",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-app-settings",
       "kind": "cargo",
       "class": "foundation",
@@ -6912,9 +8118,9 @@
         "speech-recognition"
       ],
       "private": false,
-      "source": "0.3.1",
+      "source": "0.3.2",
       "registry": "0.3.0",
-      "staged": "0.3.1",
+      "staged": "0.3.2",
       "dir": "crates/rightkit-asr",
       "toMoveFrom": {},
       "cells": {
@@ -7113,9 +8319,9 @@
         "desktop-automation"
       ],
       "private": false,
-      "source": "0.6.1",
+      "source": "0.6.2",
       "registry": "0.6.1",
-      "staged": "0.6.1",
+      "staged": "0.6.2",
       "dir": "crates/rightkit-automation",
       "toMoveFrom": {},
       "cells": {
@@ -7170,6 +8376,140 @@
             ],
             "earliestExpiry": "2026-11-30"
           }
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-bench",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "benchmark-harness"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-bench",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-bot-messaging",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "bot-messaging"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-bot-messaging",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
         },
         "scraperight": {
           "state": "unused",
@@ -7592,6 +8932,73 @@
       }
     },
     {
+      "name": "rightkit-code-audit-provider-sdk",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "code-audit-provider-sdk"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-code-audit-provider-sdk",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-color",
       "kind": "cargo",
       "class": "tool",
@@ -7740,6 +9147,341 @@
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-compositor",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-context-client",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "context-client"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-context-client",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-context-core",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "context-budget"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-context-core",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-context-federation",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "context-federation"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-context-federation",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-context-protocol",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "context-protocol"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-context-protocol",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-context-provider-sdk",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "context-provider-sdk"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-context-provider-sdk",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
@@ -8556,6 +10298,140 @@
       }
     },
     {
+      "name": "rightkit-dictation-core",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "dictation"
+      ],
+      "private": false,
+      "source": "0.2.0",
+      "registry": "",
+      "staged": "0.2.0",
+      "dir": "crates/rightkit-dictation-core",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-disk-cleanup",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "disk-cleanup"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-disk-cleanup",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-docs",
       "kind": "cargo",
       "class": "add-on",
@@ -8627,6 +10503,73 @@
       }
     },
     {
+      "name": "rightkit-document-workspace",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "document-workspace"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-document-workspace",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-embed",
       "kind": "cargo",
       "class": "add-on",
@@ -8674,6 +10617,408 @@
         "pulse": {
           "state": "adopted",
           "detail": "=0.6.1, 3 pins"
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-evidence",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "evidence"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-evidence",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-evidence-contracts",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "evidence-contracts"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-evidence-contracts",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-evidence-decisions",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "evidence-decisions"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-evidence-decisions",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-evidence-effects",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "evidence-effects"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-evidence-effects",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-evidence-governance",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "evidence-governance"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-evidence-governance",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-evidence-report",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "evidence-report"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-evidence-report",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
         },
         "scraperight": {
           "state": "unused",
@@ -9036,6 +11381,140 @@
         "pulse": {
           "state": "adopted",
           "detail": "=0.5.0, 3 pins"
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-github",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "github"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-github",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-google-apis",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "google-workspace-apis"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-google-apis",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
         },
         "scraperight": {
           "state": "unused",
@@ -9572,6 +12051,73 @@
       }
     },
     {
+      "name": "rightkit-library",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "local-artifact-library"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-library",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-license",
       "kind": "cargo",
       "class": "foundation",
@@ -9821,6 +12367,73 @@
       }
     },
     {
+      "name": "rightkit-local-gen",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "local-image-generation"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-local-gen",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-logs",
       "kind": "cargo",
       "class": "foundation",
@@ -9966,6 +12579,73 @@
       }
     },
     {
+      "name": "rightkit-mail",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "mail-client-core"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-mail",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-mcp",
       "kind": "cargo",
       "class": "add-on",
@@ -10013,6 +12693,408 @@
         "pulse": {
           "state": "adopted",
           "detail": "=0.7.0, 2 pins"
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-media-fetch",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "media-fetch"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-media-fetch",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-media-gen",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "generative-media"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-media-gen",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-media-pipeline",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "media-production-pipelines"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-media-pipeline",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-memory",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-memory"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-memory",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-memory-core",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "durable-memory-core"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-memory-core",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-memory-store",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "durable-memory"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-memory-store",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
         },
         "scraperight": {
           "state": "unused",
@@ -10990,6 +14072,73 @@
       }
     },
     {
+      "name": "rightkit-privileged-helper",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "privileged-helper"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-privileged-helper",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-qa",
       "kind": "cargo",
       "class": "foundation",
@@ -11254,6 +14403,274 @@
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-reframe",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-remote-compute",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "remote-compute"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-remote-compute",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-repo-graph",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "repo-graph"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-repo-graph",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-repo-graph-grammars",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "repo-graph-grammars"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-repo-graph-grammars",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-research",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "research"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-research",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
@@ -11790,6 +15207,140 @@
       }
     },
     {
+      "name": "rightkit-social-inbox",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "social-inbox"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-social-inbox",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-social-publish",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "social-publish"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-social-publish",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-speech-client",
       "kind": "cargo",
       "class": "add-on",
@@ -12088,6 +15639,73 @@
       }
     },
     {
+      "name": "rightkit-system-monitor",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "system-monitor"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-system-monitor",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-tauri-shell",
       "kind": "cargo",
       "class": "foundation",
@@ -12243,6 +15861,140 @@
             ],
             "earliestExpiry": "2026-11-30"
           }
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-terminal-ui",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "terminal-ui"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-terminal-ui",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-text-polish",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "text-polish"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-text-polish",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
         },
         "sellright": {
           "state": "not present",
@@ -12480,6 +16232,73 @@
             ],
             "earliestExpiry": "2026-11-30"
           }
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-transcript-library",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "transcript-library"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-transcript-library",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
         },
         "viewright": {
           "state": "unused",
@@ -12912,6 +16731,140 @@
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-video-project",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-voice-commands",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "voice-commands"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-voice-commands",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-web-extract",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "article-extraction"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-web-extract",
       "toMoveFrom": {},
       "cells": {
         "coderight": {

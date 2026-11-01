@@ -90,14 +90,14 @@
         "reason": "ci/asset-gated.json: the #[ignore]d tests/encode_e2e.rs needs an ffmpeg binary and encoders the publish workflow does not provision; a missing ffmpeg prints SKIP hosted."
       },
       "rightkit-asr": {
-        "version": "0.3.1",
+        "version": "0.3.2",
         "allow": [
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: Whisper library (RIGHTKIT_WHISPER_LIB), ASR models and audio fixtures; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-automation": {
-        "version": "0.6.1",
+        "version": "0.6.2",
         "allow": [
           "allow_missing_assets"
         ],

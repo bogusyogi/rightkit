@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-context-federation",
+  "capabilities": [
+    {
+      "capability": "context-federation",
+      "summary": "Context federation coordinator: immutable provider registry, fan-out of context operations across providers, and skill ranking.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

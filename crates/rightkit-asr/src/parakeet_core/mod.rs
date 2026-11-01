@@ -4,20 +4,26 @@
 //!
 //! Donor: HeardRight `heardright-parakeet-core` (production semantics; HR wins
 //! on decode semantics for the suite). Ported verbatim except: no product
-//! environment-variable reads (`HR_ASR_BEAM_EMIT_REWARD` became an explicit
-//! `emit_reward` argument / `DecodePolicy::emit_reward`), the terminal
-//! command-locator helper (`command_alignment`) is HeardRight-specific and
-//! stays in that app's adapter, and the unit tests moved to end-to-end tests.
+//! environment-variable reads (the beam emission reward is an explicit
+//! `emit_reward` argument / `DecodePolicy::emit_reward`) and the unit tests
+//! moved to end-to-end tests. 0.4.0 added the cached vocabulary index and bias
+//! cache (`bias::VocabIndex`, `bias::ContextBiasCache`), the spoken-command
+//! locator helpers (`command_alignment`) and [`TDT_WINDOW_SEC`].
 //! Contains no CoreML, ORT, audio or model-loading code.
 
 pub mod backend;
 pub mod beam;
 pub mod bias;
+pub mod command_alignment;
 pub mod detok;
 pub mod policy;
 pub mod scoring;
 pub mod tdt_beam;
 pub mod types;
+
+/// TDT encoder window in seconds; the default when a model's `pipeline.json`
+/// omits `window_sec`.
+pub const TDT_WINDOW_SEC: f32 = 15.0;
 
 pub use backend::{BackendStep, RecurrentTdtBackend};
 pub use beam::{prune_global_stable, prune_time_synchronous_stable, BeamHypothesis};

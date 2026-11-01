@@ -1,0 +1,81 @@
+[package]
+name = "rightkit-media-gen"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Generative media providers (fal, WaveSpeed, Veo/Gemini, OpenAI Images, ElevenLabs, HeyGen, EvoLink, Higgsfield, Muapi, NanoBanana, Replicate, Wan2GP, Blender, local), model catalogue and facts, routing, durable generation jobs, result descriptors, library and spend ledger"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_media_gen"
+path = "src/lib.rs"
+
+[features]
+# Development builds only: honour `<PREFIX>_FFMPEG` / `PATH` (unverified binaries).
+dev-overrides = ["rightkit-ffmpeg/dev-overrides"]
+# QA and dev builds only: test seams (approval test secret). A release build never enables it.
+test-mode = ["dev-overrides"]
+
+[dependencies]
+rightkit-local-gen = { version = "0.1.0", path = "../rightkit-local-gen" }
+rightkit-tts = { version = "0.2.3", default-features = false, features = ["client"], path = "../rightkit-tts" }
+rightkit-models = { version = "0.5.2", path = "../rightkit-models" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
+rightkit-job-queue = { version = "0.5.1", features = ["store", "service", "supervisor"], path = "../rightkit-job-queue" }
+rightkit-spend = { version = "0.2.0", path = "../rightkit-spend" }
+rightkit-app-settings = { version = "0.3.0", default-features = false, features = ["sql"], path = "../rightkit-app-settings" }
+rightkit-logs = { version = "0.3.6", default-features = false, path = "../rightkit-logs" }
+rightkit-device = { version = "0.4.0", default-features = false, path = "../rightkit-device" }
+rightkit-search = { version = "0.4.1", path = "../rightkit-search" }
+uuid = { version = "1", features = ["v4"] }
+time = { version = "0.3", features = ["formatting", "macros"] }
+rightkit-credentials = { version = "0.4.2", path = "../rightkit-credentials" }
+rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
+rightkit-onnx = { version = "0.2.8", features = ["half", "session"], path = "../rightkit-onnx" }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
+rightkit-ffmpeg = { version = "0.2.11", path = "../rightkit-ffmpeg" }
+rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
+
+[dev-dependencies]
+ctor = { version = "1.0" }
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

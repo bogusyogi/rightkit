@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-terminal-ui",
+  "capabilities": [
+    {
+      "capability": "terminal-ui",
+      "summary": "Terminal UI for agent sessions: ratatui chat transcript, composer, approvals, diffs and status widgets; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

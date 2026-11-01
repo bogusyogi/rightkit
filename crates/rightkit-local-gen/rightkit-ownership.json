@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-local-gen",
+  "capabilities": [
+    {
+      "capability": "local-image-generation",
+      "summary": "Keyless local image generation: managed sd.cpp server runtime, memory modes, model profiles, durable job store and artifacts; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

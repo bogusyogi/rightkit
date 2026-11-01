@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.2 (unreleased)
+
+- New `desktop-context` feature and `desktop` module, moved from HeardRight `heardright_platform`: stop-time focus continuity capture and validation, clipboard staging with exact generation tracking and full-format restore, frontmost-window identity through an isolated helper, window text harvest and native text writes (macOS, Windows). `macos::set_own_window_owner_prefix` names the host's own windows. Existing API unchanged.
+
 ## 0.6.1 — 2026-10-23
 
 - **Fix (Windows, #930): `win::bounded` lanes refuse while busy.** `with_deadline` and `with_deadline_security` documented that a caller arriving while an earlier call is stuck returns `None` at once, but the one-slot queue accepted it and it waited out its whole timeout. Each lane now carries a busy flag, set when a call is accepted and cleared when its job finishes, panics or is dropped. A caller arriving while any earlier call on the same lane is still running (stuck or not) now gets `None` at once instead of a late `Some` (or a full-timeout wait); for the security lane `None` means "not proven safe". Cleared before the reply is sent, so a caller that calls again right after a reply is never refused. Found by HeardRight's `windows_uia_probe_timeout_saturates_lane_and_recovers`.

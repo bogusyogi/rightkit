@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-mail",
+  "capabilities": [
+    {
+      "capability": "mail-client-core",
+      "summary": "Mail-domain building blocks: Gmail-style search query compiler, SQL predicates and keyset paging, rank fusion, anti-phishing trust heuristics, and remote-image safety checks with a tracker blocklist.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

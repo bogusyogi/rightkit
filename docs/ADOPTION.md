@@ -15,7 +15,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 105 (79 crates, 26 npm packages).
+- Packages in RightKit: 164 (138 crates, 26 npm packages).
 - Packages with at least one app pin: 75.
 - App pins: 528. Stale: 64. Ahead of published: 24. Unpublished: 0. Local: 0. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 1.
@@ -25,23 +25,49 @@ Status values compare each pin with the latest published version (registry-recor
 
 | Package | Registry | Source | Latest published | Apps | App names | Notes |
 |---|---|---|---|---|---|---|
+| `rightkit-adapt` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-adapt-taste` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-engine-api-platform` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-engine-api-sessions` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-engine-api-workflows` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-engine-attention` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-engine-cli` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-engine-history` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-engine-protocol` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-engine-runtime-middleware` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-engine-runtime-resources` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-engine-storage` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-engine-tasks` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-orchestration` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-orchestration-handoff` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-policy` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-agent-tools` | crates.io | 0.3.0 | 0.3.0 | 2 | genright, legion | 1 stale |
+| `rightkit-agent-transcript` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-agents` | crates.io | 0.2.0 | 0.2.0 | 2 | coderight, legion | 1 stale |
 | `rightkit-align` | private | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-android` | crates.io | 0.3.0 | 0.3.0 | 0 | none | - |
+| `rightkit-app-manager` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-app-settings` | crates.io | 0.3.0 | 0.3.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `rightkit-asr` | crates.io | 0.3.1 | 0.3.0 | 2 | heardright, scraperight | 1 vendored copy |
+| `rightkit-asr` | crates.io | 0.3.2 | 0.3.0 | 2 | heardright, scraperight | 1 vendored copy |
 | `rightkit-audio` | crates.io | 0.3.1 | 0.3.1 | 3 | genright, heardright, scraperight | - |
 | `rightkit-autoedit` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-automation` | crates.io | 0.6.1 | 0.6.1 | 1 | heardright | - |
+| `rightkit-automation` | crates.io | 0.6.2 | 0.6.1 | 1 | heardright | - |
+| `rightkit-bench` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-bot-messaging` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-browser` | crates.io | 0.3.7 | 0.3.6 | 4 | coderight, genright, legion, scraperight | 1 stale |
 | `rightkit-cache` | crates.io | 0.2.3 | 0.2.3 | 4 | coderight, legion, mailright, postright | 1 stale |
 | `rightkit-captions` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-channel-memory` | crates.io | 0.2.2 | 0.2.1 | 1 | postright | - |
 | `rightkit-child-process` | crates.io | 0.5.7 | 0.5.7 | 8 | coderight, genright, heardright, legion, mailright, postright, scraperight, viewright | 28 stale |
+| `rightkit-code-audit-provider-sdk` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-color` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-compose` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
 | `rightkit-compositor` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-context-client` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-context-core` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-context-federation` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-context-protocol` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-context-provider-sdk` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-contracts` | crates.io | 0.1.8 | 0.1.7 | 2 | genright, postright | - |
 | `rightkit-crash` | crates.io | 0.3.6 | 0.3.6 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `rightkit-credentials` | crates.io | 0.4.2 | 0.4.2 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
@@ -49,22 +75,42 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-daemon` | crates.io | 0.5.0 | 0.4.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 5 ahead of published |
 | `rightkit-db` | crates.io | 0.5.3 | 0.5.2 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `rightkit-device` | crates.io | 0.4.0 | 0.4.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
+| `rightkit-dictation-core` | crates.io | 0.2.0 | none recorded | 0 | none | - |
+| `rightkit-disk-cleanup` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-docs` | crates.io | 0.1.3 | 0.1.2 | 0 | none | - |
+| `rightkit-document-workspace` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-embed` | crates.io | 0.6.2 | 0.6.1 | 2 | coderight, mailright | - |
+| `rightkit-evidence` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-evidence-contracts` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-evidence-decisions` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-evidence-effects` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-evidence-governance` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-evidence-report` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-ffmpeg` | crates.io | 0.2.11 | 0.2.10 | 4 | coderight, genright, heardright, scraperight | - |
 | `rightkit-file-watch` | crates.io | 0.4.2 | 0.4.1 | 2 | coderight, viewright | - |
 | `rightkit-fs` | crates.io | 0.4.8 | 0.4.7 | 8 | coderight, genright, heardright, legion, mailright, postright, scraperight, viewright | 1 stale; 9 ahead of published |
 | `rightkit-fsindex` | crates.io | 0.6.0 | 0.5.0 | 0 | none | - |
+| `rightkit-github` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-google-apis` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-google-identity` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
 | `rightkit-hooks` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
 | `rightkit-hotkeys` | crates.io | 0.1.2 | 0.1.2 | 1 | heardright | - |
 | `rightkit-http` | crates.io | 0.3.9 | 0.3.8 | 6 | coderight, genright, heardright, mailright, postright, scraperight | - |
 | `rightkit-identity` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
 | `rightkit-job-queue` | crates.io | 0.5.1 | 0.5.1 | 6 | coderight, genright, heardright, mailright, postright, scraperight | - |
+| `rightkit-library` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-license` | crates.io | 0.2.6 | 0.2.5 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 1 ahead of published |
 | `rightkit-llm` | crates.io | 0.3.1 | 0.3.1 | 3 | coderight, heardright, mailright | - |
+| `rightkit-local-gen` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-logs` | crates.io | 0.3.6 | 0.3.5 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
+| `rightkit-mail` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-mcp` | crates.io | 0.7.1 | 0.7.0 | 1 | coderight | - |
+| `rightkit-media-fetch` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-media-gen` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-media-pipeline` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-memory` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-memory-core` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-memory-store` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-mesh` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-models` | crates.io | 0.5.2 | 0.5.1 | 5 | coderight, genright, heardright, mailright, scraperight | 2 ahead of published |
 | `rightkit-motion` | crates.io | 0.2.0 | 0.2.0 | 1 | genright | - |
@@ -78,24 +124,35 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-pipeline` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-platform-rules` | crates.io | 0.1.0 | 0.1.0 | 1 | postright | - |
 | `rightkit-playback` | crates.io | 0.3.0 | 0.3.0 | 1 | scraperight | - |
+| `rightkit-privileged-helper` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-qa` | crates.io | 0.10.1 | 0.9.1 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 15 stale; 2 ahead of published |
 | `rightkit-qa-driver` | crates.io | 0.7.0 | 0.7.0 | 0 | none | - |
 | `rightkit-record` | crates.io | 0.3.3 | 0.3.3 | 0 | none | - |
 | `rightkit-reframe` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-remote-compute` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-repo-graph` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-repo-graph-grammars` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-research` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-review` | crates.io | 0.4.0 | 0.4.0 | 1 | postright | - |
 | `rightkit-sandbox` | crates.io | 0.6.1 | 0.6.1 | 2 | coderight, legion | - |
 | `rightkit-search` | crates.io | 0.4.1 | 0.4.0 | 4 | coderight, genright, mailright, scraperight | - |
 | `rightkit-send` | crates.io | 0.3.0 | 0.2.0 | 0 | none | - |
 | `rightkit-shorts` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-sidecar` | crates.io | 0.3.0 | 0.3.0 | 6 | coderight, genright, heardright, mailright, postright, scraperight | - |
+| `rightkit-social-inbox` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-social-publish` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-speech-client` | crates.io | 0.4.1 | 0.4.0 | 2 | heardright, scraperight | 3 ahead of published |
 | `rightkit-spend` | crates.io | 0.2.0 | 0.2.0 | 2 | genright, postright | - |
 | `rightkit-sync` | crates.io | 0.2.2 | 0.2.2 | 2 | heardright, scraperight | - |
 | `rightkit-sync-keys` | private | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-system-monitor` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-tauri-shell` | crates.io | 0.7.0 | 0.6.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 1 ahead of published |
+| `rightkit-terminal-ui` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-text-polish` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-time` | crates.io | 0.1.0 | 0.1.0 | 6 | coderight, genright, heardright, mailright, postright, scraperight | - |
 | `rightkit-timeline` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-transcript` | crates.io | 0.4.0 | 0.4.0 | 3 | genright, heardright, scraperight | - |
+| `rightkit-transcript-library` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-tts` | crates.io | 0.2.3 | 0.2.3 | 1 | genright | - |
 | `rightkit-tts-qwen` | crates.io | 0.2.7 | 0.2.7 | 0 | none | - |
 | `rightkit-tts-qwen-sys` | crates.io | 0.1.2 | 0.1.2 | 0 | none | - |
@@ -103,6 +160,8 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-vad` | crates.io | 0.1.2 | 0.1.2 | 1 | heardright | - |
 | `rightkit-vault` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
 | `rightkit-video-project` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-voice-commands` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-web-extract` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-workflow` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
 | `@rightkit/app-update` | npm | 0.4.2 | 0.4.2 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 1 | legion | - |
