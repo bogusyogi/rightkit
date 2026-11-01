@@ -35,12 +35,12 @@
       "note": "Mac runner built by rightkit-gate --to tool from 24c5a9281 (rightkit#1309: pins/trust routine)"
     },
     {
-      "sha256": "e7590e12e0ce83f8f5ccbb2ae6d889a5b2767cce8fd2731713d8c761b1a7de7f",
+      "sha256": "14eba841b7af8f8b015d25be6dbf68ad3c96863a4c9c43adc104b1ab632f9f60",
       "version": "0.10.1",
       "platform": "mac",
       "set_by": "adrian",
-      "since": "2026-10-31",
-      "note": "Mac runner built by rightkit-gate --to tool from e2f2d2152 (world QA root fix), rotated in; replaces 785b2ec6 (rightkit#1309: pins/trust routine)"
+      "since": "2026-11-01",
+      "note": "Mac runner built by rightkit-gate --to tool from e8da5a7b7 (world token + temp-length fixes), rotated in; replaces e7590e12 (rightkit#1309: pins/trust routine)"
     }
   ]
 }

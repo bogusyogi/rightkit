@@ -200,7 +200,7 @@ fn vault(svc: &Service, blob: &PathBuf, keystore: &Store, secretstore: &Store) -
 pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     let dir = ctx.dir("vault")?;
     let blob_path = dir.join("vault.blob");
-    let mut svc = Service::start()?;
+    let svc = Service::start()?;
     let (keys, secrets_store) = (cred_store()?, cred_store()?);
     let good = || -> rightkit_vault::Result<String> { Ok(TOKEN.to_string()) };
 
