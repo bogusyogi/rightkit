@@ -12,7 +12,7 @@ fn check(ok: bool, what: &str) {
 fn main() {
     let names = commands();
     check(
-        names.contains(&"studio.brands.list") && names.contains(&"studio.recipes.list"),
+        names.contains(&"studio.brands.list") && names.contains(&"studio.recipes.compose"),
         "the command list names the brand and recipe commands",
     );
     check(
