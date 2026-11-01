@@ -244,6 +244,26 @@ fn drive(
         &ActOptions::default(),
     )
     .map_err(|e| format!("focus the editor before capture_pin: {e}"))?;
+    // Delivery goes only into the app the user has in front (the crate never activates a target), so do what the user
+    // does: bring the helper to the front, then wait until the system reports it frontmost.
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("/usr/bin/open")
+            .args(["-b", HELPER])
+            .status()
+            .map_err(|e| format!("open -b {HELPER}: {e}"))?;
+        let mut front = false;
+        for _ in 0..40 {
+            if a.frontmost().map(|f| f.pid) == Some(pid) {
+                front = true;
+                break;
+            }
+            sleep(100);
+        }
+        if !front {
+            return Err(format!("{HELPER} did not come to the front for delivery"));
+        }
+    }
     sleep(150);
     let pin = a
         .capture_pin(Some(pid))
