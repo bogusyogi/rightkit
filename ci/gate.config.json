@@ -76,6 +76,7 @@
           "host"
         ]
       ],
+      "allowIgnored": "tests/corpus_coverage.rs and tests/corpus_qa.rs (real-world PDF corpus QA: they need the external corpus) and tests/extract_quality.rs (one compares against the external poppler pdftotext oracle, one writes a pin manifest into RIGHTKIT_PDF_QUALITY_PIN_DIR) are #[ignore] on purpose and run by hand with --ignored; every other pdf test runs and asserts on every default run (ignored once per feature set)",
       "quietTests": true
     },
     "rightkit-license": {

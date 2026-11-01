@@ -94,6 +94,7 @@ pub fn fingerprint_payload(
 }
 
 /// Deterministic event id: `"evt_" + sha256(seed)[:32]`.
+#[allow(clippy::too_many_arguments)]
 pub fn event_id(
     host: &str,
     session_id: &str,
