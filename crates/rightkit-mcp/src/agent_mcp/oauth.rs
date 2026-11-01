@@ -83,7 +83,11 @@ fn unix_secs(time: SystemTime) -> u64 {
 
 /// the host app's stored token record from a RightKit token set.
 #[cfg(feature = "agent_mcp-os-keyring")]
-fn mcp_tokens(tokens: &rightkit_oauth::TokenSet, resource: &str) -> McpOAuthTokens {
+fn mcp_tokens(
+    tokens: &rightkit_oauth::TokenSet,
+    resource: &str,
+    token_url: &str,
+) -> McpOAuthTokens {
     McpOAuthTokens {
         access_token: tokens.access_token().to_string(),
         refresh_token: tokens
@@ -96,7 +100,32 @@ fn mcp_tokens(tokens: &rightkit_oauth::TokenSet, resource: &str) -> McpOAuthToke
             .map(|ttl| unix_secs(tokens.obtained_at).saturating_add(ttl.as_secs())),
         scope: tokens.scope.clone(),
         resource: Some(resource.to_string()),
+        token_url: Some(token_url.to_string()),
     }
+}
+
+/// `scheme://host[:port]` of a URL, lower-cased with the scheme's default port dropped.
+/// `None` when the text is not an absolute http(s) URL.
+pub fn url_origin(url: &str) -> Option<String> {
+    let (scheme, rest) = url.split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next()?;
+    // Credentials in the authority never take part in an origin.
+    let host_port = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    if host_port.is_empty() {
+        return None;
+    }
+    let host_port = host_port.to_ascii_lowercase();
+    let default = if scheme == "https" { ":443" } else { ":80" };
+    let host_port = host_port.strip_suffix(default).unwrap_or(&host_port);
+    Some(format!("{scheme}://{host_port}"))
+}
+
+fn same_origin(a: &str, b: &str) -> bool {
+    matches!((url_origin(a), url_origin(b)), (Some(x), Some(y)) if x == y)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -111,8 +140,12 @@ pub struct McpOAuthTokens {
     pub expires_at_unix: Option<u64>,
     #[serde(default)]
     pub scope: Option<String>,
+    /// The resource (the MCP server URL) the token was issued for (RFC 8707).
     #[serde(default)]
     pub resource: Option<String>,
+    /// The token endpoint the token was issued by; the only endpoint it may be refreshed at.
+    #[serde(default)]
+    pub token_url: Option<String>,
 }
 
 fn default_token_type() -> String {
@@ -120,6 +153,26 @@ fn default_token_type() -> String {
 }
 
 impl McpOAuthTokens {
+    /// Contract R2: a stored token may be sent only to the origin it was issued for. A token
+    /// with no recorded resource is never attached.
+    pub fn issued_for_server(&self, server_url: &str) -> bool {
+        self.resource
+            .as_deref()
+            .is_some_and(|resource| same_origin(resource, server_url))
+    }
+
+    /// Contract R2: a refresh goes only to the token endpoint that issued the token, for the
+    /// resource it was issued for, whatever a later config file says.
+    pub fn may_refresh_with(&self, resource: &str, token_url: &str) -> bool {
+        self.resource
+            .as_deref()
+            .is_some_and(|issued| same_origin(issued, resource))
+            && self
+                .token_url
+                .as_deref()
+                .is_some_and(|issued| same_origin(issued, token_url))
+    }
+
     pub fn should_refresh(&self, now_unix: u64) -> bool {
         self.refresh_token.is_some()
             && self
@@ -235,7 +288,7 @@ pub async fn refresh_oauth_tokens(
         .await
         .map_err(|e| McpError::Transport(e.to_string()))?
         .map_err(oauth_transport_error)?;
-    Ok(mcp_tokens(&fresh, &oauth.resource))
+    Ok(mcp_tokens(&fresh, &oauth.resource, &oauth.token_url))
 }
 
 #[cfg(feature = "agent_mcp-os-keyring")]
@@ -263,7 +316,7 @@ pub async fn login_oauth(
             .await
             .map_err(|e| McpError::Transport(e.to_string()))?
             .map_err(oauth_transport_error)?;
-    let tokens = mcp_tokens(&token_set, &oauth.resource);
+    let tokens = mcp_tokens(&token_set, &oauth.resource, &oauth.token_url);
     McpOAuthCredentialStore::set(server, &tokens)?;
     Ok(McpOAuthLoginResult {
         authorization_url,
@@ -318,6 +371,7 @@ mod tests {
             expires_at_unix: Some(100),
             scope: None,
             resource: None,
+            token_url: None,
         };
 
         assert!(tokens.should_refresh(41));

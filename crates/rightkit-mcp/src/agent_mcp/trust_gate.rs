@@ -65,6 +65,41 @@ pub fn default_trust_store_path(home: Option<&Path>) -> PathBuf {
         .join("mcp_trust.json")
 }
 
+/// Record the user's approval of exactly what a workspace stdio server would run (command,
+/// args, environment). The approval is bound to that fingerprint, so an edited command asks
+/// again (contract R3, D4). Refuses to write over a trust file it cannot read.
+pub fn approve_workspace_stdio(
+    store_path: &Path,
+    workspace: &str,
+    server_name: &str,
+    config: &StdioConfig,
+) -> Result<(), String> {
+    let mut store = TrustStore::try_load(store_path).map_err(|error| {
+        format!(
+            "trust store {} is unreadable: {error}",
+            store_path.display()
+        )
+    })?;
+    store.approve(workspace, server_name, &stdio_server_spec(config));
+    if let Some(parent) = store_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    store
+        .save(store_path)
+        .map_err(|error| format!("could not save the trust store: {error}"))
+}
+
+/// The workspace stdio servers still waiting for an approval, from the same trust store the
+/// loader reads.
+pub fn pending_workspace_stdio(
+    store_path: &Path,
+    workspace: &str,
+    workspace_stdio_servers: &std::collections::HashMap<String, StdioConfig>,
+) -> Vec<PendingApproval> {
+    let store = load_trust_store(store_path);
+    gate_workspace_stdio_servers(&store, workspace, workspace_stdio_servers).1
+}
+
 /// Decide every workspace stdio server against `store`, returning the names that may spawn and
 /// the pending approvals. `workspace_stdio_servers` must hold ONLY servers sourced from the
 /// workspace `.mcp.json`.

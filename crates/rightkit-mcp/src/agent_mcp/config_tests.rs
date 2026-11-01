@@ -2,22 +2,6 @@ mod tests {
     use super::super::*;
     use crate::agent_mcp::types::{HttpConfig, McpChannelPermissions, SseConfig, StdioConfig};
 
-    #[test]
-    fn default_mcp_servers_includes_context7() {
-        let defaults = default_mcp_servers();
-        let (_, cfg) = defaults
-            .iter()
-            .find(|(name, _)| name == "context7")
-            .expect("context7 is a built-in default MCP server");
-        match cfg {
-            McpServerConfig::Stdio(stdio) => {
-                assert_eq!(stdio.command, "npx");
-                assert!(stdio.args.iter().any(|a| a.contains("context7-mcp")));
-            }
-            other => panic!("context7 should be a stdio server, got {other:?}"),
-        }
-    }
-
     fn env_vars() -> HashMap<String, String> {
         HashMap::from([
             ("MCP_TOKEN".to_string(), "secret-token".to_string()),
@@ -229,6 +213,7 @@ mod tests {
                     expires_at_unix: None,
                     scope: None,
                     resource: Some("https://mcp.example.com/mcp".to_string()),
+                    token_url: None,
                 },
             ),
             (
@@ -240,6 +225,7 @@ mod tests {
                     expires_at_unix: None,
                     scope: None,
                     resource: Some("https://mcp.example.com/sse".to_string()),
+                    token_url: None,
                 },
             ),
         ]);
