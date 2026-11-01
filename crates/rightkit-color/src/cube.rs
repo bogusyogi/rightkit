@@ -1,7 +1,7 @@
 //! `.cube` 3D LUT parsing, validation and bounded intensity mixing.
 //!
 //! User LUTs are untrusted input: size must be 2..=[`MAX_LUT_SIZE`], every value finite and
-//! within [`MAX_ABS_VALUE`], the entry count exact, 1D LUTs and unknown keywords rejected.
+//! within `MAX_ABS_VALUE`, the entry count exact, 1D LUTs and unknown keywords rejected.
 //! Intensity is applied by blending the table with the identity table, so the render graph
 //! stays a single linear `lut3d` filter (no split/blend) and strength is bounded by construction.
 
