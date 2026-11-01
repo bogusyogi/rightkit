@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.4.3 (unpublished)
+## 0.4.4 (unpublished)
+
+- pnpm: a `link:` to a directory of the scanned repository outside the lock's importers (RightKit's sample apps link `packages/*`) is a local node, not a `lockfile-unresolved-dependency` gap; a link leaving the repository still is one. Same rule as the Node scanner in `@rightkit/release` 0.6.17.
+
+## 0.4.3 (2026-11-01)
 
 - Dependencies: `toml` 0.9 -> 1 and `fancy-regex` 0.19 -> 0.20; no source change. (rightkit#1284)
 

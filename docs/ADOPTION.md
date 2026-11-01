@@ -155,7 +155,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-overlay` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-overlay-win` | crates.io | 0.1.0 | 0.1.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-owner-approvals` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-ownership` | crates.io | 0.4.3 | 0.4.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-ownership` | crates.io | 0.4.4 | 0.4.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-pdf` | crates.io | 0.3.4 | 0.3.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-pipeline` | crates.io | 0.1.1 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-platform-rules` | crates.io | 0.1.0 | 0.1.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
@@ -206,7 +206,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-workflow` | crates.io | 0.2.1 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `@rightkit/app-update` | npm | 0.4.2 | 0.4.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
 | `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 0 | none | 4 vendored copies |
-| `@rightkit/build-control-policy` | private | 0.1.4-phase1 | none recorded | 0 | none | 4 vendored copies |
+| `@rightkit/build-control-policy` | private | 0.1.5-phase1 | none recorded | 0 | none | 4 vendored copies |
 | `@rightkit/ci` | npm | 0.3.2 | 0.3.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 8 stale |
 | `@rightkit/doc-render` | npm | 0.2.1 | 0.2.1 | 0 | none | 4 vendored copies |
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 0 | none | 4 vendored copies |
@@ -224,7 +224,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/qa` | npm | 0.6.2 | 0.6.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `@rightkit/qa-chrome` | npm | 0.1.12 | 0.1.12 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `@rightkit/release` | npm | 0.6.17 | 0.6.13 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
+| `@rightkit/release` | npm | 0.6.18 | 0.6.13 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
 | `@rightkit/settings-ui` | npm | 0.7.0 | 0.7.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded | 0 | none | 4 vendored copies |
 | `@rightkit/tauri` | npm | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
