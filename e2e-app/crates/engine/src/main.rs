@@ -13,14 +13,12 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rke2e_protocol::{
-    app_data_root, JobError, JobResult, ENGINE_NAME, JOB_KIND_ECHO, METHOD_ECHO,
-};
 use rightkit_crash::{install_process_hook, CrashConfig, ProcessKind};
 use rightkit_job_queue::{
     run_cli, serve, CommandSet, Dispatcher, Job, JobCommands, JobControl, JobHandler, JobLocks,
     JobStore, Runner, Sink, CONTRACT_VERSION,
 };
+use rke2e_protocol::{app_data_root, JobError, JobResult, ENGINE_NAME, JOB_KIND_ECHO, METHOD_ECHO};
 use serde_json::{json, Value};
 
 const USAGE: &str = "usage: rke2e-engine [--stdio] | contract [--json] | doctor | echo --input <json> | job submit --input <json> [--wait] | --version";
@@ -98,21 +96,38 @@ struct DomainCommands {
 
 impl CommandSet for DomainCommands {
     fn methods(&self) -> Vec<String> {
-        vec![METHOD_ECHO.into(), "probe.list".into(), "probe.run".into(), "probe.all".into()]
+        vec![
+            METHOD_ECHO.into(),
+            "probe.list".into(),
+            "probe.run".into(),
+            "probe.all".into(),
+        ]
     }
 
     fn call(&self, method: &str, params: &Value, _dry_run: bool, _emit: &Sink) -> JobResult<Value> {
-        let ctx = || probes::Ctx::new(self.data.clone()).map_err(|e| JobError::new("probe_setup", e));
+        let ctx =
+            || probes::Ctx::new(self.data.clone()).map_err(|e| JobError::new("probe_setup", e));
         match method {
             METHOD_ECHO => Ok(params.clone()),
-            "probe.list" => Ok(json!(probes::all().into_iter().map(|(name, _)| name).collect::<Vec<_>>())),
+            "probe.list" => Ok(json!(probes::all()
+                .into_iter()
+                .map(|(name, _)| name)
+                .collect::<Vec<_>>())),
             "probe.run" => {
-                let name = params.get("name").and_then(Value::as_str).ok_or_else(|| JobError::new("bad_input", "probe.run needs {\"name\": \"rightkit-<crate>\"}"))?;
+                let name = params.get("name").and_then(Value::as_str).ok_or_else(|| {
+                    JobError::new(
+                        "bad_input",
+                        "probe.run needs {\"name\": \"rightkit-<crate>\"}",
+                    )
+                })?;
                 Ok(probes::run(&ctx()?, name))
             }
             "probe.all" => {
                 let ctx = ctx()?;
-                let results: Vec<Value> = probes::all().into_iter().map(|(name, _)| probes::run(&ctx, name)).collect();
+                let results: Vec<Value> = probes::all()
+                    .into_iter()
+                    .map(|(name, _)| probes::run(&ctx, name))
+                    .collect();
                 let failed = results.iter().filter(|r| r["ok"] != json!(true)).count();
                 Ok(json!({ "total": results.len(), "failed": failed, "results": results }))
             }
@@ -144,7 +159,9 @@ fn dispatcher(data: &Path) -> Result<Dispatcher, String> {
                 "methods": methods,
             })
         }))
-        .with(Arc::new(DomainCommands { data: data.to_path_buf() }))
+        .with(Arc::new(DomainCommands {
+            data: data.to_path_buf(),
+        }))
         .with(Arc::new(JobCommands::new(Arc::new(runner)))))
 }
 

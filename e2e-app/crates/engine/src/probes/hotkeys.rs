@@ -5,7 +5,8 @@
 //! Windows) and the host's main run loop: that is covered by an app-level scenario.
 use rightkit_hotkeys::registration::{HotkeyApi, Registrations, UnregisterFailure};
 use rightkit_hotkeys::{
-    parse_chord, ChordRegistry, HookChords, HotkeyConflict, HotkeyState, Modifier, Platform, PttAlias, RegisterFailure,
+    parse_chord, ChordRegistry, HookChords, HotkeyConflict, HotkeyState, Modifier, Platform,
+    PttAlias, RegisterFailure,
 };
 use serde_json::{json, Value};
 
@@ -19,7 +20,8 @@ struct Recorder {
 
 impl HotkeyApi for Recorder {
     fn register(&mut self, id: i32, modifiers: u32, vk: u32) -> Result<(), u32> {
-        self.calls.push(format!("register {id} {modifiers:#x} {vk:#x}"));
+        self.calls
+            .push(format!("register {id} {modifiers:#x} {vk:#x}"));
         match self.fail_register_with {
             Some(code) => Err(code),
             None => Ok(()),
@@ -36,7 +38,11 @@ fn pure_checks() -> Result<Value, String> {
     let a = parse_chord("shift + ctrl + K").map_err(|e| e.to_string())?;
     let b = parse_chord("Ctrl+Shift+K").map_err(|e| e.to_string())?;
     if a != b || a.canonical() != "Ctrl+Shift+K" {
-        return Err(format!("modifier order is not normalised: {} vs {}", a.canonical(), b.canonical()));
+        return Err(format!(
+            "modifier order is not normalised: {} vs {}",
+            a.canonical(),
+            b.canonical()
+        ));
     }
     let round = parse_chord(&a.canonical()).map_err(|e| e.to_string())?;
     if round != a {
@@ -49,46 +55,75 @@ fn pure_checks() -> Result<Value, String> {
     }
     let mac = a.format(Platform::Mac);
     if !mac.contains('\u{2303}') || !mac.contains('\u{21E7}') {
-        return Err(format!("macOS display lacks the Control/Shift glyphs: {mac}"));
+        return Err(format!(
+            "macOS display lacks the Control/Shift glyphs: {mac}"
+        ));
     }
     if a.format(Platform::Windows) != "Ctrl+Shift+K" {
-        return Err(format!("Windows display is {}", a.format(Platform::Windows)));
+        return Err(format!(
+            "Windows display is {}",
+            a.format(Platform::Windows)
+        ));
     }
-    if PttAlias::parse("Right Ctrl", Platform::Windows) != Ok(PttAlias::RightCtrl) || PttAlias::parse("lctrl", Platform::Windows).is_ok() {
+    if PttAlias::parse("Right Ctrl", Platform::Windows) != Ok(PttAlias::RightCtrl)
+        || PttAlias::parse("lctrl", Platform::Windows).is_ok()
+    {
         return Err("push-to-talk alias rules differ from the documented Windows set".into());
     }
 
     // In-process conflict registry.
     let mut registry = ChordRegistry::new();
     registry.bind(&a, "palette").map_err(|e| format!("{e:?}"))?;
-    let conflict = registry.bind(&b, "search").err().ok_or("the registry let two owners bind one chord")?;
+    let conflict = registry
+        .bind(&b, "search")
+        .err()
+        .ok_or("the registry let two owners bind one chord")?;
     if conflict.held_by != "palette" || registry.owner_of(&a) != Some("palette") {
-        return Err(format!("registry conflict names the wrong holder: {conflict:?}"));
+        return Err(format!(
+            "registry conflict names the wrong holder: {conflict:?}"
+        ));
     }
     registry.release(&a);
     registry.bind(&b, "search").map_err(|e| format!("{e:?}"))?;
-    let hc = HotkeyConflict::from_registration_error("register Ctrl+Shift+K failed: x", &["Ctrl+Shift+K", "Alt+Space"], "m");
+    let hc = HotkeyConflict::from_registration_error(
+        "register Ctrl+Shift+K failed: x",
+        &["Ctrl+Shift+K", "Alt+Space"],
+        "m",
+    );
     if hc.shortcuts != ["Ctrl+Shift+K"] {
         return Err(format!("HotkeyConflict named {:?}", hc.shortcuts));
     }
-    if RegisterFailure::from_win32(1409) != RegisterFailure::Conflict || RegisterFailure::from_osstatus(-9878) != RegisterFailure::Conflict {
+    if RegisterFailure::from_win32(1409) != RegisterFailure::Conflict
+        || RegisterFailure::from_osstatus(-9878) != RegisterFailure::Conflict
+    {
         return Err("a duplicate registration status is not classified as Conflict".into());
     }
 
     // RegisterHotKey bookkeeping against a recording fake.
     let chord = parse_chord("Ctrl+Alt+K").map_err(|e| e.to_string())?;
     let mut regs = Registrations::new();
-    let mut api = Recorder { calls: vec![], fail_register_with: None };
-    let id = regs.register(&mut api, &chord, false).map_err(|c| format!("fake register failed {c}"))?;
+    let mut api = Recorder {
+        calls: vec![],
+        fail_register_with: None,
+    };
+    let id = regs
+        .register(&mut api, &chord, false)
+        .map_err(|c| format!("fake register failed {c}"))?;
     if regs.id_of(&chord) != Some(id) || regs.len() != 1 {
         return Err("Registrations lost the chord it registered".into());
     }
     // MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, VK_K.
     if api.calls[0] != "register 1 0x4003 0x4b" {
-        return Err(format!("RegisterHotKey was asked for {} instead of 'register 1 0x4003 0x4b'", api.calls[0]));
+        return Err(format!(
+            "RegisterHotKey was asked for {} instead of 'register 1 0x4003 0x4b'",
+            api.calls[0]
+        ));
     }
-    regs.unregister(&mut api, &chord).map_err(|e| format!("{e:?}"))?;
-    if regs.unregister(&mut api, &chord) != Err(UnregisterFailure::NotRegistered) || !regs.is_empty() {
+    regs.unregister(&mut api, &chord)
+        .map_err(|e| format!("{e:?}"))?;
+    if regs.unregister(&mut api, &chord) != Err(UnregisterFailure::NotRegistered)
+        || !regs.is_empty()
+    {
         return Err("a second unregister was not NotRegistered".into());
     }
     api.fail_register_with = Some(1409);
@@ -98,7 +133,9 @@ fn pure_checks() -> Result<Value, String> {
 
     // Hook matcher over raw key events (VK_LMENU 0xA4, VK_SPACE 0x20).
     let mut hook = HookChords::new();
-    let id = hook.bind(&parse_chord("Alt+Space").map_err(|e| e.to_string())?).map_err(|e| format!("{e:?}"))?;
+    let id = hook
+        .bind(&parse_chord("Alt+Space").map_err(|e| e.to_string())?)
+        .map_err(|e| format!("{e:?}"))?;
     if hook.on_key(0xA4, true, false).swallow {
         return Err("a bare modifier press was swallowed".into());
     }
@@ -133,13 +170,19 @@ fn os_registration() -> Result<Value, String> {
     }
     match hotkeys.register(&chord) {
         Err(RegisterError::Conflict { .. }) => {}
-        Err(other) => return Err(format!("a duplicate registration was refused as {other:?}, expected Conflict")),
+        Err(other) => {
+            return Err(format!(
+                "a duplicate registration was refused as {other:?}, expected Conflict"
+            ))
+        }
         Ok(_) => return Err("a duplicate registration of the same chord succeeded".into()),
     }
     if !hotkeys.unregister(id) || hotkeys.registered() != 0 {
         return Err("unregister did not release the hotkey".into());
     }
-    let again = hotkeys.register(&chord).map_err(|e| format!("re-register after unregister: {}", e.message()))?;
+    let again = hotkeys
+        .register(&chord)
+        .map_err(|e| format!("re-register after unregister: {}", e.message()))?;
     hotkeys.unregister(again);
     // F21-F24 have no macOS keycode: refused, never mapped to a wrong key.
     let f21 = parse_chord("Ctrl+Alt+Shift+F21").map_err(|e| e.to_string())?;
@@ -157,16 +200,26 @@ fn os_registration() -> Result<Value, String> {
     let id = hotkeys.register(&chord).map_err(|e| e.message())?;
     match hotkeys.register(&chord) {
         Err(RegisterError::Conflict { .. }) => {}
-        Err(other) => return Err(format!("a duplicate registration was refused as {other:?}, expected Conflict")),
+        Err(other) => {
+            return Err(format!(
+                "a duplicate registration was refused as {other:?}, expected Conflict"
+            ))
+        }
         Ok(_) => return Err("a duplicate registration of the same chord succeeded".into()),
     }
     let released = hotkeys.unregister(&chord).map_err(|e| e.to_string())?;
     if released != id {
-        return Err(format!("unregister released id {released}, registered {id}"));
+        return Err(format!(
+            "unregister released id {released}, registered {id}"
+        ));
     }
-    let again = hotkeys.register(&chord).map_err(|e| format!("re-register after unregister: {}", e.message()))?;
+    let again = hotkeys
+        .register(&chord)
+        .map_err(|e| format!("re-register after unregister: {}", e.message()))?;
     hotkeys.unregister(&chord).map_err(|e| e.to_string())?;
-    Ok(json!({ "backend": "RegisterHotKey", "id": id, "re_registered_id": again, "duplicate": "Conflict" }))
+    Ok(
+        json!({ "backend": "RegisterHotKey", "id": id, "re_registered_id": again, "duplicate": "Conflict" }),
+    )
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]

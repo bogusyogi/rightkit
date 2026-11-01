@@ -6,16 +6,19 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use rightkit_hooks::{
-    dispatch, run_with, Decision, DispatchOptions, EventKind, FnModule, HookEvent, HookModule, ModuleOutput, ParseError,
-    ReceiptStore, Reply, Status, Wire,
-};
 use rightkit_hooks::DeliveryLevel;
+use rightkit_hooks::{
+    dispatch, run_with, Decision, DispatchOptions, EventKind, FnModule, HookEvent, HookModule,
+    ModuleOutput, ParseError, ReceiptStore, Reply, Status, Wire,
+};
 use serde_json::{json, Value};
 
 fn module(
     id: &str,
-    f: impl Fn(&HookEvent, &rightkit_hooks::ModuleContext) -> Result<ModuleOutput, String> + Send + Sync + 'static,
+    f: impl Fn(&HookEvent, &rightkit_hooks::ModuleContext) -> Result<ModuleOutput, String>
+        + Send
+        + Sync
+        + 'static,
 ) -> Arc<dyn HookModule> {
     Arc::new(FnModule::new(id, f))
 }
@@ -28,7 +31,8 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
         "hook_event_name": "PreToolUse", "session_id": "s-e2e", "tool_name": "Bash", "tool_use_id": "toolu-1",
         "cwd": "/work", "tool_input": {"command": "rm -rf /tmp/x"}
     });
-    let ev = HookEvent::from_slice(Wire::Claude, pre.to_string().as_bytes()).map_err(|e| format!("parse pre: {e}"))?;
+    let ev = HookEvent::from_slice(Wire::Claude, pre.to_string().as_bytes())
+        .map_err(|e| format!("parse pre: {e}"))?;
     if ev.kind != EventKind::PreToolUse
         || ev.tool_name.as_deref() != Some("Bash")
         || ev.tool_input.as_ref().map(|v| v["command"].clone()) != Some(json!("rm -rf /tmp/x"))
@@ -38,7 +42,9 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     if HookEvent::from_slice(Wire::Claude, b"{").is_ok() {
         return Err("a truncated payload parsed".into());
     }
-    if HookEvent::from_value(Wire::Claude, json!({"session_id": "a"})) != Err(ParseError::EventRequired) {
+    if HookEvent::from_value(Wire::Claude, json!({"session_id": "a"}))
+        != Err(ParseError::EventRequired)
+    {
         return Err("a payload with no event name was not EventRequired".into());
     }
     if EventKind::from_name("pre-effect") != EventKind::PreToolUse {
@@ -52,9 +58,15 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
         ..DispatchOptions::default()
     };
     let deny = module("deny-rm", |e, _| {
-        let cmd = e.tool_input.as_ref().and_then(|v| v["command"].as_str()).unwrap_or("");
+        let cmd = e
+            .tool_input
+            .as_ref()
+            .and_then(|v| v["command"].as_str())
+            .unwrap_or("");
         if cmd.contains("rm -rf") {
-            Ok(ModuleOutput::decide(Decision::DenyTool("destructive command".into())))
+            Ok(ModuleOutput::decide(Decision::DenyTool(
+                "destructive command".into(),
+            )))
         } else {
             Ok(ModuleOutput::empty())
         }
@@ -63,11 +75,18 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     let reply = &r.reply;
     let expected = json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "destructive command"}});
     if reply.stdout.as_ref() != Some(&expected) || reply.exit_code != 0 {
-        return Err(format!("Claude deny reply is wrong: {:?} exit {}", reply.stdout, reply.exit_code));
+        return Err(format!(
+            "Claude deny reply is wrong: {:?} exit {}",
+            reply.stdout, reply.exit_code
+        ));
     }
-    let codex_ev = HookEvent::from_slice(Wire::Codex, pre.to_string().as_bytes()).map_err(|e| e.to_string())?;
+    let codex_ev = HookEvent::from_slice(Wire::Codex, pre.to_string().as_bytes())
+        .map_err(|e| e.to_string())?;
     let r = dispatch(codex_ev, &[deny], &opts);
-    if r.reply.exit_code != 2 || r.reply.stdout.is_some() || r.reply.stderr.as_deref() != Some("destructive command") {
+    if r.reply.exit_code != 2
+        || r.reply.stdout.is_some()
+        || r.reply.stderr.as_deref() != Some("destructive command")
+    {
         return Err("a Codex deny is not empty stdout + reason on stderr + exit 2".into());
     }
 
@@ -84,23 +103,51 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
         }
         Ok(ModuleOutput::context("too late"))
     });
-    let boom = module("boom", |_, _| -> Result<ModuleOutput, String> { panic!("module bug") });
-    let fine_a = module("a", |e, _| Ok(ModuleOutput::context(format!("prompt was {}", e.prompt.clone().unwrap_or_default()))));
+    let boom = module("boom", |_, _| -> Result<ModuleOutput, String> {
+        panic!("module bug")
+    });
+    let fine_a = module("a", |e, _| {
+        Ok(ModuleOutput::context(format!(
+            "prompt was {}",
+            e.prompt.clone().unwrap_or_default()
+        )))
+    });
     let fine_b = module("b", |_, _| Ok(ModuleOutput::context("second")));
     let started = Instant::now();
     let r = dispatch(prompt.clone(), &[fine_a, slow, boom, fine_b], &opts);
     let took = started.elapsed();
     if took > Duration::from_millis(1500) {
-        return Err(format!("dispatch took {took:?}, the per-module deadline did not bound it"));
+        return Err(format!(
+            "dispatch took {took:?}, the per-module deadline did not bound it"
+        ));
     }
-    let statuses: Vec<(String, Status)> = r.results.iter().map(|m| (m.id.clone(), m.status)).collect();
-    if statuses != vec![("a".into(), Status::Ok), ("slow".into(), Status::Error), ("boom".into(), Status::Error), ("b".into(), Status::Ok)] {
+    let statuses: Vec<(String, Status)> =
+        r.results.iter().map(|m| (m.id.clone(), m.status)).collect();
+    if statuses
+        != vec![
+            ("a".into(), Status::Ok),
+            ("slow".into(), Status::Error),
+            ("boom".into(), Status::Error),
+            ("b".into(), Status::Ok),
+        ]
+    {
         return Err(format!("module statuses wrong: {statuses:?}"));
     }
-    if !r.results[1].error.as_deref().unwrap_or("").contains("timed out") || r.status != Status::Error {
+    if !r.results[1]
+        .error
+        .as_deref()
+        .unwrap_or("")
+        .contains("timed out")
+        || r.status != Status::Error
+    {
         return Err("the slow module was not reported as timed out".into());
     }
-    let text = r.reply.stdout.as_ref().and_then(|v| v["hookSpecificOutput"]["additionalContext"].as_str()).unwrap_or("");
+    let text = r
+        .reply
+        .stdout
+        .as_ref()
+        .and_then(|v| v["hookSpecificOutput"]["additionalContext"].as_str())
+        .unwrap_or("");
     if text != "prompt was hello\n\nsecond" {
         return Err(format!("merged context is {text:?}"));
     }
@@ -109,13 +156,28 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     let mut out = Vec::new();
     let mut err = Vec::new();
     let modules = vec![module("ctx", |_, _| Ok(ModuleOutput::context("injected")))];
-    let code = run_with(Wire::Claude, &modules, &opts, prompt_bytes().as_slice(), &mut out, &mut err);
-    let line: Value = serde_json::from_slice(&out).map_err(|e| format!("run_with stdout is not one JSON line: {e}"))?;
+    let code = run_with(
+        Wire::Claude,
+        &modules,
+        &opts,
+        prompt_bytes().as_slice(),
+        &mut out,
+        &mut err,
+    );
+    let line: Value = serde_json::from_slice(&out)
+        .map_err(|e| format!("run_with stdout is not one JSON line: {e}"))?;
     if code != 0 || line["hookSpecificOutput"]["additionalContext"] != "injected" {
         return Err(format!("run_with printed {line} with exit {code}"));
     }
     let (mut out2, mut err2) = (Vec::new(), Vec::new());
-    let code = run_with(Wire::Claude, &modules, &opts, &b"not json"[..], &mut out2, &mut err2);
+    let code = run_with(
+        Wire::Claude,
+        &modules,
+        &opts,
+        &b"not json"[..],
+        &mut out2,
+        &mut err2,
+    );
     if code != 0 || !out2.is_empty() {
         return Err("a garbage payload did not exit 0 silently".into());
     }
@@ -126,11 +188,19 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
 
     // ---- receipts on disk: emitted, then observed once the marker appears in the transcript tail -------------------
     let store = ReceiptStore::new(dir.join("store"), "e2e");
-    let start = HookEvent::from_value(Wire::Claude, json!({"hook_event_name": "SessionStart", "session_id": "sess-1"}))
-        .map_err(|e| e.to_string())?;
-    let tagged = store.tag_and_record(&start, "context for the model", 4096).map_err(|e| format!("tag_and_record: {e}"))?;
+    let start = HookEvent::from_value(
+        Wire::Claude,
+        json!({"hook_event_name": "SessionStart", "session_id": "sess-1"}),
+    )
+    .map_err(|e| e.to_string())?;
+    let tagged = store
+        .tag_and_record(&start, "context for the model", 4096)
+        .map_err(|e| format!("tag_and_record: {e}"))?;
     let receipts = store.list("sess-1");
-    if receipts.len() != 1 || receipts[0].level != DeliveryLevel::Emitted || receipts[0].chars != tagged.len() {
+    if receipts.len() != 1
+        || receipts[0].level != DeliveryLevel::Emitted
+        || receipts[0].chars != tagged.len()
+    {
         return Err(format!("emitted receipt wrong: {receipts:?}"));
     }
     let transcript = dir.join("transcript.jsonl");
@@ -139,10 +209,20 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
         return Err("a receipt was observed without its marker in the transcript".into());
     }
     let marker = tagged.lines().last().unwrap_or("").to_string();
-    std::fs::write(&transcript, format!("{{\"msg\":{}}}\n", serde_json::to_string(&format!("seen {marker}")).unwrap()))
-        .map_err(|e| e.to_string())?;
-    if store.observe("sess-1", Wire::Claude, &transcript) != 1 || store.list("sess-1")[0].level != DeliveryLevel::Observed {
-        return Err("the receipt did not flip to observed once the marker was in the transcript".into());
+    std::fs::write(
+        &transcript,
+        format!(
+            "{{\"msg\":{}}}\n",
+            serde_json::to_string(&format!("seen {marker}")).unwrap()
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+    if store.observe("sess-1", Wire::Claude, &transcript) != 1
+        || store.list("sess-1")[0].level != DeliveryLevel::Observed
+    {
+        return Err(
+            "the receipt did not flip to observed once the marker was in the transcript".into(),
+        );
     }
 
     Ok(json!({
@@ -155,5 +235,7 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
 }
 
 fn prompt_bytes() -> Vec<u8> {
-    json!({"hook_event_name": "UserPromptSubmit", "session_id": "s-e2e", "prompt": "hello"}).to_string().into_bytes()
+    json!({"hook_event_name": "UserPromptSubmit", "session_id": "s-e2e", "prompt": "hello"})
+        .to_string()
+        .into_bytes()
 }

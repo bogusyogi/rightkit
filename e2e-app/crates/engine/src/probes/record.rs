@@ -5,7 +5,9 @@ use serde_json::{json, Value};
 
 pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     let empty = blake3_text(b"");
-    if !is_blake3_text(&empty) || !empty.contains("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") {
+    if !is_blake3_text(&empty)
+        || !empty.contains("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262")
+    {
         return Err(format!("BLAKE3(\"\") came out {empty}"));
     }
     let mac = hex_lower(&hmac_sha256(b"Jefe", b"what do ya want for nothing?"));
@@ -16,7 +18,9 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     std::fs::write(&f, b"").map_err(|e| e.to_string())?;
     let (h, len) = file_hash(&f).map_err(|e| format!("file hash: {e}"))?;
     if h != empty || len != 0 {
-        return Err(format!("the hash of an empty file ({h}, {len} bytes) differs from BLAKE3(\"\")"));
+        return Err(format!(
+            "the hash of an empty file ({h}, {len} bytes) differs from BLAKE3(\"\")"
+        ));
     }
     Ok(json!({ "blake3_empty": empty, "hmac_rfc4231": mac }))
 }

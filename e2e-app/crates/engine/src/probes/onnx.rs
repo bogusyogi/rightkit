@@ -17,8 +17,9 @@ use std::sync::OnceLock;
 use rightkit_ffmpeg::native::{verified_library, NativeLibrary};
 use rightkit_onnx::ort::value::Tensor;
 use rightkit_onnx::{
-    configure_runtime, init_environment_with_options, installed_runtime_candidate, probe_providers, runtime_filename,
-    EnvironmentInitOptions, ExecutionProvider, ProviderKind, SessionError, SessionOptions,
+    configure_runtime, init_environment_with_options, installed_runtime_candidate, probe_providers,
+    runtime_filename, EnvironmentInitOptions, ExecutionProvider, ProviderKind, SessionError,
+    SessionOptions,
 };
 use serde_json::{json, Value};
 
@@ -48,12 +49,20 @@ fn bind() -> Result<Runtime, String> {
             candidate.path.display()
         ));
     }
-    let verified = verified_library(NativeLibrary::Onnxruntime, &candidate.path)
-        .map_err(|e| format!("{} is not the catalog's {}: {e}", candidate.path.display(), runtime_filename()))?;
+    let verified = verified_library(NativeLibrary::Onnxruntime, &candidate.path).map_err(|e| {
+        format!(
+            "{} is not the catalog's {}: {e}",
+            candidate.path.display(),
+            runtime_filename()
+        )
+    })?;
     let selection = configure_runtime([candidate]).map_err(|e| format!("bind runtime: {e}"))?;
     let report = init_environment_with_options(
         &selection,
-        &EnvironmentInitOptions { tolerate_already_initialized: true, ..EnvironmentInitOptions::default() },
+        &EnvironmentInitOptions {
+            tolerate_already_initialized: true,
+            ..EnvironmentInitOptions::default()
+        },
     )
     .map_err(|e| format!("init environment: {e}"))?;
     Ok(Runtime {
@@ -118,11 +127,19 @@ fn add_model() -> Vec<u8> {
     model
 }
 
-fn run_add(session: &mut rightkit_onnx::ort::session::Session, a: [f32; 4], b: [f32; 4]) -> Result<Vec<f32>, String> {
+fn run_add(
+    session: &mut rightkit_onnx::ort::session::Session,
+    a: [f32; 4],
+    b: [f32; 4],
+) -> Result<Vec<f32>, String> {
     let x = Tensor::from_array(([4usize], a.to_vec())).map_err(|e| format!("tensor x: {e}"))?;
     let y = Tensor::from_array(([4usize], b.to_vec())).map_err(|e| format!("tensor y: {e}"))?;
-    let outputs = session.run(rightkit_onnx::ort::inputs!["x" => x, "y" => y]).map_err(|e| format!("run: {e}"))?;
-    let (shape, data) = outputs["z"].try_extract_tensor::<f32>().map_err(|e| format!("extract z: {e}"))?;
+    let outputs = session
+        .run(rightkit_onnx::ort::inputs!["x" => x, "y" => y])
+        .map_err(|e| format!("run: {e}"))?;
+    let (shape, data) = outputs["z"]
+        .try_extract_tensor::<f32>()
+        .map_err(|e| format!("extract z: {e}"))?;
     if &**shape != [4i64] {
         return Err(format!("output shape {shape:?}, expected [4]"));
     }
@@ -137,29 +154,42 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
 
     // Providers: CPU is always there; the platform accelerator is reported as found.
     let providers = probe_providers();
-    let cpu = providers.iter().find(|p| p.provider == ProviderKind::Cpu).ok_or("probe_providers lists no CPU")?;
+    let cpu = providers
+        .iter()
+        .find(|p| p.provider == ProviderKind::Cpu)
+        .ok_or("probe_providers lists no CPU")?;
     if !cpu.available {
         return Err("the CPU provider is unavailable".into());
     }
 
     // CPU: exact arithmetic, from memory and from a file.
     let want = vec![11.0, 22.0, 33.0, 44.0];
-    let mut cpu_session =
-        SessionOptions::new(ExecutionProvider::Cpu).build_from_memory(&add_model()).map_err(|e| format!("cpu session: {e}"))?;
-    let got = run_add(&mut cpu_session, [1.0, 2.0, 3.0, 4.0], [10.0, 20.0, 30.0, 40.0])?;
+    let mut cpu_session = SessionOptions::new(ExecutionProvider::Cpu)
+        .build_from_memory(&add_model())
+        .map_err(|e| format!("cpu session: {e}"))?;
+    let got = run_add(
+        &mut cpu_session,
+        [1.0, 2.0, 3.0, 4.0],
+        [10.0, 20.0, 30.0, 40.0],
+    )?;
     if got != want {
         return Err(format!("cpu Add gave {got:?}, expected {want:?}"));
     }
     let dir = ctx.dir("onnx")?;
     let model_path = dir.join("add.onnx");
     std::fs::write(&model_path, add_model()).map_err(|e| format!("write model: {e}"))?;
-    let mut from_file = SessionOptions::default().build_from_file(&model_path).map_err(|e| format!("file session: {e}"))?;
+    let mut from_file = SessionOptions::default()
+        .build_from_file(&model_path)
+        .map_err(|e| format!("file session: {e}"))?;
     let got = run_add(&mut from_file, [0.5; 4], [0.25; 4])?;
     if got != vec![0.75f32; 4] {
         return Err(format!("file-backed Add gave {got:?}"));
     }
     std::fs::remove_file(&model_path).map_err(|e| format!("remove model: {e}"))?;
-    if !matches!(SessionOptions::default().build_from_file(&model_path), Err(SessionError::MissingArtifact(_))) {
+    if !matches!(
+        SessionOptions::default().build_from_file(&model_path),
+        Err(SessionError::MissingArtifact(_))
+    ) {
         return Err("a missing model file must be MissingArtifact".into());
     }
 
@@ -169,13 +199,27 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
         .with_cpu_fallback(true)
         .build_from_memory_reported(&add_model())
         .map_err(|e| format!("accelerator session: {e}"))?;
-    let got = run_add(&mut built.session, [1.0, 2.0, 3.0, 4.0], [10.0, 20.0, 30.0, 40.0])?;
+    let got = run_add(
+        &mut built.session,
+        [1.0, 2.0, 3.0, 4.0],
+        [10.0, 20.0, 30.0, 40.0],
+    )?;
     if got != want {
-        return Err(format!("{:?} Add gave {got:?}, expected {want:?}", built.provider));
+        return Err(format!(
+            "{:?} Add gave {got:?}, expected {want:?}",
+            built.provider
+        ));
     }
     // An accelerator this OS cannot host is refused, not faked.
-    let foreign = if cfg!(target_os = "windows") { ExecutionProvider::CoreMl } else { ExecutionProvider::DirectMl };
-    if !matches!(SessionOptions::new(foreign).build_from_memory(&add_model()), Err(SessionError::ProviderUnsupported(_))) {
+    let foreign = if cfg!(target_os = "windows") {
+        ExecutionProvider::CoreMl
+    } else {
+        ExecutionProvider::DirectMl
+    };
+    if !matches!(
+        SessionOptions::new(foreign).build_from_memory(&add_model()),
+        Err(SessionError::ProviderUnsupported(_))
+    ) {
         return Err(format!("{foreign:?} must be refused on this OS"));
     }
 

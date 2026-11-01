@@ -13,9 +13,9 @@ use std::time::{Duration, Instant};
 use rightkit_ffmpeg::loudnorm::{measure_loudness, LoudnessTarget};
 use rightkit_ffmpeg::probe::{probe_media, run_ffprobe_json};
 use rightkit_ffmpeg::{
-    resolve_ffmpeg_handle_with, resolve_ffprobe_handle_with, run_checked, run_capture, BuildMode, CancellationToken,
-    FfmpegBinary, FfmpegCommand, FfmpegHandle, FfprobeHandle, ResolveOptions, RunError, Tool, ToolHandle,
-    UnverifiedRequest,
+    resolve_ffmpeg_handle_with, resolve_ffprobe_handle_with, run_capture, run_checked, BuildMode,
+    CancellationToken, FfmpegBinary, FfmpegCommand, FfmpegHandle, FfprobeHandle, ResolveOptions,
+    RunError, Tool, ToolHandle, UnverifiedRequest,
 };
 use serde_json::{json, Value};
 
@@ -85,7 +85,12 @@ fn artifact_id_ffprobe(h: &FfprobeHandle) -> String {
 }
 
 /// Render `seconds` of a mono 48 kHz 16-bit sine with the real ffmpeg.
-pub fn render_sine(bin: &dyn FfmpegBinary, out: &Path, hz: u32, seconds: u32) -> Result<(), String> {
+pub fn render_sine(
+    bin: &dyn FfmpegBinary,
+    out: &Path,
+    hz: u32,
+    seconds: u32,
+) -> Result<(), String> {
     let mut cmd = FfmpegCommand::base("error");
     cmd.texts([
         "-f".to_string(),
@@ -98,7 +103,8 @@ pub fn render_sine(bin: &dyn FfmpegBinary, out: &Path, hz: u32, seconds: u32) ->
         "pcm_s16le".into(),
     ]);
     cmd.path(out);
-    run_checked(bin, &cmd, T, &CancellationToken::new()).map_err(|e| format!("render sine: {e}"))?;
+    run_checked(bin, &cmd, T, &CancellationToken::new())
+        .map_err(|e| format!("render sine: {e}"))?;
     Ok(())
 }
 
@@ -108,17 +114,25 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     let dir = ctx.dir("ffmpeg")?;
     let wav = dir.join("tone.wav");
     render_sine(&ffmpeg, &wav, 440, 2)?;
-    let size = std::fs::metadata(&wav).map_err(|e| format!("stat {}: {e}", wav.display()))?.len();
+    let size = std::fs::metadata(&wav)
+        .map_err(|e| format!("stat {}: {e}", wav.display()))?
+        .len();
     // 2 s * 48000 * 2 bytes plus the header.
     if !(190_000..=200_000).contains(&size) {
-        return Err(format!("rendered WAV is {size} bytes, expected about 192044"));
+        return Err(format!(
+            "rendered WAV is {size} bytes, expected about 192044"
+        ));
     }
 
     // ffprobe JSON: exact stream facts.
     let cancel = CancellationToken::new();
-    let pj = run_ffprobe_json(&ffprobe, &wav, Some(T), &cancel).map_err(|e| format!("ffprobe: {e}"))?;
+    let pj =
+        run_ffprobe_json(&ffprobe, &wav, Some(T), &cancel).map_err(|e| format!("ffprobe: {e}"))?;
     let audio = pj.first_audio().ok_or("ffprobe found no audio stream")?;
-    if audio.codec_name.as_deref() != Some("pcm_s16le") || audio.sample_rate != Some(48_000) || audio.channels != Some(1) {
+    if audio.codec_name.as_deref() != Some("pcm_s16le")
+        || audio.sample_rate != Some(48_000)
+        || audio.channels != Some(1)
+    {
         return Err(format!(
             "ffprobe stream mismatch: codec {:?} rate {:?} channels {:?}",
             audio.codec_name, audio.sample_rate, audio.channels
@@ -137,18 +151,40 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     }
 
     // Loudness: a full-scale-ish 440 Hz sine measures a finite, plausible level.
-    let m = measure_loudness(&ffmpeg, &wav, &LoudnessTarget::default(), T, &cancel).map_err(|e| format!("loudnorm: {e}"))?;
+    let m = measure_loudness(&ffmpeg, &wav, &LoudnessTarget::default(), T, &cancel)
+        .map_err(|e| format!("loudnorm: {e}"))?;
     if !m.input_i.is_finite() || !(-30.0..=0.0).contains(&m.input_i) {
-        return Err(format!("integrated loudness {} LUFS is not plausible for a sine", m.input_i));
+        return Err(format!(
+            "integrated loudness {} LUFS is not plausible for a sine",
+            m.input_i
+        ));
     }
 
     // The runner owns the child: a runaway render hits its timeout and is killed, not left running.
     let mut long = FfmpegCommand::base("error");
-    long.texts(["-f", "lavfi", "-i", "sine=frequency=220:sample_rate=48000:duration=3600", "-f", "null", "-"]);
+    long.texts([
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=220:sample_rate=48000:duration=3600",
+        "-f",
+        "null",
+        "-",
+    ]);
     let started = Instant::now();
-    match run_capture(&ffmpeg, &long, Duration::from_secs(2), &CancellationToken::new()) {
+    match run_capture(
+        &ffmpeg,
+        &long,
+        Duration::from_secs(2),
+        &CancellationToken::new(),
+    ) {
         Err(RunError::TimedOut(_)) => {}
-        other => return Err(format!("a 1 hour render under a 2 s timeout must be TimedOut, got {:?}", other.map(|c| c.status))),
+        other => {
+            return Err(format!(
+                "a 1 hour render under a 2 s timeout must be TimedOut, got {:?}",
+                other.map(|c| c.status)
+            ))
+        }
     }
     let waited = started.elapsed();
     if waited > Duration::from_secs(15) {
@@ -160,7 +196,12 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     token.cancel();
     match run_capture(&ffmpeg, &long, T, &token) {
         Err(RunError::Cancelled) => {}
-        other => return Err(format!("a cancelled token must give Cancelled, got {:?}", other.map(|c| c.status))),
+        other => {
+            return Err(format!(
+                "a cancelled token must give Cancelled, got {:?}",
+                other.map(|c| c.status)
+            ))
+        }
     }
 
     Ok(json!({

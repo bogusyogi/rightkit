@@ -19,13 +19,18 @@ pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
     for (q, text, want) in cases {
         let got = m(q)?.matches_with(&[text], Vec::new);
         if got != want {
-            return Err(format!("{q:?} against {text:?} matched {got}, expected {want}"));
+            return Err(format!(
+                "{q:?} against {text:?} matched {got}, expected {want}"
+            ));
         }
         out.push(json!({ "q": q, "text": text, "match": got }));
     }
     let across = m("alpha beta")?.matches_with(&["alpha here"], || vec!["beta there".to_string()]);
     if !across || fold::fold("ÉCOLE") != "école" {
-        return Err(format!("AND across haystacks {across}, fold {}", fold::fold("ÉCOLE")));
+        return Err(format!(
+            "AND across haystacks {across}, fold {}",
+            fold::fold("ÉCOLE")
+        ));
     }
     Ok(json!({ "cases": out, "and_across": across }))
 }

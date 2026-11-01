@@ -8,14 +8,23 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     let chrome = find_chrome().ok_or_else(|| format!("needs Chrome: no Chrome for Testing in {candidates:?} and no installed Chrome found by find_chrome()"))?;
     let profile = ctx.dir("browser")?;
     let out = std::process::Command::new(&chrome)
-        .args(["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check"])
+        .args([
+            "--headless=new",
+            "--disable-gpu",
+            "--no-first-run",
+            "--no-default-browser-check",
+        ])
         .arg(format!("--user-data-dir={}", profile.display()))
         .args(["--dump-dom", "data:text/html,<p id=x>rke2e</p>"])
         .output()
         .map_err(|e| format!("launch {}: {e}", chrome.display()))?;
     let dom = String::from_utf8_lossy(&out.stdout);
     if !out.status.success() || !dom.contains("rke2e") {
-        return Err(format!("headless Chrome at {} did not render the page (status {:?})", chrome.display(), out.status.code()));
+        return Err(format!(
+            "headless Chrome at {} did not render the page (status {:?})",
+            chrome.display(),
+            out.status.code()
+        ));
     }
     Ok(json!({ "chrome": chrome, "rendered": true }))
 }

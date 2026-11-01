@@ -10,8 +10,12 @@ pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
         .ok_or("needs the Qwen3-TTS model: RIGHTKIT_TTS_MODEL_DIR is not set (qwen3-tts-0.6b-*.gguf + qwen3-tts-vocoder.onnx)")?;
     let paths = ModelPaths::from_model_dir(&dir);
     if !paths.main_exists() {
-        return Err(format!("needs the Qwen3-TTS model: no qwen3-tts-0.6b-*.gguf in {}", dir.display()));
+        return Err(format!(
+            "needs the Qwen3-TTS model: no qwen3-tts-0.6b-*.gguf in {}",
+            dir.display()
+        ));
     }
-    load_and_validate(&paths).map_err(|e| format!("validate {}: {e}", paths.main_gguf.display()))?;
+    load_and_validate(&paths)
+        .map_err(|e| format!("validate {}: {e}", paths.main_gguf.display()))?;
     Ok(json!({ "main": paths.main_gguf, "vocoder": paths.vocoder_onnx }))
 }

@@ -15,7 +15,8 @@ pub struct Ctx {
 impl Ctx {
     pub fn new(data: PathBuf) -> Result<Self, String> {
         let scratch = data.join("probes");
-        std::fs::create_dir_all(&scratch).map_err(|e| format!("create {}: {e}", scratch.display()))?;
+        std::fs::create_dir_all(&scratch)
+            .map_err(|e| format!("create {}: {e}", scratch.display()))?;
         Ok(Self { data, scratch })
     }
 
@@ -188,8 +189,14 @@ pub fn run(ctx: &Ctx, name: &str) -> Value {
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| probe(ctx)));
     let ms = started.elapsed().as_millis() as u64;
     match outcome {
-        Ok(Ok(detail)) => serde_json::json!({ "name": name, "ok": true, "ms": ms, "detail": detail }),
-        Ok(Err(error)) => serde_json::json!({ "name": name, "ok": false, "ms": ms, "error": error }),
-        Err(_) => serde_json::json!({ "name": name, "ok": false, "ms": ms, "error": "the probe panicked" }),
+        Ok(Ok(detail)) => {
+            serde_json::json!({ "name": name, "ok": true, "ms": ms, "detail": detail })
+        }
+        Ok(Err(error)) => {
+            serde_json::json!({ "name": name, "ok": false, "ms": ms, "error": error })
+        }
+        Err(_) => {
+            serde_json::json!({ "name": name, "ok": false, "ms": ms, "error": "the probe panicked" })
+        }
     }
 }

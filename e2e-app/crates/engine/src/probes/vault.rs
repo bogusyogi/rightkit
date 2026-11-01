@@ -15,7 +15,8 @@ use std::time::Duration;
 use rightkit_credentials::{Config as CredConfig, MemoryBackend, Namespace, Secret, Store};
 use rightkit_http::{AddressPolicy, Client, ClientConfig};
 use rightkit_vault::{
-    BlobStore, Config, CredentialsClientSecret, CredentialsKeyCache, Error, HttpServerKeySource, SecretMap, Vault,
+    BlobStore, Config, CredentialsClientSecret, CredentialsKeyCache, Error, HttpServerKeySource,
+    SecretMap, Vault,
 };
 use serde_json::{json, Value};
 
@@ -27,11 +28,21 @@ fn b64(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
     for c in bytes.chunks(3) {
-        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
         out.push(T[(n >> 18) as usize & 63] as char);
         out.push(T[(n >> 12) as usize & 63] as char);
-        out.push(if c.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
+        out.push(if c.len() > 1 {
+            T[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            T[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -53,7 +64,10 @@ struct Service {
 impl Service {
     fn start() -> Result<Service, String> {
         let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("bind: {e}"))?;
-        let addr = listener.local_addr().map_err(|e| e.to_string())?.to_string();
+        let addr = listener
+            .local_addr()
+            .map_err(|e| e.to_string())?
+            .to_string();
         let mode = Arc::new(Mutex::new(Mode::Serve));
         let hits = Arc::new(AtomicUsize::new(0));
         let stop = Arc::new(AtomicBool::new(false));
@@ -66,9 +80,13 @@ impl Service {
                 }
                 let Ok(mut c) = conn else { continue };
                 let _ = c.set_read_timeout(Some(Duration::from_secs(5)));
-                let Some((line, headers)) = read_head(&mut c) else { continue };
+                let Some((line, headers)) = read_head(&mut c) else {
+                    continue;
+                };
                 h.fetch_add(1, Ordering::SeqCst);
-                let auth_ok = headers.iter().any(|(k, v)| k == "authorization" && v == &format!("Bearer {TOKEN}"));
+                let auth_ok = headers
+                    .iter()
+                    .any(|(k, v)| k == "authorization" && v == &format!("Bearer {TOKEN}"));
                 let app_ok = headers.iter().any(|(k, v)| k == "x-right-app" && v == APP);
                 let (status, body) = if !line.starts_with("GET /v1/vault/wrapping-key") {
                     (404, String::new())
@@ -77,7 +95,10 @@ impl Service {
                 } else if *m.lock().unwrap() == Mode::Revoked {
                     (410, r#"{"error":"vault_revoked"}"#.to_string())
                 } else {
-                    (200, format!(r#"{{"key_id":"wk-1","key":"{key}","previous":[]}}"#))
+                    (
+                        200,
+                        format!(r#"{{"key_id":"wk-1","key":"{key}","previous":[]}}"#),
+                    )
                 };
                 let resp = format!(
                     "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
@@ -86,7 +107,13 @@ impl Service {
                 let _ = c.write_all(resp.as_bytes());
             }
         });
-        Ok(Service { addr, mode, hits, stop, thread: Some(thread) })
+        Ok(Service {
+            addr,
+            mode,
+            hits,
+            stop,
+            thread: Some(thread),
+        })
     }
 
     fn url(&self) -> String {
@@ -123,7 +150,10 @@ fn read_head(c: &mut TcpStream) -> Option<(String, Vec<(String, String)>)> {
     let line = lines.next()?.to_string();
     let headers = lines
         .take_while(|l| !l.is_empty())
-        .filter_map(|l| l.split_once(':').map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string())))
+        .filter_map(|l| {
+            l.split_once(':')
+                .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
+        })
         .collect();
     Some((line, headers))
 }
@@ -144,7 +174,9 @@ impl BlobStore for FileBlob {
 
 fn cred_store() -> Result<Store, String> {
     let ns = Namespace::new("e2e.rightkit.vault").map_err(|e| format!("namespace: {e}"))?;
-    Ok(Store::open(CredConfig::new(ns).backend(Arc::new(MemoryBackend::new()))))
+    Ok(Store::open(
+        CredConfig::new(ns).backend(Arc::new(MemoryBackend::new())),
+    ))
 }
 
 fn client() -> Arc<Client> {
@@ -159,7 +191,11 @@ fn vault(svc: &Service, blob: &PathBuf, keystore: &Store, secretstore: &Store) -
         Config::new(APP, SUBJECT),
         Arc::new(HttpServerKeySource::new(client(), svc.url(), APP)),
         Arc::new(CredentialsKeyCache::new(keystore.clone(), APP, SUBJECT)),
-        Arc::new(CredentialsClientSecret::new(secretstore.clone(), APP, SUBJECT)),
+        Arc::new(CredentialsClientSecret::new(
+            secretstore.clone(),
+            APP,
+            SUBJECT,
+        )),
         Arc::new(FileBlob(blob.clone())),
     )
 }
@@ -172,11 +208,20 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     let good = || -> rightkit_vault::Result<String> { Ok(TOKEN.to_string()) };
 
     let mut map: SecretMap = BTreeMap::new();
-    map.insert("openai-api-key".into(), Secret::from_string("sk-e2e-PLAINTEXT-MARKER-123"));
-    map.insert("anthropic-api-key".into(), Secret::from_string("sk-ant-e2e-OTHER-MARKER-456"));
+    map.insert(
+        "openai-api-key".into(),
+        Secret::from_string("sk-e2e-PLAINTEXT-MARKER-123"),
+    );
+    map.insert(
+        "anthropic-api-key".into(),
+        Secret::from_string("sk-ant-e2e-OTHER-MARKER-456"),
+    );
 
     let v = vault(&svc, &blob_path, &keys, &secrets_store);
-    if v.load(&good).map_err(|e| format!("empty load: {e}"))?.is_some() {
+    if v.load(&good)
+        .map_err(|e| format!("empty load: {e}"))?
+        .is_some()
+    {
         return Err("an empty vault loaded a map".into());
     }
     v.save(&good, &map).map_err(|e| format!("save: {e}"))?;
@@ -185,34 +230,60 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     }
     let raw = std::fs::read(&blob_path).map_err(|e| format!("read blob: {e}"))?;
     let raw_text = String::from_utf8_lossy(&raw).to_string();
-    for needle in ["PLAINTEXT-MARKER", "OTHER-MARKER", "openai-api-key", "anthropic-api-key"] {
+    for needle in [
+        "PLAINTEXT-MARKER",
+        "OTHER-MARKER",
+        "openai-api-key",
+        "anthropic-api-key",
+    ] {
         if raw_text.contains(needle) {
             return Err(format!("the sealed blob contains `{needle}`"));
         }
     }
-    let back = v.load(&good).map_err(|e| format!("load: {e}"))?.ok_or("saved vault loads as empty")?;
-    if back.len() != 2 || !back["openai-api-key"].ct_eq(&map["openai-api-key"]) || !back["anthropic-api-key"].ct_eq(&map["anthropic-api-key"]) {
+    let back = v
+        .load(&good)
+        .map_err(|e| format!("load: {e}"))?
+        .ok_or("saved vault loads as empty")?;
+    if back.len() != 2
+        || !back["openai-api-key"].ct_eq(&map["openai-api-key"])
+        || !back["anthropic-api-key"].ct_eq(&map["anthropic-api-key"])
+    {
         return Err("the loaded map differs from the saved one".into());
     }
 
     // Tamper: change one character inside the sealed payload; AEAD must refuse.
-    let mut json: Value = serde_json::from_slice(&raw).map_err(|e| format!("blob is not json: {e}"))?;
-    let data = json["data"].as_str().ok_or("blob has no data field")?.to_string();
+    let mut json: Value =
+        serde_json::from_slice(&raw).map_err(|e| format!("blob is not json: {e}"))?;
+    let data = json["data"]
+        .as_str()
+        .ok_or("blob has no data field")?
+        .to_string();
     let mid = data.len() / 2;
     let mut chars: Vec<char> = data.chars().collect();
     chars[mid] = if chars[mid] == 'A' { 'B' } else { 'A' };
     json["data"] = Value::String(chars.into_iter().collect());
-    std::fs::write(&blob_path, serde_json::to_vec(&json).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    std::fs::write(
+        &blob_path,
+        serde_json::to_vec(&json).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     match v.load(&good) {
         Err(Error::Decrypt) => {}
-        other => return Err(format!("tampered blob did not fail authentication: {:?}", other.map(|m| m.map(|m| m.len())))),
+        other => {
+            return Err(format!(
+                "tampered blob did not fail authentication: {:?}",
+                other.map(|m| m.map(|m| m.len()))
+            ))
+        }
     }
     // A vault must refuse to overwrite a blob it cannot open.
     if v.save(&good, &map).is_ok() {
         return Err("save replaced a blob it could not authenticate".into());
     }
     std::fs::write(&blob_path, &raw).map_err(|e| e.to_string())?;
-    v.load(&good).map_err(|e| format!("restored blob: {e}"))?.ok_or("restored blob empty")?;
+    v.load(&good)
+        .map_err(|e| format!("restored blob: {e}"))?
+        .ok_or("restored blob empty")?;
 
     // A device with no client secret cannot open it; one with a different client secret fails authentication.
     let new_device_secrets = cred_store()?;
@@ -246,7 +317,11 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     let svc_addr_unused = svc_for_offline.url();
     svc_for_offline.shutdown();
     let _ = svc_addr_unused;
-    if v.load(&good).map_err(|e| format!("offline load from cache: {e}"))?.map(|m| m.len()) != Some(2) {
+    if v.load(&good)
+        .map_err(|e| format!("offline load from cache: {e}"))?
+        .map(|m| m.len())
+        != Some(2)
+    {
         return Err("offline cached load lost data".into());
     }
     // ...and with no cache and no service, the vault says Offline.
@@ -258,7 +333,9 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     // Revocation, on a second service instance: refresh sees 410 and the cache is dropped.
     let mut svc2 = Service::start()?;
     let v2 = vault(&svc2, &blob_path, &cred_store()?, &secrets_store);
-    v2.load(&good).map_err(|e| format!("load via second service: {e}"))?.ok_or("empty via second service")?;
+    v2.load(&good)
+        .map_err(|e| format!("load via second service: {e}"))?
+        .ok_or("empty via second service")?;
     *svc2.mode.lock().unwrap() = Mode::Revoked;
     if !matches!(v2.refresh(&good), Err(Error::Revoked)) {
         return Err("refresh against an erased vault was not Revoked".into());

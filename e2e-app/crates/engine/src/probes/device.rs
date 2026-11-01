@@ -10,8 +10,14 @@ pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
     }
     let raw = "device-raw-id-1234";
     let h = device_id_hash(raw);
-    if h != device_id_hash(raw) || h.contains(raw) || h.len() != 64 || h.chars().any(|c| c.is_ascii_uppercase()) {
-        return Err(format!("the digest is not a stable lowercase 64-hex value: {h}"));
+    if h != device_id_hash(raw)
+        || h.contains(raw)
+        || h.len() != 64
+        || h.chars().any(|c| c.is_ascii_uppercase())
+    {
+        return Err(format!(
+            "the digest is not a stable lowercase 64-hex value: {h}"
+        ));
     }
     Ok(json!({ "abc": abc, "len": h.len() }))
 }

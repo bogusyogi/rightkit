@@ -12,7 +12,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rke2e_protocol::app_data_root;
 use rightkit_child_process::{OwnedCommand, RestartMode, RestartPolicy};
 use rightkit_crash::{install_process_hook, CrashConfig, ProcessKind};
 use rightkit_credentials::{Config, Namespace, Store};
@@ -20,6 +19,7 @@ use rightkit_device::{credentials::CredentialStore, DeviceService};
 use rightkit_job_queue::{EngineSupervisor, SupervisorConfig};
 use rightkit_tauri_shell::logs_commands::{self, LogsConfig};
 use rightkit_tauri_shell::Shell;
+use rke2e_protocol::app_data_root;
 use serde_json::Value;
 use tauri::Manager;
 

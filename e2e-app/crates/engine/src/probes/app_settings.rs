@@ -12,7 +12,10 @@ struct Prefs {
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { theme: "auto".into(), font_px: 16 }
+        Self {
+            theme: "auto".into(),
+            font_px: 16,
+        }
     }
 }
 
@@ -22,9 +25,18 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     let opts = || StoreOptions::new(Schema::new("rke2e", 1));
     let store = Store::<Prefs>::open_path(&path, opts()).map_err(|e| format!("open: {e}"))?;
     if store.get() != Prefs::default() {
-        return Err(format!("a new store does not hold the defaults: {:?}", store.get()));
+        return Err(format!(
+            "a new store does not hold the defaults: {:?}",
+            store.get()
+        ));
     }
-    store.update(|p| { p.theme = "dark".into(); p.font_px = 20; Ok(()) }).map_err(|e| format!("update: {e}"))?;
+    store
+        .update(|p| {
+            p.theme = "dark".into();
+            p.font_px = 20;
+            Ok(())
+        })
+        .map_err(|e| format!("update: {e}"))?;
     drop(store);
     let reopened = Store::<Prefs>::open_path(&path, opts()).map_err(|e| format!("reopen: {e}"))?;
     let got = reopened.get();
@@ -34,7 +46,8 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     drop(reopened);
     let damaged = dir.join("damaged.json");
     std::fs::write(&damaged, b"{ not json").map_err(|e| e.to_string())?;
-    let refused = Store::<Prefs>::open_path(&damaged, opts().on_corrupt(OnCorrupt::Refuse)).is_err();
+    let refused =
+        Store::<Prefs>::open_path(&damaged, opts().on_corrupt(OnCorrupt::Refuse)).is_err();
     if !refused {
         return Err("a damaged settings file was opened instead of refused".into());
     }

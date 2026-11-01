@@ -7,8 +7,8 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, Instant};
 
-use rke2e::engine_config;
 use rightkit_job_queue::EngineSupervisor;
+use rke2e::engine_config;
 use serde_json::json;
 
 fn script(dir: &std::path::Path, body: &str) -> std::path::PathBuf {

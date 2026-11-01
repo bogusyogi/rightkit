@@ -36,7 +36,9 @@ fn collect(
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => return Err("the watch channel closed".into()),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return Err("the watch channel closed".into())
+            }
         }
     }
     Err(format!(
@@ -67,8 +69,12 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     write(&root.join("a.txt"), "one")?;
     write(&root.join("b.txt"), "two")?;
     write(&sub.join("nested.txt"), "three")?;
-    let (created, _, create_batches) = collect(&rx, |c, _| ["a.txt", "b.txt", "nested.txt"].iter().all(|n| c.contains(*n)))
-        .map_err(|e| format!("create phase: {e}"))?;
+    let (created, _, create_batches) = collect(&rx, |c, _| {
+        ["a.txt", "b.txt", "nested.txt"]
+            .iter()
+            .all(|n| c.contains(*n))
+    })
+    .map_err(|e| format!("create phase: {e}"))?;
 
     write(&root.join("a.txt"), "one, changed with more bytes")?;
     std::fs::remove_file(root.join("b.txt")).map_err(|e| e.to_string())?;
@@ -89,7 +95,8 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
 
     // ---- the typed stream
     let typed_dir = ctx.dir("file-watch-typed")?;
-    let watcher = TypedWatcher::watch(&typed_dir).map_err(|e| format!("TypedWatcher::watch: {e}"))?;
+    let watcher =
+        TypedWatcher::watch(&typed_dir).map_err(|e| format!("TypedWatcher::watch: {e}"))?;
     write(&typed_dir.join("typed.txt"), "hello")?;
     let start = Instant::now();
     let mut seen = None;
@@ -105,10 +112,13 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
             }
         }
     }
-    let seen = seen.ok_or("TypedWatcher reported no Create/Modify for typed.txt within the deadline")?;
+    let seen =
+        seen.ok_or("TypedWatcher reported no Create/Modify for typed.txt within the deadline")?;
     let metrics = watcher.metrics();
     if metrics.queued_total == 0 || metrics.received_total == 0 {
-        return Err(format!("TypedWatcher metrics did not count the delivered event: {metrics:?}"));
+        return Err(format!(
+            "TypedWatcher metrics did not count the delivered event: {metrics:?}"
+        ));
     }
     drop(watcher);
 

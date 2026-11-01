@@ -14,7 +14,9 @@ use serde_json::{json, Value};
 
 fn sine(hz: f32, rate: u32, seconds: f32, amp: f32) -> Vec<f32> {
     let n = (rate as f32 * seconds) as usize;
-    (0..n).map(|i| amp * (2.0 * std::f32::consts::PI * hz * i as f32 / rate as f32).sin()).collect()
+    (0..n)
+        .map(|i| amp * (2.0 * std::f32::consts::PI * hz * i as f32 / rate as f32).sin())
+        .collect()
 }
 
 fn near(what: &str, got: f64, want: f64, tol: f64) -> Result<(), String> {
@@ -35,11 +37,21 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     write_wav_mono_i16(&wav, 16_000, &pcm).map_err(|e| format!("write_wav_mono_i16: {e}"))?;
     let back = read_wav_16k_mono(&wav).map_err(|e| format!("read_wav_16k_mono: {e}"))?;
     if back.len() != pcm.len() {
-        return Err(format!("WAV round trip changed length {} -> {}", pcm.len(), back.len()));
+        return Err(format!(
+            "WAV round trip changed length {} -> {}",
+            pcm.len(),
+            back.len()
+        ));
     }
-    let worst = pcm.iter().zip(&back).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+    let worst = pcm
+        .iter()
+        .zip(&back)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0f32, f32::max);
     if worst > 1.0 / 16_000.0 {
-        return Err(format!("WAV round trip error {worst} exceeds one 16-bit step"));
+        return Err(format!(
+            "WAV round trip error {worst} exceeds one 16-bit step"
+        ));
     }
     let mono = read_wav_mono_f32(&wav).map_err(|e| format!("read_wav_mono_f32: {e}"))?;
     if mono.sample_rate != 16_000 || mono.samples.len() != pcm.len() {
@@ -62,37 +74,60 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     }
 
     // 3. Resampler: 16 kHz -> 48 kHz keeps the duration and the level.
-    let mut up = StreamResampler::new(16_000, 48_000).map_err(|e| format!("StreamResampler: {e}"))?;
+    let mut up =
+        StreamResampler::new(16_000, 48_000).map_err(|e| format!("StreamResampler: {e}"))?;
     let tone = sine(440.0, 16_000, 2.0, 0.5);
-    let up_samples = up.process_offline(&tone).map_err(|e| format!("process_offline: {e}"))?;
+    let up_samples = up
+        .process_offline(&tone)
+        .map_err(|e| format!("process_offline: {e}"))?;
     let want = tone.len() * 3;
     if up_samples.len().abs_diff(want) > want / 50 {
-        return Err(format!("resampled {} samples, expected about {want}", up_samples.len()));
+        return Err(format!(
+            "resampled {} samples, expected about {want}",
+            up_samples.len()
+        ));
     }
     let mid = &up_samples[up_samples.len() / 4..up_samples.len() * 3 / 4];
     near("resampled rms dB", rms_db(mid), rms_db(&tone), 0.5)?;
 
     // 4. FFmpeg: render real tones, run the dialogue chain, measure.
     let ffmpeg = super::ffmpeg::ffmpeg_handle()?;
-    let tools = AudioTools { ffmpeg: &ffmpeg, timeout: Duration::from_secs(60), cancel: rightkit_ffmpeg::CancellationToken::new() };
+    let tools = AudioTools {
+        ffmpeg: &ffmpeg,
+        timeout: Duration::from_secs(60),
+        cancel: rightkit_ffmpeg::CancellationToken::new(),
+    };
     let low = dir.join("tone50.wav");
     let high = dir.join("tone2000.wav");
     super::ffmpeg::render_sine(&ffmpeg, &low, 50, 2)?;
     super::ffmpeg::render_sine(&ffmpeg, &high, 2000, 2)?;
     let chain = DialogueChain {
-        high_pass: Some(HighPass { hz: 500.0, poles: 2 }),
+        high_pass: Some(HighPass {
+            hz: 500.0,
+            poles: 2,
+        }),
         denoise: Denoise::None,
         expander: None,
         compressor: None,
         deesser: None,
-        limiter: Limiter { ceiling_db: -1.5, attack_ms: 5.0, release_ms: 50.0 },
+        limiter: Limiter {
+            ceiling_db: -1.5,
+            attack_ms: 5.0,
+            release_ms: 50.0,
+        },
     };
     let low_out = dir.join("tone50.out.wav");
     let high_out = dir.join("tone2000.out.wav");
-    tools.apply_chain(&low, &low_out, &chain).map_err(|e| format!("apply_chain 50 Hz: {e}"))?;
-    tools.apply_chain(&high, &high_out, &chain).map_err(|e| format!("apply_chain 2 kHz: {e}"))?;
+    tools
+        .apply_chain(&low, &low_out, &chain)
+        .map_err(|e| format!("apply_chain 50 Hz: {e}"))?;
+    tools
+        .apply_chain(&high, &high_out, &chain)
+        .map_err(|e| format!("apply_chain 2 kHz: {e}"))?;
     let rms = |p: &std::path::Path| -> Result<f64, String> {
-        let s = tools.decode_mono_f32(p, 48_000, Some((500, 1000)), None).map_err(|e| format!("decode {}: {e}", p.display()))?;
+        let s = tools
+            .decode_mono_f32(p, 48_000, Some((500, 1000)), None)
+            .map_err(|e| format!("decode {}: {e}", p.display()))?;
         if s.is_empty() {
             return Err(format!("{} decoded to nothing", p.display()));
         }
@@ -101,25 +136,40 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     let low_drop = rms(&low)? - rms(&low_out)?;
     let high_drop = (rms(&high)? - rms(&high_out)?).abs();
     if low_drop < 20.0 {
-        return Err(format!("a 500 Hz high-pass cut a 50 Hz tone by only {low_drop:.1} dB"));
+        return Err(format!(
+            "a 500 Hz high-pass cut a 50 Hz tone by only {low_drop:.1} dB"
+        ));
     }
     if high_drop > 1.5 {
-        return Err(format!("a 500 Hz high-pass changed a 2 kHz tone by {high_drop:.1} dB"));
+        return Err(format!(
+            "a 500 Hz high-pass changed a 2 kHz tone by {high_drop:.1} dB"
+        ));
     }
-    let lm = tools.measure_loudness(&high_out).map_err(|e| format!("measure_loudness: {e}"))?;
-    let lufs = lm.integrated_lufs.ok_or("ebur128 gave no integrated loudness")?;
+    let lm = tools
+        .measure_loudness(&high_out)
+        .map_err(|e| format!("measure_loudness: {e}"))?;
+    let lufs = lm
+        .integrated_lufs
+        .ok_or("ebur128 gave no integrated loudness")?;
     let tp = lm.true_peak_dbtp.ok_or("ebur128 gave no true peak")?;
     if !(-40.0..=0.0).contains(&lufs) || tp > 0.0 {
-        return Err(format!("loudness {lufs} LUFS / true peak {tp} dBTP is not plausible"));
+        return Err(format!(
+            "loudness {lufs} LUFS / true peak {tp} dBTP is not plausible"
+        ));
     }
-    let st = tools.astats(&high_out, None, None).map_err(|e| format!("astats: {e}"))?;
+    let st = tools
+        .astats(&high_out, None, None)
+        .map_err(|e| format!("astats: {e}"))?;
     if !st.rms_db.is_finite() || st.peak_db > 0.0 {
         return Err(format!("astats rms {} peak {}", st.rms_db, st.peak_db));
     }
     // An invalid chain is rejected before FFmpeg runs.
     let mut bad = chain.clone();
     bad.limiter.ceiling_db = 3.0;
-    if tools.apply_chain(&high, &dir.join("never.wav"), &bad).is_ok() {
+    if tools
+        .apply_chain(&high, &dir.join("never.wav"), &bad)
+        .is_ok()
+    {
         return Err("apply_chain accepted a limiter ceiling above 0 dBFS".into());
     }
 

@@ -17,7 +17,8 @@ use rightkit_llm::credentials::StaticCredentials;
 use rightkit_llm::failover::{FailoverChain, FailoverPolicy, Route};
 use rightkit_llm::openai::OpenAiCompatProvider;
 use rightkit_llm::{
-    AddressPolicy, ChatRequest, Client, ClientConfig, LlmError, Message, Provider, RetryPolicy, StreamEvent, ToolSpec,
+    AddressPolicy, ChatRequest, Client, ClientConfig, LlmError, Message, Provider, RetryPolicy,
+    StreamEvent, ToolSpec,
 };
 use serde_json::{json, Value};
 
@@ -31,7 +32,10 @@ struct Seen {
 
 impl Seen {
     fn header(&self, name: &str) -> Option<&str> {
-        self.headers.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+        self.headers
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
     }
     fn json(&self) -> Value {
         serde_json::from_slice(&self.body).unwrap_or(Value::Null)
@@ -45,10 +49,18 @@ struct Reply {
 }
 
 fn json_reply(status: u16, v: Value) -> Reply {
-    Reply { status, content_type: "application/json", body: v.to_string() }
+    Reply {
+        status,
+        content_type: "application/json",
+        body: v.to_string(),
+    }
 }
 fn sse_reply(frames: &[&str]) -> Reply {
-    Reply { status: 200, content_type: "text/event-stream", body: frames.concat() }
+    Reply {
+        status: 200,
+        content_type: "text/event-stream",
+        body: frames.concat(),
+    }
 }
 
 struct Server {
@@ -62,7 +74,10 @@ struct Server {
 impl Server {
     fn start(handler: impl Fn(&Seen, usize) -> Reply + Send + 'static) -> Result<Server, String> {
         let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("bind: {e}"))?;
-        let addr = listener.local_addr().map_err(|e| e.to_string())?.to_string();
+        let addr = listener
+            .local_addr()
+            .map_err(|e| e.to_string())?
+            .to_string();
         let seen = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
         let (s2, st2) = (seen.clone(), stop.clone());
@@ -73,7 +88,9 @@ impl Server {
                 }
                 let Ok(mut c) = conn else { continue };
                 let _ = c.set_read_timeout(Some(Duration::from_secs(5)));
-                let Some(req) = read_request(&mut c) else { continue };
+                let Some(req) = read_request(&mut c) else {
+                    continue;
+                };
                 let n = {
                     let mut g = s2.lock().unwrap();
                     g.push(req.clone());
@@ -90,7 +107,13 @@ impl Server {
                 let _ = c.write_all(r.body.as_bytes());
             }
         });
-        Ok(Server { base: format!("http://{addr}"), addr, seen, stop, thread: Some(thread) })
+        Ok(Server {
+            base: format!("http://{addr}"),
+            addr,
+            seen,
+            stop,
+            thread: Some(thread),
+        })
     }
     fn requests(&self) -> Vec<Seen> {
         self.seen.lock().unwrap().clone()
@@ -125,9 +148,16 @@ fn read_request(c: &mut TcpStream) -> Option<Seen> {
     let mut first = lines.next()?.split(' ');
     let (method, path) = (first.next()?.to_string(), first.next()?.to_string());
     let headers: Vec<(String, String)> = lines
-        .filter_map(|l| l.split_once(':').map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string())))
+        .filter_map(|l| {
+            l.split_once(':')
+                .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
+        })
         .collect();
-    let want: usize = headers.iter().find(|(k, _)| k == "content-length").and_then(|(_, v)| v.parse().ok()).unwrap_or(0);
+    let want: usize = headers
+        .iter()
+        .find(|(k, _)| k == "content-length")
+        .and_then(|(_, v)| v.parse().ok())
+        .unwrap_or(0);
     let mut body = buf[head_end + 4..].to_vec();
     while body.len() < want {
         let n = c.read(&mut b).ok()?;
@@ -136,7 +166,12 @@ fn read_request(c: &mut TcpStream) -> Option<Seen> {
         }
         body.extend_from_slice(&b[..n]);
     }
-    Some(Seen { method, path, headers, body })
+    Some(Seen {
+        method,
+        path,
+        headers,
+        body,
+    })
 }
 
 fn client() -> Client {
@@ -163,21 +198,45 @@ pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
     let provider = AnthropicProvider::new(&server.base, client(), creds("anthropic"));
     let mut req = ChatRequest::simple("claude-test", "You are concise", "Find Rust");
     req.max_tokens = 77;
-    req.tools.push(ToolSpec { name: "lookup".into(), description: "Find item".into(), input_schema: json!({"type": "object"}), strict: false });
-    let answer = provider.complete(&req).map_err(|e| format!("anthropic complete: {e:?}"))?;
-    if answer.text() != "Looking." || answer.tool_input("lookup").map(|v| v["q"].clone()) != Some(json!("rust")) {
-        return Err(format!("anthropic reply parsed wrong: text {:?}", answer.text()));
+    req.tools.push(ToolSpec {
+        name: "lookup".into(),
+        description: "Find item".into(),
+        input_schema: json!({"type": "object"}),
+        strict: false,
+    });
+    let answer = provider
+        .complete(&req)
+        .map_err(|e| format!("anthropic complete: {e:?}"))?;
+    if answer.text() != "Looking."
+        || answer.tool_input("lookup").map(|v| v["q"].clone()) != Some(json!("rust"))
+    {
+        return Err(format!(
+            "anthropic reply parsed wrong: text {:?}",
+            answer.text()
+        ));
     }
     if answer.usage.input_tokens != 10 || answer.usage.output_tokens != 4 {
         return Err("anthropic usage not parsed".into());
     }
     let seen = server.requests();
     let r = seen.first().ok_or("anthropic server saw no request")?;
-    if r.method != "POST" || r.path != "/v1/messages" || r.header("x-api-key") != Some("e2e-secret") || r.header("anthropic-version") != Some("2023-06-01") {
-        return Err(format!("anthropic request line/headers wrong: {} {} {:?}", r.method, r.path, r.headers));
+    if r.method != "POST"
+        || r.path != "/v1/messages"
+        || r.header("x-api-key") != Some("e2e-secret")
+        || r.header("anthropic-version") != Some("2023-06-01")
+    {
+        return Err(format!(
+            "anthropic request line/headers wrong: {} {} {:?}",
+            r.method, r.path, r.headers
+        ));
     }
     let b = r.json();
-    if b["model"] != "claude-test" || b["max_tokens"] != 77 || b["system"] != "You are concise" || b["tools"][0]["input_schema"]["type"] != "object" || b["messages"][0]["role"] != "user" {
+    if b["model"] != "claude-test"
+        || b["max_tokens"] != 77
+        || b["system"] != "You are concise"
+        || b["tools"][0]["input_schema"]["type"] != "object"
+        || b["messages"][0]["role"] != "user"
+    {
         return Err(format!("anthropic body wrong: {b}"));
     }
     drop(server);
@@ -194,15 +253,21 @@ pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
     let provider = AnthropicProvider::new(&server.base, client(), creds("anthropic"));
     let mut deltas = Vec::new();
     let answer = provider
-        .stream(&ChatRequest::new("claude", vec![Message::user("go")]), &mut |e| {
-            if let StreamEvent::Text(t) = e {
-                deltas.push(t);
-            }
-            ControlFlow::Continue(())
-        })
+        .stream(
+            &ChatRequest::new("claude", vec![Message::user("go")]),
+            &mut |e| {
+                if let StreamEvent::Text(t) = e {
+                    deltas.push(t);
+                }
+                ControlFlow::Continue(())
+            },
+        )
         .map_err(|e| format!("anthropic stream: {e:?}"))?;
     if answer.text() != "Hi there" || deltas.last().map(String::as_str) != Some(" there") {
-        return Err(format!("anthropic stream assembled {:?} from deltas {deltas:?}", answer.text()));
+        return Err(format!(
+            "anthropic stream assembled {:?} from deltas {deltas:?}",
+            answer.text()
+        ));
     }
     if server.requests()[0].json()["stream"] != true {
         return Err("a streaming call did not ask for stream:true".into());
@@ -218,47 +283,110 @@ pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
         )
     })?;
     let provider = OpenAiCompatProvider::new("openai", &server.base, client(), creds("openai"));
-    let answer = provider.complete(&ChatRequest::simple("gpt-test", "system", "2+2?")).map_err(|e| format!("openai complete: {e:?}"))?;
+    let answer = provider
+        .complete(&ChatRequest::simple("gpt-test", "system", "2+2?"))
+        .map_err(|e| format!("openai complete: {e:?}"))?;
     if answer.text() != "four" {
         return Err(format!("openai reply text {:?}", answer.text()));
     }
     let seen = server.requests();
     let r = &seen[0];
-    if !r.path.ends_with("/chat/completions") || r.header("authorization") != Some("Bearer e2e-secret") {
+    if !r.path.ends_with("/chat/completions")
+        || r.header("authorization") != Some("Bearer e2e-secret")
+    {
         return Err(format!("openai request wrong: {} {:?}", r.path, r.headers));
     }
     let b = r.json();
-    if b["model"] != "gpt-test" || b["messages"][0] != json!({"role": "system", "content": "system"}) || b["messages"][1] != json!({"role": "user", "content": "2+2?"}) {
+    if b["model"] != "gpt-test"
+        || b["messages"][0] != json!({"role": "system", "content": "system"})
+        || b["messages"][1] != json!({"role": "user", "content": "2+2?"})
+    {
         return Err(format!("openai body wrong: {b}"));
     }
     drop(server);
 
     // ---- failover: a 503 route is skipped for a healthy one; a 401 is surfaced, never failed over ----------------------------
-    let bad = Server::start(|_, _| Reply { status: 503, content_type: "text/plain", body: "busy".into() })?;
-    let good = Server::start(|_, _| {
-        json_reply(200, json!({"id": "ok", "model": "gpt", "choices": [{"message": {"role": "assistant", "content": "yes"}, "finish_reason": "stop"}], "usage": {}}))
+    let bad = Server::start(|_, _| Reply {
+        status: 503,
+        content_type: "text/plain",
+        body: "busy".into(),
     })?;
-    let first = Arc::new(OpenAiCompatProvider::new("one", &bad.base, client(), creds("one")));
-    let second = Arc::new(OpenAiCompatProvider::new("two", &good.base, client(), creds("two")));
+    let good = Server::start(|_, _| {
+        json_reply(
+            200,
+            json!({"id": "ok", "model": "gpt", "choices": [{"message": {"role": "assistant", "content": "yes"}, "finish_reason": "stop"}], "usage": {}}),
+        )
+    })?;
+    let first = Arc::new(OpenAiCompatProvider::new(
+        "one",
+        &bad.base,
+        client(),
+        creds("one"),
+    ));
+    let second = Arc::new(OpenAiCompatProvider::new(
+        "two",
+        &good.base,
+        client(),
+        creds("two"),
+    ));
     let chain = FailoverChain::new(
-        vec![Route::new("one", first, "gpt"), Route::new("two", second, "gpt")],
-        FailoverPolicy { breaker_threshold: 10, ..FailoverPolicy::default() },
+        vec![
+            Route::new("one", first, "gpt"),
+            Route::new("two", second, "gpt"),
+        ],
+        FailoverPolicy {
+            breaker_threshold: 10,
+            ..FailoverPolicy::default()
+        },
     );
-    let text = chain.complete(&ChatRequest::new("ignored", vec![Message::user("x")])).map_err(|e| format!("failover chain: {e:?}"))?.text().to_string();
+    let text = chain
+        .complete(&ChatRequest::new("ignored", vec![Message::user("x")]))
+        .map_err(|e| format!("failover chain: {e:?}"))?
+        .text()
+        .to_string();
     if text != "yes" || bad.requests().len() != 1 || good.requests().len() != 1 {
-        return Err(format!("failover did not go 503 -> healthy: text {text:?}, bad {} good {}", bad.requests().len(), good.requests().len()));
+        return Err(format!(
+            "failover did not go 503 -> healthy: text {text:?}, bad {} good {}",
+            bad.requests().len(),
+            good.requests().len()
+        ));
     }
-    let auth = Server::start(|_, _| Reply { status: 401, content_type: "text/plain", body: "bad key".into() })?;
+    let auth = Server::start(|_, _| Reply {
+        status: 401,
+        content_type: "text/plain",
+        body: "bad key".into(),
+    })?;
     let ap = OpenAiCompatProvider::new("auth", &auth.base, client(), creds("auth"));
-    if !matches!(ap.complete(&ChatRequest::new("g", vec![Message::user("x")])), Err(LlmError::Status { status: 401, .. })) {
+    if !matches!(
+        ap.complete(&ChatRequest::new("g", vec![Message::user("x")])),
+        Err(LlmError::Status { status: 401, .. })
+    ) {
         return Err("a 401 was not surfaced as LlmError::Status 401".into());
     }
     // A missing credential is refused before the network is touched.
-    let nocred = Server::start(|_, _| Reply { status: 200, content_type: "text/plain", body: String::new() })?;
-    let np = OpenAiCompatProvider::new("nokey", &nocred.base, client(), Arc::new(StaticCredentials::default()));
-    if !matches!(np.complete(&ChatRequest::new("g", vec![Message::user("x")])), Err(LlmError::MissingCredential(_))) || !nocred.requests().is_empty() {
-        return Err("a request without a credential reached the network or was not MissingCredential".into());
+    let nocred = Server::start(|_, _| Reply {
+        status: 200,
+        content_type: "text/plain",
+        body: String::new(),
+    })?;
+    let np = OpenAiCompatProvider::new(
+        "nokey",
+        &nocred.base,
+        client(),
+        Arc::new(StaticCredentials::default()),
+    );
+    if !matches!(
+        np.complete(&ChatRequest::new("g", vec![Message::user("x")])),
+        Err(LlmError::MissingCredential(_))
+    ) || !nocred.requests().is_empty()
+    {
+        return Err(
+            "a request without a credential reached the network or was not MissingCredential"
+                .into(),
+        );
     }
 
-    Ok(json!({"anthropic": "complete+tool+stream", "openai": "complete", "failover": "503 -> healthy", "auth": 401, "no_credential": "refused offline"}))
+    Ok(
+        json!({"anthropic": "complete+tool+stream", "openai": "complete", "failover": "503 -> healthy", "auth": 401, "no_credential": "refused offline"}),
+    )
 }

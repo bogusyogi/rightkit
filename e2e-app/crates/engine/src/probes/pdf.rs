@@ -18,17 +18,28 @@ pub(super) fn sample_pdf(pages: &[&str]) -> Result<Vec<u8>, String> {
         .resolve("source-serif-4")
         .map_err(|e| format!("needs the bundled Source Serif 4 (rightkit-pdf assets/SourceSerif4-Variable.woff2, resolved by FontCatalog as `source-serif-4`): {e:?}"))?;
     let mut doc = Document::new("1.7").map_err(|e| format!("new document: {e}"))?;
-    let font_id = doc.add_font(font.bytes, font.face_index).map_err(|e| format!("add font: {e}"))?;
+    let font_id = doc
+        .add_font(font.bytes, font.face_index)
+        .map_err(|e| format!("add font: {e}"))?;
     for text in pages {
-        let page = doc.add_page(612.0, 792.0).map_err(|e| format!("add page: {e}"))?;
-        doc.draw_text(page, font_id, 18.0, 72.0, 700.0, None, text).map_err(|e| format!("draw {text:?}: {e}"))?;
+        let page = doc
+            .add_page(612.0, 792.0)
+            .map_err(|e| format!("add page: {e}"))?;
+        doc.draw_text(page, font_id, 18.0, 72.0, 700.0, None, text)
+            .map_err(|e| format!("draw {text:?}: {e}"))?;
     }
     doc.try_finish().map_err(|e| format!("finish: {e}"))
 }
 
 fn page_text(bytes: &[u8], page: u32) -> Result<String, String> {
-    let graph = page_graph_from_bytes(bytes, page).map_err(|e| format!("inspect page {page}: {e:?}"))?;
-    Ok(graph.islands.iter().map(|i| i.text.as_str()).collect::<Vec<_>>().join(" "))
+    let graph =
+        page_graph_from_bytes(bytes, page).map_err(|e| format!("inspect page {page}: {e:?}"))?;
+    Ok(graph
+        .islands
+        .iter()
+        .map(|i| i.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" "))
 }
 
 fn squash(text: &str) -> String {
@@ -40,7 +51,9 @@ fn expect_text(bytes: &[u8], page: u32, want: &str) -> Result<(), String> {
     if squash(&got).contains(&squash(want)) {
         Ok(())
     } else {
-        Err(format!("page {page} text {got:?} does not contain {want:?}"))
+        Err(format!(
+            "page {page} text {got:?} does not contain {want:?}"
+        ))
     }
 }
 
@@ -68,7 +81,10 @@ pub fn probe(ctx: &Ctx) -> Result<Value, String> {
     }
     let graph = page_graph_from_bytes(&pdf, 1).map_err(|e| format!("inspect: {e:?}"))?;
     if graph.media_box != [0.0, 0.0, 612.0, 792.0] || graph.rotation != 0 {
-        return Err(format!("unexpected page geometry {:?} rotation {}", graph.media_box, graph.rotation));
+        return Err(format!(
+            "unexpected page geometry {:?} rotation {}",
+            graph.media_box, graph.rotation
+        ));
     }
 
     // Structural operations, each read back.
@@ -79,35 +95,57 @@ pub fn probe(ctx: &Ctx) -> Result<Value, String> {
     verify_structure(&without_first, 1).map_err(|e| format!("delete structure: {e:?}"))?;
     expect_text(&without_first, 1, second)?;
     let turned = rotate_pages(&pdf, &[1], 90).map_err(|e| format!("rotate: {e:?}"))?;
-    let turned_graph = page_graph_from_bytes(&turned, 1).map_err(|e| format!("inspect rotated: {e:?}"))?;
+    let turned_graph =
+        page_graph_from_bytes(&turned, 1).map_err(|e| format!("inspect rotated: {e:?}"))?;
     if turned_graph.rotation != 90 {
-        return Err(format!("rotation is {} after a 90 degree turn", turned_graph.rotation));
+        return Err(format!(
+            "rotation is {} after a 90 degree turn",
+            turned_graph.rotation
+        ));
     }
     let merged = merge_pdfs(&[&pdf, &only_second]).map_err(|e| format!("merge: {e:?}"))?;
     verify_structure(&merged, 3).map_err(|e| format!("merge structure: {e:?}"))?;
     expect_text(&merged, 3, second)?;
 
     // Refusals: a glyph the font lacks is never substituted; garbage is not a PDF.
-    let font = FontCatalog::shared().resolve("source-serif-4").map_err(|e| format!("{e:?}"))?;
+    let font = FontCatalog::shared()
+        .resolve("source-serif-4")
+        .map_err(|e| format!("{e:?}"))?;
     let mut doc = Document::new("1.7").map_err(|e| e.to_string())?;
-    let font_id = doc.add_font(font.bytes, font.face_index).map_err(|e| e.to_string())?;
+    let font_id = doc
+        .add_font(font.bytes, font.face_index)
+        .map_err(|e| e.to_string())?;
     let page = doc.add_page(612.0, 792.0).map_err(|e| e.to_string())?;
     match doc.draw_text(page, font_id, 18.0, 72.0, 700.0, None, "\u{6f22}") {
         Err(WriteError::MissingGlyph('\u{6f22}')) => {}
-        other => return Err(format!("a CJK glyph the font lacks: expected MissingGlyph, got {other:?}")),
+        other => {
+            return Err(format!(
+                "a CJK glyph the font lacks: expected MissingGlyph, got {other:?}"
+            ))
+        }
     }
-    if verify_structure(b"this is not a pdf", 1).is_ok() || page_graph_from_bytes(b"this is not a pdf", 1).is_ok() {
+    if verify_structure(b"this is not a pdf", 1).is_ok()
+        || page_graph_from_bytes(b"this is not a pdf", 1).is_ok()
+    {
         return Err("garbage bytes were accepted as a PDF".into());
     }
 
     // Commit to disk through the crate's atomic writer and read the file back.
     let path = dir.join("composed.pdf");
     let mut on_disk = Document::new("1.7").map_err(|e| e.to_string())?;
-    let font = FontCatalog::shared().resolve("source-serif-4").map_err(|e| format!("{e:?}"))?;
-    let fid = on_disk.add_font(font.bytes, font.face_index).map_err(|e| e.to_string())?;
+    let font = FontCatalog::shared()
+        .resolve("source-serif-4")
+        .map_err(|e| format!("{e:?}"))?;
+    let fid = on_disk
+        .add_font(font.bytes, font.face_index)
+        .map_err(|e| e.to_string())?;
     let pid = on_disk.add_page(612.0, 792.0).map_err(|e| e.to_string())?;
-    on_disk.draw_text(pid, fid, 18.0, 72.0, 700.0, None, first).map_err(|e| e.to_string())?;
-    on_disk.write_to(&path).map_err(|e| format!("write_to {}: {e}", path.display()))?;
+    on_disk
+        .draw_text(pid, fid, 18.0, 72.0, 700.0, None, first)
+        .map_err(|e| e.to_string())?;
+    on_disk
+        .write_to(&path)
+        .map_err(|e| format!("write_to {}: {e}", path.display()))?;
     let read_back = std::fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     if read_back != on_disk.try_finish().map_err(|e| e.to_string())? {
         return Err("the file on disk differs from the composed bytes".into());

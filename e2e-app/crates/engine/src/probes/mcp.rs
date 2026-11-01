@@ -36,5 +36,7 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     if !approved || !changed || leaks || !damaged_refused {
         return Err(format!("approved after reload {approved}, env change invalidates {changed}, secret leaked {leaks}, damaged file refused {damaged_refused}"));
     }
-    Ok(json!({ "approved_after_reload": approved, "env_change_invalidates": changed, "fingerprint": fp }))
+    Ok(
+        json!({ "approved_after_reload": approved, "env_change_invalidates": changed, "fingerprint": fp }),
+    )
 }

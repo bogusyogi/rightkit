@@ -27,3 +27,8 @@ codegen-units = 16
 
 [profile.release]
 panic = "unwind"
+
+# rightkit-typeset needs citationberg on quick-xml 0.42 (RUSTSEC-2026-0194, RUSTSEC-2026-0195). A [patch] applies only in the
+# workspace that declares it, so every app linking rightkit-typeset carries this one (RightKit vendor/citationberg/VENDORED.md).
+[patch.crates-io]
+citationberg = { path = "../vendor/citationberg" }

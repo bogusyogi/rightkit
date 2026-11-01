@@ -7,8 +7,8 @@
 //!   * the Silero model `silero_vad_16k_op15.onnx` (MIT, about 2 MB) at `<resources>/models/vad/silero_vad_16k_op15.onnx`
 //!     (`<resources>` = `Contents/Resources` beside a macOS `Contents/MacOS` executable, the executable's directory on Windows).
 use rightkit_vad::{
-    chunk_spans, detect, scores_to_spans, ChunkConfig, FrameScorer, FrameStream, Silero, SileroOptions, Span, SpeechScorer, VadConfig,
-    FRAME_MS, FRAME_SAMPLES,
+    chunk_spans, detect, scores_to_spans, ChunkConfig, FrameScorer, FrameStream, Silero,
+    SileroOptions, Span, SpeechScorer, VadConfig, FRAME_MS, FRAME_SAMPLES,
 };
 use serde_json::{json, Value};
 
@@ -27,7 +27,9 @@ fn policy_checks() -> Result<(), String> {
     let cfg = VadConfig::default();
     let spans = scores_to_spans(&scores, &cfg, 100 * FRAME_MS);
     if spans.len() != 2 {
-        return Err(format!("expected 2 spans from the scripted scores, got {spans:?}"));
+        return Err(format!(
+            "expected 2 spans from the scripted scores, got {spans:?}"
+        ));
     }
     let (a, b) = (spans[0], spans[1]);
     if a.start_ms != 10 * FRAME_MS - cfg.pad_ms || a.end_ms != 40 * FRAME_MS + cfg.pad_ms {
@@ -44,19 +46,53 @@ fn policy_checks() -> Result<(), String> {
     }
     // Chunking: near spans merge, an over-long span splits at the quietest frame, short chunks drop.
     let chunks = chunk_spans(
-        &[Span { start_ms: 0, end_ms: 1_000 }, Span { start_ms: 1_100, end_ms: 2_000 }, Span { start_ms: 10_000, end_ms: 10_050 }],
+        &[
+            Span {
+                start_ms: 0,
+                end_ms: 1_000,
+            },
+            Span {
+                start_ms: 1_100,
+                end_ms: 2_000,
+            },
+            Span {
+                start_ms: 10_000,
+                end_ms: 10_050,
+            },
+        ],
         &ChunkConfig::default(),
         None,
     );
-    if chunks != [Span { start_ms: 0, end_ms: 2_000 }] {
+    if chunks
+        != [Span {
+            start_ms: 0,
+            end_ms: 2_000,
+        }]
+    {
         return Err(format!("chunk_spans gave {chunks:?}"));
     }
-    let long = chunk_spans(&[Span { start_ms: 0, end_ms: 70_000 }], &ChunkConfig { max_chunk_ms: 30_000, ..ChunkConfig::default() }, None);
+    let long = chunk_spans(
+        &[Span {
+            start_ms: 0,
+            end_ms: 70_000,
+        }],
+        &ChunkConfig {
+            max_chunk_ms: 30_000,
+            ..ChunkConfig::default()
+        },
+        None,
+    );
     if long.len() != 3 || long.iter().any(|c| c.len_ms() > 30_000) {
-        return Err(format!("a 70 s span did not split into three chunks of at most 30 s: {long:?}"));
+        return Err(format!(
+            "a 70 s span did not split into three chunks of at most 30 s: {long:?}"
+        ));
     }
     // Bad thresholds are refused.
-    let bad = VadConfig { threshold: 0.3, neg_threshold: 0.6, ..VadConfig::default() };
+    let bad = VadConfig {
+        threshold: 0.3,
+        neg_threshold: 0.6,
+        ..VadConfig::default()
+    };
     if SpeechScorer::Energy.detect(&[0.0; 1024], &bad).is_ok() {
         return Err("neg_threshold above threshold was accepted".into());
     }
@@ -75,19 +111,27 @@ pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
     }
     super::onnx::ensure_runtime()?;
 
-    let (speech, tts) = super::tts::speech_16k("The quick brown fox jumps over the lazy dog. Then it rests by the river.")?;
+    let (speech, tts) = super::tts::speech_16k(
+        "The quick brown fox jumps over the lazy dog. Then it rests by the river.",
+    )?;
     let (lead_ms, tail_ms) = (2_000usize, 2_000usize);
     let speech_ms = speech.len() as u64 / 16;
     let mut audio = vec![0.0f32; lead_ms * 16];
     audio.extend_from_slice(&speech);
     audio.extend(vec![0.0f32; tail_ms * 16]);
 
-    let (mut scorer, report) = SpeechScorer::from_path(&model, SileroOptions::default()).map_err(|e| format!("load Silero: {e}"))?;
+    let (mut scorer, report) = SpeechScorer::from_path(&model, SileroOptions::default())
+        .map_err(|e| format!("load Silero: {e}"))?;
     if report.fallback_reason.is_some() {
         return Err(format!("Silero fell back: {:?}", report.fallback_reason));
     }
-    let spans = scorer.detect(&audio, &VadConfig::default()).map_err(|e| format!("detect: {e}"))?;
-    let (first, last) = (spans.first().ok_or("no speech span found in speech")?, spans.last().ok_or("no spans")?);
+    let spans = scorer
+        .detect(&audio, &VadConfig::default())
+        .map_err(|e| format!("detect: {e}"))?;
+    let (first, last) = (
+        spans.first().ok_or("no speech span found in speech")?,
+        spans.last().ok_or("no spans")?,
+    );
     if first.start_ms + 200 < lead_ms as u64 {
         return Err(format!("leading silence marked as speech: {first:?}"));
     }
@@ -96,10 +140,14 @@ pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
     }
     let covered: u64 = spans.iter().map(Span::len_ms).sum();
     if covered * 100 < speech_ms * 50 {
-        return Err(format!("speech under-covered: {covered} ms of {speech_ms} ms"));
+        return Err(format!(
+            "speech under-covered: {covered} ms of {speech_ms} ms"
+        ));
     }
     // Digital silence yields no speech.
-    let quiet = scorer.detect(&vec![0.0f32; 16_000 * 3], &VadConfig::default()).map_err(|e| format!("detect silence: {e}"))?;
+    let quiet = scorer
+        .detect(&vec![0.0f32; 16_000 * 3], &VadConfig::default())
+        .map_err(|e| format!("detect silence: {e}"))?;
     if !quiet.is_empty() {
         return Err(format!("silence produced spans {quiet:?}"));
     }
@@ -112,7 +160,10 @@ pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
 
     // Streaming through awkward callback sizes reproduces the batch scores.
     let batch = scorer.scores(&audio).map_err(|e| format!("scores: {e}"))?;
-    let mut stream = FrameStream::new(Silero::load(&model).map_err(|e| format!("load streaming Silero: {e}"))?, 0.5);
+    let mut stream = FrameStream::new(
+        Silero::load(&model).map_err(|e| format!("load streaming Silero: {e}"))?,
+        0.5,
+    );
     let mut streamed = Vec::new();
     let mut at = 0usize;
     for size in [777usize, 160, 1, 4096, 513].iter().cycle() {
@@ -120,20 +171,36 @@ pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
             break;
         }
         let end = (at + size).min(audio.len());
-        streamed.extend(stream.push(&audio[at..end]).ok_or("the stream failed")?.scores);
+        streamed.extend(
+            stream
+                .push(&audio[at..end])
+                .ok_or("the stream failed")?
+                .scores,
+        );
         at = end;
     }
     let whole_frames = audio.len() / FRAME_SAMPLES;
     if streamed.len() != whole_frames || batch.len() < whole_frames {
-        return Err(format!("streamed {} frames, expected {whole_frames} (batch {})", streamed.len(), batch.len()));
+        return Err(format!(
+            "streamed {} frames, expected {whole_frames} (batch {})",
+            streamed.len(),
+            batch.len()
+        ));
     }
-    let worst = streamed.iter().zip(&batch).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+    let worst = streamed
+        .iter()
+        .zip(&batch)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0f32, f32::max);
     if worst > 1e-3 {
         return Err(format!("streaming scores differ from batch by {worst}"));
     }
     let mut frame_scorer = Silero::load(&model).map_err(|e| format!("load: {e}"))?;
     frame_scorer.reset();
-    if detect(&mut frame_scorer, &audio, &VadConfig::default()).map_err(|e| format!("detect via FrameScorer: {e}"))?.is_empty() {
+    if detect(&mut frame_scorer, &audio, &VadConfig::default())
+        .map_err(|e| format!("detect via FrameScorer: {e}"))?
+        .is_empty()
+    {
         return Err("detect over a bare Silero found no speech".into());
     }
 

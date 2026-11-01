@@ -16,7 +16,10 @@ fn svg_size(svg: &str) -> Result<(f64, f64), String> {
     let start = svg.find("viewBox=\"").ok_or("the SVG has no viewBox")? + "viewBox=\"".len();
     let rest = &svg[start..];
     let end = rest.find('"').ok_or("unterminated viewBox")?;
-    let n: Vec<f64> = rest[..end].split_whitespace().filter_map(|t| t.parse().ok()).collect();
+    let n: Vec<f64> = rest[..end]
+        .split_whitespace()
+        .filter_map(|t| t.parse().ok())
+        .collect();
     if n.len() == 4 && n[0] == 0.0 && n[1] == 0.0 {
         Ok((n[2], n[3]))
     } else {
@@ -29,7 +32,10 @@ fn render(typesetter: &Typesetter, family: &str, title: &str) -> Result<(f64, f6
     request.font_size_pt = SIZE_PT;
     request.margin_pt = MARGIN_PT;
     request.font_family = Some(family.into());
-    match typesetter.render(&request).map_err(|e| format!("render {title:?}: {e}"))? {
+    match typesetter
+        .render(&request)
+        .map_err(|e| format!("render {title:?}: {e}"))?
+    {
         Rendered::Svg(svg) => {
             if !svg.contains("<svg") || !(svg.contains("<use") || svg.contains("<path")) {
                 return Err(format!("the SVG for {title:?} holds no glyph shapes"));
@@ -55,29 +61,44 @@ pub fn probe(_ctx: &Ctx) -> Result<Value, String> {
     let m_short = face.measure(short).map_err(|e| e.to_string())?;
     let m_long = face.measure(long).map_err(|e| e.to_string())?;
     if !m_short.missing.is_empty() || m_long.advance_units <= m_short.advance_units {
-        return Err(format!("font measurement is wrong: missing {:?}, {} vs {} units", m_short.missing, m_short.advance_units, m_long.advance_units));
+        return Err(format!(
+            "font measurement is wrong: missing {:?}, {} vs {} units",
+            m_short.missing, m_short.advance_units, m_long.advance_units
+        ));
     }
     if face.measure("\u{6f22}").map_err(|e| e.to_string())?.missing != vec!['\u{6f22}'] {
         return Err("a CJK character was not reported missing from Source Serif 4".into());
     }
-    let expected_short = m_short.advance_units as f64 * SIZE_PT / f64::from(m_short.units_per_em) + 2.0 * MARGIN_PT;
+    let expected_short =
+        m_short.advance_units as f64 * SIZE_PT / f64::from(m_short.units_per_em) + 2.0 * MARGIN_PT;
 
-    let typesetter = Typesetter::new(FontSource::Bytes(vec![font.bytes.clone()]), 144.0).map_err(|e| format!("typesetter: {e}"))?;
+    let typesetter = Typesetter::new(FontSource::Bytes(vec![font.bytes.clone()]), 144.0)
+        .map_err(|e| format!("typesetter: {e}"))?;
     let (w_short, h_short, bytes_short) = render(&typesetter, &family, short)?;
     let (w_long, h_long, bytes_long) = render(&typesetter, &family, long)?;
     if w_long <= w_short || bytes_long <= bytes_short {
-        return Err(format!("a longer title did not render wider: {w_short}pt -> {w_long}pt"));
+        return Err(format!(
+            "a longer title did not render wider: {w_short}pt -> {w_long}pt"
+        ));
     }
     if (h_long - h_short).abs() > 1.0 || h_short < SIZE_PT || h_short > SIZE_PT * 3.0 {
-        return Err(format!("one line of {SIZE_PT}pt text rendered {h_short}pt then {h_long}pt tall"));
+        return Err(format!(
+            "one line of {SIZE_PT}pt text rendered {h_short}pt then {h_long}pt tall"
+        ));
     }
     let drift = (w_short - expected_short).abs() / expected_short;
     if drift > 0.15 {
-        return Err(format!("rendered width {w_short}pt is {:.1}% off the font's measured {expected_short:.1}pt", drift * 100.0));
+        return Err(format!(
+            "rendered width {w_short}pt is {:.1}% off the font's measured {expected_short:.1}pt",
+            drift * 100.0
+        ));
     }
 
     // Refusals.
-    match Typesetter::new(FontSource::None, 144.0).map_err(|e| e.to_string())?.render(&Request::new(Source::Typst("x".into()))) {
+    match Typesetter::new(FontSource::None, 144.0)
+        .map_err(|e| e.to_string())?
+        .render(&Request::new(Source::Typst("x".into())))
+    {
         Err(TypesetError::NoFonts) => {}
         other => return Err(format!("no fonts: expected NoFonts, got {other:?}")),
     }
@@ -85,12 +106,20 @@ pub fn probe(_ctx: &Ctx) -> Result<Value, String> {
     file_access.font_family = Some(family.clone());
     match typesetter.render(&file_access) {
         Err(TypesetError::Compile(_)) => {}
-        other => return Err(format!("#image: expected a compile error (no file access), got {other:?}")),
+        other => {
+            return Err(format!(
+                "#image: expected a compile error (no file access), got {other:?}"
+            ))
+        }
     }
     match Typesetter::new(FontSource::Bytes(vec![vec![1, 2, 3]]), 144.0) {
         Err(TypesetError::UnreadableFonts) => {}
         Ok(_) => return Err("garbage font bytes were accepted".into()),
-        Err(e) => return Err(format!("garbage font bytes: expected UnreadableFonts, got {e}")),
+        Err(e) => {
+            return Err(format!(
+                "garbage font bytes: expected UnreadableFonts, got {e}"
+            ))
+        }
     }
 
     Ok(json!({

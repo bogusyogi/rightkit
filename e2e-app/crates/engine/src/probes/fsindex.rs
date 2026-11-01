@@ -26,7 +26,9 @@ fn write_bytes(path: &Path, len: usize) -> Result<(), String> {
 }
 
 fn hit_paths(hits: &[Hit]) -> Vec<String> {
-    hits.iter().map(|h| h.item.path.display().to_string()).collect()
+    hits.iter()
+        .map(|h| h.item.path.display().to_string())
+        .collect()
 }
 
 fn has_name(hits: &[Hit], name: &str) -> bool {
@@ -80,27 +82,62 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     }
 
     // Fuzzy name search, scoped to this tree.
-    let opts = SearchOptions { limit: 20, scope: Some(root.clone()) };
-    let hits = index.search_with("quarterly invoice", &opts).map_err(|e| format!("search: {e}"))?;
-    if hits.first().map(|h| h.item.name.to_string_lossy().into_owned()) != Some("quarterly_invoice_2024.txt".into()) {
-        return Err(format!("the best hit for 'quarterly invoice' was not quarterly_invoice_2024.txt: {:?}", hit_paths(&hits)));
+    let opts = SearchOptions {
+        limit: 20,
+        scope: Some(root.clone()),
+    };
+    let hits = index
+        .search_with("quarterly invoice", &opts)
+        .map_err(|e| format!("search: {e}"))?;
+    if hits
+        .first()
+        .map(|h| h.item.name.to_string_lossy().into_owned())
+        != Some("quarterly_invoice_2024.txt".into())
+    {
+        return Err(format!(
+            "the best hit for 'quarterly invoice' was not quarterly_invoice_2024.txt: {:?}",
+            hit_paths(&hits)
+        ));
     }
-    let loose = index.search_with("invoice", &opts).map_err(|e| format!("search: {e}"))?;
-    if !has_name(&loose, "quarterly_invoice_2024.txt") || !has_name(&loose, "invoice_draft.txt") || has_name(&loose, "holiday_beach.jpg") {
-        return Err(format!("'invoice' did not select exactly the invoice files: {:?}", hit_paths(&loose)));
+    let loose = index
+        .search_with("invoice", &opts)
+        .map_err(|e| format!("search: {e}"))?;
+    if !has_name(&loose, "quarterly_invoice_2024.txt")
+        || !has_name(&loose, "invoice_draft.txt")
+        || has_name(&loose, "holiday_beach.jpg")
+    {
+        return Err(format!(
+            "'invoice' did not select exactly the invoice files: {:?}",
+            hit_paths(&loose)
+        ));
     }
-    let miss = index.search_with("zzqqxxnothing", &opts).map_err(|e| format!("search: {e}"))?;
+    let miss = index
+        .search_with("zzqqxxnothing", &opts)
+        .map_err(|e| format!("search: {e}"))?;
     if !miss.is_empty() {
         return Err(format!("a nonsense query matched: {:?}", hit_paths(&miss)));
     }
-    let beach = index.search_with("beach", &opts).map_err(|e| format!("search: {e}"))?;
-    let beach_item = beach.iter().find(|h| h.item.name.to_string_lossy() == "holiday_beach.jpg").ok_or("holiday_beach.jpg not found")?;
+    let beach = index
+        .search_with("beach", &opts)
+        .map_err(|e| format!("search: {e}"))?;
+    let beach_item = beach
+        .iter()
+        .find(|h| h.item.name.to_string_lossy() == "holiday_beach.jpg")
+        .ok_or("holiday_beach.jpg not found")?;
     if beach_item.item.kind != EntryKind::File || beach_item.item.size.logical != 30_000 {
-        return Err(format!("holiday_beach.jpg indexed as {:?} with {} logical bytes, expected File/30000", beach_item.item.kind, beach_item.item.size.logical));
+        return Err(format!(
+            "holiday_beach.jpg indexed as {:?} with {} logical bytes, expected File/30000",
+            beach_item.item.kind, beach_item.item.size.logical
+        ));
     }
-    let docs = index.folder_size(root.join("docs")).ok_or("folder_size(docs) is None")?;
+    let docs = index
+        .folder_size(root.join("docs"))
+        .ok_or("folder_size(docs) is None")?;
     if docs.logical != 5_500 || docs.files != 3 {
-        return Err(format!("docs rollup is {}B in {} files, expected 5500B in 3", docs.logical, docs.files));
+        return Err(format!(
+            "docs rollup is {}B in {} files, expected 5500B in 3",
+            docs.logical, docs.files
+        ));
     }
 
     #[allow(unused_mut)]
@@ -114,7 +151,8 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     {
         // Hard links: two names for one inode count once.
         write_bytes(&root.join("links/orig.bin"), 200_000)?;
-        std::fs::hard_link(root.join("links/orig.bin"), root.join("links/second.bin")).map_err(|e| format!("hard_link: {e}"))?;
+        std::fs::hard_link(root.join("links/orig.bin"), root.join("links/second.bin"))
+            .map_err(|e| format!("hard_link: {e}"))?;
         // APFS clones: copy-on-write copies share one extent.
         let clone_dir = root.join("clones");
         write_bytes(&clone_dir.join("base.bin"), 4 << 20)?;
@@ -126,7 +164,10 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
                 .output()
                 .map_err(|e| format!("spawn cp -c: {e}"))?;
             if !out.status.success() {
-                return Err(format!("needs an APFS data root (cp -c failed: {})", String::from_utf8_lossy(&out.stderr).trim()));
+                return Err(format!(
+                    "needs an APFS data root (cp -c failed: {})",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
             }
         }
         // The index is live: everything created after open must appear through the change feed.
@@ -136,9 +177,20 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
         let mut seen = false;
         while start.elapsed() < Duration::from_secs(20) {
             index.flush();
-            let h = index.search_with("late_arrival", &opts).map_err(|e| e.to_string())?;
+            let h = index
+                .search_with("late_arrival", &opts)
+                .map_err(|e| e.to_string())?;
             let s = index.status();
-            if has_name(&h, "late_arrival_report.txt") && s.relists_pending == 0 && !s.rescan_pending && has_name(&index.search_with("c2.bin", &opts).map_err(|e| e.to_string())?, "c2.bin") {
+            if has_name(&h, "late_arrival_report.txt")
+                && s.relists_pending == 0
+                && !s.rescan_pending
+                && has_name(
+                    &index
+                        .search_with("c2.bin", &opts)
+                        .map_err(|e| e.to_string())?,
+                    "c2.bin",
+                )
+            {
                 seen = true;
                 break;
             }
@@ -152,10 +204,14 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
             batches += 1;
         }
         if batches == 0 {
-            return Err("subscribe() delivered no change batch although the index changed live".into());
+            return Err(
+                "subscribe() delivered no change batch although the index changed live".into(),
+            );
         }
 
-        let links = index.folder_size(root.join("links")).ok_or("folder_size(links) is None")?;
+        let links = index
+            .folder_size(root.join("links"))
+            .ok_or("folder_size(links) is None")?;
         if links.logical != 200_000 || links.files != 1 {
             return Err(format!("two hard links of one 200000B file rolled up to {}B in {} files, expected 200000B in 1", links.logical, links.files));
         }
@@ -164,12 +220,18 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
             .filter(|n| {
                 index
                     .search_with(n, &opts)
-                    .map(|h| h.iter().any(|x| x.item.name.to_string_lossy() == **n && x.item.is_secondary_link))
+                    .map(|h| {
+                        h.iter().any(|x| {
+                            x.item.name.to_string_lossy() == **n && x.item.is_secondary_link
+                        })
+                    })
                     .unwrap_or(false)
             })
             .count();
         if secondary != 1 {
-            return Err(format!("expected exactly one secondary hard link, found {secondary}"));
+            return Err(format!(
+                "expected exactly one secondary hard link, found {secondary}"
+            ));
         }
 
         let one = index
@@ -181,12 +243,20 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
             .item
             .size
             .allocated;
-        let clones = index.folder_size(&clone_dir).ok_or("folder_size(clones) is None")?;
+        let clones = index
+            .folder_size(&clone_dir)
+            .ok_or("folder_size(clones) is None")?;
         if clones.allocated != 3 * one {
-            return Err(format!("allocated must count every clone in full: {} != 3 * {one}", clones.allocated));
+            return Err(format!(
+                "allocated must count every clone in full: {} != 3 * {one}",
+                clones.allocated
+            ));
         }
         if clones.allocated_unique > one + one / 20 {
-            return Err(format!("three APFS clones are one extent but allocated_unique is {} vs one copy {one}", clones.allocated_unique));
+            return Err(format!(
+                "three APFS clones are one extent but allocated_unique is {} vs one copy {one}",
+                clones.allocated_unique
+            ));
         }
         detail["live_change_batches"] = json!(batches);
         detail["hard_link_logical"] = json!(links.logical);

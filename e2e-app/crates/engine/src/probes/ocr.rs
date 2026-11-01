@@ -5,7 +5,9 @@ use serde_json::{json, Value};
 
 pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
     let mut ocr = Ocr::new(OcrOptions::default());
-    let result = ocr.recognize_encoded(canary_png()).map_err(|e| format!("recognize the canary: {e}"))?;
+    let result = ocr
+        .recognize_encoded(canary_png())
+        .map_err(|e| format!("recognize the canary: {e}"))?;
     let text = result.text();
     if text.trim().is_empty() {
         return Err("the native backend returned no text for the canary image".into());

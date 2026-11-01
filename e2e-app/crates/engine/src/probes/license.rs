@@ -7,7 +7,9 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     let lock = dir.join("license.lock");
     let held = CrossProcessLock::acquire(&lock).map_err(|e| format!("acquire: {e}"))?;
     drop(held);
-    let free = CrossProcessLock::try_acquire(&lock).map_err(|e| format!("try_acquire after release: {e}"))?.is_some();
+    let free = CrossProcessLock::try_acquire(&lock)
+        .map_err(|e| format!("try_acquire after release: {e}"))?
+        .is_some();
     let store = FileClockStore::new(dir.join("clock.json"));
     if !free {
         return Err("the licence lock was not free after release".into());
