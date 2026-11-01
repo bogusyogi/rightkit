@@ -358,16 +358,16 @@
       ],
       "closure": {
         "install": {
-          "@rightkit/ci": "0.2.49",
-          "@rightkit/outdated": "0.2.0",
+          "@rightkit/ci": "0.3.2",
+          "@rightkit/outdated": "0.3.0",
           "smol-toml": "1.9.1"
         },
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/release/README.md": "e804e8d3e234141d2d6c55475fdd417022d09bd8e7d8b9f1426da046a271a014",
-        "ci/consumers/npm/release/consumer.mjs": "fa2bcce420cf677a8a7140d6dd78d5d8ed45fb1f5c92fb063529c3cc0fc88063",
-        "ci/consumers/npm/release/package.json": "cf7a18b7d01808306b49ba6f3366d6e52041a706537c403ab721e8139200309d",
+        "ci/consumers/npm/release/README.md": "7c90fb735b7a4c96e44f0249a0c88b3c817ed4d05db4a1aae32966d1e111b9be",
+        "ci/consumers/npm/release/consumer.mjs": "29d851acf846b2c845d6ff04cf3470ea80c9d90c8d89cf3da1729d95e89c11d1",
+        "ci/consumers/npm/release/package.json": "37f91f4e0bb787349c09abbfd1bfcfd0d9b5e7e541959ca9eb92218c8f49f169",
         "ci/consumers/npm/release/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }

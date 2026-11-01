@@ -58,8 +58,11 @@ test("enrolling is for the host's own platform, with an absolute executable regu
   assert.equal(code(() => f.enroll({ binary: "relative/bin" })), "RK_CRED_PROVIDER_PATH");
   assert.equal(code(() => f.enroll({ binary: path.join(f.dataRoot, "missing") })), "RK_CRED_PROVIDER_PATH");
   assert.equal(code(() => f.enroll({ dataRoot: "relative" })), "RK_CRED_PROVIDER_ROOT");
-  fs.chmodSync(f.binary, 0o644);
-  assert.equal(code(() => f.enroll()), "RK_CRED_PROVIDER_PATH", "not executable");
+  // The execute bit exists only on a POSIX file system (credential-provider.mjs reads it there only).
+  if (process.platform !== "win32") {
+    fs.chmodSync(f.binary, 0o644);
+    assert.equal(code(() => f.enroll()), "RK_CRED_PROVIDER_PATH", "not executable");
+  }
 });
 
 test("an enrolled version is replaced only by rotation", () => {

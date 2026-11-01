@@ -1,8 +1,8 @@
 # @rightkit/release npm consumer (draft, npm.@rightkit/release)
 
 Packed-archive consumer for `@rightkit/release` (workspace version). The unit is installed only from the
-sealed `file:` archive. The reviewed closure pins `smol-toml` 1.9.1 and the updater `@rightkit/outdated` 0.2.0 with
-the `@rightkit/ci` 0.2.49 that the published updater resolves, all recorded in `ci/consumer-recipes.json`; the
+sealed `file:` archive. The reviewed closure pins `smol-toml` 1.9.1 and the updater `@rightkit/outdated` 0.3.0 with
+the `@rightkit/ci` 0.3.2 that the published updater resolves, all recorded in `ci/consumer-recipes.json`; the
 consumer manifest lists exactly those pins.
 
 Surface: `@rightkit/release` declares an explicit `exports` map in `packages/release/package.json`: one `"./<file>"`

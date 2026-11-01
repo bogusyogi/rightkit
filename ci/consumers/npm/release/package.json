@@ -5,8 +5,8 @@
   "type": "module",
   "packageManager": "pnpm@12.16.1",
   "dependencies": {
-    "@rightkit/ci": "0.2.49",
-    "@rightkit/outdated": "0.2.0",
+    "@rightkit/ci": "0.3.2",
+    "@rightkit/outdated": "0.3.0",
     "smol-toml": "1.9.1"
   },
   "scripts": { "consumer": "node consumer.mjs" }
