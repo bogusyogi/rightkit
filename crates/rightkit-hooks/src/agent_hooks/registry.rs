@@ -2,16 +2,16 @@
 //!
 //! Tracks hooks that the operator has revoked via `host app hooks revoke <id>`
 //! for the lifetime of the daemon process, and offers a synchronous dry-run
-//! path that exercises matching env-var hook commands without publishing on
-//! the event bus.
+//! path that exercises matching configured command hooks without publishing
+//! on the event bus.
 
-use crate::agent_hooks::bus::HookOutcome;
+use crate::agent_hooks::bus::{HookBus, HookOutcome};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::RwLock;
 
 /// Shared, in-memory set of hook IDs the operator has revoked for the current
-/// daemon session. Keys are env-var names such as
-/// `RIGHTKIT_HOOK_PRE_TOOL_USE`.
+/// daemon session. Keys are hook ids such as `PreToolUse#0`
+/// ([`IdentifiedHook::id`]).
 #[derive(Default, Debug)]
 pub struct HookRegistry {
     revoked: RwLock<HashSet<String>>,
@@ -121,16 +121,16 @@ impl HookRegistry {
 /// Result of a [`dry_run_hook`] invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HookDryRunReport {
-    /// Whether at least one matching env-var hook actually ran during the
+    /// Whether at least one matching command hook actually ran during the
     /// dry-run (i.e. was both configured and not revoked).
     pub ran: bool,
     /// `Proceed` / `Deny` / `Error` synthesized from the hook's exit code.
     pub outcome: HookOutcome,
-    /// Env var keys that were run.
+    /// Ids of the hooks that were run.
     pub invoked: Vec<String>,
-    /// Env var keys that exist but were skipped because they were revoked.
+    /// Ids of hooks that exist but were skipped because they were revoked.
     pub revoked: Vec<String>,
-    /// True when no env-var hook matched the requested event and matcher.
+    /// True when no command hook matched the requested event and matcher.
     pub no_match: bool,
 }
 
@@ -158,7 +158,7 @@ impl HookDryRunReport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HookAdmissionV1 {
     /// A real host command actually ran (spawned and produced a result).
-    /// `invoked` names the env-var-keyed hooks that ran.
+    /// `invoked` names the ids of the hooks that ran.
     Admitted { invoked: Vec<String> },
     /// No real host execution backs this event; nothing is admitted.
     Rejected { reason: HookRejectionReasonV1 },
@@ -170,7 +170,7 @@ pub enum HookRejectionReasonV1 {
     /// The operator revoked this hook id for the current session.
     Revoked,
     /// No matching hook actually ran: unknown event, no configured command,
-    /// empty env var, or the process never produced a confirmed result
+    /// or the process never produced a confirmed result
     /// (spawn denial, I/O failure, or timeout). The event firing alone is
     /// never treated as proof of execution.
     NoRealExecution,
@@ -207,98 +207,107 @@ impl HookAdmissionV1 {
     }
 }
 
-/// Dry-run the matching command env-var hook for `event_name` without
-/// publishing on the hook bus. The optional `matcher` is a substring filter on
-/// the env var name. `revoked` describes hooks that the operator has already
-/// disabled for this session — those keys are skipped, even if their env var
-/// is set.
-///
-/// If no matching command hook exists, the report has `ran = false`,
-/// `outcome = HookOutcome::Proceed`, and `no_match = true`.
-#[cfg(test)]
-pub async fn dry_run_hook(
-    event_name: &str,
-    matcher: Option<&str>,
-    registry: Option<&HookRegistry>,
-) -> HookDryRunReport {
-    let env_var = match hook_command_env_var(event_name) {
-        Some(v) => v,
-        None => return HookDryRunReport::no_match(),
-    };
-    if let Some(m) = matcher {
-        if !m.is_empty() && !env_var.contains(m) {
-            return HookDryRunReport::no_match();
-        }
+/// One configured hook with the identity operators revoke it by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentifiedHook {
+    /// `<Event>#<n>`: `n` counts that event's entries in execution order (config key, project
+    /// file, then `RIGHTKIT_HOOKS_JSON`). It changes when the configuration changes.
+    pub id: String,
+    pub event: String,
+    /// `config`, `project` or `env-json`.
+    pub origin: &'static str,
+    pub spec: crate::agent_hooks::chain::HookSpec,
+}
+
+impl HookBus {
+    /// Every configured hook for `event`, identified, in execution order.
+    pub fn hooks_for(&self, event: &str) -> Result<Vec<IdentifiedHook>, String> {
+        let mut labelled = self.configured_specs_labelled(event)?;
+        labelled.extend(
+            crate::agent_hooks::chain::env_hook_specs(event)?
+                .into_iter()
+                .map(|spec| ("env-json", spec)),
+        );
+        Ok(labelled
+            .into_iter()
+            .enumerate()
+            .map(|(n, (origin, spec))| IdentifiedHook {
+                id: format!("{event}#{n}"),
+                event: event.to_string(),
+                origin,
+                spec,
+            })
+            .collect())
     }
 
-    if let Some(reg) = registry {
-        if reg.is_revoked(&env_var) {
-            return HookDryRunReport {
-                ran: false,
-                outcome: HookOutcome::Proceed,
-                invoked: Vec::new(),
-                revoked: vec![env_var.clone()],
-                no_match: false,
-            };
+    /// Every configured hook of every event in the taxonomy (`GET /hooks/list`).
+    pub fn inventory(&self) -> Result<Vec<IdentifiedHook>, String> {
+        let mut all = Vec::new();
+        for event in crate::agent_hooks::chain::HOOK_EVENT_NAMES {
+            all.extend(self.hooks_for(event)?);
         }
-    }
-
-    let value = match crate::agent_hooks::hook_env(&env_var) {
-        Some(v) => v,
-        None => return HookDryRunReport::no_match(),
-    };
-
-    let envs: Vec<(&'static str, String)> = vec![("RIGHTKIT_HOOK_EVENT", event_name.to_string())];
-    let outcome = run_hook_command(
-        value,
-        envs,
-        "Hook denied execution",
-        "Hook exited with error",
-    )
-    .await;
-    HookDryRunReport {
-        ran: true,
-        outcome,
-        invoked: vec![env_var.clone()],
-        revoked: Vec::new(),
-        no_match: false,
+        Ok(all)
     }
 }
 
-/// Adapter-aware entry point reserved for daemon callers during migration.
+/// Dry-run the command hooks of `event_name` without publishing on the hook bus. `hooks` is
+/// `bus.hooks_for(event_name)`. The optional `matcher` is a tool name tested against each hook's
+/// own matcher. Revoked hooks are skipped. The first deny wins, then an error, else proceed.
+///
+/// If no command hook applies, the report has `ran = false`, `outcome = HookOutcome::Proceed`,
+/// and `no_match = true`.
 pub async fn dry_run_hook_with_adapter(
     event_name: &str,
     matcher: Option<&str>,
     registry: Option<&HookRegistry>,
+    hooks: &[IdentifiedHook],
     adapter: &dyn rightkit_sandbox::execution::ProcessLaunchAdapter,
     context: &rightkit_sandbox::execution::ProcessLaunchContext,
 ) -> HookDryRunReport {
-    // Unit tests retain deterministic shell semantics when exercising the
-    // registry; daemon callers always provide a required governed context.
-    #[cfg(test)]
-    if !context.sandbox_required {
-        return dry_run_hook(event_name, matcher, registry).await;
+    let candidates: Vec<&IdentifiedHook> = hooks
+        .iter()
+        .filter(|hook| hook.event == event_name)
+        .filter(|hook| hook.spec.kind == crate::agent_hooks::chain::HookKind::Command)
+        .filter(|hook| hook.spec.matches(matcher))
+        .collect();
+    if candidates.is_empty() {
+        return HookDryRunReport::no_match();
     }
+    let mut revoked = Vec::new();
+    let mut invoked = Vec::new();
+    let mut outcome = HookOutcome::Proceed;
+    for hook in candidates {
+        if registry.is_some_and(|reg| reg.is_revoked(&hook.id)) {
+            revoked.push(hook.id.clone());
+            continue;
+        }
+        let result =
+            run_dry_run_command(hook.spec.command.clone(), event_name, adapter, context).await;
+        invoked.push(hook.id.clone());
+        match (&outcome, result) {
+            (HookOutcome::Deny(_), _) => {}
+            (_, deny @ HookOutcome::Deny(_)) => outcome = deny,
+            (HookOutcome::Proceed, error @ HookOutcome::Error(_)) => outcome = error,
+            _ => {}
+        }
+    }
+    HookDryRunReport {
+        ran: !invoked.is_empty(),
+        outcome,
+        invoked,
+        revoked,
+        no_match: false,
+    }
+}
 
-    let env_var = match hook_command_env_var(event_name) {
-        Some(v) => v,
-        None => return HookDryRunReport::no_match(),
-    };
-    if matcher.is_some_and(|m| !m.is_empty() && !env_var.contains(m)) {
-        return HookDryRunReport::no_match();
-    }
-    if registry.is_some_and(|reg| reg.is_revoked(&env_var)) {
-        return HookDryRunReport {
-            ran: false,
-            outcome: HookOutcome::Proceed,
-            invoked: Vec::new(),
-            revoked: vec![env_var],
-            no_match: false,
-        };
-    }
-    let Some(command) = crate::agent_hooks::hook_env(&env_var) else {
-        return HookDryRunReport::no_match();
-    };
+async fn run_dry_run_command(
+    command: String,
+    event_name: &str,
+    adapter: &dyn rightkit_sandbox::execution::ProcessLaunchAdapter,
+    context: &rightkit_sandbox::execution::ProcessLaunchContext,
+) -> HookOutcome {
+    // Unit tests retain deterministic shell semantics when exercising the registry; daemon
+    // callers always provide a required governed context.
     #[cfg(windows)]
     let (program, argv) = ("cmd".to_string(), vec!["/C".to_string(), command]);
     #[cfg(not(windows))]
@@ -310,7 +319,7 @@ pub async fn dry_run_hook_with_adapter(
         context: context.clone(),
         env: vec![("RIGHTKIT_HOOK_EVENT".to_string(), event_name.to_string())],
     };
-    let outcome = match adapter.spawn(spec).await {
+    match adapter.spawn(spec).await {
         Ok(mut child) => {
             use tokio::io::AsyncReadExt;
             let result = tokio::time::timeout(std::time::Duration::from_secs(30), async {
@@ -337,13 +346,6 @@ pub async fn dry_run_hook_with_adapter(
             }
         }
         Err(error) => HookOutcome::Error(format!("hook failed to spawn: {error:?}")),
-    };
-    HookDryRunReport {
-        ran: true,
-        outcome,
-        invoked: vec![env_var],
-        revoked: Vec::new(),
-        no_match: false,
     }
 }
 
@@ -372,92 +374,9 @@ fn hook_exit_outcome(
     }
 }
 
-fn hook_command_env_var(event_name: &str) -> Option<String> {
-    let base = match event_name {
-        "PreToolUse" => hook_var!("RIGHTKIT_HOOK_PRE_TOOL_USE"),
-        "PostToolUse" => hook_var!("RIGHTKIT_HOOK_POST_TOOL_USE"),
-        "UserPromptSubmit" => hook_var!("RIGHTKIT_HOOK_USER_PROMPT_SUBMIT"),
-        "Notification" => hook_var!("RIGHTKIT_HOOK_NOTIFICATION"),
-        "SubagentStop" => hook_var!("RIGHTKIT_HOOK_SUBAGENT_STOP"),
-        "Stop" => hook_var!("RIGHTKIT_HOOK_STOP_BLOCKING"),
-        "PreCommit" => hook_var!("RIGHTKIT_HOOK_PRE_COMMIT"),
-        _ => None,
-    };
-    base.map(str::to_string)
-}
-
-#[cfg(test)]
-async fn run_hook_command(
-    cmd: String,
-    envs: Vec<(&'static str, String)>,
-    default_deny: &'static str,
-    default_error: &'static str,
-) -> HookOutcome {
-    #[cfg(windows)]
-    let (sh, flag) = ("cmd", "/C");
-    #[cfg(not(windows))]
-    let (sh, flag) = ("sh", "-c");
-
-    // Shared RightKit runner: hidden console, null stdin, the whole hook tree terminated at the
-    // deadline (the previous tokio timeout stopped waiting but left the hook running).
-    let result = tokio::task::spawn_blocking(move || {
-        let mut owned = rightkit_child_process::OwnedCommand::new(sh);
-        owned.command_mut().arg(flag).arg(&cmd);
-        for (key, value) in envs {
-            owned.command_mut().env(key, value);
-        }
-        let options = rightkit_child_process::RunOptions::new(std::time::Duration::from_secs(30))
-            .stdout_cap(usize::MAX)
-            .stderr_cap(0);
-        rightkit_child_process::run_command(owned, None, &options)
-    })
-    .await;
-
-    match result {
-        Ok(Ok(output)) if output.timed_out => {
-            HookOutcome::Error("hook timed out or panicked".to_string())
-        }
-        Ok(Ok(output)) => {
-            let stdout = String::from_utf8_lossy(&output.stdout.bytes)
-                .trim()
-                .to_string();
-            match output.status.code() {
-                Some(0) | None => HookOutcome::Proceed,
-                Some(2) => HookOutcome::Deny(if stdout.is_empty() {
-                    default_deny.to_string()
-                } else {
-                    stdout
-                }),
-                Some(1) => HookOutcome::Error(if stdout.is_empty() {
-                    default_error.to_string()
-                } else {
-                    stdout
-                }),
-                Some(code) => {
-                    HookOutcome::Error(format!("hook exited with unexpected code {code}: {stdout}"))
-                }
-            }
-        }
-        Ok(Err(e)) => HookOutcome::Error(format!("hook failed to spawn: {e}")),
-        Err(_) => HookOutcome::Error("hook timed out or panicked".to_string()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, MutexGuard};
-
-    /// These tests mutate the PROCESS-GLOBAL env var `RIGHTKIT_HOOK_NOTIFICATION`; `#[tokio::test]`
-    /// runs them on parallel threads, so without serialization one test's `set_var` races another's
-    /// read (the 2026-07-05 flake: exit_zero and exit_one interleaving). Every env-touching test
-    /// holds this guard for its whole body. Poison-recovering so one panicking test can't wedge the
-    /// rest into a false failure.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    fn env_guard() -> MutexGuard<'static, ()> {
-        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
-    }
 
     #[test]
     fn scoped_registration_unloads_and_advances_generation() {
@@ -498,196 +417,5 @@ mod tests {
                 "RIGHTKIT_HOOK_PRE_TOOL_USE".to_string(),
             ]
         );
-    }
-
-    #[tokio::test]
-    async fn dry_run_unknown_event_returns_no_match() {
-        let reg = HookRegistry::new();
-        let report = dry_run_hook("UnknownEvent", None, Some(&reg)).await;
-        assert!(!report.ran);
-        assert_eq!(report.outcome, HookOutcome::Proceed);
-        assert!(report.no_match);
-        assert!(report.invoked.is_empty());
-    }
-
-    #[allow(clippy::await_holding_lock)]
-    // ENV_LOCK serializes env-var mutation across parallel #[tokio::test]; dry_run_hook reads env synchronously before yielding, so the guard must stay held through .await
-    #[tokio::test]
-    async fn dry_run_with_no_env_var_returns_no_match() {
-        let _env = env_guard();
-        std::env::remove_var("RIGHTKIT_HOOK_NOTIFICATION");
-        let reg = HookRegistry::new();
-        let report = dry_run_hook("Notification", None, Some(&reg)).await;
-        assert!(!report.ran);
-        assert!(report.no_match);
-        assert!(report.invoked.is_empty());
-    }
-
-    #[allow(clippy::await_holding_lock)]
-    // ENV_LOCK serializes env-var mutation across parallel #[tokio::test]; dry_run_hook reads env synchronously before yielding, so the guard must stay held through .await
-    #[tokio::test]
-    async fn dry_run_revoked_hook_skips_invocation() {
-        let _env = env_guard();
-        std::env::set_var("RIGHTKIT_HOOK_NOTIFICATION", "echo ran && exit 0");
-        let reg = HookRegistry::new();
-        reg.revoke("RIGHTKIT_HOOK_NOTIFICATION");
-        let report = dry_run_hook("Notification", None, Some(&reg)).await;
-        assert!(!report.ran);
-        assert_eq!(report.outcome, HookOutcome::Proceed);
-        assert_eq!(
-            report.revoked,
-            vec!["RIGHTKIT_HOOK_NOTIFICATION".to_string()]
-        );
-        std::env::remove_var("RIGHTKIT_HOOK_NOTIFICATION");
-    }
-
-    #[allow(clippy::await_holding_lock)]
-    // ENV_LOCK serializes env-var mutation across parallel #[tokio::test]; dry_run_hook reads env synchronously before yielding, so the guard must stay held through .await
-    #[tokio::test]
-    async fn dry_run_exit_zero_returns_proceed() {
-        let _env = env_guard();
-        std::env::set_var("RIGHTKIT_HOOK_NOTIFICATION", "exit 0");
-        let reg = HookRegistry::new();
-        let report = dry_run_hook("Notification", None, Some(&reg)).await;
-        assert!(report.ran);
-        assert_eq!(report.outcome, HookOutcome::Proceed);
-        assert_eq!(
-            report.invoked,
-            vec!["RIGHTKIT_HOOK_NOTIFICATION".to_string()]
-        );
-        std::env::remove_var("RIGHTKIT_HOOK_NOTIFICATION");
-    }
-
-    #[allow(clippy::await_holding_lock)]
-    // ENV_LOCK serializes env-var mutation across parallel #[tokio::test]; dry_run_hook reads env synchronously before yielding, so the guard must stay held through .await
-    #[tokio::test]
-    async fn dry_run_exit_two_returns_deny_with_message() {
-        let _env = env_guard();
-        // `;` is not a cmd separator on Windows (commands run via `cmd /C`);
-        // use the platform-correct chaining operator.
-        let cmd = if cfg!(windows) {
-            "echo blocked& exit 2"
-        } else {
-            "echo blocked; exit 2"
-        };
-        std::env::set_var("RIGHTKIT_HOOK_NOTIFICATION", cmd);
-        let reg = HookRegistry::new();
-        let report = dry_run_hook("Notification", None, Some(&reg)).await;
-        assert!(report.ran);
-        match report.outcome {
-            HookOutcome::Deny(msg) => assert_eq!(msg, "blocked"),
-            other => panic!("expected Deny, got {other:?}"),
-        }
-        std::env::remove_var("RIGHTKIT_HOOK_NOTIFICATION");
-    }
-
-    #[allow(clippy::await_holding_lock)]
-    // ENV_LOCK serializes env-var mutation across parallel #[tokio::test]; dry_run_hook reads env synchronously before yielding, so the guard must stay held through .await
-    #[tokio::test]
-    async fn dry_run_exit_one_returns_error_with_message() {
-        let _env = env_guard();
-        let cmd = if cfg!(windows) {
-            "echo failed& exit 1"
-        } else {
-            "echo failed; exit 1"
-        };
-        std::env::set_var("RIGHTKIT_HOOK_NOTIFICATION", cmd);
-        let reg = HookRegistry::new();
-        let report = dry_run_hook("Notification", None, Some(&reg)).await;
-        assert!(report.ran);
-        match report.outcome {
-            HookOutcome::Error(msg) => assert_eq!(msg, "failed"),
-            other => panic!("expected Error, got {other:?}"),
-        }
-        std::env::remove_var("RIGHTKIT_HOOK_NOTIFICATION");
-    }
-
-    /// Negative control for H8 admission: an event that fires with NO real
-    /// host execution behind it (here, the injected fault is "no
-    /// `RIGHTKIT_HOOK_NOTIFICATION` command configured") must be REJECTED,
-    /// never `Admitted`. This is the invariant the integration owner proves —
-    /// a hook or serialization event alone must never manufacture evidence.
-    /// If `HookDryRunReport::decide_admission` (or the `ran` signal it
-    /// trusts) ever regresses to admitting an unexecuted event, this test
-    /// fails.
-    #[allow(clippy::await_holding_lock)]
-    #[tokio::test]
-    async fn admission_rejects_hook_event_with_no_real_execution() {
-        let _env = env_guard();
-        std::env::remove_var("RIGHTKIT_HOOK_NOTIFICATION");
-        let reg = HookRegistry::new();
-        let report = dry_run_hook("Notification", None, Some(&reg)).await;
-        // Sanity: the event still resolves to a known hook slot, it simply
-        // never actually ran — this is the fault under test, not a no-match.
-        assert!(
-            !report.ran,
-            "no host command was configured; nothing executed"
-        );
-
-        let admission = report.decide_admission();
-        assert_eq!(
-            admission,
-            HookAdmissionV1::Rejected {
-                reason: HookRejectionReasonV1::NoRealExecution
-            }
-        );
-        assert!(!admission.is_admitted());
-    }
-
-    /// Positive control paired with the negative control above: a report
-    /// where a host command genuinely ran (`ran == true`) is admitted, and
-    /// carries forward exactly the env vars that were invoked.
-    #[allow(clippy::await_holding_lock)]
-    #[tokio::test]
-    async fn admission_admits_report_with_confirmed_execution() {
-        let _env = env_guard();
-        std::env::set_var("RIGHTKIT_HOOK_NOTIFICATION", "exit 0");
-        let reg = HookRegistry::new();
-        let report = dry_run_hook("Notification", None, Some(&reg)).await;
-        assert!(report.ran);
-        let admission = report.decide_admission();
-        assert_eq!(
-            admission,
-            HookAdmissionV1::Admitted {
-                invoked: vec!["RIGHTKIT_HOOK_NOTIFICATION".to_string()]
-            }
-        );
-        assert!(admission.is_admitted());
-        std::env::remove_var("RIGHTKIT_HOOK_NOTIFICATION");
-    }
-
-    /// A revoked hook is rejected with the `Revoked` reason, distinct from
-    /// `NoRealExecution`, so operators and evidence readers can tell an
-    /// operator-suppressed hook apart from one that never fired at all.
-    #[allow(clippy::await_holding_lock)]
-    #[tokio::test]
-    async fn admission_rejects_revoked_hook_with_revoked_reason() {
-        let _env = env_guard();
-        std::env::set_var("RIGHTKIT_HOOK_NOTIFICATION", "exit 0");
-        let reg = HookRegistry::new();
-        reg.revoke("RIGHTKIT_HOOK_NOTIFICATION");
-        let report = dry_run_hook("Notification", None, Some(&reg)).await;
-        assert!(!report.ran);
-        let admission = report.decide_admission();
-        assert_eq!(
-            admission,
-            HookAdmissionV1::Rejected {
-                reason: HookRejectionReasonV1::Revoked
-            }
-        );
-        std::env::remove_var("RIGHTKIT_HOOK_NOTIFICATION");
-    }
-
-    #[allow(clippy::await_holding_lock)]
-    // ENV_LOCK serializes env-var mutation across parallel #[tokio::test]; dry_run_hook reads env synchronously before yielding, so the guard must stay held through .await
-    #[tokio::test]
-    async fn dry_run_matcher_filters_env_var_name() {
-        let _env = env_guard();
-        std::env::set_var("RIGHTKIT_HOOK_NOTIFICATION", "exit 0");
-        let reg = HookRegistry::new();
-        let report = dry_run_hook("Notification", Some("PRE"), Some(&reg)).await;
-        assert!(report.no_match);
-        assert!(!report.ran);
-        std::env::remove_var("RIGHTKIT_HOOK_NOTIFICATION");
     }
 }
