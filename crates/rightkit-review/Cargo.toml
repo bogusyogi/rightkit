@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-review"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared review capability for the content pipeline: deterministic checks over a media or text description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records."
@@ -14,9 +14,23 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = []
+# Code review adjudication, normalization and receipts (moved from Legion's legion-review).
+code = ["dep:rightkit-evidence-contracts", "dep:rightkit-code-audit-provider-sdk", "dep:regex", "dep:sha2", "dep:hex", "dep:thiserror", "dep:icu_normalizer", "serde_json/preserve_order"]
+# Minimal-diff review receipts (moved from Legion's legion-minimize).
+minimize = ["dep:regex", "dep:sha2", "dep:hex", "dep:thiserror", "serde_json/preserve_order"]
+
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+rightkit-evidence-contracts = { version = "0.1.0", path = "../rightkit-evidence-contracts", optional = true }
+rightkit-code-audit-provider-sdk = { version = "0.1.0", path = "../rightkit-code-audit-provider-sdk", optional = true }
+regex = { version = "1.13.1", optional = true }
+sha2 = { version = "0.11.1", optional = true }
+hex = { version = "0.4.3", optional = true }
+thiserror = { version = "2.0.20", optional = true }
+icu_normalizer = { version = "2.3.0", default-features = false, features = ["compiled_data"], optional = true }
 
 [package.metadata.rightkit]
 continuous = false
