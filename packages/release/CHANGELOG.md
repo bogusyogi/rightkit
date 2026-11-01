@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.18 (unpublished)
+
+- **`rightkit-linux-setup` (rightkit#1365):** one idempotent command for a Linux host (cloud container, VM, WSL2). From the app root it reads the pins (`.node-version` or `engines.node`, `packageManager`, `rust-toolchain.toml`), installs Node from the official tarball into `~/.local` (checksum verified), pnpm through corepack (npm into `~/.local` when corepack is absent) and Rust through rustup, then runs `pnpm fetch` in every committed lockroot to fill the pnpm store. The fetch uses a throwaway `--virtual-store-dir`, so an existing `node_modules` is never cleared. `--dry-run` prints the plan; `--root <dir>` picks the app. System packages (webkit2gtk and gtk for Tauri) are not installed yet.
+
 ## 0.6.17 (unpublished)
 
 - **A tool's own JSON output is never judged as a broker frame (rightkit#1351):** `drainFrames` judged every captured line starting with `{` against the 1 MiB frame limit, so the one-line `cargo metadata` document of a large workspace (2.28 MB for a Tauri app) failed every carried full-metadata call (cargo-deny) with `RK_CARGO_BROKER_UNVERIFIED` (frame-over-cap) on the Mac and the Dell. Only a JSON object whose `type` is a protocol event type is judged now.
