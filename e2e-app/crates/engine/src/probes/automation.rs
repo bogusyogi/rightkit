@@ -235,7 +235,16 @@ fn drive(
         ));
     }
 
-    // Delivery with read-back proof: the product path.
+    // Delivery with read-back proof: the product path. A pin captures the app's focused editor, so focus it first.
+    let focus_tree = snap(a, pid)?;
+    a.act(
+        &focus_tree.id,
+        Some(&ed),
+        Action::Focus,
+        &ActOptions::default(),
+    )
+    .map_err(|e| format!("focus the editor before capture_pin: {e}"))?;
+    sleep(150);
     let pin = a
         .capture_pin(Some(pid))
         .map_err(|e| format!("capture_pin: {e}"))?;

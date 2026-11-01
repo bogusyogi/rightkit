@@ -21,7 +21,7 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     let mut cmd = Command::new("/bin/sh");
     cmd.arg("-c")
         .arg(format!(
-            "echo in > {}/in.txt; echo out > {}/out.txt",
+            "echo in > '{}/in.txt'; echo out > '{}/out.txt'",
             allowed.display(),
             outside.display()
         ))

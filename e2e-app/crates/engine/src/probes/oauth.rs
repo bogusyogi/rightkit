@@ -4,7 +4,7 @@ use rightkit_oauth::pkce::{challenge_s256, generate_state, validate_verifier, Pk
 use serde_json::{json, Value};
 
 pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
-    let s = challenge_s256("dBjftJeZ4CVP-mB92K27uhbUJU1p1r7wW1gFWFOEjXk")
+    let s = challenge_s256("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
         .map_err(|e| format!("challenge: {e}"))?;
     if s != "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM" {
         return Err(format!("S256 challenge {s} is not RFC 7636's"));

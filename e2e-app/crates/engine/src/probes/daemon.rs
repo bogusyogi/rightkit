@@ -30,13 +30,15 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     if echoed["app"] != json!("rke2e") || echoed["params"] != json!({ "n": 7 }) {
         return Err(format!("echo answered {echoed}"));
     }
-    let stranger = Client::connect(&suite, "rke2e-probe", "stranger")
-        .map_err(|e| format!("connect as another app: {e}"))?;
-    let refused = stranger
-        .call("echo", json!({}))
-        .err()
-        .map(|e| e.code == ERROR_NOT_ALLOWED)
-        .unwrap_or(false);
+    // An app the registration does not name is refused: at connect (the hello) or, failing that, at its first call.
+    let refused = match Client::connect(&suite, "rke2e-probe", "stranger") {
+        Err(e) => e.code == ERROR_NOT_ALLOWED,
+        Ok(stranger) => stranger
+            .call("echo", json!({}))
+            .err()
+            .map(|e| e.code == ERROR_NOT_ALLOWED)
+            .unwrap_or(false),
+    };
     if !refused {
         return Err("an app the registration does not name was served".into());
     }

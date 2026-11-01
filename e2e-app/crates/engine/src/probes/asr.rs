@@ -36,7 +36,7 @@ pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
     .collect();
     if !missing.is_empty() {
         return Err(format!(
-            "needs a Parakeet TDT ONNX export in {} (missing {}: encoder-model.onnx[+.onnx_data], decoder_joint-model.onnx, vocab.txt)",
+            "host_missing:models: needs a Parakeet TDT ONNX export in {} (missing {}: encoder-model.onnx[+.onnx_data], decoder_joint-model.onnx, vocab.txt)",
             dir.display(),
             missing.join(", ")
         ));

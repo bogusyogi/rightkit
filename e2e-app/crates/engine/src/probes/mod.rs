@@ -291,15 +291,14 @@ pub fn run_isolated(name: &str) -> Value {
         );
     }
     let stdout = String::from_utf8_lossy(&out.stdout.bytes);
-    let found = stdout
-        .lines()
-        .rev()
-        .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
+    // The CLI prints one pretty JSON document: the row itself, or an envelope carrying it as `result`.
+    let found = serde_json::from_str::<Value>(stdout.trim())
+        .ok()
         .map(|v| match v.get("result") {
             Some(inner) if v.get("state").is_none() => inner.clone(),
             _ => v,
         })
-        .find(|v| v.get("state").is_some());
+        .filter(|v| v.get("state").is_some());
     match found {
         Some(mut v) => {
             v["ms"] = serde_json::json!(ms());

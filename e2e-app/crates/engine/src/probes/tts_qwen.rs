@@ -7,11 +7,11 @@ use serde_json::{json, Value};
 pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
     let dir = std::env::var_os("RIGHTKIT_TTS_MODEL_DIR")
         .map(std::path::PathBuf::from)
-        .ok_or("needs the Qwen3-TTS model: RIGHTKIT_TTS_MODEL_DIR is not set (qwen3-tts-0.6b-*.gguf + qwen3-tts-vocoder.onnx)")?;
+        .ok_or("host_missing:models: needs the Qwen3-TTS model: RIGHTKIT_TTS_MODEL_DIR is not set (qwen3-tts-0.6b-*.gguf + qwen3-tts-vocoder.onnx)")?;
     let paths = ModelPaths::from_model_dir(&dir);
     if !paths.main_exists() {
         return Err(format!(
-            "needs the Qwen3-TTS model: no qwen3-tts-0.6b-*.gguf in {}",
+            "host_missing:models: needs the Qwen3-TTS model: no qwen3-tts-0.6b-*.gguf in {}",
             dir.display()
         ));
     }

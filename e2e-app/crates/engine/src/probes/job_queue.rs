@@ -36,10 +36,11 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
         kind: "double".into(),
         request: json!({ "n": 21 }),
     };
-    let (job, created) = store.submit(&new).map_err(|e| format!("submit: {e}"))?;
-    let (again, created_again) = store.submit(&new).map_err(|e| format!("resubmit: {e}"))?;
-    if !created || created_again || again.job_id != job.job_id {
-        return Err(format!("a resubmission with the same request id was not deduplicated (created {created}, again {created_again})"));
+    // `submit` returns `(job, deduplicated)`.
+    let (job, first_dedup) = store.submit(&new).map_err(|e| format!("submit: {e}"))?;
+    let (again, again_dedup) = store.submit(&new).map_err(|e| format!("resubmit: {e}"))?;
+    if first_dedup || !again_dedup || again.job_id != job.job_id {
+        return Err(format!("a resubmission with the same request id was not deduplicated (first deduplicated {first_dedup}, again {again_dedup})"));
     }
     runner.run(&job.job_id).map_err(|e| format!("run: {e}"))?;
     let done = store.get(&job.job_id).map_err(|e| format!("get: {e}"))?;

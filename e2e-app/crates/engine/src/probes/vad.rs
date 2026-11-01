@@ -105,7 +105,7 @@ pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
     let model = super::models::asset_dir("vad")?.join("silero_vad_16k_op15.onnx");
     if !model.is_file() {
         return Err(format!(
-            "needs the Silero VAD model at {} (silero_vad_16k_op15.onnx); the span-policy checks passed",
+            "host_missing:models: needs the Silero VAD model at {} (silero_vad_16k_op15.onnx); the span-policy checks passed",
             model.display()
         ));
     }

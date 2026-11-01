@@ -62,7 +62,7 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
         .map_err(|e| format!("model bundle in {}: {e}", model_dir.display()))?;
     if have.is_none() {
         return Err(format!(
-            "needs an EmbeddingGemma bundle in {} (model_q4.onnx, model_q4.onnx_data, tokenizer.json, config.json); \
+            "host_missing:models: needs an EmbeddingGemma bundle in {} (model_q4.onnx, model_q4.onnx_data, tokenizer.json, config.json); \
              the vector store itself passed",
             model_dir.display()
         ));

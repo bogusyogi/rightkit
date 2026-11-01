@@ -74,6 +74,35 @@
         "kind": "cargo-bin",
         "package": "rke2e-engine",
         "manifestPath": "crates/engine/Cargo.toml"
+      },
+      {
+        "kind": "ffmpeg",
+        "variant": "decode",
+        "tools": [
+          "ffmpeg"
+        ],
+        "catalog": {
+          "crate": "rightkit-ffmpeg"
+        },
+        "notices": {
+          "dir": "src-tauri/resources/third-party/ffmpeg",
+          "sourceOfferContact": "https://orthiclabs.com/legal/ffmpeg-source"
+        },
+        "platforms": [
+          "mac",
+          "win"
+        ]
+      },
+      {
+        "kind": "native-library",
+        "library": "onnxruntime",
+        "version": "1.30.0",
+        "catalog": {
+          "crate": "rightkit-ffmpeg"
+        },
+        "platforms": [
+          "mac"
+        ]
       }
     ]
   },

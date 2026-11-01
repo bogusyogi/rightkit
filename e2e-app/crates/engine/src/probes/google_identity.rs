@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 
 pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {
     // RFC 7636 appendix B.
-    let rfc = Pkce::from_verifier("dBjftJeZ4CVP-mB92K27uhbUJU1p1r7wW1gFWFOEjXk".into());
+    let rfc = Pkce::from_verifier("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".into());
     if rfc.challenge != "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM" {
         return Err(format!(
             "S256 challenge {} is not RFC 7636's",

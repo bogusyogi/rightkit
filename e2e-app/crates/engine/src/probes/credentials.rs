@@ -26,6 +26,16 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     let deleted = store
         .delete_if_equals(&account, &Secret::from_string(value))
         .map_err(|e| format!("conditional delete: {e}"))?;
+    // macOS Keychain has no atomic compare-and-delete: the store says Unsupported and removes nothing (its contract), so the
+    // probe then deletes plainly; every other outcome must already have removed the item.
+    let plain = if matches!(
+        deleted,
+        rightkit_credentials::ConditionalDelete::Unsupported
+    ) {
+        Some(store.delete(&account).map_err(|e| format!("delete: {e}"))?)
+    } else {
+        None
+    };
     let gone = !store.exists(&account).map_err(|e| format!("exists: {e}"))?;
     if !same || !gone {
         return Err(format!(
@@ -33,6 +43,6 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
         ));
     }
     Ok(
-        json!({ "durable": store.is_durable(), "read_back": same, "delete": format!("{deleted:?}"), "gone": gone }),
+        json!({ "durable": store.is_durable(), "read_back": same, "delete": format!("{deleted:?}"), "plain_delete": plain, "gone": gone }),
     )
 }
