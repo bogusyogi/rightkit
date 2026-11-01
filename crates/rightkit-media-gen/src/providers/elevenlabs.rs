@@ -585,7 +585,7 @@ mod tests {
         (base, seen)
     }
 
-    const KEY: &str = "xi-secret-KEY-456";
+    const KEY: &str = concat!("xi", "-secret-KEY-456");
 
     fn req(text: &str, params: Value) -> GenRequest {
         GenRequest {

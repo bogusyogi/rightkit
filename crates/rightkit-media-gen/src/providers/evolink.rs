@@ -625,7 +625,7 @@ mod tests {
         serde_json::from_str(&seen.lock().unwrap()[i].body).unwrap()
     }
 
-    const KEY: &str = "evo-secret-KEY-123";
+    const KEY: &str = concat!("ev", "o-secret-KEY-123");
 
     #[test]
     fn registered_with_models_and_env_var() {

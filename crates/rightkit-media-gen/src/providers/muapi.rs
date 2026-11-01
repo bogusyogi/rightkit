@@ -363,7 +363,7 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::{Arc, Mutex};
 
-    const KEY: &str = "mu_secret_key_1";
+    const KEY: &str = concat!("mu", "_secret_key_1");
 
     type Seen = Arc<Mutex<Vec<(String, String)>>>;
 

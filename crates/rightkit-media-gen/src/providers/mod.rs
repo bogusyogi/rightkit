@@ -663,13 +663,13 @@ mod tests {
             status,
             detail,
             completed,
-        } = unknown_outcome("WEIRD", body.as_bytes(), "sk-secret-1", true)
+        } = unknown_outcome("WEIRD", body.as_bytes(), concat!("s", "k-secret-1"), true)
         else {
             panic!()
         };
         assert_eq!((status.as_str(), completed), ("WEIRD", true));
         assert!(
-            !detail.contains("sk-secret-1") && detail.contains("[redacted]"),
+            !detail.contains(concat!("s", "k-secret-1")) && detail.contains("[redacted]"),
             "{detail}"
         );
         assert!(

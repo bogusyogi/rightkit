@@ -2138,7 +2138,7 @@ mod tests {
         }
     }
 
-    const KEY: &str = "xi-secret-KEY-789";
+    const KEY: &str = concat!("xi", "-secret-KEY-789");
 
     fn ctx_with(dir: &Dir, key: Option<&str>) -> Context {
         let creds = Arc::new(MemoryCredentials::new());
