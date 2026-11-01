@@ -13,7 +13,7 @@
 - **Ownership scan: a pnpm `link:` into the scanned repository is local source:** a link outside the lock's importers but inside the repository (RightKit's sample apps link `packages/*`) is a local node, not a `lockfile-unresolved-dependency` gap; a link leaving the repository still is one (same rule in rightkit-ownership 0.4.4).
 - **QA admission:** Mac rightkit-qa 0.10.1 runner 14eba841 approved, e7590e12 withdrawn (b1752bf63).
 
-## 0.6.16 (unpublished)
+## 0.6.16
 
 - **Compile-stage cargo-deny under the cargo wrapper (rightkit#1327):** the scan put cargo-deny's enrolled directory (~/.cargo/bin, which also holds rustup's cargo) ahead of the wrapper on PATH, so `cargo deny` bypassed it and tripped the unbound-output sentinel in multi-workspace apps; the wrapper now comes first (2082965e3).
 
