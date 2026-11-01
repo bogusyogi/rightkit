@@ -12,7 +12,7 @@ Flagged mismatches: 0.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (72)
+## Rust crates (73)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -28,6 +28,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-cache` | crates.io | 0.2.3 | 0.2.3 | 0.2.3 | ok | disk-cache | Disk cache primitive with a hard size cap, LRU eviction that survives restarts, atomic writes and group invalidation, plus stable-prefix prompt-cache keys. |
 | `rightkit-channel-memory` | crates.io | 0.2.2 | 0.2.1 | 0.2.2 | staged, not yet published | channel-memory | Channel memory for the content pipeline: the channel-memory.v1 schema with serde types, validation, version gate, proof citation rules, and scope checks for PostRight P3 and GenRight G7. |
 | `rightkit-child-process` | crates.io | 0.5.7 | 0.5.7 | 0.5.7 | ok | owned-processes | Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps. |
+| `rightkit-color` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Colour grading for Right Suite video apps: grade parameters, LUTs and FFmpeg filter rendering, and video scopes (waveform, vectorscope, histogram). |
 | `rightkit-compose` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | composition-model | Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export |
 | `rightkit-compositor` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Native wgpu layer compositor for Right Suite video apps: GPU context, layer blending, effect passes and SDF mask feathering, rendering evaluated frame descriptors. Adapted from OpenCut Classic (MIT). |
 | `rightkit-contracts` | crates.io | 0.1.8 | 0.1.7 | 0.1.8 | staged, not yet published | content-contracts | Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation. |

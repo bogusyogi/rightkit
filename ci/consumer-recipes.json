@@ -1578,6 +1578,15 @@
         "README.md": "7fcc16601884e0341fe3e67fe0558e5918f8ce7dfdf9e337501dc3dcb4bde324",
         "src/main.rs": "79bc79e614cd94ea02191a5e33e76fff6d7d351fdd5c47c9f4909c2197f4e20c"
       }
+    },
+    "rightkit-color": {
+      "pkId": "PK54",
+      "id": "ci/consumers/rightkit-color/src/main.rs",
+      "files": {
+        "Cargo.toml": "03aaedd78a966fc89b532b3010bec74ad1a99d4142d55a74dcff9c38b63cface",
+        "README.md": "fe188ea0a1a43e8eba739875057cc9f3d8877bd48b1ca29655afcdb9bcec5d67",
+        "src/main.rs": "c2ae972ea5b88052596cfd649b823ed3d93b9f7db9ad31207a14763ff2524cc8"
+      }
     }
   }
 }

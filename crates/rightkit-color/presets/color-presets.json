@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "presets": [
+    {
+      "id": "neutral",
+      "label": "Neutral Rec.709",
+      "description": "Convert HDR / Apple Log to Rec.709 only; no grade.",
+      "plan": {}
+    },
+    {
+      "id": "hdr-natural",
+      "label": "HDR to SDR, natural",
+      "description": "Hable tone map for PQ/HLG phone footage, colours kept.",
+      "plan": { "sdr": { "tonemap": "hable", "peak_nits": 1000.0, "desat": 0.0 } }
+    },
+    {
+      "id": "hdr-soft",
+      "label": "HDR to SDR, soft highlights",
+      "description": "Mobius tone map: keeps midtones, rolls highlights gently.",
+      "plan": { "sdr": { "tonemap": "mobius", "param": 0.3, "peak_nits": 1000.0, "desat": 0.0 } }
+    },
+    {
+      "id": "apple-log-natural",
+      "label": "Apple Log to Rec.709",
+      "description": "Generated Apple Log curve LUT, neutral exposure.",
+      "plan": { "sdr": { "apple_log_exposure_stops": 0.0 } }
+    },
+    {
+      "id": "talking-head-auto",
+      "label": "Talking head, auto balance",
+      "description": "Bounded auto exposure and partial white balance from sampled frames.",
+      "plan": {
+        "auto": {
+          "limits": {
+            "target_median_luma": 0.45,
+            "max_exposure_ev": 1.0,
+            "exposure_strength": 0.8,
+            "min_temperature_k": 5000.0,
+            "max_temperature_k": 8500.0,
+            "max_tint": 0.5,
+            "wb_strength": 0.6
+          },
+          "overrides": {}
+        }
+      }
+    },
+    {
+      "id": "warm",
+      "label": "Warm",
+      "description": "Slightly warmer picture.",
+      "plan": { "correction": { "exposure_ev": 0.0, "temperature_k": 5800.0, "tint": 0.0 } }
+    },
+    {
+      "id": "cool",
+      "label": "Cool",
+      "description": "Slightly cooler picture.",
+      "plan": { "correction": { "exposure_ev": 0.0, "temperature_k": 7400.0, "tint": 0.0 } }
+    },
+    {
+      "id": "lift",
+      "label": "Brighten",
+      "description": "Half a stop brighter.",
+      "plan": { "correction": { "exposure_ev": 0.5, "temperature_k": 6500.0, "tint": 0.0 } }
+    }
+  ]
+}
