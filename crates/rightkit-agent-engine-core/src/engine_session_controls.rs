@@ -1,20 +1,6 @@
 use super::*;
 
-impl SessionEngine {
-    /// Broker task identity is valid only while an engine turn is active;
-    /// manual post-turn compaction must never reuse a closed task.
-    pub(crate) fn active_compaction_task_id(&self) -> Option<String> {
-        if !self.idle_grace.is_active_turn() {
-            return None;
-        }
-        self.assurance_broker.as_ref().and_then(|broker| {
-            broker
-                .lock()
-                .ok()
-                .and_then(|broker| broker.contract().map(|contract| contract.task_id.clone()))
-        })
-    }
-}
+impl SessionEngine {}
 
 // ---------------------------------------------------------------------------
 // CR-18 (mechanism 3-1): the post-call envelope meter.

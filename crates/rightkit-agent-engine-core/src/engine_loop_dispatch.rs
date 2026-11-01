@@ -146,6 +146,7 @@ impl SessionEngine {
         self.dispatch_tool_call(call, turn_results).await;
     }
 
+    #[cfg(test)]
     pub(in crate::engine) fn streaming_tool_is_concurrent_safe(&self, call: &ToolCall) -> bool {
         let schema = self.tools.get(&call.name).map(|tool| tool.input_schema());
         let (args, parse_error) = crate::tool_dispatch_plumbing::parse_tool_arguments_attributed(
@@ -160,41 +161,6 @@ impl SessionEngine {
         let mut canonical_call = call.clone();
         canonical_call.arguments_json = args.to_string();
         self.can_dispatch_readonly_fast(&&canonical_call)
-    }
-
-    pub(in crate::engine) fn announce_streaming_tool_call(&mut self, call: &ToolCall) {
-        let sid = self.session_id.clone();
-        self.emit(|seq| ProtocolEvent::ToolCallStarted {
-            session_id: sid,
-            seq,
-            created_at: now_iso(),
-            call: call.clone(),
-        });
-        self.record_tool_runtime_span(
-            MiddlewarePhase::PreToolCall,
-            "completed",
-            call,
-            None,
-            serde_json::json!({
-                "path": extract_path_arg(&call.arguments_json),
-                "hasCommand": extract_command_arg(&call.arguments_json).is_some(),
-                "commandBytes": extract_command_arg(&call.arguments_json).map(|value| value.len()),
-                "dispatchMode": "streaming",
-            }),
-        );
-        let path_arg = extract_path_arg(&call.arguments_json);
-        let command_arg = extract_command_arg(&call.arguments_json);
-        self.add_triggered_skill_hint("PreToolUse", |ctx| {
-            ctx.set("tool", &call.name);
-            if let Some(path) = &path_arg {
-                ctx.set("file_path", path);
-            }
-            if let Some(command) = &command_arg {
-                ctx.set("command", command);
-            }
-            ctx.trigger_type = Some("tool_call".into());
-            ctx.trigger_payload = Some(call.name.clone());
-        });
     }
 
     pub(in crate::engine) async fn dispatch_response_tools_and_post_checks(

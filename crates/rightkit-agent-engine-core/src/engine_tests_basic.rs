@@ -5,12 +5,12 @@ use std::os::unix::process::ExitStatusExt;
 #[cfg(windows)]
 use std::os::windows::process::ExitStatusExt;
 
-static EFF002_HOOK_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static EFF002_HOOK_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-pub(super) fn eff002_hook_env_guard() -> std::sync::MutexGuard<'static, ()> {
-    EFF002_HOOK_ENV_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+/// Serializes tests that set process-wide hook env vars. The guard is held across `.await`, so
+/// it is an async mutex (and never poisoned).
+pub(super) async fn eff002_hook_env_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    EFF002_HOOK_ENV_LOCK.lock().await
 }
 
 struct Eff002HookLauncher {
@@ -536,8 +536,11 @@ async fn external_dispatch_rebinds_missing_or_foreign_assurance_but_preserves_cu
 
 #[tokio::test]
 async fn eff002_hook_transform_then_middleware_deny_has_zero_origin() {
-    let _guard = eff002_hook_env_guard();
-    std::env::set_var("RIGHTKIT_HOOK_PRE_TOOL_USE", "fixture");
+    let _guard = eff002_hook_env_guard().await;
+    std::env::set_var(
+        "RIGHTKIT_HOOKS_JSON",
+        r#"{"PreToolUse":[{"command":"fixture"}]}"#,
+    );
     let middleware = Arc::new(Mutex::new(RuntimeMiddlewareRegistry::default()));
     middleware
         .lock()
@@ -587,7 +590,7 @@ async fn eff002_hook_transform_then_middleware_deny_has_zero_origin() {
             arguments_json: serde_json::json!({"command":"safe"}).to_string(),
         })
         .await;
-    std::env::remove_var("RIGHTKIT_HOOK_PRE_TOOL_USE");
+    std::env::remove_var("RIGHTKIT_HOOKS_JSON");
 
     assert!(
         result.is_error,
@@ -602,8 +605,11 @@ async fn eff002_hook_transform_then_middleware_deny_has_zero_origin() {
 
 #[tokio::test]
 async fn eff002_hook_transform_invalid_has_zero_origin_or_effect() {
-    let _guard = eff002_hook_env_guard();
-    std::env::set_var("RIGHTKIT_HOOK_PRE_TOOL_USE", "fixture");
+    let _guard = eff002_hook_env_guard().await;
+    std::env::set_var(
+        "RIGHTKIT_HOOKS_JSON",
+        r#"{"PreToolUse":[{"command":"fixture"}]}"#,
+    );
     let conduit = Arc::new(Conduit::new(64));
     let mut engine = SessionEngine::new(
         Arc::new(ScriptedLlm::new(vec![])),
@@ -627,7 +633,7 @@ async fn eff002_hook_transform_invalid_has_zero_origin_or_effect() {
             arguments_json: serde_json::json!({"path":"original.txt"}).to_string(),
         })
         .await;
-    std::env::remove_var("RIGHTKIT_HOOK_PRE_TOOL_USE");
+    std::env::remove_var("RIGHTKIT_HOOKS_JSON");
 
     assert!(result.is_error);
     let events = conduit.events_after(0);
@@ -639,8 +645,11 @@ async fn eff002_hook_transform_invalid_has_zero_origin_or_effect() {
 
 #[tokio::test]
 async fn eff002_hook_transform_then_middleware_approval_binds_final_digest() {
-    let _guard = eff002_hook_env_guard();
-    std::env::set_var("RIGHTKIT_HOOK_PRE_TOOL_USE", "fixture");
+    let _guard = eff002_hook_env_guard().await;
+    std::env::set_var(
+        "RIGHTKIT_HOOKS_JSON",
+        r#"{"PreToolUse":[{"command":"fixture"}]}"#,
+    );
     let file = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(file.path(), "effective payload").unwrap();
     let final_path = file.path().to_string_lossy().to_string();
@@ -722,7 +731,7 @@ async fn eff002_hook_transform_then_middleware_approval_binds_final_digest() {
         }
     }
     let result = task.await.unwrap();
-    std::env::remove_var("RIGHTKIT_HOOK_PRE_TOOL_USE");
+    std::env::remove_var("RIGHTKIT_HOOKS_JSON");
     assert!(!result.is_error, "approved effective read should execute");
     assert!(
         result.content.contains("effective payload"),
@@ -739,8 +748,11 @@ async fn eff002_hook_transform_then_middleware_approval_binds_final_digest() {
 
 #[tokio::test]
 async fn eff002_hook_transform_recomputes_skill_policy_on_effective_call() {
-    let _guard = eff002_hook_env_guard();
-    std::env::set_var("RIGHTKIT_HOOK_PRE_TOOL_USE", "fixture");
+    let _guard = eff002_hook_env_guard().await;
+    std::env::set_var(
+        "RIGHTKIT_HOOKS_JSON",
+        r#"{"PreToolUse":[{"command":"fixture"}]}"#,
+    );
     let tmp = tempfile::tempdir().unwrap();
     let skills_dir = tmp.path().join("skills");
     std::fs::create_dir_all(&skills_dir).unwrap();
@@ -774,7 +786,7 @@ async fn eff002_hook_transform_recomputes_skill_policy_on_effective_call() {
             arguments_json: serde_json::json!({"path":"safe.txt"}).to_string(),
         })
         .await;
-    std::env::remove_var("RIGHTKIT_HOOK_PRE_TOOL_USE");
+    std::env::remove_var("RIGHTKIT_HOOKS_JSON");
 
     assert!(result.is_error);
     assert!(
@@ -811,8 +823,11 @@ fn eff002_hook_presence_disables_readonly_fast_path() {
 
 #[tokio::test]
 async fn eff002_concurrent_consumer_returns_effective_transformed_call() {
-    let _guard = eff002_hook_env_guard();
-    std::env::set_var("RIGHTKIT_HOOK_PRE_TOOL_USE", "fixture");
+    let _guard = eff002_hook_env_guard().await;
+    std::env::set_var(
+        "RIGHTKIT_HOOKS_JSON",
+        r#"{"PreToolUse":[{"command":"fixture"}]}"#,
+    );
     let mut engine = SessionEngine::new(
         Arc::new(ScriptedLlm::new(vec![])),
         Arc::new(ToolRegistry::build_default()),
@@ -834,7 +849,7 @@ async fn eff002_concurrent_consumer_returns_effective_transformed_call() {
             arguments_json: serde_json::json!({"value":"original"}).to_string(),
         })
         .await;
-    std::env::remove_var("RIGHTKIT_HOOK_PRE_TOOL_USE");
+    std::env::remove_var("RIGHTKIT_HOOKS_JSON");
     assert_eq!(effective_call.arguments_json, r#"{"value":"effective"}"#);
     assert!(result.is_error);
 }
@@ -934,8 +949,11 @@ fn transcript_json(engine: &SessionEngine) -> String {
 
 #[tokio::test]
 async fn hook_ask_routes_through_approval_with_post_mutation_payload() {
-    let _guard = eff002_hook_env_guard();
-    std::env::set_var("RIGHTKIT_HOOK_PRE_TOOL_USE", "fixture");
+    let _guard = eff002_hook_env_guard().await;
+    std::env::set_var(
+        "RIGHTKIT_HOOKS_JSON",
+        r#"{"PreToolUse":[{"command":"fixture"}]}"#,
+    );
     let file = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(file.path(), "ask payload").unwrap();
     let final_path = file.path().to_string_lossy().to_string();
@@ -988,15 +1006,18 @@ async fn hook_ask_routes_through_approval_with_post_mutation_payload() {
         }
     }
     let result = task.await.unwrap();
-    std::env::remove_var("RIGHTKIT_HOOK_PRE_TOOL_USE");
+    std::env::remove_var("RIGHTKIT_HOOKS_JSON");
     assert!(!result.is_error, "approved ask should execute: {result:?}");
     assert!(result.content.contains("ask payload"));
 }
 
 #[tokio::test]
 async fn hook_ask_denied_by_operator_does_not_execute() {
-    let _guard = eff002_hook_env_guard();
-    std::env::set_var("RIGHTKIT_HOOK_PRE_TOOL_USE", "fixture");
+    let _guard = eff002_hook_env_guard().await;
+    std::env::set_var(
+        "RIGHTKIT_HOOKS_JSON",
+        r#"{"PreToolUse":[{"command":"fixture"}]}"#,
+    );
     let file = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(file.path(), "never read").unwrap();
     let conduit = Arc::new(Conduit::new(64));
@@ -1044,15 +1065,18 @@ async fn hook_ask_denied_by_operator_does_not_execute() {
         }
     }
     let result = task.await.unwrap();
-    std::env::remove_var("RIGHTKIT_HOOK_PRE_TOOL_USE");
+    std::env::remove_var("RIGHTKIT_HOOKS_JSON");
     assert!(result.is_error, "denied ask must not execute");
     assert!(!result.content.contains("never read"));
 }
 
 #[tokio::test]
 async fn hook_additional_context_reaches_the_model() {
-    let _guard = eff002_hook_env_guard();
-    std::env::set_var("RIGHTKIT_HOOK_PRE_TOOL_USE", "fixture");
+    let _guard = eff002_hook_env_guard().await;
+    std::env::set_var(
+        "RIGHTKIT_HOOKS_JSON",
+        r#"{"PreToolUse":[{"command":"fixture"}]}"#,
+    );
     let file = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(file.path(), "payload").unwrap();
     let mut engine = SessionEngine::new(
@@ -1075,7 +1099,7 @@ async fn hook_additional_context_reaches_the_model() {
             arguments_json: serde_json::json!({"path": file.path().to_string_lossy()}).to_string(),
         })
         .await;
-    std::env::remove_var("RIGHTKIT_HOOK_PRE_TOOL_USE");
+    std::env::remove_var("RIGHTKIT_HOOKS_JSON");
     assert!(!result.is_error, "{result:?}");
     assert!(transcript_json(&engine)
         .contains("[Hook context: PreToolUse read_file] remember the migration plan"));
@@ -1083,7 +1107,7 @@ async fn hook_additional_context_reaches_the_model() {
 
 #[tokio::test]
 async fn lifecycle_events_publish_once_per_session_and_per_run() {
-    let _guard = eff002_hook_env_guard();
+    let _guard = eff002_hook_env_guard().await;
     std::env::remove_var("RIGHTKIT_HOOKS_JSON");
     let (mut engine, _c) = engine_with(
         vec![LlmResponse::text("a"), LlmResponse::text("b")],
@@ -1112,7 +1136,7 @@ async fn lifecycle_events_publish_once_per_session_and_per_run() {
 
 #[tokio::test]
 async fn session_start_hook_context_is_injected_once() {
-    let _guard = eff002_hook_env_guard();
+    let _guard = eff002_hook_env_guard().await;
     std::env::set_var(
         "RIGHTKIT_HOOKS_JSON",
         r#"{"SessionStart":[{"command":"ctx"}]}"#,
@@ -1138,8 +1162,8 @@ async fn session_start_hook_context_is_injected_once() {
 
 #[tokio::test]
 async fn user_prompt_submit_hook_can_block_the_prompt() {
-    let _guard = eff002_hook_env_guard();
-    std::env::remove_var("RIGHTKIT_HOOK_PRE_TOOL_USE");
+    let _guard = eff002_hook_env_guard().await;
+    std::env::remove_var("RIGHTKIT_HOOKS_JSON");
     std::env::set_var(
         "RIGHTKIT_HOOKS_JSON",
         r#"{"UserPromptSubmit":[{"command":"gate"}]}"#,
@@ -1162,7 +1186,7 @@ async fn user_prompt_submit_hook_can_block_the_prompt() {
 
 #[tokio::test]
 async fn user_prompt_submit_additional_context_extends_the_prompt() {
-    let _guard = eff002_hook_env_guard();
+    let _guard = eff002_hook_env_guard().await;
     std::env::set_var(
         "RIGHTKIT_HOOKS_JSON",
         r#"{"UserPromptSubmit":[{"command":"ctx"}]}"#,
@@ -1181,7 +1205,7 @@ async fn user_prompt_submit_additional_context_extends_the_prompt() {
 
 #[tokio::test]
 async fn notification_hook_context_is_forwarded() {
-    let _guard = eff002_hook_env_guard();
+    let _guard = eff002_hook_env_guard().await;
     std::env::set_var(
         "RIGHTKIT_HOOKS_JSON",
         r#"{"Notification":[{"command":"note"}]}"#,
@@ -1197,8 +1221,7 @@ async fn notification_hook_context_is_forwarded() {
 
 #[tokio::test]
 async fn stop_hook_block_keeps_the_agent_going_with_the_reason() {
-    let _guard = eff002_hook_env_guard();
-    std::env::remove_var("RIGHTKIT_HOOK_STOP_BLOCKING");
+    let _guard = eff002_hook_env_guard().await;
     std::env::set_var("RIGHTKIT_HOOKS_JSON", r#"{"Stop":[{"command":"gate"}]}"#);
     let (mut engine, _c) = engine_with(
         (0..12).map(|_| LlmResponse::text("done")).collect(),
@@ -1219,8 +1242,7 @@ async fn stop_hook_block_keeps_the_agent_going_with_the_reason() {
 
 #[tokio::test]
 async fn subagent_stop_hook_block_applies_only_to_subagent_engines() {
-    let _guard = eff002_hook_env_guard();
-    std::env::remove_var("RIGHTKIT_HOOK_STOP_BLOCKING");
+    let _guard = eff002_hook_env_guard().await;
     std::env::set_var(
         "RIGHTKIT_HOOKS_JSON",
         r#"{"SubagentStop":[{"command":"gate"}]}"#,
@@ -1250,11 +1272,14 @@ async fn subagent_stop_hook_block_applies_only_to_subagent_engines() {
 
 #[tokio::test]
 async fn configured_pre_tool_hooks_are_detected_for_serial_routing() {
-    let _guard = eff002_hook_env_guard();
+    let _guard = eff002_hook_env_guard().await;
     std::env::remove_var("RIGHTKIT_HOOKS_JSON");
-    std::env::set_var("RIGHTKIT_HOOK_PRE_TOOL_USE", "fixture");
+    std::env::set_var(
+        "RIGHTKIT_HOOKS_JSON",
+        r#"{"PreToolUse":[{"command":"fixture"}]}"#,
+    );
     let bus = eff002_hook_bus(serde_json::json!({}));
     assert!(bus.has_pre_tool_use_hooks());
-    std::env::remove_var("RIGHTKIT_HOOK_PRE_TOOL_USE");
+    std::env::remove_var("RIGHTKIT_HOOKS_JSON");
     assert!(!bus.has_pre_tool_use_hooks());
 }

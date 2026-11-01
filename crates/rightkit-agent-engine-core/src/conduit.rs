@@ -238,7 +238,7 @@ impl Conduit {
 
     /// Install the persistence admission queue. Every sequenced event enters
     /// this queue before persistence. Live projections are still broadcast
-    /// immediately; durable facts are withheld until [`publish_committed`].
+    /// immediately; durable facts are withheld until [`Conduit::publish_committed`].
     /// This explicit ingress avoids making durability depend on subscribing to
     /// the same broadcast that durable facts are intentionally withheld from.
     pub fn install_persistence_gate(&self) -> mpsc::UnboundedReceiver<ProtocolEvent> {
@@ -496,7 +496,6 @@ pub fn seq_of(e: &ProtocolEvent) -> i64 {
         | SelfReviewProposalReceived { seq, .. }
         | ModelRouteDecision { seq, .. }
         | ToolApprovalReviewed { seq, .. }
-        | ToolPolicyEvent { seq, .. }
         | RunGovernanceRejected { seq, .. } => *seq,
     }
 }

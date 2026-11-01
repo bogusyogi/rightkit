@@ -32,7 +32,7 @@ pub struct PinnedMessageRef {
 
 /// Durable registry of pinned messages, independent of any one transcript's
 /// in-memory `pinned` bit. Expected lifecycle: load/deserialize once per
-/// session store, `pin`/`unpin` on user action, call [`apply_to`] before
+/// session store, `pin`/`unpin` on user action, call [`PinnedContextRegistry::apply_to`] before
 /// handing a transcript to the compactor (or right after loading a
 /// transcript from disk) so the registry -- not whatever the persisted
 /// transcript happened to have -- is the source of truth for what survives.

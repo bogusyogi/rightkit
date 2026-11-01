@@ -297,6 +297,25 @@ pub(crate) fn duplicate_tool_call_note(call: &ToolCall) -> String {
     )
 }
 
+pub(crate) fn is_worker_spawning_tool_call(call: &ToolCall) -> bool {
+    call.name == "spawn_subagent" || is_local_agent_task_create(call)
+}
+
+fn is_local_agent_task_create(call: &ToolCall) -> bool {
+    if call.name != "task_create" {
+        return false;
+    }
+
+    serde_json::from_str::<serde_json::Value>(&call.arguments_json)
+        .ok()
+        .and_then(|args| {
+            args.get("kind")
+                .and_then(|kind| kind.as_str())
+                .map(|kind| kind.eq_ignore_ascii_case("local_agent"))
+        })
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod cross_turn_dedupe_tests {
     use super::*;
@@ -333,23 +352,4 @@ mod cross_turn_dedupe_tests {
         assert!(prior_tool_call_ids(&transcript, Some(&id)).is_empty());
         assert!(prior_tool_call_ids(&transcript, None).contains("call_9"));
     }
-}
-
-pub(crate) fn is_worker_spawning_tool_call(call: &ToolCall) -> bool {
-    call.name == "spawn_subagent" || is_local_agent_task_create(call)
-}
-
-fn is_local_agent_task_create(call: &ToolCall) -> bool {
-    if call.name != "task_create" {
-        return false;
-    }
-
-    serde_json::from_str::<serde_json::Value>(&call.arguments_json)
-        .ok()
-        .and_then(|args| {
-            args.get("kind")
-                .and_then(|kind| kind.as_str())
-                .map(|kind| kind.eq_ignore_ascii_case("local_agent"))
-        })
-        .unwrap_or(false)
 }

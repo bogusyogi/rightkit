@@ -21,6 +21,7 @@ impl SessionEngine {
     /// Build one governed concurrent execution future without borrowing the
     /// engine. The caller must apply the same 5a classifier used by the
     /// completed-response path before enqueueing this future.
+    #[cfg(test)]
     pub(in crate::engine) fn streaming_concurrent_tool_future(
         &self,
         call: ToolCall,
@@ -121,7 +122,7 @@ impl SessionEngine {
                 &workspace_root,
             ) {
                 Ok(process_launch) => process_launch,
-                Err(result) => return (call, result),
+                Err(result) => return (call, *result),
             };
             let mut ctx = rightkit_agent_tools::coding_tools::ToolContext::new(
                 &session_id,
@@ -697,7 +698,7 @@ impl SessionEngine {
                         &workspace_root,
                     ) {
                         Ok(process_launch) => process_launch,
-                        Err(result) => return (call, result),
+                        Err(result) => return (call, *result),
                     };
                     let mut ctx = rightkit_agent_tools::coding_tools::ToolContext::new(
                         &session_id,

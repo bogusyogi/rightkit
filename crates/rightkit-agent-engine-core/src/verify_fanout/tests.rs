@@ -23,10 +23,7 @@ use super::verifiers::{
     split_location_head, CommandVerifierSpec, VerifierId, VerifierOutcome, VerifierRequirement,
     VerifierStatus, VerifierTask,
 };
-use super::{
-    has_required_gap, post_dispatch_action, run_verify_fanout, FanoutRequest, FindingCategory,
-    FindingSeverity, PostDispatchAction, VerifyBudgets,
-};
+use super::{run_verify_fanout, FanoutRequest, FindingCategory, FindingSeverity, VerifyBudgets};
 
 fn budgets() -> VerifyBudgets {
     VerifyBudgets::default()

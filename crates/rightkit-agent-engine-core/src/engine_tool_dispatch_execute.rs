@@ -219,7 +219,7 @@ impl SessionEngine {
             &self.workspace_root,
         ) {
             Ok(process_launch) => process_launch,
-            Err(result) => return Some(result),
+            Err(result) => return Some(*result),
         };
 
         if let Some(bus) = &self.hook_bus {

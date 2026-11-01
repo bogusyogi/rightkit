@@ -2071,13 +2071,7 @@ impl SessionEngine {
         let mut streamed_tool_calls = false;
         let mut turn_results = std::collections::HashMap::new();
         let mut in_flight: futures::stream::FuturesOrdered<
-            std::pin::Pin<
-                Box<
-                    dyn std::future::Future<
-                            Output = (ToolCall, rightkit_agent_tools::coding_tools::ToolResult),
-                        > + Send,
-                >,
-            >,
+            crate::engine::tool_dispatch::concurrent::StreamingToolFuture,
         > = futures::stream::FuturesOrdered::new();
         let mut assistant_id: Option<String> = None;
         let mut stream_persistence = StreamPersistence::default();
@@ -2712,7 +2706,7 @@ mod turn_usage_tests {
     async fn oversized_kernel_keeps_a_stable_session_routing_key_across_turns() {
         let probe = UsageProbe::new();
         let mut engine = session(probe.clone(), Arc::new(Conduit::new(256)));
-        engine.set_system_prompt(&"k".repeat(STABLE_SYSTEM_KERNEL_MAX_BYTES + 10));
+        engine.set_system_prompt("k".repeat(STABLE_SYSTEM_KERNEL_MAX_BYTES + 10));
         engine.submit_user_message("one").await.unwrap();
         engine.submit_user_message("two").await.unwrap();
         let seen = probe.seen.lock().unwrap();

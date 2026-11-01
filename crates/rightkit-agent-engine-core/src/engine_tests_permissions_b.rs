@@ -527,7 +527,7 @@ async fn cr1_real_user_approval_carries_digest_and_executes() {
     let engine_task =
         tokio::spawn(async move { e.submit_user_message("write a file").await.unwrap() });
 
-    let mut seen_digest: Option<String> = None;
+    let seen_digest: Option<String>;
     loop {
         if let crate::conduit::ConduitReceive::Event(ev) = sub.recv().await {
             if matches!(ev, ProtocolEvent::ToolApprovalRequested { .. }) {

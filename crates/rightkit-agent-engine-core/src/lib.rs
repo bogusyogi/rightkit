@@ -46,6 +46,7 @@ pub mod mutation_diagnostics;
 pub mod overflow_recovery;
 pub mod pinned_context;
 pub mod post_edit;
+#[cfg(test)]
 mod post_edit_diagnostics;
 mod post_turn_gate;
 pub mod prompt_cache_break;

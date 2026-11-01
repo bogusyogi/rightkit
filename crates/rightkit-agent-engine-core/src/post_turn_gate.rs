@@ -6,6 +6,7 @@
 use rightkit_agent_engine_protocol::ToolCall;
 use rightkit_hooks::agent_hooks::HookOutcome;
 
+#[cfg(test)]
 use crate::post_edit_diagnostics::{DiagnosticSeverity, DiagnosticSource, PostEditReport};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,6 +136,7 @@ impl PostTurnGateState {
     /// files (or rule out the unverifiable claim) before continuing. Warnings
     /// are surfaced but do NOT block the turn — that is a deliberate
     /// difference from the prior string-prefix renderer.
+    #[cfg(test)]
     pub fn after_diagnostics_report(&mut self, report: &PostEditReport) -> PostTurnGateDecision {
         let blocking: Vec<_> = report
             .findings
@@ -260,6 +262,7 @@ impl PostTurnGateState {
     }
 }
 
+#[cfg(test)]
 fn render_blocking_instruction<'a, I>(findings: I) -> String
 where
     I: Iterator<Item = &'a crate::post_edit_diagnostics::DiagnosticFinding>,

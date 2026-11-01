@@ -1,6 +1,6 @@
 use super::*;
 #[path = "engine_tool_dispatch_concurrent.rs"]
-mod concurrent;
+pub(in crate::engine) mod concurrent;
 #[path = "engine_tool_dispatch_single.rs"]
 mod single;
 #[path = "engine_tool_dispatch_approval.rs"]
@@ -31,7 +31,7 @@ fn required_process_launch_authority(
     tool_name: &str,
     args: &serde_json::Value,
     workspace_root: &std::path::Path,
-) -> Result<Option<ProcessLaunchAuthority>, rightkit_agent_tools::coding_tools::ToolResult> {
+) -> Result<Option<ProcessLaunchAuthority>, Box<rightkit_agent_tools::coding_tools::ToolResult>> {
     let Some(tool) = tools.get(tool_name) else {
         return Ok(None);
     };
@@ -39,14 +39,18 @@ fn required_process_launch_authority(
         return Ok(None);
     };
     let governor = rightkit_agent_tools::coding_tools::process_resource_authority::require_process_resource_governor()
-        .map_err(|error| rightkit_agent_tools::coding_tools::ToolResult::error(error.to_string()))?;
+        .map_err(|error| {
+            Box::new(rightkit_agent_tools::coding_tools::ToolResult::error(
+                error.to_string(),
+            ))
+        })?;
     if !governor.capability_available(kind) {
-        return Err(rightkit_agent_tools::coding_tools::ToolResult::error(
-            format!(
+        return Err(Box::new(
+            rightkit_agent_tools::coding_tools::ToolResult::error(format!(
                 "{}: tool '{}' requires unavailable resource {kind:?}",
                 rightkit_sandbox::execution::EffectExecutionError::ResourceLimitsMissing,
                 tool_name
-            ),
+            )),
         ));
     }
     let launch_context = rightkit_sandbox::execution::ProcessLaunchContext {

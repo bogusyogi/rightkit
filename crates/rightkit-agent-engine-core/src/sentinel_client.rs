@@ -8,7 +8,7 @@ use rightkit_mcp::{
     ServerSpec, TrustStore,
 };
 use rightkit_sandbox::execution::ProcessLaunchContext;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 

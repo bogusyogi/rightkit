@@ -10,7 +10,7 @@
 //!   `executeToolCallsParallel` (line 489): collect independent units, run
 //!   them all, then reassemble results deterministically in submission
 //!   order (`Promise.all` + ordered finalize, lines 540-548). This module
-//!   mirrors that: one [`VerifierTask`] per unit, a tokio `JoinSet` fan-out,
+//!   mirrors that: one `VerifierTask` per unit, a tokio `JoinSet` fan-out,
 //!   ordered reassembly by submission index.
 //! * **Bounded units** — every unit carries its own deadline; a unit that
 //!   overruns is recorded `Unavailable`, never clean.
@@ -967,7 +967,7 @@ async fn run_process_capture(
     argv: Vec<String>,
     workspace_root: PathBuf,
     read_roots: &[PathBuf],
-) -> Result<(Vec<u8>, Vec<u8>, i32), VerifierOutcome> {
+) -> Result<(Vec<u8>, Vec<u8>, i32), Box<VerifierOutcome>> {
     use rightkit_sandbox::execution::{
         capture_stream_bounded, CommandLaunchSpec, OutputLimits, ProcessLaunchAdapter,
         ProcessLaunchContext,
@@ -989,11 +989,11 @@ async fn run_process_capture(
             })
             .await
             .map_err(|error| {
-                VerifierOutcome::unavailable(
+                Box::new(VerifierOutcome::unavailable(
                     verifier.clone(),
                     None,
                     format!("verifier '{spec_id}' could not start: {error:?}"),
-                )
+                ))
             })?,
     ));
     // Verifiers never read stdin; drop it so a child that waits on EOF can
@@ -1005,11 +1005,11 @@ async fn run_process_capture(
         None => {
             let _ = child.child().cancel().await;
             let _ = child.child().wait().await;
-            return Err(VerifierOutcome::unavailable(
+            return Err(Box::new(VerifierOutcome::unavailable(
                 verifier.clone(),
                 None,
                 "verifier stdout unavailable".into(),
-            ));
+            )));
         }
     };
     let stderr = match child.child().take_stderr() {
@@ -1017,11 +1017,11 @@ async fn run_process_capture(
         None => {
             let _ = child.child().cancel().await;
             let _ = child.child().wait().await;
-            return Err(VerifierOutcome::unavailable(
+            return Err(Box::new(VerifierOutcome::unavailable(
                 verifier.clone(),
                 None,
                 "verifier stderr unavailable".into(),
-            ));
+            )));
         }
     };
     let (stdout, stderr) = tokio::join!(
@@ -1039,7 +1039,7 @@ async fn run_process_capture(
         }
         (stdout, stderr, wait) => {
             let _ = child.child().cancel().await;
-            Err(VerifierOutcome::failed(
+            Err(Box::new(VerifierOutcome::failed(
                 verifier.clone(),
                 None,
                 format!(
@@ -1049,7 +1049,7 @@ async fn run_process_capture(
                     wait.err()
                 ),
                 Vec::new(),
-            ))
+            )))
         }
     }
 }
@@ -1103,7 +1103,7 @@ pub(crate) async fn run_command_unit(
         .await
         {
             Ok(code) => code,
-            Err(outcome) => return outcome,
+            Err(outcome) => return *outcome,
         };
         let mut text = String::from_utf8_lossy(&code.0).into_owned();
         text.push('\n');
@@ -1242,7 +1242,7 @@ async fn run_pyright_unit(
     .await
     {
         Ok(captured) => captured,
-        Err(outcome) => return outcome,
+        Err(outcome) => return *outcome,
     };
     let parsed: Result<serde_json::Value, _> = serde_json::from_slice(&stdout);
     let value = match parsed {

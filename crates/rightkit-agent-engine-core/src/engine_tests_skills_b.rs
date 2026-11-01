@@ -238,16 +238,18 @@ async fn pre_tool_use_exit_2_blocks_tool_with_stdout_reason() {
     engine.set_hook_bus(rightkit_hooks::agent_hooks::HookBus::new(16));
 
     let cmd = if cfg!(windows) {
-        r#"if "%HOST_HOOK_SESSION%"=="pre-tool-deny-test" (echo blocked by hook & exit /b 2) else (exit /b 0)"#
+        r#"if "%RIGHTKIT_HOOK_SESSION%"=="pre-tool-deny-test" (echo blocked by hook & exit /b 2) else (exit /b 0)"#
     } else {
-        r#"if [ "$HOST_HOOK_SESSION" = "pre-tool-deny-test" ]; then echo blocked by hook; exit 2; else exit 0; fi"#
+        r#"if [ "$RIGHTKIT_HOOK_SESSION" = "pre-tool-deny-test" ]; then echo blocked by hook; exit 2; else exit 0; fi"#
     };
     // Hook env vars are process-wide; share the hook-test lock so another
     // test's hooks (e.g. a blocking Stop) cannot leak into this run.
-    let _env_lock = super::engine_tests_basic::eff002_hook_env_guard();
-    std::env::remove_var("RIGHTKIT_HOOKS_JSON");
-    std::env::set_var("RIGHTKIT_HOOK_PRE_TOOL_USE", cmd);
-    let _guard = EnvGuard("RIGHTKIT_HOOK_PRE_TOOL_USE");
+    let _env_lock = super::engine_tests_basic::eff002_hook_env_guard().await;
+    std::env::set_var(
+        "RIGHTKIT_HOOKS_JSON",
+        serde_json::json!({"PreToolUse": [{"command": cmd}]}).to_string(),
+    );
+    let _guard = EnvGuard("RIGHTKIT_HOOKS_JSON");
 
     let out = engine.submit_user_message("write").await.unwrap();
 

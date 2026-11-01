@@ -410,14 +410,17 @@ async fn blocking_stop_cap_returns_without_goal_continuation_redrive() {
     engine.set_continuation_enabled(true);
 
     let cmd = if cfg!(windows) {
-        r#"if "%HOST_HOOK_SESSION%"=="blocking-stop-cap-test" (echo still unsafe & exit /b 2) else (exit /b 0)"#
+        r#"if "%RIGHTKIT_HOOK_SESSION%"=="blocking-stop-cap-test" (echo still unsafe & exit /b 2) else (exit /b 0)"#
     } else {
-        r#"if [ "$HOST_HOOK_SESSION" = "blocking-stop-cap-test" ]; then echo still unsafe; exit 2; else exit 0; fi"#
+        r#"if [ "$RIGHTKIT_HOOK_SESSION" = "blocking-stop-cap-test" ]; then echo still unsafe; exit 2; else exit 0; fi"#
     };
     // Hook env vars are process-wide; share the hook-test lock.
-    let _env_lock = super::engine_tests_basic::eff002_hook_env_guard();
-    std::env::set_var("RIGHTKIT_HOOK_STOP_BLOCKING", cmd);
-    let _guard = EnvGuard("RIGHTKIT_HOOK_STOP_BLOCKING");
+    let _env_lock = super::engine_tests_basic::eff002_hook_env_guard().await;
+    std::env::set_var(
+        "RIGHTKIT_HOOKS_JSON",
+        serde_json::json!({"Stop": [{"command": cmd}]}).to_string(),
+    );
+    let _guard = EnvGuard("RIGHTKIT_HOOKS_JSON");
 
     let out = engine.submit_user_message("finish").await.unwrap();
 
