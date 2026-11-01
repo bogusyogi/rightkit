@@ -167,6 +167,13 @@ jobs:
           # artifact). Broker-requested runs restore and save; pull requests restore only.
           save-cache: ${{ github.event_name == 'workflow_dispatch' }}
           restore-cache: ${{ github.event_name != 'push' }}
+      # @rightkit/release's template-contract test runs a real class A check, which runs cargo-deny & cargo-audit only from an
+      # enrolled executable; a shard that tests packages/release needs the pinned ones (hygiene pins the same versions).
+      - name: Install the pinned Cargo scan tools for the release template contract
+        if: ${{ contains(format(' {0} ', matrix.tokens), ' npm:packages/release ') }}
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-deny@0.20.2,cargo-audit@0.22.2
       - name: Gate shard
         shell: bash
         env:
@@ -233,6 +240,11 @@ jobs:
           save-cache: ${{ github.event_name == 'workflow_dispatch' }}
           restore-cache: ${{ github.event_name != 'push' }}
           derived-data: ${{ matrix.swift && 'xcode-27' || '' }}
+      - name: Install the pinned Cargo scan tools for the release template contract
+        if: ${{ contains(format(' {0} ', matrix.tokens), ' npm:packages/release ') }}
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-deny@0.20.2,cargo-audit@0.22.2
       - name: Gate shard
         shell: bash
         env:
