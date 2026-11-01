@@ -25,19 +25,23 @@ pub struct ProviderKeyStorageStatus {
     pub keychain_failure_observed: bool,
 }
 
+/// The client-API contract version the daemon serves. A client accepts the daemon only when this
+/// and [`PROTOCOL_VERSION`] sit inside its compiled range; the app `version` is displayed, never compared.
+pub const CONTRACT_VERSION: u32 = 1;
+/// The daemon discovery-record protocol version (`daemon.port` `ProtocolVersion`).
+pub const PROTOCOL_VERSION: u16 = 1;
+
+/// The unauthenticated `GET /health` body: exactly these five fields (client API R37). Everything
+/// else (`port`, `databasePath`, storage pool, provider-key posture) is behind the bearer on
+/// `/machine/info` and `/machine/status`.
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HealthResponse {
     pub ok: bool,
     pub service: String,
-    pub port: u16,
-    pub database_path: String,
-    pub utc_now: String,
-    pub storage_read_pool_idle: Option<usize>,
-    /// Non-secret provider credential-store posture. Plaintext fallback is
-    /// never implicit; when enabled or used this object makes the degraded
-    /// state visible to every daemon client.
-    pub provider_key_storage: ProviderKeyStorageStatus,
+    pub version: String,
+    pub contract_version: u32,
+    pub protocol_version: u16,
 }
 
 #[cfg(test)]
@@ -49,22 +53,28 @@ mod tests {
         let response = HealthResponse {
             ok: true,
             service: "engine".into(),
-            port: 8080,
-            database_path: "/tmp/db".into(),
-            utc_now: "2026-01-01T00:00:00Z".into(),
-            storage_read_pool_idle: None,
-            provider_key_storage: ProviderKeyStorageStatus {
-                keychain_failure_observed: false,
-            },
+            version: "1.2.3".into(),
+            contract_version: CONTRACT_VERSION,
+            protocol_version: PROTOCOL_VERSION,
         };
         let value = serde_json::to_value(&response).unwrap();
-        assert_eq!(value["databasePath"], "/tmp/db");
-        assert!(value["storageReadPoolIdle"].is_null());
-        assert_eq!(
-            value["providerKeyStorage"]["keychainFailureObserved"],
-            false
-        );
+        assert_eq!(value["contractVersion"], CONTRACT_VERSION);
+        assert_eq!(value["protocolVersion"], PROTOCOL_VERSION);
+        assert_eq!(value.as_object().unwrap().len(), 5);
         let back: HealthResponse = serde_json::from_value(value).unwrap();
-        assert_eq!(back.port, 8080);
+        assert_eq!(back.version, "1.2.3");
+    }
+
+    #[test]
+    fn health_response_refuses_unknown_fields() {
+        let body = serde_json::json!({
+            "ok": true,
+            "service": "engine",
+            "version": "1.2.3",
+            "contractVersion": 1,
+            "protocolVersion": 1,
+            "databasePath": "/tmp/db"
+        });
+        assert!(serde_json::from_value::<HealthResponse>(body).is_err());
     }
 }
