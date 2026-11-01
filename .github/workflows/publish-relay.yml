@@ -39,10 +39,11 @@ jobs:
           set -euo pipefail
           touch dispatched.txt
           relay_pass() {
+            waiting=0
             since=$(date -u -d '-1 day' +%Y-%m-%dT%H:%M:%SZ)
             # Each publish-direct run's title names its publish run; keep its status and conclusion.
             gh api -X GET "repos/$REPO/actions/workflows/publish-direct.yml/runs" -f per_page=100 -f created=">=$since" --paginate \
-              --jq '.workflow_runs[] | "\(.display_title)|\(.status)|\(.conclusion)"' > relayed.txt
+              --jq '.workflow_runs[] | "\(.display_title)|\(.status)|\(.conclusion)|\(.updated_at)"' > relayed.txt
             gh api -X GET "repos/$REPO/actions/workflows/publish.yml/runs" -f per_page=100 -f created=">=$since" -f branch=main \
               -f event=workflow_dispatch -f status=success --paginate \
               --jq '.workflow_runs[] | "\(.id) \(.run_attempt) \(.head_sha)"' > green.txt
@@ -51,8 +52,11 @@ jobs:
               # Done once one upload succeeded or one is still queued or running (or this relay run just dispatched it); a failed
               # upload (crates.io's new-crate rate limit answers 429) is retried, at most six times.
               if grep -F "$title|" relayed.txt | grep -qvE '\|completed\|'; then continue; fi
-              if grep -qxF "$title|completed|success" relayed.txt; then continue; fi
+              if grep -qF "$title|completed|success|" relayed.txt; then continue; fi
               if [ "$(grep -cF "$title|completed|" relayed.txt || true)" -ge 6 ]; then continue; fi
+              # crates.io answers 429 for about ten minutes after its new-crate burst: wait that long after a failed upload.
+              last=$(grep -F "$title|completed|" relayed.txt | cut -d'|' -f4 | sort | tail -1)
+              if [ -n "$last" ] && [ $(( $(date -u +%s) - $(date -u -d "$last" +%s) )) -lt 600 ]; then waiting=1; continue; fi
               if grep -qxF "$title $(grep -cF "$title|completed|" relayed.txt || true)" dispatched.txt; then continue; fi
               echo "relay publish run $id attempt $attempt at $sha"
               gh workflow run publish-direct.yml --repo "$REPO" --ref main -f run_id="$id" -f run_attempt="$attempt" -f head_sha="$sha"
@@ -67,7 +71,8 @@ jobs:
               n=$(gh api -X GET "repos/$REPO/actions/workflows/publish.yml/runs" -f status=$state -f per_page=1 --jq '.total_count')
               busy=$((busy + n))
             done
-            [ "$busy" -eq 0 ] && break
+            # Also keep going while an upload waits out crates.io's rate limit, so the retry is not left to the cron.
+            [ "$busy" -eq 0 ] && [ "$waiting" -eq 0 ] && break
             sleep 60
           done
           relay_pass
