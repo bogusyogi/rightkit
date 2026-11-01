@@ -12,7 +12,7 @@ Flagged mismatches: 0.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (70)
+## Rust crates (71)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -78,6 +78,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-sync-keys` | private | 0.1.0 | none recorded |  | private | sync-key-management | End-to-end sync key management for Right Suite apps: account data key, versioned rotation, per-zone key derivation, OS credential storage, and device-approval key transfer (X25519 + short code + AEAD). |
 | `rightkit-tauri-shell` | crates.io | 0.7.0 | 0.6.0 | 0.7.0 | staged, not yet published | desktop-shell | Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring. |
 | `rightkit-time` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | time-civil | Time owner: RFC 3339 parse and format, fixed UTC offsets, civil date math and HTTP-date formatting, std only. |
+| `rightkit-timeline` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Portable video timeline core: tracks, clips, rational time, revisions, ripple edits, titles and visuals, and the render-plan compiler with its FFmpeg argument builder. Pure computation. |
 | `rightkit-transcript` | crates.io | 0.4.0 | 0.4.0 | 0.4.0 | ok | timed-transcripts | Product-neutral word-timed transcript contract, cue segmentation, and SRT/VTT/JSON import and export for Right Suite applications |
 | `rightkit-tts` | crates.io | 0.2.3 | 0.2.3 | 0.2.3 | ok | text-to-speech | Shared local text-to-speech for Right Suite apps: OS voices (say / SAPI) and a Qwen3-TTS QTS worker client |
 | `rightkit-tts-qwen` | crates.io | 0.2.7 | 0.2.7 | 0.2.7 | ok | text-to-speech | Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit |

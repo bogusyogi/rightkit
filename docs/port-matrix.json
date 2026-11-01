@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T02:09:15Z",
-  "rightkitHead": "79a3af8",
+  "generatedAt": "2026-11-01T02:19:12Z",
+  "rightkitHead": "ca01ecf",
   "legend": [
     {
       "state": "adopted",
@@ -127,7 +127,7 @@
     {
       "id": "other",
       "name": "Other (no domain assigned)",
-      "packages": 1
+      "packages": 2
     }
   ],
   "triage": null,
@@ -2271,7 +2271,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/pulse",
       "present": true,
-      "head": "6bec63a",
+      "head": "d086863",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -2281,9 +2281,9 @@
         "ignored": []
       },
       "scan": {
-        "manifests": 31,
+        "manifests": 30,
         "parseErrors": 0,
-        "pins": 127,
+        "pins": 128,
         "vendored": 0
       },
       "progress": {
@@ -2738,19 +2738,6 @@
         }
       ],
       "rkReady": [
-        {
-          "path": "rightkit-mesh",
-          "name": "pulse-mesh",
-          "directory": "rightkit-mesh",
-          "kind": "cargo",
-          "version": "0.0.1",
-          "publish": "publish = false",
-          "status": "duplicate",
-          "owner": "rightkit-mesh",
-          "ownerVersion": "0.1.0",
-          "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-mesh (source 0.1.0, not published)"
-        },
         {
           "path": "rightkit-mesh-ffi",
           "name": "pulse-mesh-ffi",
@@ -8681,7 +8668,7 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "=0.4.7, 15 pins",
+          "detail": "=0.4.7, 14 pins",
           "rows": [
             "M8"
           ]
@@ -9660,7 +9647,7 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "=0.3.5, 8 pins",
+          "detail": "=0.3.5, 7 pins",
           "rows": [
             "M15"
           ]
@@ -9821,8 +9808,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.0 (no published version), 3 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -11878,6 +11865,71 @@
         "scraperight": {
           "state": "adopted",
           "detail": "=0.1.0"
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-timeline",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-timeline",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
         },
         "viewright": {
           "state": "unused",

@@ -515,6 +515,7 @@
     "rightkit-sync": "0.2.2",
     "rightkit-tauri-shell": "0.7.0",
     "rightkit-time": "0.1.0",
+    "rightkit-timeline": "0.1.0",
     "rightkit-transcript": "0.4.0",
     "rightkit-tts": "0.2.3",
     "rightkit-tts-qwen": "0.2.7",

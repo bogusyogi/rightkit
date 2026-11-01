@@ -15,7 +15,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 96 (70 crates, 26 npm packages).
+- Packages in RightKit: 97 (71 crates, 26 npm packages).
 - Packages with at least one app pin: 75.
 - App pins: 528. Stale: 64. Ahead of published: 24. Unpublished: 0. Local: 0. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 1.
@@ -87,6 +87,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-sync-keys` | private | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-tauri-shell` | crates.io | 0.7.0 | 0.6.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 1 ahead of published |
 | `rightkit-time` | crates.io | 0.1.0 | 0.1.0 | 6 | coderight, genright, heardright, mailright, postright, scraperight | - |
+| `rightkit-timeline` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-transcript` | crates.io | 0.4.0 | 0.4.0 | 3 | genright, heardright, scraperight | - |
 | `rightkit-tts` | crates.io | 0.2.3 | 0.2.3 | 1 | genright | - |
 | `rightkit-tts-qwen` | crates.io | 0.2.7 | 0.2.7 | 0 | none | - |
