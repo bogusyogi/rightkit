@@ -240,11 +240,12 @@ function workspaceMetadata({ root, spawn, cargoCommand, dir, realpath }) {
   const members = (meta.packages ?? []).map((p) => {
     const pkgDir = rel(path.dirname(p.manifest_path));
     if (pkgDir === ".." || pkgDir.startsWith("../")) throw new Error(`workspace member ${p.name} lives outside the repository (${pkgDir})`);
-    // Bin targets (rustright#209 item 5) and whether `cargo test -p <name>` links them: Cargo builds a package's bins for its integration tests and
-    // benches only, so a package with neither leaves `debug/<bin>` to whatever an earlier build wrote. A bin with required-features is not counted.
+    // Bin targets (rustright#209 item 5) and whether `cargo test -p <name>` links them: Cargo builds a package's bins only for the integration tests
+    // it selects, so a package with none leaves `debug/<bin>` to whatever an earlier build wrote. A bin with required-features is not counted.
     const kinds = (t) => (Array.isArray(t.kind) ? t.kind : []);
     const bins = (p.targets ?? []).filter((t) => kinds(t).includes("bin") && !(t["required-features"] ?? t.required_features ?? []).length).map((t) => t.name).sort();
-    const testLinksBins = (p.targets ?? []).some((t) => kinds(t).includes("test") || kinds(t).includes("bench"));
+    // Only an integration test `cargo test` selects (`test` not false, no required-features) makes it link the bins; a bench is test = false by default.
+    const testLinksBins = (p.targets ?? []).some((t) => kinds(t).includes("test") && t.test !== false && !(t["required-features"] ?? t.required_features ?? []).length);
     return { name: p.name, dir: pkgDir, manifest: pkgDir === "." ? "Cargo.toml" : `${pkgDir}/Cargo.toml`, publish: !(Array.isArray(p.publish) && p.publish.length === 0), bins, testLinksBins };
   }).sort((a, b) => (a.name < b.name ? -1 : 1));
   return { cargoDir, members };
@@ -4036,14 +4037,15 @@ export async function main(argv, io = {}) {
       // gate writes no receipt that says `executor: direct` for it.
       // The output directories this compile's evidence names (GB-13): the broker's signed receipts' `outputDir`, or the direct host's resolved targets.
       // With them, per output directory, the binaries this compile linked there (rustright#209 item 5). The plan has no `cargo build`: a bin is
-      // linked only by a PASSED `cargo test -p <crate>` scan (test:rust:<unit>...) of a package with an integration test or bench, which Cargo
+      // linked only by a PASSED, not cached `cargo test -p <crate>` scan (test:rust:<unit>...) of a package with a selected integration test, which Cargo
       // rebuilds or proves fresh for this commit. A unit only checked, linted, documented, deferred to CI or without such a target counts for nothing.
       const unitByName = new Map(rust.units.map((u) => [u.name, u]));
       const known = new Set(unitByName.keys());
       const builtBins = {};
       const addBins = (dir, unit) => { if (dir && unit?.testLinksBins && unit.bins?.length) builtBins[dir] = [...new Set([...(builtBins[dir] ?? []), ...unit.bins])].sort(); };
       for (const r of scanResult.scans) {
-        if (r.status !== "pass" || !/^test:rust(?:-serial)?:/.test(String(r.id))) continue;
+        // A row answered from the scan cache compiled nothing in this run: the bytes in the target are not vouched for by it.
+        if (r.status !== "pass" || r.cached === true || !/^test:rust(?:-serial)?:/.test(String(r.id))) continue;
         const unit = unitByName.get(rustUnitOfScanId(r.id, known));
         addBins(snapshotBroker ? r.snapshotEvidence?.outputDir : targetDirs?.[unit?.cargoDir ?? "."], unit);
       }

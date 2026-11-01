@@ -2880,9 +2880,9 @@ test("[rustright#209 item 5] a Rust unit carries its bin targets and whether `ca
     workspace_root: root, target_directory: path.join(root, "target"),
     packages: [{ name: "a", manifest_path: path.join(root, "crates", "a", "Cargo.toml"), publish: null, targets: [
       { name: "a", kind: ["lib"] }, { name: "a-cli", kind: ["bin"] }, { name: "a-tool", kind: ["bin"], "required-features": ["tool"] }, { name: "a-broker", kind: ["bin"] },
-      { name: "cli_flow", kind: ["test"] },
-    ] }, { name: "b", manifest_path: path.join(root, "crates", "b", "Cargo.toml"), publish: null, targets: [{ name: "b", kind: ["bin"] }] }],
+      { name: "cli_flow", kind: ["test"], test: true },
+    ] }, { name: "b", manifest_path: path.join(root, "crates", "b", "Cargo.toml"), publish: null, targets: [{ name: "b", kind: ["bin"] }, { name: "speed", kind: ["bench"], test: false }, { name: "off", kind: ["test"], test: false }, { name: "gated", kind: ["test"], test: true, "required-features": ["x"] }] }],
   });
   const found = discoverRustWorkspaces({ root, spawn: () => ok(body), cargoCommand: ["cargo"], tracked: (name) => (name === "Cargo.lock" ? ["Cargo.lock"] : ["Cargo.toml", "crates/a/Cargo.toml", "crates/b/Cargo.toml"]) });
-  assert.deepEqual(found.units.map((u) => [u.name, u.bins, u.testLinksBins]), [["a", ["a-broker", "a-cli"], true], ["b", ["b"], false]], "only a package with an integration test or bench has its bins linked by `cargo test -p`");
+  assert.deepEqual(found.units.map((u) => [u.name, u.bins, u.testLinksBins]), [["a", ["a-broker", "a-cli"], true], ["b", ["b"], false]], "only a package with an integration test `cargo test` selects has its bins linked (a bench, a test = false test or one behind required-features does not)");
 });
