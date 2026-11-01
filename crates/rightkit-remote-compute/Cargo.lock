@@ -1680,6 +1680,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-compose"
+version = "0.2.1"
+dependencies = [
+ "image",
+ "rightkit-crypto",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "rightkit-credentials"
 version = "0.4.2"
 dependencies = [
@@ -1748,6 +1759,8 @@ name = "rightkit-fs"
 version = "0.4.8"
 dependencies = [
  "libc",
+ "serde",
+ "serde_json",
  "sha2",
  "thiserror",
 ]
@@ -1831,6 +1844,7 @@ dependencies = [
  "image",
  "rightkit-app-settings",
  "rightkit-child-process",
+ "rightkit-compose",
  "rightkit-credentials",
  "rightkit-crypto",
  "rightkit-db",
@@ -1888,8 +1902,10 @@ dependencies = [
  "rightkit-child-process",
  "rightkit-crypto",
  "rightkit-fs",
+ "rightkit-local-gen",
  "rightkit-logs",
  "rightkit-media-gen",
+ "rightkit-models",
  "serde_json",
 ]
 
