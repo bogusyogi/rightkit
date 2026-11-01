@@ -1,0 +1,12 @@
+include!("routes_and_openapi.rs");
+include!("telegram_handlers.rs");
+include!("outbound_and_fanout.rs");
+include!("remote_target_helpers.rs");
+include!("channel_profiles.rs");
+include!("telegram_payloads.rs");
+include!("tests_openapi.rs");
+include!("tests_telegram_status.rs");
+include!("tests_profiles.rs");
+include!("tests_outbound_webhook.rs");
+include!("tests_outbound_ntfy.rs");
+include!("tests_fanout.rs");
