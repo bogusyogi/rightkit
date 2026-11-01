@@ -17,8 +17,7 @@ claude = []
 codex = []
 # Session lifecycle: spawn, event stream, approvals, cancel, tree teardown. Pulls in both protocol clients.
 session = ["claude", "codex"]
-agent_acp = []
-driver_host = ["dep:rightkit-crypto", "dep:async-trait", "dep:rightkit-agent-tools", "rightkit-child-process/tokio", "dep:rightkit-app-settings", "dep:rightkit-sandbox", "dep:rightkit-fs", "dep:rightkit-sidecar", "dep:rightkit-time", "dep:thiserror", "dep:tokio", "dep:libc"]
+driver_host = ["dep:rightkit-crypto", "dep:async-trait", "dep:rightkit-agent-tools", "rightkit-child-process/tokio", "dep:rightkit-app-settings", "dep:rightkit-sandbox", "dep:rightkit-fs", "dep:rightkit-sidecar", "dep:rightkit-time", "dep:thiserror", "dep:tokio", "dep:libc", "dep:tracing"]
 
 [dependencies]
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
@@ -33,6 +32,7 @@ rightkit-fs = {version = "0.4.9", features = ["fs", "lock", "json", "digest", "t
 rightkit-sidecar = {version = "0.3.0", path = "../rightkit-sidecar", optional = true}
 rightkit-time = {version = "0.1.1", path = "../rightkit-time", optional = true}
 thiserror = {version = "2", optional = true}
+tracing = {version = "0.1", optional = true}
 tokio = {version = "1", features = ["rt", "macros", "process", "io-util", "sync", "time"], optional = true}
 
 [package.metadata.rightkit]

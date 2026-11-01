@@ -84,8 +84,8 @@ pub use delegation::{
     LaunchPolicyViolation, NativeChildSpawn, HOST_MCP_TOOL_SCOPE, NATIVE_CHILD_SPAWN_TOOL_NAMES,
 };
 pub use runtime::{
-    interrupt_frame, project_progress_kinds, steer_frame, ClaudeRootRuntime, HarnessProgressEvent,
-    HarnessProgressKind,
+    interrupt_frame, project_progress_kinds, steer_frame, ClaudeRootRuntime, ControlKind,
+    ControlRejection, ControlState, HarnessProgressEvent, HarnessProgressKind,
 };
 pub use supervisor::{ClaudeHarnessSupervisor, HarnessSpawner, SupervisedProcessInfo};
 pub use workspace::{

@@ -45,7 +45,7 @@ use std::sync::LazyLock;
 
 use crate::driver_host::cli_runtime::adapter::{
     CliAdapterError, CliAuthenticationStatus, CliDiscovery, CliLaunchRequest, CliLaunchSpec,
-    CliModelCatalog, CliProviderAdapter, NativeLoginUi,
+    CliModelCatalog, CliProviderAdapter,
 };
 use crate::driver_host::cli_runtime::ids::{
     CliAccountProfile, CliAuthMode, CliProviderCapabilities, CliProviderId, CliTransportKind,
@@ -207,62 +207,6 @@ impl CliProviderAdapter for GrokAdapter {
             ),
             observed_at: now_iso(),
         })
-    }
-
-    async fn begin_native_login(
-        &self,
-        profile: &CliAccountProfile,
-        _ui: &dyn NativeLoginUi,
-    ) -> Result<(), CliAdapterError> {
-        // Discovery/attestation owns installed-binary admission. Building a
-        // deterministic launch spec must remain testable before installation.
-        let executable = locate_binary().unwrap_or_else(|| PathBuf::from("grok"));
-        // `grok --profile-dir <managed_home> login` runs the
-        // browser/device flow under the the host app-managed profile
-        // and blocks until the user completes it. The transport
-        // surfaces the browser URL via [`NativeLoginUi`] before
-        // we wait on the subprocess; the adapter itself only
-        // spawns the command and reports its exit code.
-        let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
-        let context = rightkit_sandbox::execution::ProcessLaunchContext {
-            workspace_root: profile.managed_home.to_string_lossy().into_owned(),
-            sandbox_profile: Some("grok-login".into()),
-            sandbox_required: true,
-            network_required: true,
-        };
-        let spec = rightkit_sandbox::execution::CommandLaunchSpec {
-            program: executable.to_string_lossy().into_owned(),
-            argv: vec![
-                "--profile-dir".into(),
-                profile.managed_home.to_string_lossy().into_owned(),
-                "login".into(),
-            ],
-            cwd: context.workspace_root.clone(),
-            context,
-            env: Vec::new(),
-        };
-        let mut child = adapter.spawn(spec).await.map_err(|error| {
-            CliAdapterError::new(
-                self.provider_id.clone(),
-                "grok_login_spawn",
-                format!("failed to spawn `grok login` under policy: {error:?}"),
-            )
-        })?;
-        let status = child.wait().await.map_err(|error| {
-            CliAdapterError::new(
-                self.provider_id.clone(),
-                "grok_login_wait",
-                format!("login wait failed: {error:?}"),
-            )
-        })?;
-        if status != 0 {
-            return Err(CliAdapterError::new(
-                self.provider_id.clone(),
-                "grok_login_failed",
-                format!("`grok login` exited non-zero: {status}"),
-            ));
-        }
-        Ok(())
     }
 
     async fn list_models(

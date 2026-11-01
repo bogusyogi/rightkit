@@ -18,6 +18,15 @@ use crate::driver_host::cli_runtime::adapter::{
     CliLaunchSpec, CliProcessIo, CliRuntimeError, StartedCliProcess,
 };
 
+/// Output of [`StdioProcessIo::capture_bounded`]. `status` is `None` when the command was still
+/// running at the deadline and was cancelled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundedCapture {
+    pub status: Option<i32>,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+}
+
 #[derive(Clone)]
 pub struct StdioProcessIo {
     #[cfg(not(windows))]
@@ -29,12 +38,41 @@ pub struct StdioProcessIo {
 }
 
 impl StdioProcessIo {
+    /// Bound for a vendor probe (`--version`, `auth status`): R19.
+    pub const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+    /// Run a vendor command to completion within [`Self::PROBE_TIMEOUT`]. A command that does not
+    /// finish in time is killed and reported as an error (R19: no unbounded child wait).
     pub async fn capture_with_native_adapter(
         executable: &Path,
         argv: Vec<String>,
         cwd: &Path,
         env: Vec<(String, String)>,
     ) -> Result<(i32, Vec<u8>, Vec<u8>), CliRuntimeError> {
+        let captured =
+            Self::capture_bounded(executable, argv, cwd, env, Self::PROBE_TIMEOUT).await?;
+        match captured.status {
+            Some(status) => Ok((status, captured.stdout, captured.stderr)),
+            None => Err(CliRuntimeError::new(
+                "cli_process_timeout",
+                format!(
+                    "vendor command did not finish within {} s",
+                    Self::PROBE_TIMEOUT.as_secs()
+                ),
+            )),
+        }
+    }
+
+    /// Run a vendor command under the native sandbox adapter and wait at most `limit`. On timeout
+    /// the child is cancelled, `status` is `None` and whatever it wrote so far is returned, so the
+    /// caller can show the vendor's own words (login R13).
+    pub async fn capture_bounded(
+        executable: &Path,
+        argv: Vec<String>,
+        cwd: &Path,
+        env: Vec<(String, String)>,
+        limit: std::time::Duration,
+    ) -> Result<BoundedCapture, CliRuntimeError> {
         let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
         let spec = CommandLaunchSpec {
             program: executable.to_string_lossy().into_owned(),
@@ -52,30 +90,56 @@ impl StdioProcessIo {
             .spawn(spec)
             .await
             .map_err(|error| CliRuntimeError::new("cli_process_spawn", error.to_string()))?;
-        let mut stdout = child.take_stdout();
-        let mut stderr = child.take_stderr();
-        let (status, out, err) = tokio::join!(
-            child.wait(),
-            async {
-                let mut b = Vec::new();
-                if let Some(s) = stdout.as_mut() {
-                    let _ = tokio::io::AsyncReadExt::read_to_end(s, &mut b).await;
+        let stdout_buf = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let stderr_buf = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let readers = [
+            (child.take_stdout(), Arc::clone(&stdout_buf)),
+            (child.take_stderr(), Arc::clone(&stderr_buf)),
+        ]
+        .into_iter()
+        .filter_map(|(stream, sink)| {
+            let mut stream = stream?;
+            Some(tokio::spawn(async move {
+                let mut chunk = [0u8; 4096];
+                loop {
+                    match tokio::io::AsyncReadExt::read(&mut stream, &mut chunk).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => sink
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .extend_from_slice(&chunk[..n]),
+                    }
                 }
-                b
-            },
-            async {
-                let mut b = Vec::new();
-                if let Some(s) = stderr.as_mut() {
-                    let _ = tokio::io::AsyncReadExt::read_to_end(s, &mut b).await;
-                }
-                b
+            }))
+        })
+        .collect::<Vec<_>>();
+        let status = match tokio::time::timeout(limit, child.wait()).await {
+            Ok(status) => {
+                Some(status.map_err(|e| CliRuntimeError::new("cli_process_wait", e.to_string()))?)
             }
-        );
-        Ok((
-            status.map_err(|e| CliRuntimeError::new("cli_process_wait", e.to_string()))?,
-            out,
-            err,
-        ))
+            Err(_) => {
+                let _ = child.cancel().await;
+                None
+            }
+        };
+        // Pipes close when the child (or its killed tree) exits; bound the drain regardless.
+        for reader in readers {
+            let abort = reader.abort_handle();
+            if tokio::time::timeout(std::time::Duration::from_secs(2), reader)
+                .await
+                .is_err()
+            {
+                abort.abort();
+            }
+        }
+        let take = |buf: &Arc<Mutex<Vec<u8>>>| {
+            std::mem::take(&mut *buf.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
+        };
+        Ok(BoundedCapture {
+            status,
+            stdout: take(&stdout_buf),
+            stderr: take(&stderr_buf),
+        })
     }
 
     pub fn spawn_with_native_adapter(
@@ -136,13 +200,18 @@ impl StdioProcessIo {
                 // Native adapters expose stderr as a pipe. Drain it while the
                 // synchronous bridge waits for protocol requests, otherwise a
                 // verbose vendor CLI can block before stdout makes progress.
-                if let Some(mut stderr) = child.take_stderr() {
+                if let Some(stderr) = child.take_stderr() {
                     tokio::spawn(async move {
-                        let mut buffer = [0u8; 8192];
-                        loop {
-                            match tokio::io::AsyncReadExt::read(&mut stderr, &mut buffer).await {
-                                Ok(0) | Err(_) => break,
-                                Ok(_) => {}
+                        // Keep the vendor CLI's own diagnostics: each line (bounded) goes
+                        // to the daemon log, so a driver that dies says why.
+                        use tokio::io::AsyncBufReadExt;
+                        let mut lines = tokio::io::BufReader::new(stderr).lines();
+                        let mut logged = 0usize;
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            if logged < 200 {
+                                let line: String = line.chars().take(500).collect();
+                                tracing::warn!(target: "driver_stderr", %line, "driver stderr");
+                                logged += 1;
                             }
                         }
                     });

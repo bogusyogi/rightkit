@@ -176,17 +176,6 @@ impl CliRuntimeError {
     }
 }
 
-/// Minimal UI handle an adapter receives during a native login.
-/// Adapters drive the browser/device flow themselves; this trait is
-/// how they surface a "follow this URL" or "press enter to confirm"
-/// instruction to the desktop shell.
-#[async_trait]
-pub trait NativeLoginUi: Send + Sync {
-    async fn present_browser_url(&self, url: &str) -> Result<(), CliAdapterError>;
-    async fn present_cli_prompt(&self, message: &str) -> Result<(), CliAdapterError>;
-    async fn report_progress(&self, message: &str) -> Result<(), CliAdapterError>;
-}
-
 /// The provider adapter. One implementation per vendor CLI. Owns
 /// discovery, auth, model catalog, launch-arg construction, and
 /// per-event normalization. Does **not** own the transport.
@@ -202,12 +191,6 @@ pub trait CliProviderAdapter: Send + Sync {
         &self,
         profile: &CliAccountProfile,
     ) -> Result<CliAuthenticationStatus, CliAdapterError>;
-
-    async fn begin_native_login(
-        &self,
-        profile: &CliAccountProfile,
-        ui: &dyn NativeLoginUi,
-    ) -> Result<(), CliAdapterError>;
 
     async fn list_models(
         &self,

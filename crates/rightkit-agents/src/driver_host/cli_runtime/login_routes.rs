@@ -4,9 +4,11 @@
 //! path to attach an account to a managed [`CliAccountProfile`]:
 //!
 //! - [`login`] launches the vendor CLI's own native login flow
-//!   (currently `claude login` and `codex login`) under a managed
-//!   `HOME` so the credential file the vendor writes lands inside the
-//!   profile directory, never in the user's global shell environment.
+//!   (currently `codex login`; Claude sign-in is not in the product, R42)
+//!   under a managed `HOME` and the vendor's config-directory variable so
+//!   the credential file the vendor writes lands inside the profile
+//!   directory, never in the user's global shell environment. It is
+//!   cancelled after [`LOGIN_TIMEOUT`].
 //! - [`status`] is a non-secret probe of whether the vendor reports a
 //!   signed-in account for that profile.
 //! - [`logout`] tears the managed profile directory down so the next
@@ -18,7 +20,6 @@
 //! …) and any match aborts the run with [`LoginError::CredentialLeakSuspected`].
 
 use crate::driver_host::cli_runtime::qualification::now_iso;
-use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -109,6 +110,13 @@ pub enum LoginError {
         provider: CliProviderId,
         matched: String,
     },
+    /// The vendor sign-in did not finish within [`LOGIN_TIMEOUT`] and was cancelled.
+    /// `stderr_summary` is what the vendor had printed by then.
+    TimedOut {
+        provider: CliProviderId,
+        seconds: u64,
+        stderr_summary: String,
+    },
     /// Underlying profile-store error (`Io`, `InvalidLabel`,
     /// `UnknownProfile`, …). Surfaces as-is so the caller can
     /// decide whether to surface or repair.
@@ -148,6 +156,14 @@ impl std::fmt::Display for LoginError {
                 f,
                 "{provider} login output looks like a credential (matched {matched:?}); launch aborted"
             ),
+            LoginError::TimedOut {
+                provider,
+                seconds,
+                stderr_summary,
+            } => write!(
+                f,
+                "{provider} login did not finish within {seconds} s and was cancelled: {stderr_summary}"
+            ),
             LoginError::ProfileIo(err) => write!(f, "profile store error: {err}"),
         }
     }
@@ -168,13 +184,27 @@ impl From<ProfileStoreError> for LoginError {
     }
 }
 
+/// How long a vendor sign-in may run before it is cancelled (providers R13).
+pub const LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// Resolve the vendor binary name and the native-login argv for one
-/// provider. `None` means the provider is not registered for native
-/// login in this PR; new providers will be added in their own PRs.
+/// provider. `None` means the provider has no native login route.
+///
+/// Claude has none: Claude account sign-in is not in the product until Anthropic approval is
+/// applied for and granted (providers R42, B68). A person's own `claude` login stays the CLI's.
 fn vendor_login_argv(provider: &CliProviderId) -> Option<(&'static str, &'static [&'static str])> {
     match provider.as_str() {
-        "claude" => Some(("claude", &["login"])),
         "codex" => Some(("codex", &["login"])),
+        _ => None,
+    }
+}
+
+/// The variable the vendor CLI reads its config directory from, set to the managed home so the
+/// credential file lands exactly where the launch reads it (providers R12): `CODEX_HOME` for
+/// Codex (`<home>/auth.json`).
+fn config_dir_variable(provider: &CliProviderId) -> Option<&'static str> {
+    match provider.as_str() {
+        "codex" => Some("CODEX_HOME"),
         _ => None,
     }
 }
@@ -285,18 +315,39 @@ pub fn ambient_forbidden_env() -> Option<String> {
 /// 6. On exit success, flip `signed_in = true`, persist the profile,
 ///    and return [`LoginReceipt`] with `status = SignedIn`.
 pub fn login(provider: &CliProviderId, label: &str) -> Result<LoginReceipt, LoginError> {
+    let (binary, argv) =
+        vendor_login_argv(provider).ok_or_else(|| LoginError::NotRegistered(provider.clone()))?;
+    login_with(
+        provider,
+        label,
+        binary,
+        argv,
+        LOGIN_TIMEOUT,
+        ambient_forbidden_env(),
+    )
+}
+
+/// [`login`] with the vendor program, argv and time limit chosen by the caller, and the result of
+/// the ambient BYOK-variable probe passed in (so a test is not at the mercy of the host's
+/// environment). The one login implementation: the desktop, the daemon route and the tests all
+/// pass through it.
+fn login_with(
+    provider: &CliProviderId,
+    label: &str,
+    binary: &str,
+    argv: &[&str],
+    limit: std::time::Duration,
+    ambient_forbidden: Option<String>,
+) -> Result<LoginReceipt, LoginError> {
     let sanitized = sanitize_label(label).map_err(LoginError::ProfileIo)?;
     let mut record = profile_for(provider, sanitized).map_err(LoginError::ProfileIo)?;
     let home = ensure_managed_home(&managed_home(provider, sanitized))
         .map_err(ProfileStoreError::Io)
         .map_err(LoginError::ProfileIo)?;
 
-    if let Some(name) = ambient_forbidden_env() {
+    if let Some(name) = ambient_forbidden {
         return Err(LoginError::ForbiddenEnvDetected(name));
     }
-
-    let (binary, argv) =
-        vendor_login_argv(provider).ok_or_else(|| LoginError::NotRegistered(provider.clone()))?;
 
     let launch_context = rightkit_sandbox::execution::ProcessLaunchContext {
         workspace_root: home.to_string_lossy().into_owned(),
@@ -311,7 +362,7 @@ pub fn login(provider: &CliProviderId, label: &str) -> Result<LoginReceipt, Logi
     let policy_adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
     let prepared = rightkit_sandbox::execution::CommandSandboxAdapter::prepare(
         &policy_adapter,
-        &binary,
+        binary,
         &argv,
         &launch_context,
     )
@@ -320,8 +371,12 @@ pub fn login(provider: &CliProviderId, label: &str) -> Result<LoginReceipt, Logi
         reason: format!("login launch rejected by policy: {error}"),
     })?;
 
-    // The vendor CLI must see its config under our managed home, so
-    // we launch with `HOME` (and the platform equivalent) overridden.
+    // The vendor CLI must see its config under our managed home: `HOME`, and the variable the
+    // launch reads the account from, both point at it (providers R12).
+    let mut login_env = vec![("HOME".to_string(), home.to_string_lossy().into_owned())];
+    if let Some(variable) = config_dir_variable(provider) {
+        login_env.push((variable.to_string(), home.to_string_lossy().into_owned()));
+    }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -329,21 +384,22 @@ pub fn login(provider: &CliProviderId, label: &str) -> Result<LoginReceipt, Logi
             provider: provider.clone(),
             reason: error.to_string(),
         })?;
-    let (status, stdout_bytes, stderr_bytes) = runtime
+    let captured = runtime
         .block_on(
-            crate::driver_host::cli_runtime::transports::process::StdioProcessIo::capture_with_native_adapter(
+            crate::driver_host::cli_runtime::transports::process::StdioProcessIo::capture_bounded(
                 std::path::Path::new(&prepared.program),
                 prepared.argv,
                 &home,
-                vec![("HOME".into(), home.to_string_lossy().into_owned())],
+                login_env,
+                limit,
             ),
         )
         .map_err(|reason| LoginError::Spawn {
             provider: provider.clone(),
             reason: reason.to_string(),
         })?;
-    let stdout = String::from_utf8_lossy(&stdout_bytes).into_owned();
-    let stderr = String::from_utf8_lossy(&stderr_bytes).into_owned();
+    let stdout = String::from_utf8_lossy(&captured.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&captured.stderr).into_owned();
 
     if let Some(matched) = find_credential_match(&stdout).or_else(|| find_credential_match(&stderr))
     {
@@ -353,6 +409,14 @@ pub fn login(provider: &CliProviderId, label: &str) -> Result<LoginReceipt, Logi
         });
     }
 
+    let Some(status) = captured.status else {
+        let redacted = redact_credential_bytes(&stderr).unwrap_or(stderr);
+        return Err(LoginError::TimedOut {
+            provider: provider.clone(),
+            seconds: limit.as_secs(),
+            stderr_summary: truncate(&redacted, 240),
+        });
+    };
     if status != 0 {
         let redacted = redact_credential_bytes(&stderr).unwrap_or(stderr);
         return Err(LoginError::NonZeroExit {
@@ -439,7 +503,7 @@ fn truncate(text: &str, max: usize) -> String {
 /// directory the launch path expects. Production code uses
 /// [`ensure_managed_home`] instead.
 #[cfg(test)]
-fn write_dummy_home(path: &PathBuf, contents: &str) -> std::io::Result<()> {
+fn write_dummy_home(path: &std::path::PathBuf, contents: &str) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -506,9 +570,10 @@ mod tests {
     #[test]
     fn vendor_login_argv_returns_registered_providers() {
         let provider = CliProviderId::new("claude");
-        let (binary, argv) = vendor_login_argv(&provider).expect("claude registered");
-        assert_eq!(binary, "claude");
-        assert_eq!(argv, &["login"]);
+        assert!(
+            vendor_login_argv(&provider).is_none(),
+            "Claude sign-in is not in the product"
+        );
         let provider = CliProviderId::new("codex");
         let (binary, argv) = vendor_login_argv(&provider).expect("codex registered");
         assert_eq!(binary, "codex");

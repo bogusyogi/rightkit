@@ -3,6 +3,7 @@
 ## 0.2.1 (unreleased)
 
 - Features `agent_acp` (Agent Client Protocol types) and `driver_host` (external coding-agent CLI drivers: runtime profiles, login routes, ACP contract, harnesses) moved from CodeRight `coderight-acp` and `coderight-driver-host`.
+- Sync with the product: the `agent_acp` feature is removed (nothing used it; the driver host keeps its own ACP transport). `driver_host`: Claude sign-in is not offered (`login_routes` has no `claude` route; `NativeLoginUi` and `begin_native_login` are gone from the adapter trait); vendor sign-in is time-limited (`LOGIN_TIMEOUT`, `LoginError::TimedOut`) and runs with the vendor's config-directory variable pointing at the managed home; `StdioProcessIo::capture_bounded` and `BoundedCapture` replace unbounded captures (probes time out after 10 s); vendor driver stderr goes to the log; Claude harness control frames (`ControlKind`, `ControlState`, `ControlRejection`); new `scan_claude_account_usage`. New dependency `tracing` (feature `driver_host`).
 
 ## 0.2.0 (2026-10-17)
 
