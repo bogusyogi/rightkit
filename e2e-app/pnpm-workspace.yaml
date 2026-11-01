@@ -6,6 +6,8 @@ allowBuilds:
   esbuild: true
 # Keep the tauri adapter on the template's current logs patch for release admission.
 overrides:
+  # GHSA-238p-pmpm-9mq7 (katex <0.18.2): micromark-extension-math 3.1.0 still asks for ^0.16.
+  katex: ^0.18.2
   '@rightkit/tauri@0.3.0>@rightkit/logs': '0.1.6'
   '@rightkit/qa@0.6.1>@rightkit/qa-chrome': '0.1.12'
 # Pin-by-exact-version is the RightKit rule; the release-age guard needs an explicit allowance for
