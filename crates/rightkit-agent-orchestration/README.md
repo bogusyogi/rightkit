@@ -1,5 +1,5 @@
 # rightkit-agent-orchestration
 
-Agent orchestration: multi-agent planning, worker dispatch, routing between cheap and capable models, and task graph execution
+Agent orchestration runtime: plans, routes, tasks, budgets, grants, escalation, scheduling, delivery, inventories and platform layers
 
-Moved into RightKit from `coderight-orchestration` (CodeRight) on 2026-11-01.
+Moved into RightKit from `legion-runtime` (engine) on 2026-11-01.

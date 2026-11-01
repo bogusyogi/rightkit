@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-agents = { version = "=0.2.1", default-features = false, features = ["claude", "codex"] }
+rightkit-agents = { version = "=0.2.0", default-features = false, features = ["claude", "codex"] }
 serde_json = "1"

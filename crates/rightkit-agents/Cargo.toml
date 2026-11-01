@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agents"
-version = "0.2.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Supervised vendor agent sessions for Right Suite apps: shared agent event model, Claude Code stream-json and Codex app-server protocol clients, session lifecycle with approvals and tree teardown, recorded fixtures. No SDK, no HTTP, no MCP."
@@ -17,23 +17,11 @@ claude = []
 codex = []
 # Session lifecycle: spawn, event stream, approvals, cancel, tree teardown. Pulls in both protocol clients.
 session = ["claude", "codex"]
-agent_acp = []
-driver_host = ["dep:rightkit-crypto", "dep:async-trait", "dep:rightkit-agent-tools", "rightkit-child-process/tokio", "dep:rightkit-app-settings", "dep:rightkit-sandbox", "dep:rightkit-fs", "dep:rightkit-sidecar", "dep:rightkit-time", "dep:thiserror", "dep:tokio", "dep:libc"]
 
 [dependencies]
 rightkit-child-process = { version = "0.5.1", path = "../rightkit-child-process" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto", optional = true}
-async-trait = {version = "0.1", optional = true}
-rightkit-agent-tools = {version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"], optional = true}
-rightkit-app-settings = {version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config", "agent_config-host-env"], optional = true}
-rightkit-sandbox = {version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"], optional = true}
-rightkit-fs = {version = "0.4.8", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs", optional = true}
-rightkit-sidecar = {version = "0.3.0", path = "../rightkit-sidecar", optional = true}
-rightkit-time = {version = "0.1.0", path = "../rightkit-time", optional = true}
-thiserror = {version = "2", optional = true}
-tokio = {version = "1", features = ["rt", "macros", "process", "io-util", "sync", "time"], optional = true}
 
 [package.metadata.rightkit]
 continuous = "held-resource"
@@ -88,21 +76,3 @@ incremental = false
 [profile.test.build-override]
 debug = false
 opt-level = 0
-
-[dev-dependencies]
-rightkit-app-settings = {version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config", "agent_config-test-mode"]}
-futures = {version = "0.3"}
-tempfile = {version = "3"}
-
-[target."cfg(unix)"]
-[target."cfg(unix)".dependencies]
-libc = {version = "0.2", optional = true}
-[[test]]
-name = "driver_host_cli_runtime_scope"
-path = "tests/driver_host_cli_runtime_scope.rs"
-required-features = ["driver_host"]
-
-[[test]]
-name = "driver_host_acp_contract_suite"
-path = "tests/driver_host_acp_contract_suite.rs"
-required-features = ["driver_host"]

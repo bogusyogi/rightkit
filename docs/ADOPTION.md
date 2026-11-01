@@ -15,11 +15,11 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 194 (168 crates, 26 npm packages).
-- Packages with at least one app pin: 156.
-- App pins: 1937. Stale: 40. Ahead of published: 103. Unpublished: 119. Local: 1246. Git: 0. Unparsed: 0.
-- Vendored copies of RightKit packages inside app repos: 481.
-- App and package pairs with more than one requirement: 271.
+- Packages in RightKit: 185 (159 crates, 26 npm packages).
+- Packages with at least one app pin: 149.
+- App pins: 1916. Stale: 40. Ahead of published: 103. Unpublished: 112. Local: 1232. Git: 0. Unparsed: 0.
+- Vendored copies of RightKit packages inside app repos: 474.
+- App and package pairs with more than one requirement: 266.
 
 ## Packages
 
@@ -33,9 +33,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-agent-engine-api-workflows` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-agent-engine-attention` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-agent-engine-cli` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
-| `rightkit-agent-engine-core` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-agent-engine-history` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
-| `rightkit-agent-engine-mobile-runtime` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-agent-engine-protocol` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-agent-engine-runtime-middleware` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-agent-engine-runtime-resources` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
@@ -46,10 +44,9 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-agent-plugins` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-agent-policy` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-agent-recipes` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
-| `rightkit-agent-skills` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
-| `rightkit-agent-tools` | crates.io | 0.3.1 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-agent-tools` | crates.io | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-agent-transcript` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agents` | crates.io | 0.2.1 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-agents` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-ai-accounts` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-align` | private | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-android` | crates.io | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
@@ -69,21 +66,17 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-captions` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-channel-memory` | crates.io | 0.2.2 | 0.2.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-child-process` | crates.io | 0.5.7 | 0.5.7 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `rightkit-code-audit-commands` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
-| `rightkit-code-audit-engine` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
 | `rightkit-code-audit-provider-sdk` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
 | `rightkit-color` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-compose` | crates.io | 0.2.1 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 1 ahead of published |
 | `rightkit-compositor` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-content-plan` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-content-proof` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-context` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-client` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-core` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-federation` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-protocol` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-provider-sdk` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-context-runtime` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-contracts` | crates.io | 0.1.8 | 0.1.7 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-crash` | crates.io | 0.3.6 | 0.3.6 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-credentials` | crates.io | 0.4.3 | 0.4.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
@@ -106,8 +99,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-embed` | crates.io | 0.6.2 | 0.6.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-engine-host` | crates.io | 0.1.0 | none recorded | 1 | genright | 1 vendored copy |
 | `rightkit-evidence` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
-| `rightkit-evidence-application` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
-| `rightkit-evidence-commands` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
 | `rightkit-evidence-contracts` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
 | `rightkit-evidence-decisions` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
 | `rightkit-evidence-effects` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
@@ -120,7 +111,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-github` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-google-apis` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-google-identity` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `rightkit-hooks` | crates.io | 0.2.1 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 1 ahead of published |
+| `rightkit-hooks` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 1 ahead of published |
 | `rightkit-hotkeys` | crates.io | 0.1.2 | 0.1.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-http` | crates.io | 0.3.9 | 0.3.8 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-identity` | crates.io | 0.1.0 | 0.1.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
@@ -239,13 +230,9 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-agent-engine-attention` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
 | `rightkit-agent-engine-cli` | coderight | `coderight/ci/consumers/rightkit-agent-engine-cli/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
 | `rightkit-agent-engine-cli` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
-| `rightkit-agent-engine-core` | coderight | `coderight/ci/consumers/rightkit-agent-engine-core/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
-| `rightkit-agent-engine-core` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
-| `rightkit-agent-engine-core` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
 | `rightkit-agent-engine-history` | coderight | `coderight/ci/consumers/rightkit-agent-engine-history/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
 | `rightkit-agent-engine-history` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
 | `rightkit-agent-engine-history` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
-| `rightkit-agent-engine-mobile-runtime` | coderight | `coderight/ci/consumers/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
 | `rightkit-agent-engine-protocol` | coderight | `coderight/ci/consumers/rightkit-agent-engine-protocol/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
 | `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
 | `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
@@ -298,12 +285,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-agent-policy` | coderight | `coderight/crates/rightkit-llm/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
 | `rightkit-agent-recipes` | coderight | `coderight/ci/consumers/rightkit-agent-recipes/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
 | `rightkit-agent-recipes` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
-| `rightkit-agent-skills` | coderight | `coderight/ci/consumers/rightkit-agent-skills/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
-| `rightkit-agent-skills` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
-| `rightkit-agent-skills` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
-| `rightkit-agent-skills` | coderight | `coderight/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
-| `rightkit-agent-skills` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
-| `rightkit-agent-skills` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
 | `rightkit-agent-tools` | coderight | `coderight/ci/consumers/rightkit-agent-tools/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
 | `rightkit-agent-tools` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dependencies | `0.4.0` | 0.3.0 | local |
 | `rightkit-agent-tools` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | dev-dependencies | `0.4.0` | 0.3.0 | local |
@@ -574,11 +555,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-child-process` | legion | `legion/crates/rightkit-tts/Cargo.toml` | dependencies | `0.5.0` | 0.5.7 | local |
 | `rightkit-child-process` | legion | `legion/crates/rightkit-video-project/Cargo.toml` | dependencies | `0.5.6` | 0.5.7 | local |
 | `rightkit-child-process` | legion | `legion/desktop-app-template/src-tauri/Cargo.toml` | dependencies | `=0.5.7` | 0.5.7 | current |
-| `rightkit-code-audit-commands` | legion | `legion/ci/consumers/rightkit-code-audit-commands/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
-| `rightkit-code-audit-engine` | legion | `legion/ci/consumers/rightkit-code-audit-engine/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
-| `rightkit-code-audit-engine` | legion | `legion/crates/rightkit-code-audit-commands/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
-| `rightkit-code-audit-engine` | legion | `legion/crates/rightkit-evidence-application/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
-| `rightkit-code-audit-engine` | legion | `legion/crates/rightkit-evidence-commands/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
 | `rightkit-code-audit-provider-sdk` | legion | `legion/ci/consumers/rightkit-code-audit-provider-sdk/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
 | `rightkit-code-audit-provider-sdk` | legion | `legion/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
 | `rightkit-code-audit-provider-sdk` | legion | `legion/crates/rightkit-code-audit-commands/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
@@ -904,12 +880,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-engine-host` | genright | `genright/ci/consumers/rightkit-engine-host/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
 | `rightkit-evidence` | coderight | `coderight/ci/consumers/rightkit-evidence/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
 | `rightkit-evidence` | coderight | `coderight/crates/rightkit-agent-server/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
-| `rightkit-evidence-application` | legion | `legion/ci/consumers/rightkit-evidence-application/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
-| `rightkit-evidence-application` | legion | `legion/crates/rightkit-code-audit-commands/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
-| `rightkit-evidence-application` | legion | `legion/crates/rightkit-evidence-commands/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
-| `rightkit-evidence-application` | legion | `legion/crates/rightkit-hooks/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
-| `rightkit-evidence-commands` | legion | `legion/ci/consumers/rightkit-evidence-commands/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
-| `rightkit-evidence-commands` | legion | `legion/crates/rightkit-code-audit-commands/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
 | `rightkit-evidence-contracts` | legion | `legion/ci/consumers/rightkit-evidence-contracts/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
 | `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-agent-orchestration-handoff/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
 | `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-agent-orchestration/Cargo.toml` | dependencies | `0.1.0` | none recorded | local |
@@ -2175,9 +2145,7 @@ Vendored copies are app-owned source trees that carry a RightKit package name. T
 | `rightkit-agent-engine-api-workflows` | coderight | `coderight/crates/rightkit-agent-engine-api-workflows/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-agent-engine-attention` | coderight | `coderight/crates/rightkit-agent-engine-attention/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-agent-engine-cli` | coderight | `coderight/crates/rightkit-agent-engine-cli/Cargo.toml` | 0.1.0 | none recorded |
-| `rightkit-agent-engine-core` | coderight | `coderight/crates/rightkit-agent-engine-core/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-agent-engine-history` | coderight | `coderight/crates/rightkit-agent-engine-history/Cargo.toml` | 0.1.0 | none recorded |
-| `rightkit-agent-engine-mobile-runtime` | coderight | `coderight/crates/rightkit-agent-engine-mobile-runtime/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-agent-engine-protocol` | coderight | `coderight/crates/rightkit-agent-engine-protocol/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-agent-engine-runtime-middleware` | coderight | `coderight/crates/rightkit-agent-engine-runtime-middleware/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-agent-engine-runtime-resources` | coderight | `coderight/crates/rightkit-agent-engine-runtime-resources/Cargo.toml` | 0.1.0 | none recorded |
@@ -2189,7 +2157,6 @@ Vendored copies are app-owned source trees that carry a RightKit package name. T
 | `rightkit-agent-plugins` | coderight | `coderight/crates/rightkit-agent-plugins/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-agent-policy` | coderight | `coderight/crates/rightkit-agent-policy/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-agent-recipes` | coderight | `coderight/crates/rightkit-agent-recipes/Cargo.toml` | 0.1.0 | none recorded |
-| `rightkit-agent-skills` | coderight | `coderight/crates/rightkit-agent-skills/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-agent-tools` | genright | `genright/crates/rightkit-agent-tools/Cargo.toml` | 0.3.0 | 0.3.0 |
 | `rightkit-agent-tools` | heardright | `heardright/crates/rightkit-agent-tools/Cargo.toml` | 0.3.0 | 0.3.0 |
 | `rightkit-agent-tools` | coderight | `coderight/crates/rightkit-agent-tools/Cargo.toml` | 0.4.0 | 0.3.0 |
@@ -2249,8 +2216,6 @@ Vendored copies are app-owned source trees that carry a RightKit package name. T
 | `rightkit-child-process` | heardright | `heardright/crates/rightkit-child-process/Cargo.toml` | 0.5.7 | 0.5.7 |
 | `rightkit-child-process` | coderight | `coderight/crates/rightkit-child-process/Cargo.toml` | 0.5.7 | 0.5.7 |
 | `rightkit-child-process` | legion | `legion/crates/rightkit-child-process/Cargo.toml` | 0.5.7 | 0.5.7 |
-| `rightkit-code-audit-commands` | legion | `legion/crates/rightkit-code-audit-commands/Cargo.toml` | 0.1.0 | none recorded |
-| `rightkit-code-audit-engine` | legion | `legion/crates/rightkit-code-audit-engine/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-code-audit-provider-sdk` | legion | `legion/crates/rightkit-code-audit-provider-sdk/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-color` | genright | `genright/crates/rightkit-color/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-color` | heardright | `heardright/crates/rightkit-color/Cargo.toml` | 0.1.0 | none recorded |
@@ -2311,8 +2276,6 @@ Vendored copies are app-owned source trees that carry a RightKit package name. T
 | `rightkit-embed` | legion | `legion/crates/rightkit-embed/Cargo.toml` | 0.6.2 | 0.6.1 |
 | `rightkit-engine-host` | genright | `genright/crates/rightkit-engine-host/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-evidence` | coderight | `coderight/crates/rightkit-evidence/Cargo.toml` | 0.1.0 | none recorded |
-| `rightkit-evidence-application` | legion | `legion/crates/rightkit-evidence-application/Cargo.toml` | 0.1.0 | none recorded |
-| `rightkit-evidence-commands` | legion | `legion/crates/rightkit-evidence-commands/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-evidence-contracts` | legion | `legion/crates/rightkit-evidence-contracts/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-evidence-decisions` | legion | `legion/crates/rightkit-evidence-decisions/Cargo.toml` | 0.1.0 | none recorded |
 | `rightkit-evidence-effects` | legion | `legion/crates/rightkit-evidence-effects/Cargo.toml` | 0.1.0 | none recorded |
@@ -2661,7 +2624,6 @@ Split pins: one app names the same package with different requirements, possibly
 | `rightkit-agent-engine-api-workflows` | cargo | coderight | =0.1.0; local 0.1.0 |
 | `rightkit-agent-engine-attention` | cargo | coderight | =0.1.0; local 0.1.0 |
 | `rightkit-agent-engine-cli` | cargo | coderight | =0.1.0; local 0.1.0 |
-| `rightkit-agent-engine-core` | cargo | coderight | =0.1.0; local 0.1.0 |
 | `rightkit-agent-engine-history` | cargo | coderight | =0.1.0; local 0.1.0 |
 | `rightkit-agent-engine-protocol` | cargo | coderight | =0.1.0; local 0.1.0 |
 | `rightkit-agent-engine-runtime-middleware` | cargo | coderight | =0.1.0; local 0.1.0 |
@@ -2673,7 +2635,6 @@ Split pins: one app names the same package with different requirements, possibly
 | `rightkit-agent-plugins` | cargo | coderight | =0.1.0; local 0.1.0 |
 | `rightkit-agent-policy` | cargo | coderight | =0.1.0; local 0.1.0 |
 | `rightkit-agent-recipes` | cargo | coderight | =0.1.0; local 0.1.0 |
-| `rightkit-agent-skills` | cargo | coderight | =0.1.0; local 0.1.0 |
 | `rightkit-agent-tools` | cargo | coderight | =0.3.0; local 0.4.0 |
 | `rightkit-agent-tools` | cargo | legion | =0.3.0; local 0.3.0 |
 | `rightkit-agents` | cargo | coderight | =0.2.0; local 0.3.0 |
@@ -2711,7 +2672,6 @@ Split pins: one app names the same package with different requirements, possibly
 | `rightkit-child-process` | cargo | genright | =0.5.7; local 0.5.0; local 0.5.1; local 0.5.4; local 0.5.6; local 0.5.7 |
 | `rightkit-child-process` | cargo | heardright | =0.5.7; local 0.5.0; local 0.5.1; local 0.5.4; local 0.5.6; local 0.5.7 |
 | `rightkit-child-process` | cargo | legion | =0.5.7; local 0.5.0; local 0.5.1; local 0.5.4; local 0.5.6; local 0.5.7 |
-| `rightkit-code-audit-engine` | cargo | legion | =0.1.0; local 0.1.0 |
 | `rightkit-code-audit-provider-sdk` | cargo | legion | =0.1.0; local 0.1.0 |
 | `rightkit-compose` | cargo | genright | =0.2.1; local 0.2.1 |
 | `rightkit-contracts` | cargo | coderight | =0.1.8; local 0.1.5 |
@@ -2747,8 +2707,6 @@ Split pins: one app names the same package with different requirements, possibly
 | `rightkit-dictation-text-pipeline` | cargo | heardright | =0.1.0; local 0.1.0 |
 | `rightkit-embed` | cargo | coderight | =0.6.2; local 0.6.2 |
 | `rightkit-evidence` | cargo | coderight | =0.1.0; local 0.1.0 |
-| `rightkit-evidence-application` | cargo | legion | =0.1.0; local 0.1.0 |
-| `rightkit-evidence-commands` | cargo | legion | =0.1.0; local 0.1.0 |
 | `rightkit-evidence-contracts` | cargo | legion | =0.1.0; local 0.1.0 |
 | `rightkit-evidence-decisions` | cargo | legion | =0.1.0; local 0.1.0 |
 | `rightkit-evidence-effects` | cargo | legion | =0.1.0; local 0.1.0 |
@@ -2935,7 +2893,7 @@ Split pins: one app names the same package with different requirements, possibly
 | scraperight | **missing** | 0 | 0 | 0 |
 | viewright | **missing** | 0 | 0 | 0 |
 | heardright | yes | 249 | 0 | 480 |
-| coderight | yes | 280 | 0 | 591 |
+| coderight | yes | 280 | 0 | 581 |
 | mailright | **missing** | 0 | 0 | 0 |
 | postright | **missing** | 0 | 0 | 0 |
 | cockpit | **missing** | 0 | 0 | 0 |
@@ -2943,4 +2901,4 @@ Split pins: one app names the same package with different requirements, possibly
 | sellright | **missing** | 0 | 0 | 0 |
 | rightsites | **missing** | 0 | 0 | 0 |
 | voiceright | **missing** | 0 | 0 | 0 |
-| legion | yes | 279 | 0 | 431 |
+| legion | yes | 279 | 0 | 420 |

@@ -21,10 +21,6 @@ pub mod claude;
 #[cfg(feature = "codex")]
 pub mod codex;
 
-#[cfg(feature = "agent_acp")]
-pub mod agent_acp;
-#[cfg(feature = "driver_host")]
-pub mod driver_host;
 #[cfg(feature = "session")]
 pub mod session;
 

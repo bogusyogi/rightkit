@@ -1,9 +1,5 @@
 # Changelog
 
-## 0.2.1 (unreleased)
-
-- Features `agent_acp` (Agent Client Protocol types) and `driver_host` (external coding-agent CLI drivers: runtime profiles, login routes, ACP contract, harnesses) moved from CodeRight `coderight-acp` and `coderight-driver-host`.
-
 ## 0.2.0 (2026-10-17)
 
 - `discovery::run_bounded` uses `rightkit-child-process` in every feature configuration for whole-tree termination & native output readers that cancel & join after a bounded drain window. Each stream retains at most `discovery::PROBE_OUTPUT_CAP` (64 KiB); descendants retaining pipe writers cannot leave drain threads behind. Dependency minimum is `rightkit-child-process` 0.5.1.

@@ -1,4 +1,9 @@
 # rightkit-agent-orchestration registry consumer
 
-Standalone package that depends on `rightkit-agent-orchestration` by exact registry pin (`=0.1.0`) outside the RightKit workspace and
-exercises a few cheap public API checks with no external assets. Each passing check prints an `ok:` line; a failure exits 1.
+Standalone consumer, outside the workspace, pinning `rightkit-agent-orchestration` to the exact version in its `Cargo.toml`
+with default features. It is built from the sealed archive through the offline directory registry and
+runs a few cheap checks on the public API (see `src/main.rs`), printing one `ok:` line per check and
+exiting 1 on failure.
+
+State: in-memory values or a temporary directory only. No network, no process spawn, no user data. Run
+only by the CI consumer lane.
