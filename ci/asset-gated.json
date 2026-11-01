@@ -3,6 +3,7 @@
   "crates": {
     "rightkit-asr": "Whisper library (RIGHTKIT_WHISPER_LIB), ASR models and audio fixtures",
     "rightkit-audio": "FFmpeg development build",
+    "rightkit-autoedit": "editing FFmpeg (RIGHTKIT_FFMPEG) and a font (RIGHTKIT_FONT) for the variants compare render in tests/variants_variants.rs; a missing build prints SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes it fail",
     "rightkit-automation": "desktop session for the end-to-end tests (e2e_mac, e2e_win)",
     "rightkit-browser": "Chrome for Testing for the end-to-end tests",
     "rightkit-color": "editing FFmpeg and ffprobe (RIGHTKIT_FFMPEG, RIGHTKIT_FFPROBE) for tests/ffmpeg.rs; a missing build prints SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes it fail",

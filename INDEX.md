@@ -12,7 +12,7 @@ Flagged mismatches: 0.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (75)
+## Rust crates (76)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -23,6 +23,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-app-settings` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | settings-persistence | Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events. |
 | `rightkit-asr` | crates.io | 0.3.1 | 0.3.0 | 0.3.1 | staged, not yet published | speech-recognition | Parakeet ONNX + Whisper (CoreML / whisper.cpp) speech decoding runtime for Right Suite applications |
 | `rightkit-audio` | crates.io | 0.3.1 | 0.3.1 | 0.3.1 | ok | audio | Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery. |
+| `rightkit-autoedit` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Automatic editing for Right Suite video apps: transcript-driven cut engine (retakes, fillers, silences), editorial engine, named cut variants, and scoped editing rules with their resolution matrix. |
 | `rightkit-automation` | crates.io | 0.6.1 | 0.6.1 | 0.6.1 | ok | desktop-automation | Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts. |
 | `rightkit-browser` | crates.io | 0.3.7 | 0.3.6 | 0.3.7 | staged, not yet published | browser-automation | Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks. |
 | `rightkit-cache` | crates.io | 0.2.3 | 0.2.3 | 0.2.3 | ok | disk-cache | Disk cache primitive with a hard size cap, LRU eviction that survives restarts, atomic writes and group invalidation, plus stable-prefix prompt-cache keys. |
