@@ -8,8 +8,12 @@ import { spawnSync } from "node:child_process";
 import { archiveTool, assertRegistryManifest, isWithin, registryLockEvidence, runRegistryConsumer } from "./registry-consumer.mjs";
 import { sha } from "./upload.mjs";
 
-const unit = { name: "rightkit-logs", version: "0.3.6", sha256: "a".repeat(64) };
-const manifest = `[package]\nname="consumer"\nversion="0.0.0"\n[workspace]\n[dependencies]\nrightkit-logs = { version = "=0.3.6", default-features = false, features = [] }\n`;
+const crateVersion = (name) => /^version\s*=\s*"([^"]+)"/m.exec(fs.readFileSync(new URL(`../../crates/${name}/Cargo.toml`, import.meta.url), "utf8"))[1];
+// The committed consumer recipes pin each crate's current version; the fixtures follow it.
+const LOGS = crateVersion("rightkit-logs"), CREDENTIALS = crateVersion("rightkit-credentials");
+const LOGS_OTHER = LOGS.replace(/\d+$/, (n) => String(Number(n) + 1));
+const unit = { name: "rightkit-logs", version: `${LOGS}`, sha256: "a".repeat(64) };
+const manifest = `[package]\nname="consumer"\nversion="0.0.0"\n[workspace]\n[dependencies]\nrightkit-logs = { version = "=${LOGS}", default-features = false, features = [] }\n`;
 const lock = (u = unit, extra = {}) => `version = 4\n\n[[package]]\nname = "consumer"\nversion = "0.0.0"\n\n[[package]]\nname = "${u.name}"\nversion = "${extra.version ?? u.version}"\nsource = "${extra.source ?? "registry+https://github.com/rust-lang/crates.io-index"}"\nchecksum = "${extra.checksum ?? u.sha256}"\n`;
 
 test("archive tool bypasses Git Bash GNU tar on Windows", () => {
@@ -44,21 +48,21 @@ test("native archive tool lists & extracts absolute runner paths", () => {
 test("consumer requires exact version & refuses path/git/patch escape hatches", () => {
   assert.doesNotThrow(() => assertRegistryManifest(manifest, unit));
   for (const altered of [
-    manifest.replace("=0.3.6", "0.3.6"),
-    manifest.replace("=0.3.6", "=0.3.7"),
-    manifest.replace('version = "=0.3.6"', 'path = "../rightkit-logs"'),
+    manifest.replace(`=${LOGS}`, `${LOGS}`),
+    manifest.replace(`=${LOGS}`, `=${LOGS_OTHER}`),
+    manifest.replace(`version = "=${LOGS}"`, 'path = "../rightkit-logs"'),
     `${manifest}\n[patch.crates-io]\nrightkit-logs={path="../logs"}\n`,
-    `${manifest}\n[replace]\n"rightkit-logs:0.3.6"={git="https://example.invalid"}\n`,
-    manifest.replace('version = "=0.3.6"', 'version = "=0.3.6", git="https://example.invalid"'),
+    `${manifest}\n[replace]\n"rightkit-logs:${LOGS}"={git="https://example.invalid"}\n`,
+    manifest.replace(`version = "=${LOGS}"`, `version = "=${LOGS}", git="https://example.invalid"`),
   ]) assert.throws(() => assertRegistryManifest(altered, unit));
 });
 
 test("lock proof binds registry identity, exact version & archive checksum", () => {
   assert.deepEqual(registryLockEvidence(lock(), [unit]), [{ ...unit, source: "registry+https://github.com/rust-lang/crates.io-index", checksum: unit.sha256, archiveSha256: unit.sha256 }].map(({ sha256, ...row }) => row));
-  for (const extra of [{ version: "0.3.7" }, { checksum: "b".repeat(64) }, { source: "path+file:///tmp/logs" }, { source: "registry+https://example.invalid/index" }]) assert.throws(() => registryLockEvidence(lock(unit, extra), [unit]), /registry lock mismatch/);
+  for (const extra of [{ version: LOGS_OTHER }, { checksum: "b".repeat(64) }, { source: "path+file:///tmp/logs" }, { source: "registry+https://example.invalid/index" }]) assert.throws(() => registryLockEvidence(lock(unit, extra), [unit]), /registry lock mismatch/);
   assert.throws(() => registryLockEvidence(lock().replace(/^checksum = .*$/m, ""), [unit]), /registry lock mismatch/);
   // Every same-name resolution is checked; a correct row cannot hide another version.
-  assert.throws(() => registryLockEvidence(lock() + lock(unit, { version: "0.3.7" }), [unit]), /registry lock mismatch/);
+  assert.throws(() => registryLockEvidence(lock() + lock(unit, { version: LOGS_OTHER }), [unit]), /registry lock mismatch/);
   assert.deepEqual(registryLockEvidence(lock(), [{ ...unit, name: "unused-sealed-sibling" }]), []);
 });
 
@@ -81,7 +85,7 @@ test("archive tampering refuses before extraction or Cargo", () => {
     fs.mkdirSync(root);
     fs.mkdirSync(packs);
     const archive = Buffer.from("sealed crate");
-    const sealedUnit = { ...unit, file: "rightkit-logs-0.3.6.crate", size: archive.length, sha256: sha("sha256", archive) };
+    const sealedUnit = { ...unit, file: `rightkit-logs-${LOGS}.crate`, size: archive.length, sha256: sha("sha256", archive) };
     fs.writeFileSync(path.join(packs, sealedUnit.file), "tampered");
     fs.writeFileSync(path.join(packs, "manifest.json"), JSON.stringify({ schema: 1, registry: "crates", commit: "b".repeat(40), runId: "42", runAttempt: "1", units: [sealedUnit] }));
     assert.throws(() => runRegistryConsumer({ packDir: packs, root, scratchRoot: scratch, env: { GITHUB_ACTIONS: "true", GITHUB_SHA: "b".repeat(40), GITHUB_RUN_ID: "42", GITHUB_RUN_ATTEMPT: "1" }, spawn: () => assert.fail("must not execute") }), /sha256 does not match/);
@@ -95,7 +99,7 @@ test("R2a runs exact committed PK example with registry lock, feature resolution
   const committedRoot = fileURLToPath(new URL("../../", import.meta.url));
   fs.cpSync(path.join(committedRoot, "ci/consumers/rightkit-logs"), template, { recursive: true });
   fs.copyFileSync(path.join(committedRoot, "ci/consumer-recipes.json"), path.join(root, "ci/consumer-recipes.json"));
-  const bytes = Buffer.from("mock archive bytes"); const selected = { ...unit, file: "rightkit-logs-0.3.6.crate", size: bytes.length, sha256: sha("sha256", bytes) };
+  const bytes = Buffer.from("mock archive bytes"); const selected = { ...unit, file: `rightkit-logs-${LOGS}.crate`, size: bytes.length, sha256: sha("sha256", bytes) };
   fs.writeFileSync(path.join(packs, selected.file), bytes);
   const sealed = { schema: 1, registry: "crates", commit: "b".repeat(40), runId: "42", runAttempt: "1", units: [selected] };
   fs.writeFileSync(path.join(packs, "manifest.json"), JSON.stringify(sealed));
@@ -104,12 +108,12 @@ test("R2a runs exact committed PK example with registry lock, feature resolution
   const spawn = (command, args, options) => {
     assert.equal(options.env.NODE_AUTH_TOKEN, undefined); assert.equal(options.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN, undefined);
     if (command === "rustc" || args[0] === "--version") return { status: 0, stdout: `${command} mocked-version\n` };
-    if (args[0] === "-tzf") return { status: 0, stdout: "rightkit-logs-0.3.6/Cargo.toml\nrightkit-logs-0.3.6/src/lib.rs\n" };
+    if (args[0] === "-tzf") return { status: 0, stdout: `rightkit-logs-${LOGS}/Cargo.toml\nrightkit-logs-${LOGS}/src/lib.rs\n` };
     if (args[0] === "-tvzf") return { status: 0, stdout: "-rw-r--r-- archive files\n" };
-    if (args[0] === "-xzf") { const dest = path.join(args[args.indexOf("-C") + 1], "rightkit-logs-0.3.6"); fs.mkdirSync(dest); fs.writeFileSync(path.join(dest, "Cargo.toml"), "sealed manifest"); return { status: 0, stdout: "" }; }
+    if (args[0] === "-xzf") { const dest = path.join(args[args.indexOf("-C") + 1], `rightkit-logs-${LOGS}`); fs.mkdirSync(dest); fs.writeFileSync(path.join(dest, "Cargo.toml"), "sealed manifest"); return { status: 0, stdout: "" }; }
     if (args[0] === "generate-lockfile") { fs.writeFileSync(path.join(options.cwd, "Cargo.lock"), lock(selected)); return { status: 0, stdout: "" }; }
     if (args[0] === "metadata") {
-      const vendor = path.join(path.dirname(options.cwd), "registry", "rightkit-logs-0.3.6", "Cargo.toml");
+      const vendor = path.join(path.dirname(options.cwd), "registry", `rightkit-logs-${LOGS}`, "Cargo.toml");
       return { status: 0, stdout: JSON.stringify({ packages: [{ name: "consumer", manifest_path: path.join(options.cwd, "Cargo.toml"), source: null }, { id: "selected", name: selected.name, version: selected.version, source: mode === "path" ? null : "registry+https://github.com/rust-lang/crates.io-index", manifest_path: vendor }], resolve: { nodes: [{ id: "selected", features: [] }] } }) };
     }
     if (args[0] === "build" || args[0] === "run") {
@@ -130,7 +134,7 @@ test("R2a runs exact committed PK example with registry lock, feature resolution
   for (mode of ["path", "runtime", "recipe"]) assert.throws(invoke);
 });
 
-function runsHarness(t, runs, platform = "win32", { name = "rightkit-logs", version = "0.3.6", features = [], env: extraEnv = {}, hook } = {}) {
+function runsHarness(t, runs, platform = "win32", { name = "rightkit-logs", version = `${LOGS}`, features = [], env: extraEnv = {}, hook } = {}) {
   const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-r2a-runs-"))); t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
   const root = path.join(scratch, "checkout"); const packs = path.join(scratch, "packed"); const template = path.join(root, "ci/consumers", name);
   fs.mkdirSync(path.dirname(template), { recursive: true }); fs.mkdirSync(packs);
@@ -209,7 +213,7 @@ function credentialsHarness(t, platform, { env = helperEnv, mutateReceipt = rece
     if (command.endsWith(STAGED_LAUNCH)) return { status: 0, stdout: helperOutput };
     return undefined;
   };
-  return runsHarness(t, null, platform, { name: "rightkit-credentials", version: "0.4.2", features: ["db-adapter"], env, hook });
+  return runsHarness(t, null, platform, { name: "rightkit-credentials", version: `${CREDENTIALS}`, features: ["db-adapter"], env, hook });
 }
 test("credentials macOS stages the default consumer + signed helper before SQLCipher, then launches the staged bundle instead of Cargo", t => {
   const h = credentialsHarness(t, "darwin"); const report = h.invoke(); assert.equal(report.verified, true);
@@ -241,7 +245,7 @@ test("credentials macOS refuses before any Cargo work without the supplied signe
 });
 test("credentials macOS refuses when the recipe row is not the exact reviewed native-helper argv, instead of falling back to Cargo", t => {
   for (const runs of [[{ id: "core", args: ["core"] }], [{ id: "native-helper", args: ["native-helper"], hosts: ["win32"] }, { id: "core", args: ["core"] }], [{ id: "native-helper", args: ["native-helper"], features: ["sqlcipher"], hosts: ["darwin"], env: { RK_CONSUMER_HELPER_NAME: "signedHelper", RK_CONSUMER_HELPER_TEAM_ID: "signedHelper" } }]]) {
-    const h = runsHarness(t, runs, "darwin", { name: "rightkit-credentials", version: "0.4.2", features: ["db-adapter"], env: helperEnv });
+    const h = runsHarness(t, runs, "darwin", { name: "rightkit-credentials", version: `${CREDENTIALS}`, features: ["db-adapter"], env: helperEnv });
     assert.throws(() => h.invoke(), /requires the reviewed native-helper run/); assert.deepEqual(h.calls, []);
   }
 });
