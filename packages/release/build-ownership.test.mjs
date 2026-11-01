@@ -408,7 +408,43 @@ function fakeProc(procs) {
 }
 /** A reader of `fake` (`kind`: readFile, readlink or readdir) that fails with `code` on the paths `re` matches. */
 const deny = (fake, kind, re, code = "EACCES") => ({ [kind]: (f, ...rest) => { if (re.test(f)) throw eno(code, f); return fake[kind](f, ...rest); } });
-const linuxProbe = (fake, ...overs) => processProbe({ platform: "linux", spawn: scripted(), proc: PROC, uid: 1000, exists: fake.exists, readFile: fake.readFile, readlink: fake.readlink, readdir: fake.readdir, ...Object.assign({}, ...overs) });
+const linuxProbe = (fake, ...overs) => processProbe({ platform: "linux", spawn: scripted(), proc: PROC, uid: 1000, sleep: () => {}, exists: fake.exists, readFile: fake.readFile, readlink: fake.readlink, readdir: fake.readdir, ...Object.assign({}, ...overs) });
+
+test("probes [injected /proc]: a young same-user process that is unreadable only while it execs (EACCES, then readable) is no hold; one that stays unreadable is held after the bounded retries (runner case: no clean marker, no birth, anchor = acquisition)", () => {
+  const acquired = NOW - 2_000;   // the anchor with no clean marker and no root birth: this ownership's own acquisition
+  const SNAP = "/snap/k";
+  const fake = fakeProc({ 7001: { start: NOW - 1_000, state: "R (running)" }, 7002: { start: NOW - 1_000, state: "R (running)" } });
+  /** Fails with EACCES the first `times` reads that `re` matches (an exec in flight), then reads. */
+  const execWindow = (kind, re, times) => { let n = 0; return { [kind]: (f, ...rest) => { if (re.test(f) && n++ < times) throw eno("EACCES", f); return fake[kind](f, ...rest); } }; };
+  const naps = []; const sleep = (ms) => naps.push(ms);
+  // Environment net: EACCES for 5 reads, then readable and carrying nothing: not held, not skipped silently, retried.
+  assert.deepEqual(linuxProbe(fake, execWindow("readFile", /\/7001\/environ$/, 5), { sleep }).tokenHolders("h1", acquired), [], "settled: no reader");
+  assert.equal(naps.length, 5, "it waited between the retries, and only for the process that was unreadable"); assert.ok(naps.every((ms) => ms > 0 && ms <= 100));
+  // ...and once readable it is judged on what it reads: a token holder is still found.
+  fake.files.set(`${PROC}/7001/environ`, "RIGHTKIT_BUILD_OWNERSHIP=h1\0");
+  assert.deepEqual(linuxProbe(fake, execWindow("readFile", /\/7001\/environ$/, 3), { sleep }).tokenHolders("h1", acquired), [7001], "a settled process that carries the token is held");
+  fake.files.set(`${PROC}/7001/environ`, "A=1\0");
+  // Snapshot-use net: cwd unreadable for 4 reads, then readable outside the snapshot; and inside it.
+  naps.length = 0;
+  assert.deepEqual(linuxProbe(fake, execWindow("readlink", /\/7001\/cwd$/, 4), { sleep }).snapshotUsers(SNAP, acquired), [], "settled: not a snapshot user");
+  assert.equal(naps.length, 4);
+  fake.links.set(`${PROC}/7001/cwd`, `${SNAP}/src`);
+  assert.deepEqual(linuxProbe(fake, execWindow("readlink", /\/7001\/cwd$/, 2), { sleep }).snapshotUsers(SNAP, acquired).map((u) => u.pid), [7001], "a settled process inside the snapshot is still a user");
+  fake.links.set(`${PROC}/7001/cwd`, "/");
+  // A process that stays unreadable is held exactly as before, after the bounded retries only.
+  naps.length = 0;
+  assert.throws(() => linuxProbe(fake, deny(fake, "readFile", /\/7002\/environ$/), { sleep }).tokenHolders("h1", acquired), /7002 \(a process of this user: x, R\) is unreadable \(EACCES\) and it started at .* not before the baseline/);
+  assert.equal(naps.length, 20, "bounded");
+  naps.length = 0;
+  assert.throws(() => linuxProbe(fake, deny(fake, "readlink", /\/7002\/cwd$/), { sleep }).snapshotUsers(SNAP, acquired), /7002 \(a process of this user: x, R\) is unreadable \(EACCES\)/);
+  assert.equal(naps.length, 20, "bounded");
+  // An old unreadable process, and a gone one, are judged at once: no waiting.
+  const old = fakeProc({ 7003: { start: NOW - 3_600_000 } });
+  naps.length = 0;
+  assert.deepEqual(linuxProbe(old, deny(old, "readFile", /\/7003\/environ$/), { sleep }).tokenHolders("h1", acquired), [], "older than the anchor: skipped");
+  assert.deepEqual(linuxProbe(old, deny(old, "readFile", /\/7003\/environ$/, "ENOENT"), { sleep }).tokenHolders("h1", acquired), [], "gone: skipped");
+  assert.equal(naps.length, 0, "no waiting for a process that is judged at once");
+});
 
 test("probes [injected /proc]: an unreadable entry of this user's is UNKNOWN (held), never 'not a reader'; gone and other users' entries are skipped", () => {
   const SNAP = "/snap/k";

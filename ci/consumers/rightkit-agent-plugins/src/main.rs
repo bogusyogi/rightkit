@@ -12,7 +12,7 @@ fn check(ok: bool, what: &str) {
 
 fn main() {
     let ok = PluginManifest::from_json(
-        r#"{"id":"p","name":"P","version":"1.0.0","description":"d","entry":"main.js"}"#,
+        r#"{"id":"p","name":"P","version":"1.0.0","description":"d","entry":"main.js","enabled":true}"#,
     );
     check(
         ok.map(|m| m.id == "p").unwrap_or(false),

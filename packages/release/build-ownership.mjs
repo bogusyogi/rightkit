@@ -415,7 +415,7 @@ export function classifyHiddenProcesses({ procs, own = new Set(), uid, owner, re
  * The host's process facts the ownership rules rely on. Each answer is a fact or a throw; a throw means "unknown" and the
  * caller treats it as busy.
  */
-export function processProbe({ platform = process.platform, spawn = spawnSync, spawnHolder = spawnDetachedDefault, kill = process.kill.bind(process), readFile = fs.readFileSync, readdir = fs.readdirSync, readlink = fs.readlinkSync, exists: procExists = fs.existsSync, proc = "/proc", uid = process.getuid?.() } = {}) {
+export function processProbe({ platform = process.platform, spawn = spawnSync, spawnHolder = spawnDetachedDefault, kill = process.kill.bind(process), readFile = fs.readFileSync, readdir = fs.readdirSync, readlink = fs.readlinkSync, exists: procExists = fs.existsSync, proc = "/proc", uid = process.getuid?.(), sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {
   const exists = (pid) => {
     try { kill(pid, 0); return true; } catch (e) { if (e.code === "ESRCH") return false; if (e.code === "EPERM") return true; throw e; }
   };
@@ -565,6 +565,24 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
     if (startMs + START_SLACK_MS < skipBefore) return;
     throw unknown(`it started at ${new Date(startMs).toISOString()}, not before the baseline ${new Date(skipBefore).toISOString()} (the later of the last clean release's acquisition and the snapshot root's birth, else this ownership's own acquisition)`);
   };
+  // A process in the middle of execve is briefly non-dumpable (its new address space has no dumpable flag until the exec commits), so
+  // /proc/<pid>/{environ,cwd,fd,...} answer EACCES for a few milliseconds while its comm is still the parent's (`node-MainThread`)
+  // and its start is the fork's. Under concurrent test shards or any busy host, a scan meets such a process: it is no reader and not
+  // unknown, only not yet readable. So a read that would HOLD (a young, unreadable, live process of this user) is retried, bounded
+  // (SETTLE_TRIES x SETTLE_MS), before the hold stands; a process that stays unreadable (really non-dumpable) is held exactly as
+  // before, and a process that is old, gone, a zombie or another user's is judged at once, with no wait.
+  const SETTLE_TRIES = 20; const SETTLE_MS = 25;
+  /** `{ value }` of `op`, or `{ skipped: true }` when its failure is a process no reader (`unreadable` returned); throws what `unreadable` throws once the retries are spent. */
+  const settled = (pid, skipBefore, op) => {
+    for (let attempt = 0; ; attempt++) {
+      try { return { value: op() }; }
+      catch (e) {
+        if (!GONE.has(e.code) && !["EACCES", "EPERM"].includes(e.code)) throw e;
+        try { unreadable(pid, e, skipBefore); return { skipped: true }; }
+        catch (held) { if (attempt >= SETTLE_TRIES) throw held; sleep(SETTLE_MS); }
+      }
+    }
+  };
   return {
     platform,
     /** `{ alive, startedMs, group }` from `ps` (C locale). */
@@ -609,8 +627,9 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
         const needle = Buffer.from(`${token}\0`);
         const found = [];
         for (const pid of procPids()) {
-          let environ;
-          try { environ = readFile(`${proc}/${pid}/environ`); } catch (e) { unreadable(pid, e, skipBefore); continue; }
+          const got = settled(pid, skipBefore, () => readFile(`${proc}/${pid}/environ`));
+          if (got.skipped) continue;
+          const environ = got.value;
           if (Buffer.concat([environ, Buffer.from("\0")]).includes(needle)) found.push(pid);
         }
         return found;
@@ -703,7 +722,7 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
         const targetOf = (file) => { try { return readlink(file); } catch (e) { if (GONE.has(e.code)) return null; throw e; } };
         for (const pid of procPids()) {
           if (own.has(pid)) continue;
-          try {
+          settled(pid, skipBefore, () => {
             for (const [link, how] of [["cwd", "working directory"], ["root", "root directory"], ["exe", "executable"]]) {
               const target = targetOf(`${proc}/${pid}/${link}`);
               if (target !== null && inside(target)) { add(pid, how); break; }
@@ -720,7 +739,7 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
               let cmdline = ""; try { cmdline = String(readFile(`${proc}/${pid}/cmdline`, "utf8")); } catch (e) { if (!GONE.has(e.code)) throw e; }
               if (named(cmdline)) add(pid, "argument");
             }
-          } catch (e) { unreadable(pid, e, skipBefore); }
+          });
         }
         return found;
       }
