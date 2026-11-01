@@ -196,7 +196,7 @@ async fn guardrail_forces_approval_even_in_bypass_mode() {
     };
     let mut e = SessionEngine::new(llm, tools, conduit.clone(), cfg);
     let approvals = e.pending_approvals.clone();
-    let mut sub = conduit.subscribe();
+    let mut sub = conduit.subscribe_human();
 
     let engine_task = tokio::spawn(async move { e.submit_user_message("install").await });
 
@@ -385,7 +385,7 @@ async fn web_tool_result_forces_approval_before_durable_sink_even_in_bypass() {
     };
     let mut engine = SessionEngine::new(llm, Arc::new(registry), conduit.clone(), cfg);
     let approvals = engine.pending_approvals.clone();
-    let mut subscription = conduit.subscribe();
+    let mut subscription = conduit.subscribe_human();
 
     let engine_task =
         tokio::spawn(async move { engine.submit_user_message("research and remember").await });
@@ -523,7 +523,7 @@ async fn cr1_real_user_approval_carries_digest_and_executes() {
     );
     let approvals = e.pending_approvals.clone();
     let contexts = e.pending_approval_contexts.clone();
-    let mut sub = c.subscribe();
+    let mut sub = c.subscribe_human();
     let engine_task =
         tokio::spawn(async move { e.submit_user_message("write a file").await.unwrap() });
 

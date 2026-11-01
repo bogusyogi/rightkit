@@ -21,7 +21,6 @@
 //! ```
 
 pub mod approval_binding;
-pub mod auto_approval;
 pub mod capabilities;
 pub mod decision_log;
 pub mod denial_tracking;
@@ -43,11 +42,10 @@ pub mod types;
 pub mod workspace_trust_gate;
 
 // Flat re-exports for the most common types.
-pub use auto_approval::{
-    cache_key, cache_key_for_call, normalize_tool_args, AutoApprovalCache, AutoApprovalClassifier,
-    AutoApprovalContext, AutoApprovalTier, ToolCallFeatures, AUTO_APPROVAL_CACHE_TTL_SECS,
+pub use capabilities::{
+    effect_class_for_tool, is_file_write, is_read_only, parse_capability, ApprovalClass,
+    CapabilityClass, EffectClass,
 };
-pub use capabilities::{is_file_write, is_read_only, parse_capability, CapabilityClass};
 pub use decision_log::{DecisionLog, DecisionRecord};
 pub use denial_tracking::{
     DenialRecord, DenialTracker, Rule, RuleError, RuleSource, RuleStore, ToolRuleTarget,
@@ -66,13 +64,14 @@ pub use owning_process::{
 pub use pdp::{Attribute, CondOp, Condition, PolicyDecisionPoint, PolicyRequest, PolicyRule};
 pub use provenance::{
     durable_write_is_authorized, durable_write_requires_approval, enforce_durable_write_provenance,
-    ContentOrigin, ContentProvenance, DurableWriteKind,
+    memory_write_is_authorized, memory_write_requires_approval, ContentOrigin, ContentProvenance,
+    DurableWriteKind,
 };
 pub use sandbox_escalation::{evaluate_escalation, EscalationOutcome, RecognizedDenialCategory};
 pub use sandbox_policy::{
     resolve_sandbox_policy, SandboxPolicyResolution, SandboxPolicySource, SandboxTier,
 };
-pub use shell_command::{ShellCommandClassification, ShellDialect};
+pub use shell_command::{classify_shell_command, ShellCommandClassification, ShellDialect};
 pub use threat_patterns::{
     prompt_injection_placeholder, scan_prompt_injection, ThreatPatternScope, ThreatScanFinding,
     ThreatScanResult, ThreatScanScope,

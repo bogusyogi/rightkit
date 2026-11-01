@@ -211,7 +211,7 @@ async fn ask_mode_emits_approval_request() {
 
     // Share the approval store so the test can resolve it.
     let approvals = e.pending_approvals.clone();
-    let mut sub = c.subscribe();
+    let mut sub = c.subscribe_human();
 
     // Run the engine concurrently; it will pause waiting for tool approval.
     let engine_task =

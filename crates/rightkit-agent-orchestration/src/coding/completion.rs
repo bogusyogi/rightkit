@@ -3,9 +3,10 @@
 //!
 //! Substantial completion is no longer collapsed into a binary pass/fail: a goal
 //! that satisfied 8 of 10 weighted predicates scores GDS 0.80 and lands in
-//! `PartiallyComplete`, not `Rejected`. Completion (`Accepted`) still requires a
-//! jury-approved `goal_verification` artifact AND full GDS — never a worker's
-//! self-assessment.
+//! `PartiallyComplete`, not `Rejected`, provided its verification was approved.
+//! A failed verification is `Rejected` however many tasks finished. Completion
+//! (`Accepted`) still requires a jury-approved `goal_verification` artifact AND
+//! full GDS — never a worker's self-assessment.
 
 /// The terminal state of a goal run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,7 +85,12 @@ pub fn arbitrate(input: &CompletionInput, cfg: &CompletionConfig) -> Arbitration
         CompletionState::Escalate
     } else if !input.verification_present || !input.jury_consensus {
         CompletionState::NeedsReview
-    } else if input.verification_approved && gds >= 1.0 {
+    } else if !input.verification_approved {
+        // A verification that failed (the independent signoff answered FAIL, or
+        // the jurors rejected after a pass) is a rejection, not a partial
+        // completion, however many tasks finished (orchestration rule 12, D10).
+        CompletionState::Rejected
+    } else if gds >= 1.0 {
         CompletionState::Accepted
     } else if gds >= cfg.partial_threshold {
         CompletionState::PartiallyComplete
@@ -100,6 +106,9 @@ pub fn arbitrate(input: &CompletionInput, cfg: &CompletionConfig) -> Arbitration
             )
         }
         CompletionState::NeedsReview => "missing goal_verification or no jury consensus".into(),
+        CompletionState::Rejected if !input.verification_approved => {
+            format!("verification failed (GDS {gds:.2})")
+        }
         CompletionState::Rejected => {
             format!(
                 "GDS {gds:.2} below partial threshold {:.2}",
@@ -140,10 +149,19 @@ mod tests {
     fn substantial_but_incomplete_is_partial_not_rejected() {
         let mut i = base();
         i.gds = 0.8;
-        i.verification_approved = false; // jury didn't fully approve
         let a = arbitrate(&i, &CompletionConfig::default());
         assert_eq!(a.state, CompletionState::PartiallyComplete);
         assert!(!a.state.is_complete());
+    }
+
+    #[test]
+    fn failed_verification_is_rejected_however_many_tasks_finished() {
+        let mut i = base();
+        i.gds = 0.8;
+        i.verification_approved = false; // the independent signoff answered FAIL
+        let a = arbitrate(&i, &CompletionConfig::default());
+        assert_eq!(a.state, CompletionState::Rejected);
+        assert!(a.rationale.contains("verification failed"));
     }
 
     #[test]

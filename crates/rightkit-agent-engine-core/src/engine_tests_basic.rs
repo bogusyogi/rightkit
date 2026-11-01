@@ -687,7 +687,7 @@ async fn eff002_hook_transform_then_middleware_approval_binds_final_digest() {
         "arguments": {"path": final_path}
     })));
     let approvals = engine.pending_approvals.clone();
-    let mut subscription = conduit.subscribe();
+    let mut subscription = conduit.subscribe_human();
     let task = tokio::spawn(async move {
         engine
             .dispatch_external_tool_call(ToolCall {
@@ -864,7 +864,7 @@ async fn eff002_approval_runtime_evidence_excludes_secret_argument() {
         },
     );
     let approvals = engine.pending_approvals.clone();
-    let mut subscription = conduit.subscribe();
+    let mut subscription = conduit.subscribe_human();
     let task = tokio::spawn(async move { engine.submit_user_message("run command").await });
 
     tokio::time::timeout(std::time::Duration::from_secs(10), async {
@@ -956,7 +956,7 @@ async fn hook_ask_routes_through_approval_with_post_mutation_payload() {
         "updatedInput": {"path": final_path}
     })));
     let approvals = engine.pending_approvals.clone();
-    let mut subscription = conduit.subscribe();
+    let mut subscription = conduit.subscribe_human();
     let task = tokio::spawn(async move {
         engine
             .dispatch_external_tool_call(ToolCall {
@@ -1014,7 +1014,7 @@ async fn hook_ask_denied_by_operator_does_not_execute() {
         "decision": "ask", "reason": "confirm read"
     })));
     let approvals = engine.pending_approvals.clone();
-    let mut subscription = conduit.subscribe();
+    let mut subscription = conduit.subscribe_human();
     let path = file.path().to_string_lossy().to_string();
     let task = tokio::spawn(async move {
         engine

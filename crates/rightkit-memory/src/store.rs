@@ -8,13 +8,10 @@
 //! MemRight, etc.) it already owns without this crate taking a DB
 //! dependency.
 
-use crate::retriever::RecallCandidate;
 use crate::screening::{self, RejectReason, ScreeningVerdict};
 use serde::{Deserialize, Serialize};
 
-/// A persisted memory row. Mirrors `RecallCandidate`'s shape (minus the
-/// retrieval-time `score`) so store rows convert into recall candidates for
-/// free.
+/// A persisted memory row of the mobile-only local store.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MemoryRecord {
     pub id: String,
@@ -24,16 +21,14 @@ pub struct MemoryRecord {
     pub subject_key: String,
     pub created_at: String,
     pub access_count: u32,
-    /// User-controlled hard pin: never evicted by capacity/age policy and
-    /// never dropped by `curate_recall_candidates`'s contradiction pruning,
+    /// User-controlled hard pin: never evicted by capacity/age policy,
     /// mirroring `TranscriptMessage::pinned` semantics (ENG-104) but scoped
     /// to durable memory rather than the live transcript.
     pub pinned: bool,
 }
 
 /// Caller-supplied fields for a new memory write. `id`, `digest`, and
-/// `subject_key` stay caller-computed (as `RecallCandidate` already
-/// documents) so the store never re-implements hashing/keyword-normalization
+/// `subject_key` stay caller-computed so the store never re-implements hashing/keyword-normalization
 /// that the daemon's existing pipeline owns.
 #[derive(Debug, Clone)]
 pub struct NewMemory {
@@ -128,7 +123,7 @@ impl MemoryStore {
     }
 
     /// All records in a scope (or every record when `scope` is `None`),
-    /// unordered (callers rank via `retriever`).
+    /// unordered (callers rank).
     pub fn list(&self, scope: Option<&str>) -> Vec<&MemoryRecord> {
         self.records
             .values()
@@ -145,34 +140,6 @@ impl MemoryStore {
 
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
-    }
-
-    /// Convert every record in `scope` into a `RecallCandidate` with the
-    /// given lexical/hybrid `score`, so the caller's retrieval pipeline
-    /// (`retriever::curate_recall_candidates`,
-    /// `retriever::rank_by_relevance_and_recency`) can run unchanged over
-    /// store-backed rows.
-    pub fn as_recall_candidates<F>(
-        &self,
-        scope: Option<&str>,
-        mut score_fn: F,
-    ) -> Vec<RecallCandidate>
-    where
-        F: FnMut(&MemoryRecord) -> f64,
-    {
-        self.list(scope)
-            .into_iter()
-            .map(|record| RecallCandidate {
-                id: record.id.clone(),
-                scope: record.scope.clone(),
-                content: record.content.clone(),
-                digest: record.digest.clone(),
-                subject_key: record.subject_key.clone(),
-                created_at: record.created_at.clone(),
-                score: score_fn(record),
-                access_count: record.access_count,
-            })
-            .collect()
     }
 }
 
