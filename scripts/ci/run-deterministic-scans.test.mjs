@@ -51,3 +51,10 @@ test("npm selection uses published package identity & includes whole package", (
   assert(selected.files.includes("packages/logs/src/index.ts"));
   assert(!selected.files.includes("packages/other/src/index.ts"));
 });
+
+test("an npm publication's scan scope holds no Cargo manifest, lock or .cargo config: it has no Cargo workspace to scan (publish.yml scans, 2026-11-01)", () => {
+  const files = ["package.json", "packages/release/package.json", "packages/release/fixtures/release-switches/app/Cargo.toml", "packages/release/gate.mjs", "crates/rightkit-fs/Cargo.toml", ".cargo/config.toml", "ci/gate.config.json"];
+  const selected = publicationContent({ registry: "npm", units: "@rightkit/release", files, workspace: new Map([["@rightkit/release", { dir: "packages/release" }]]), readBlob: () => "" });
+  assert.deepEqual(selected.files, ["package.json", "packages/release/package.json", "packages/release/gate.mjs", "ci/gate.config.json"]);
+  assert.deepEqual(selected.rustUnits, []);
+});

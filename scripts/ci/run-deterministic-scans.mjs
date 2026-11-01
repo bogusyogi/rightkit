@@ -49,9 +49,14 @@ export function publicationContent({ registry, units: text, files, workspace, cr
     // Each crate is its own Cargo workspace with its own lock (#1285): its cargo scans run in its directory, as ci.yml's gate plans them.
     return registry === "npm" ? { name: path.posix.basename(unit.dir), dir: unit.dir } : { name, dir: unit.dir, cargoDir: unit.dir, crate: name };
   });
+  // An npm publication has no Cargo workspace: RightKit has had no root workspace since #1285 (one per crate), so a Cargo manifest, lock or
+  // `.cargo` config in its scope (a test fixture's, packages/release/fixtures/...) only made the planner fall back to the root `.` and run
+  // cargo-metadata, cargo-deny and cargo-audit where no Cargo.toml exists (every npm publish.yml scans job, 2026-11-01). The crates' own
+  // manifests are scanned by their own publications and by ci.yml's whole-repository gate.
+  const rustConfig = (f) => /(^|\/)Cargo\.(toml|lock)$/.test(f) || f.startsWith(".cargo/") || f.includes("/.cargo/");
   return {
     scope: { registry, units },
-    files: files.filter((f) => !f.includes("/") || f.endsWith("/Cargo.toml") || (f.startsWith("ci/") && !f.startsWith("ci/consumers/")) || dirs.some((d) => f === d || f.startsWith(`${d}/`))),
+    files: files.filter((f) => !(registry === "npm" && rustConfig(f)) && (!f.includes("/") || f.endsWith("/Cargo.toml") || (f.startsWith("ci/") && !f.startsWith("ci/consumers/")) || dirs.some((d) => f === d || f.startsWith(`${d}/`)))),
     rustUnits: registry === "crates" ? selected : [],
     npmUnits: registry === "npm" ? selected : [],
   };
