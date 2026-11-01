@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-memory"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent memory: durable memory store, write screening, adaptive retrieval routing and a typed backend over an external membrane CLI"
@@ -19,7 +19,16 @@ name = "fake-membrane"
 path = "src/bin/fake_membrane.rs"
 test = false
 
+[features]
+agent_host = ["dep:axum", "dep:rightkit-agent-engine-runtime-resources", "dep:rightkit-agent-policy", "dep:rightkit-agent-tools", "dep:rightkit-app-settings", "dep:tracing"]
+
 [dependencies]
+axum = { version = "0.8", optional = true }
+rightkit-agent-engine-runtime-resources = { version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources", optional = true }
+rightkit-agent-policy = { version = "0.1.0", path = "../rightkit-agent-policy", optional = true }
+rightkit-agent-tools = { version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"], optional = true }
+rightkit-app-settings = { version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config"], optional = true }
+tracing = { version = "0.1", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }
