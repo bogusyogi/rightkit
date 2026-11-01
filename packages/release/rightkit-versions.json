@@ -464,6 +464,7 @@
     "rightkit-automation": "0.6.1",
     "rightkit-browser": "0.3.7",
     "rightkit-cache": "0.2.3",
+    "rightkit-captions": "0.1.0",
     "rightkit-channel-memory": "0.2.2",
     "rightkit-child-process": "0.5.7",
     "rightkit-color": "0.1.0",

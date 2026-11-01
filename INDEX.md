@@ -12,7 +12,7 @@ Flagged mismatches: 0.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (73)
+## Rust crates (74)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -26,6 +26,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-automation` | crates.io | 0.6.1 | 0.6.1 | 0.6.1 | ok | desktop-automation | Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts. |
 | `rightkit-browser` | crates.io | 0.3.7 | 0.3.6 | 0.3.7 | staged, not yet published | browser-automation | Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks. |
 | `rightkit-cache` | crates.io | 0.2.3 | 0.2.3 | 0.2.3 | ok | disk-cache | Disk cache primitive with a hard size cap, LRU eviction that survives restarts, atomic writes and group invalidation, plus stable-prefix prompt-cache keys. |
+| `rightkit-captions` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Captions for Right Suite video apps: caption styles, per-language caption sets, cue layout and placement, font measurement, and swatch rendering through rightkit-typeset. |
 | `rightkit-channel-memory` | crates.io | 0.2.2 | 0.2.1 | 0.2.2 | staged, not yet published | channel-memory | Channel memory for the content pipeline: the channel-memory.v1 schema with serde types, validation, version gate, proof citation rules, and scope checks for PostRight P3 and GenRight G7. |
 | `rightkit-child-process` | crates.io | 0.5.7 | 0.5.7 | 0.5.7 | ok | owned-processes | Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps. |
 | `rightkit-color` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Colour grading for Right Suite video apps: grade parameters, LUTs and FFmpeg filter rendering, and video scopes (waveform, vectorscope, histogram). |

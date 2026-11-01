@@ -1,0 +1,103 @@
+{
+  "schema": "cutright.caption-styles.v1",
+  "segmentation": {
+    "landscape": { "max_chars_per_line": 42, "max_lines": 2, "max_chars_per_second": 21.0, "min_cue_ms": 600, "max_cue_ms": 7000, "max_gap_ms": 700 },
+    "portrait":  { "max_chars_per_line": 24, "max_lines": 2, "max_chars_per_second": 18.0, "min_cue_ms": 600, "max_cue_ms": 4500, "max_gap_ms": 700 }
+  },
+  "styles": [
+    {
+      "id": "classic-box", "name": "Classic box",
+      "description": "White text on a translucent black box (the default burn-in look).",
+      "font": { "landscape": 42, "portrait": 46 },
+      "weight": "regular",
+      "text_color": "#FFFFFF",
+      "box": { "color": "#000000", "alpha_pct": 60, "hpad_pct": 40, "vpad_pct": 40, "radius_pct": 0 },
+      "anchor": { "landscape": 900, "portrait": 760 },
+      "max_width": { "landscape": 800, "portrait": 880 }
+    },
+    {
+      "id": "clean-outline", "name": "Clean outline",
+      "description": "Bold white text, black outline and soft shadow, no box.",
+      "font": { "landscape": 46, "portrait": 52 },
+      "weight": "bold",
+      "text_color": "#FFFFFF",
+      "outline": { "color": "#000000", "pct": 7 },
+      "shadow": { "color": "#000000", "alpha_pct": 60, "pct": 5 },
+      "anchor": { "landscape": 900, "portrait": 760 },
+      "max_width": { "landscape": 800, "portrait": 880 }
+    },
+    {
+      "id": "shorts-pop", "name": "Shorts pop",
+      "description": "Uppercase bold yellow with a heavy black outline; numbers and emphasis words in white.",
+      "font": { "landscape": 50, "portrait": 58 },
+      "weight": "bold",
+      "uppercase": true,
+      "text_color": "#FFE600",
+      "emphasis_color": "#FFFFFF",
+      "outline": { "color": "#000000", "pct": 10 },
+      "shadow": { "color": "#000000", "alpha_pct": 70, "pct": 6 },
+      "anchor": { "landscape": 880, "portrait": 700 },
+      "max_width": { "landscape": 760, "portrait": 860 },
+      "max_chars_per_line": 20,
+      "max_lines": 2
+    },
+    {
+      "id": "karaoke-pop", "name": "Karaoke pop",
+      "description": "Uppercase bold white, the spoken word lights up yellow as it is said.",
+      "font": { "landscape": 50, "portrait": 58 },
+      "weight": "bold",
+      "uppercase": true,
+      "text_color": "#FFFFFF",
+      "outline": { "color": "#000000", "pct": 10 },
+      "shadow": { "color": "#000000", "alpha_pct": 70, "pct": 6 },
+      "karaoke": { "highlight_color": "#FFE600", "mode": "active" },
+      "anchor": { "landscape": 880, "portrait": 700 },
+      "max_width": { "landscape": 760, "portrait": 860 },
+      "max_chars_per_line": 20,
+      "max_lines": 2
+    },
+    {
+      "id": "karaoke-fill", "name": "Karaoke fill",
+      "description": "Words fill in green on a dark box and stay lit until the cue ends.",
+      "font": { "landscape": 44, "portrait": 50 },
+      "weight": "bold",
+      "text_color": "#FFFFFF",
+      "box": { "color": "#000000", "alpha_pct": 70, "hpad_pct": 45, "vpad_pct": 40, "radius_pct": 28 },
+      "karaoke": { "highlight_color": "#3DFF8A", "mode": "progressive" },
+      "anchor": { "landscape": 900, "portrait": 740 },
+      "max_width": { "landscape": 800, "portrait": 880 }
+    },
+    {
+      "id": "card-classic", "name": "Caption card",
+      "description": "The original CutRight caption card: bold white on a rounded 72 percent black card.",
+      "font": { "landscape": 42, "portrait": 46 },
+      "weight": "bold",
+      "text_color": "#FFFFFF",
+      "box": { "color": "#000000", "alpha_pct": 72, "hpad_pct": 70, "vpad_pct": 42, "radius_pct": 28 },
+      "anchor": { "landscape": 900, "portrait": 760 },
+      "max_width": { "landscape": 780, "portrait": 860 }
+    },
+    {
+      "id": "card-emphasis", "name": "Card with emphasis",
+      "description": "Rounded card; numbers and chosen emphasis words in an accent colour.",
+      "font": { "landscape": 42, "portrait": 48 },
+      "weight": "bold",
+      "text_color": "#FFFFFF",
+      "emphasis_color": "#FFC400",
+      "box": { "color": "#101820", "alpha_pct": 78, "hpad_pct": 70, "vpad_pct": 42, "radius_pct": 34 },
+      "anchor": { "landscape": 900, "portrait": 760 },
+      "max_width": { "landscape": 780, "portrait": 860 }
+    },
+    {
+      "id": "minimal-lower", "name": "Minimal lower third",
+      "description": "Small regular white text with a light shadow, no box.",
+      "font": { "landscape": 36, "portrait": 40 },
+      "weight": "regular",
+      "text_color": "#FFFFFF",
+      "shadow": { "color": "#000000", "alpha_pct": 80, "pct": 6 },
+      "outline": { "color": "#000000", "pct": 4 },
+      "anchor": { "landscape": 920, "portrait": 780 },
+      "max_width": { "landscape": 800, "portrait": 880 }
+    }
+  ]
+}

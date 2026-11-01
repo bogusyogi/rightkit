@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-captions",
+  "capabilities": [
+    {
+      "capability": "video-captions",
+      "summary": "Captions for Right Suite video apps: caption styles, per-language caption sets, cue layout and placement, font measurement, and swatch rendering through rightkit-typeset.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}
