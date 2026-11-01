@@ -156,7 +156,7 @@ pub fn shell_prefix_words(command: &str) -> Option<Vec<String>> {
 fn source_is_plain_ask(policy_source: Option<&str>) -> bool {
     match policy_source.map(str::trim) {
         None | Some("") => true,
-        Some(source) => source.starts_with("mode:") || source.starts_with("auto_approval:"),
+        Some(source) => source.starts_with("mode:"),
     }
 }
 
@@ -305,13 +305,17 @@ mod tests {
 
     #[test]
     fn rule_held_or_abac_requests_are_not_widened() {
-        for source in ["rule:session:shell(ls)", "abac:r1", "durable-write:x"] {
+        for source in [
+            "rule:session:shell(ls)",
+            "abac:r1",
+            "durable-write:x",
+            "auto_approval:gray-zone-review",
+        ] {
             assert!(
                 derive_allow_rule(&exec("ls"), Some(source)).is_none(),
                 "{source}"
             );
         }
-        assert!(derive_allow_rule(&exec("ls"), Some("auto_approval:gray-zone-review")).is_some());
     }
 
     #[test]

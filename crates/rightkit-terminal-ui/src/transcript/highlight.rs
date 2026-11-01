@@ -10,7 +10,7 @@
 //! | `THEME` | `OnceLock<RwLock<Theme>>` | Active color theme, swappable at runtime |
 //! | `THEME_REVISION` | `AtomicU64` | Invalidates rendered-content caches after theme swaps |
 //! | `THEME_OVERRIDE` | `OnceLock<Option<String>>` | Persisted user preference (write-once) |
-//! | `CODEX_HOME` | `OnceLock<Option<PathBuf>>` | Root for custom `.tmTheme` discovery |
+//! | `THEME_HOME` | `OnceLock<Option<PathBuf>>` | Root for custom `.tmTheme` discovery |
 //!
 //! **Lifecycle:** call [`set_theme_override`] once at startup (after the final
 //! config is resolved) to persist the user preference and seed the `THEME`
@@ -67,7 +67,7 @@ static THEME: OnceLock<RwLock<Theme>> = OnceLock::new();
 #[cfg(not(test))]
 static THEME_REVISION: AtomicU64 = AtomicU64::new(0);
 static THEME_OVERRIDE: OnceLock<Option<String>> = OnceLock::new();
-static CODEX_HOME: OnceLock<Option<PathBuf>> = OnceLock::new();
+static THEME_HOME: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 #[cfg(test)]
 thread_local! {
@@ -92,10 +92,10 @@ fn syntax_set() -> &'static SyntaxSet {
 // time — long before it reaches users.  A runtime warning would be
 // unactionable noise since users can't fix upstream themes.
 
-/// Set the user-configured syntax theme override and codex home path.
+/// Set the user-configured syntax theme override and themes root path.
 ///
 /// Call this with the **final resolved config** (after onboarding, resume, and
-/// fork reloads complete). The first call persists `name` and `codex_home` in
+/// fork reloads complete). The first call persists `name` and `theme_home` in
 /// `OnceLock`s used by startup/default theme resolution.
 ///
 /// Subsequent calls cannot change the persisted `OnceLock` values, but they
@@ -105,11 +105,11 @@ fn syntax_set() -> &'static SyntaxSet {
 /// unknown/invalid theme names or duplicate override persistence.
 pub(crate) fn set_theme_override(
     name: Option<String>,
-    codex_home: Option<PathBuf>,
+    theme_home: Option<PathBuf>,
 ) -> Option<String> {
-    let warning = validate_theme_name(name.as_deref(), codex_home.as_deref());
+    let warning = validate_theme_name(name.as_deref(), theme_home.as_deref());
     let override_set_ok = THEME_OVERRIDE.set(name.clone()).is_ok();
-    let codex_home_set_ok = CODEX_HOME.set(codex_home.clone()).is_ok();
+    let theme_home_set_ok = THEME_HOME.set(theme_home.clone()).is_ok();
     #[cfg(not(test))]
     let initialized = THEME.get().is_some();
     #[cfg(test)]
@@ -117,10 +117,10 @@ pub(crate) fn set_theme_override(
     if initialized {
         set_syntax_theme(resolve_theme_with_override(
             name.as_deref(),
-            codex_home.as_deref(),
+            theme_home.as_deref(),
         ));
     }
-    if !override_set_ok || !codex_home_set_ok {
+    if !override_set_ok || !theme_home_set_ok {
         // This should never happen in practice — set_theme_override is only
         // called once at startup.  Keep as a debug breadcrumb in case a second
         // call site is added in the future.
@@ -131,17 +131,17 @@ pub(crate) fn set_theme_override(
 
 /// Check whether a theme name resolves to a bundled theme or a custom
 /// `.tmTheme` file.  Returns a user-facing warning when it does not.
-pub(crate) fn validate_theme_name(name: Option<&str>, codex_home: Option<&Path>) -> Option<String> {
+pub(crate) fn validate_theme_name(name: Option<&str>, theme_home: Option<&Path>) -> Option<String> {
     let name = name?;
-    let custom_theme_path_display = codex_home
+    let custom_theme_path_display = theme_home
         .map(|home| custom_theme_path(name, home).display().to_string())
-        .unwrap_or_else(|| format!("$CODEX_HOME/themes/{name}.tmTheme"));
-    if resolve_theme_by_name(name, codex_home).is_some() {
+        .unwrap_or_else(|| format!("<themes folder>/{name}.tmTheme"));
+    if resolve_theme_by_name(name, theme_home).is_some() {
         return None;
     }
     // Custom themes must parse successfully; an unreadable/invalid file should
     // still surface a startup warning so users can diagnose configuration issues.
-    if let Some(home) = codex_home {
+    if let Some(home) = theme_home {
         let custom_path = custom_theme_path(name, home);
         if custom_path.try_exists().unwrap_or(/*default*/ true) {
             return Some(format!(
@@ -197,13 +197,13 @@ fn parse_theme_name(name: &str) -> Option<EmbeddedThemeName> {
 }
 
 /// Build the expected path for a custom theme file.
-fn custom_theme_path(name: &str, codex_home: &Path) -> PathBuf {
-    codex_home.join("themes").join(format!("{name}.tmTheme"))
+fn custom_theme_path(name: &str, theme_home: &Path) -> PathBuf {
+    theme_home.join("themes").join(format!("{name}.tmTheme"))
 }
 
-/// Try to load a custom `.tmTheme` file from `{codex_home}/themes/{name}.tmTheme`.
-fn load_custom_theme(name: &str, codex_home: &Path) -> Option<Theme> {
-    ThemeSet::get_theme(custom_theme_path(name, codex_home)).ok()
+/// Try to load a custom `.tmTheme` file from `{theme_home}/themes/{name}.tmTheme`.
+fn load_custom_theme(name: &str, theme_home: &Path) -> Option<Theme> {
+    ThemeSet::get_theme(custom_theme_path(name, theme_home)).ok()
 }
 
 fn adaptive_default_theme_selection() -> (EmbeddedThemeName, &'static str) {
@@ -227,12 +227,12 @@ pub(crate) fn adaptive_default_theme_name() -> &'static str {
 
 /// Build the theme from current override/default-theme settings.
 /// Extracted from the old `theme()` init closure so it can be reused.
-fn resolve_theme_with_override(name: Option<&str>, codex_home: Option<&Path>) -> Theme {
+fn resolve_theme_with_override(name: Option<&str>, theme_home: Option<&Path>) -> Theme {
     let ts = two_face::theme::extra();
 
     // Honor user-configured theme if valid.
     if let Some(name) = name {
-        if let Some(theme) = resolve_theme_by_name(name, codex_home) {
+        if let Some(theme) = resolve_theme_by_name(name, theme_home) {
             return theme;
         }
         tracing::debug!("Theme \"{name}\" not recognized; using default theme");
@@ -245,10 +245,10 @@ fn resolve_theme_with_override(name: Option<&str>, codex_home: Option<&Path>) ->
 /// Extracted from the old `theme()` init closure so it can be reused.
 fn build_default_theme() -> Theme {
     let name = THEME_OVERRIDE.get().and_then(|name| name.as_deref());
-    let codex_home = CODEX_HOME
+    let theme_home = THEME_HOME
         .get()
-        .and_then(|codex_home| codex_home.as_deref());
-    resolve_theme_with_override(name, codex_home)
+        .and_then(|theme_home| theme_home.as_deref());
+    resolve_theme_with_override(name, theme_home)
 }
 
 fn theme_lock() -> impl std::ops::Deref<Target = RwLock<Theme>> {
@@ -382,7 +382,7 @@ pub(crate) fn foreground_style_for_scopes_with_theme(
 pub(crate) fn configured_theme_name() -> String {
     // Explicit user override?
     if let Some(Some(name)) = THEME_OVERRIDE.get() {
-        let home = CODEX_HOME.get().and_then(|home| home.as_deref());
+        let home = THEME_HOME.get().and_then(|home| home.as_deref());
         if resolve_theme_by_name(name, home).is_some() {
             return name.clone();
         }
@@ -392,14 +392,14 @@ pub(crate) fn configured_theme_name() -> String {
 
 /// Resolve a theme name to a `Theme` (bundled or custom). Returns `None`
 /// when the name is unknown and no matching `.tmTheme` file exists.
-pub(crate) fn resolve_theme_by_name(name: &str, codex_home: Option<&Path>) -> Option<Theme> {
+pub(crate) fn resolve_theme_by_name(name: &str, theme_home: Option<&Path>) -> Option<Theme> {
     let ts = two_face::theme::extra();
     // Bundled theme?
     if let Some(embedded) = parse_theme_name(name) {
         return Some(ts.get(embedded).clone());
     }
     // Custom .tmTheme file?
-    if let Some(home) = codex_home
+    if let Some(home) = theme_home
         && custom_theme_path(name, home)
             .try_exists()
             .unwrap_or(/*default*/ true)
@@ -410,7 +410,7 @@ pub(crate) fn resolve_theme_by_name(name: &str, codex_home: Option<&Path>) -> Op
 }
 
 /// A theme available in the picker, either bundled or loaded from a custom
-/// `.tmTheme` file under `{CODEX_HOME}/themes/`.
+/// `.tmTheme` file under `<themes folder>/`.
 pub(crate) struct ThemeEntry {
     /// Kebab-case identifier used for config persistence and theme resolution.
     pub name: String,
@@ -420,8 +420,8 @@ pub(crate) struct ThemeEntry {
 }
 
 /// List all available theme names: bundled themes + custom `.tmTheme` files
-/// found in `{codex_home}/themes/`.
-pub(crate) fn list_available_themes(codex_home: Option<&Path>) -> Vec<ThemeEntry> {
+/// found in `{theme_home}/themes/`.
+pub(crate) fn list_available_themes(theme_home: Option<&Path>) -> Vec<ThemeEntry> {
     let mut entries: Vec<ThemeEntry> = BUILTIN_THEME_NAMES
         .iter()
         .map(|name| ThemeEntry {
@@ -431,7 +431,7 @@ pub(crate) fn list_available_themes(codex_home: Option<&Path>) -> Vec<ThemeEntry
         .collect();
 
     // Discover custom themes on disk, deduplicating against builtins.
-    if let Some(home) = codex_home {
+    if let Some(home) = theme_home {
         let themes_dir = home.join("themes");
         if let Ok(read_dir) = std::fs::read_dir(&themes_dir) {
             for entry in read_dir.flatten() {
@@ -455,11 +455,11 @@ pub(crate) fn list_available_themes(codex_home: Option<&Path>) -> Vec<ThemeEntry
     // Existing custom files take precedence over the new bundled names.
     for (name, _) in model_themes::THEMES {
         if !entries.iter().any(|entry| entry.name == *name)
-            && resolve_theme_by_name(name, codex_home).is_some()
+            && resolve_theme_by_name(name, theme_home).is_some()
         {
             entries.push(ThemeEntry {
                 name: (*name).to_string(),
-                is_custom: codex_home.is_some_and(|home| custom_theme_path(name, home).exists()),
+                is_custom: theme_home.is_some_and(|home| custom_theme_path(name, home).exists()),
             });
         }
     }
@@ -865,7 +865,7 @@ mod tests {
     }
 
     fn unique_foreground_colors_for_theme(theme_name: &str) -> Vec<String> {
-        let theme = resolve_theme_by_name(theme_name, /*codex_home*/ None)
+        let theme = resolve_theme_by_name(theme_name, /*theme_home*/ None)
             .unwrap_or_else(|| panic!("expected built-in theme {theme_name} to resolve"));
         let lines = highlight_to_line_spans_with_theme(
             "fn main() { let answer = 42; println!(\"hello\"); }\n",
@@ -1149,7 +1149,7 @@ mod tests {
     #[test]
     fn ansi_family_themes_use_terminal_palette_colors_not_rgb() {
         for theme_name in ["ansi", "base16", "base16-256"] {
-            let theme = resolve_theme_by_name(theme_name, /*codex_home*/ None)
+            let theme = resolve_theme_by_name(theme_name, /*theme_home*/ None)
                 .unwrap_or_else(|| panic!("expected built-in theme {theme_name} to resolve"));
             let lines = highlight_to_line_spans_with_theme(
                 "fn main() { let answer = 42; println!(\"hello\"); }\n",
@@ -1404,7 +1404,7 @@ mod tests {
 
     #[test]
     fn bundled_theme_can_provide_diff_scope_backgrounds() {
-        let theme = resolve_theme_by_name("github", /*codex_home*/ None)
+        let theme = resolve_theme_by_name("github", /*theme_home*/ None)
             .expect("expected built-in GitHub theme to load");
         let rgbs = diff_scope_backgrounds_for_theme(&theme);
         assert!(
@@ -1523,13 +1523,13 @@ mod tests {
     #[test]
     fn validate_theme_name_none_for_bundled() {
         // Bundled themes should never produce a warning.
-        assert!(validate_theme_name(Some("dracula"), /*codex_home*/ None).is_none());
+        assert!(validate_theme_name(Some("dracula"), /*theme_home*/ None).is_none());
         assert!(validate_theme_name(Some("nord"), Some(Path::new("/nonexistent"))).is_none());
     }
 
     #[test]
     fn validate_theme_name_none_when_no_override() {
-        assert!(validate_theme_name(/*name*/ None, /*codex_home*/ None).is_none());
+        assert!(validate_theme_name(/*name*/ None, /*theme_home*/ None).is_none());
     }
 
     #[test]

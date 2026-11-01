@@ -45,8 +45,6 @@ pub(crate) mod history_store;
 pub mod intent;
 pub(crate) mod key_hint;
 pub(crate) mod keymap;
-pub(crate) mod line_truncation;
-pub(crate) mod line_utils;
 pub(crate) mod mention_codec;
 pub(crate) mod mention_syntax;
 pub(crate) mod paste_burst;
@@ -65,7 +63,11 @@ pub mod textarea;
 pub(crate) mod vim_history;
 pub(crate) mod vim_search;
 pub mod width;
-pub(crate) mod wrapping;
+// R17: one copy of each shared helper module. The composer reads the same
+// wrapping, truncation and line helpers the transcript and the terminal
+// substrate own.
+pub(crate) use crate::terminal::line_utils;
+pub(crate) use crate::transcript::{line_truncation, wrapping};
 
 #[cfg(test)]
 pub(crate) mod test_backend;

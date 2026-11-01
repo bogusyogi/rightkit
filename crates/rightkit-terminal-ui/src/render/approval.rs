@@ -365,6 +365,11 @@ impl ApprovalOverlay {
         self.current.as_ref()
     }
 
+    /// Every request still open: the one on screen, then the queued ones.
+    pub fn pending_requests(&self) -> impl Iterator<Item = &ApprovalRequest> {
+        self.current.iter().chain(self.queue.iter())
+    }
+
     /// True when nothing is being shown and nothing is queued.
     pub fn is_complete(&self) -> bool {
         self.current.is_none() && self.queue.is_empty()
