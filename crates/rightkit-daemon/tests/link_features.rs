@@ -71,6 +71,9 @@ fn only_remote_enables_the_server_stack() {
         let enabling: Vec<&str> = MANIFEST
             .lines()
             .filter(|l| l.contains(&format!("\"dep:{dep}\"")))
+            // The in-process agent daemon features (agent_daemon_core, agent_daemon_runtime) are
+            // not the link/remote server stack this test pins.
+            .filter(|l| !l.starts_with("agent_daemon_"))
             .collect();
         assert_eq!(
             enabling.len(),
