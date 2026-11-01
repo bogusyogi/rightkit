@@ -15,7 +15,7 @@
 //! `notify_retry` events that rightkit-http does not emit.
 
 use bytes::Bytes;
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use rightkit_http::{
     AddressPolicy, AsyncClient, AsyncStreamResponse, ClientConfig, HttpError, ProxyMode, Request,
     RetryPolicy,
@@ -176,7 +176,7 @@ impl ProviderHttpResponse {
             #[cfg(test)]
             ProviderBody::Fixed(mut chunks) => {
                 let mut out: Vec<u8> = Vec::new();
-                while let Some(chunk) = chunks.next().await {
+                while let Some(chunk) = futures::StreamExt::next(&mut chunks).await {
                     out.extend_from_slice(&chunk?);
                 }
                 out.truncate(MAX_ERROR_BODY_BYTES);
