@@ -68,11 +68,12 @@ fn secret_store() -> Result<rightkit_credentials::Store, String> {
 }
 
 fn oauth_client() -> Result<rightkit_oauth::OAuthClient, String> {
-    let mut config = rightkit_http::ClientConfig::default();
-    config.connect_timeout = Some(Duration::from_secs(20));
-    config.request_timeout = Duration::from_secs(20);
-    config.response_timeout = Some(Duration::from_secs(20));
-    let http = rightkit_http::Client::new(config);
+    let http = rightkit_http::Client::new(rightkit_http::ClientConfig {
+        connect_timeout: Some(Duration::from_secs(20)),
+        request_timeout: Duration::from_secs(20),
+        response_timeout: Some(Duration::from_secs(20)),
+        ..rightkit_http::ClientConfig::default()
+    });
     if config().client_id.trim().is_empty() {
         return Err(
             "GitHub sign-in is not configured: call signin::configure with a client id".to_string(),
@@ -219,6 +220,97 @@ pub fn resolve_access_token() -> Result<Option<String>, String> {
     })
 }
 
+pub fn sign_out() -> Result<(), String> {
+    if !keychain_enabled() {
+        return Err(keychain_disabled_message());
+    }
+    secret_store()?
+        .delete(ACCOUNT)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+/// Start RFC 8628 flow, present its public verification data, then store the token.
+pub fn sign_in_device(
+    present: impl FnOnce(&DeviceAuthorization),
+    _wait: &DeviceWait,
+) -> Result<(), String> {
+    let flow = begin_device_sign_in()?;
+    present(flow.authorization());
+    flow.complete(&DeviceWait)
+}
+
+pub fn device_sign_in_with_terminal() -> Result<(), String> {
+    use std::io::{self, Write};
+    let mut show = |device: &DeviceAuthorization| {
+        let mut out = io::stdout().lock();
+        let _ = writeln!(out, "GitHub sign-in: {}", device.verification_uri);
+        let _ = writeln!(out, "Enter code: {}", device.user_code);
+        let _ = writeln!(
+            out,
+            "Approve sign-in in browser; press Enter after approval."
+        );
+        let _ = out.flush();
+        let mut line = String::new();
+        let _ = io::stdin().read_line(&mut line);
+    };
+    sign_in_device(show, &DeviceWait)
+}
+
+/// A started device flow whose public verification data is ready for the TUI.
+pub struct DeviceSignIn {
+    client: rightkit_oauth::OAuthClient,
+    authorization: DeviceAuthorization,
+}
+
+impl DeviceSignIn {
+    pub fn authorization(&self) -> &DeviceAuthorization {
+        &self.authorization
+    }
+
+    pub fn complete(self, _wait: &DeviceWait) -> Result<(), String> {
+        let tokens = self
+            .client
+            .finish_device(&self.authorization, &rightkit_oauth::DeviceWait::default())
+            .map_err(|error| error.to_string())?;
+        secret_store()?
+            .set_str(ACCOUNT, tokens.access_token())
+            .map_err(|error| error.to_string())
+    }
+}
+
+pub fn begin_device_sign_in() -> Result<DeviceSignIn, String> {
+    if !keychain_enabled() {
+        return Err(keychain_disabled_message());
+    }
+    let client = oauth_client()?;
+    let authorization = client.begin_device().map_err(|error| error.to_string())?;
+    Ok(DeviceSignIn {
+        client,
+        authorization,
+    })
+}
+
+pub fn open_verification_url(url: &str) -> Result<(), String> {
+    if !url.starts_with("https://github.com/") {
+        return Err(format!(
+            "refusing to open unexpected verification URL {url}"
+        ));
+    }
+    let opener = if cfg!(windows) {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    rightkit_child_process::command_std(opener)
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("could not open browser: {error}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,95 +406,4 @@ mod tests {
         assert_eq!(parse_gh_login(yml).as_deref(), Some("octocat"));
         assert_eq!(parse_gh_login("example.com:\n    user: x\n"), None);
     }
-}
-
-pub fn sign_out() -> Result<(), String> {
-    if !keychain_enabled() {
-        return Err(keychain_disabled_message());
-    }
-    secret_store()?
-        .delete(ACCOUNT)
-        .map(|_| ())
-        .map_err(|error| error.to_string())
-}
-
-/// Start RFC 8628 flow, present its public verification data, then store the token.
-pub fn sign_in_device(
-    present: impl FnOnce(&DeviceAuthorization),
-    _wait: &DeviceWait,
-) -> Result<(), String> {
-    let flow = begin_device_sign_in()?;
-    present(flow.authorization());
-    flow.complete(&DeviceWait)
-}
-
-pub fn device_sign_in_with_terminal() -> Result<(), String> {
-    use std::io::{self, Write};
-    let mut show = |device: &DeviceAuthorization| {
-        let mut out = io::stdout().lock();
-        let _ = writeln!(out, "GitHub sign-in: {}", device.verification_uri);
-        let _ = writeln!(out, "Enter code: {}", device.user_code);
-        let _ = writeln!(
-            out,
-            "Approve sign-in in browser; press Enter after approval."
-        );
-        let _ = out.flush();
-        let mut line = String::new();
-        let _ = io::stdin().read_line(&mut line);
-    };
-    sign_in_device(&mut show, &DeviceWait)
-}
-
-/// A started device flow whose public verification data is ready for the TUI.
-pub struct DeviceSignIn {
-    client: rightkit_oauth::OAuthClient,
-    authorization: DeviceAuthorization,
-}
-
-impl DeviceSignIn {
-    pub fn authorization(&self) -> &DeviceAuthorization {
-        &self.authorization
-    }
-
-    pub fn complete(self, _wait: &DeviceWait) -> Result<(), String> {
-        let tokens = self
-            .client
-            .finish_device(&self.authorization, &rightkit_oauth::DeviceWait::default())
-            .map_err(|error| error.to_string())?;
-        secret_store()?
-            .set_str(ACCOUNT, tokens.access_token())
-            .map_err(|error| error.to_string())
-    }
-}
-
-pub fn begin_device_sign_in() -> Result<DeviceSignIn, String> {
-    if !keychain_enabled() {
-        return Err(keychain_disabled_message());
-    }
-    let client = oauth_client()?;
-    let authorization = client.begin_device().map_err(|error| error.to_string())?;
-    Ok(DeviceSignIn {
-        client,
-        authorization,
-    })
-}
-
-pub fn open_verification_url(url: &str) -> Result<(), String> {
-    if !url.starts_with("https://github.com/") {
-        return Err(format!(
-            "refusing to open unexpected verification URL {url}"
-        ));
-    }
-    let opener = if cfg!(windows) {
-        "explorer"
-    } else if cfg!(target_os = "macos") {
-        "open"
-    } else {
-        "xdg-open"
-    };
-    rightkit_child_process::command_std(opener)
-        .arg(url)
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("could not open browser: {error}"))
 }

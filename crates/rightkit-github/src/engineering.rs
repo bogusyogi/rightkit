@@ -199,6 +199,7 @@ pub fn diagnostic_exit_code(prefix: &str, value: &Value) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn scratch(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("rk-github-eng-{name}-{}", std::process::id()))
