@@ -316,8 +316,8 @@ pub mod procfs {
 
     /// Enumerate the direct children of `pid` by scanning `/proc/*/stat` for
     /// a matching `PPid`. An empty vec is a real measurement ("no children");
-    /// callers needing "host cannot enumerate" distinguish that via
-    /// [`children_supported`], which is `true` only on hosts with procfs.
+    /// callers needing "host cannot enumerate" must treat a non-procfs host
+    /// (anything but Linux) as unsupported, since this scan only works with procfs.
     pub fn children_of(pid: u32) -> Vec<u32> {
         let mut children = Vec::new();
         let Ok(entries) = std::fs::read_dir("/proc") else {
