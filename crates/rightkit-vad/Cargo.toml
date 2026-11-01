@@ -25,7 +25,7 @@ name = "rightkit_vad"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.6", optional = true }
+rightkit-onnx = { path = "../rightkit-onnx", version = "0.3.0", optional = true }
 
 [dev-dependencies]
 hound = "3.5"
