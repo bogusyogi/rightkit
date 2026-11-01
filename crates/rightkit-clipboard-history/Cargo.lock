@@ -91,9 +91,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-automation"
+version = "0.6.4"
+dependencies = [
+ "windows",
+]
+
+[[package]]
 name = "rightkit-clipboard-history"
 version = "0.1.0"
 dependencies = [
+ "rightkit-automation",
  "rightkit-fs",
  "rightkit-time",
  "rightkit-win-ui",

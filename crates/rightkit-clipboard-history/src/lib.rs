@@ -10,6 +10,8 @@ pub mod host;
 pub mod img;
 pub mod json;
 pub mod model;
+#[cfg(windows)]
+pub mod paste;
 pub mod seal;
 pub mod search;
 #[cfg(windows)]

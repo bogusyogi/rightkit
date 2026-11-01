@@ -76,6 +76,29 @@ pub trait Host: Send + Sync + 'static {
     /// The stored history changed (the application may refresh counts).
     fn store_changed(&self) {}
 
+    /// True when choosing an item only copies it (the "copy" paste mode).
+    fn paste_copies_only(&self) -> bool {
+        false
+    }
+
+    /// Lower-case executable names of terminals that paste with Ctrl+Shift+V.
+    fn shift_paste_apps(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Shows a short notice (a toast) with `title`, translated by the host.
+    fn note(&self, _title: &str) {}
+
+    /// Sends `events` as one tagged batch; `ctx` names the sender in the log.
+    #[cfg(windows)]
+    fn send_input(&self, events: &[rightkit_automation::win::input::RawInput], ctx: &str);
+
+    /// Whether the user physically holds the side-specific modifier `vk`; `None` when unknown.
+    #[cfg(windows)]
+    fn physically_down(&self, _vk: u32) -> Option<bool> {
+        None
+    }
+
     /// Records an informational event with `fields`. Never called with clipboard content.
     fn log_info(&self, _event: &str, _fields: &[(&str, &str)]) {}
 }
@@ -151,4 +174,34 @@ pub(crate) fn store_changed() {
     if let Some(host) = HOST.get() {
         host.store_changed();
     }
+}
+
+#[cfg(windows)]
+pub(crate) fn paste_copies_only() -> bool {
+    HOST.get().is_some_and(|host| host.paste_copies_only())
+}
+
+#[cfg(windows)]
+pub(crate) fn shift_paste_apps() -> Vec<String> {
+    HOST.get()
+        .map_or_else(Vec::new, |host| host.shift_paste_apps())
+}
+
+#[cfg(windows)]
+pub(crate) fn note(title: &str) {
+    if let Some(host) = HOST.get() {
+        host.note(title);
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn send_input(events: &[rightkit_automation::win::input::RawInput], ctx: &str) {
+    if let Some(host) = HOST.get() {
+        host.send_input(events, ctx);
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn physically_down(vk: u32) -> Option<bool> {
+    HOST.get()?.physically_down(vk)
 }
