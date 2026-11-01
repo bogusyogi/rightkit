@@ -269,7 +269,7 @@ pub struct LifecycleReport {
     pub processes: Vec<ProcessEntry>,
     /// Propagated from [`BackendOutcome::endpoint`]. `None` for every command
     /// that does not resolve a daemon endpoint, and for any idempotent
-    /// short-circuit report (see [`LifecycleAuthority::idempotent_report`]),
+    /// short-circuit report (see `LifecycleAuthority::idempotent_report`),
     /// which never calls the backend at all.
     pub endpoint: Option<(String, String)>,
 }

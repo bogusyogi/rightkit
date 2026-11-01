@@ -487,7 +487,7 @@ fn balanced_expression(src: &str, open: usize) -> Option<&str> {
                     if bytes[i] == b'"'
                         && bytes
                             .get(i + 1..i + 1 + hashes)
-                            .map_or(false, |tail| tail.iter().all(|b| *b == b'#'))
+                            .is_some_and(|tail| tail.iter().all(|b| *b == b'#'))
                     {
                         i += 1 + hashes;
                         break;

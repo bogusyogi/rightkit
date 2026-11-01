@@ -418,7 +418,10 @@ pub(crate) fn process_start_marker(pid: u32) -> Option<(u64, u64)> {
 }
 
 #[cfg(unix)]
-pub(crate) use unix_impl::{peer_audit_token, verify_unix_host, verify_unix_pid};
+#[cfg(target_os = "macos")]
+pub(crate) use unix_impl::peer_audit_token;
+#[cfg(unix)]
+pub(crate) use unix_impl::{verify_unix_host, verify_unix_pid};
 
 #[cfg(unix)]
 mod unix_impl {
@@ -767,7 +770,8 @@ mod unix_impl {
         os::start_marker(pid).ok().flatten()
     }
 
-    /// The peer's audit token for [`PeerIdentity::audit_token`]; `None` off macOS.
+    /// The peer's audit token for [`PeerIdentity::audit_token`].
+    #[cfg(target_os = "macos")]
     pub(crate) fn peer_audit_token(stream: &UnixStream) -> Option<[u32; 8]> {
         os::audit_token(stream)
     }
