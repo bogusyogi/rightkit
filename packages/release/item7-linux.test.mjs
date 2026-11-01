@@ -21,20 +21,17 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { BROKER_ONLY_FIELDS, DIRECT_RECEIPT_REQUIRED, TIMING_FIELDS, buildDirectReceipt, directVerdict, envInputs, isWithin, resolveTargetDirectory, verifyDirectReceipt, writeDirectDiagnostics } from "./direct-receipt.mjs";
 import { FINGERPRINT_LOG_FILTER, FingerprintLog, REASONS_CAP, REASON_TEXT_CAP, compilesWorkspace, createFreshnessCensus, selectedFingerprintDirectories, validateFreshness } from "./freshness-census.mjs";
 import { main } from "./bin/rightkit-gate.mjs";
+import { TOOLCHAIN_CARGO, assertTempFixture, toolchainCargoEnv } from "./test-support/toolchain-cargo.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const POSIX = process.platform === "win32" ? "POSIX scripts: a Windows child finds only an .exe on PATH" : false;
 // Linux with a real cargo on PATH (never a RustRight shim): the direct host these rows exist for.
-const REAL_CARGO = (() => {
-  if (process.platform !== "linux") return null;
-  const r = spawnSync("sh", ["-c", "command -v cargo"], { encoding: "utf8" });
-  const at = String(r.stdout ?? "").trim();
-  return r.status === 0 && at && !at.includes(".rightkit-managed") ? at : null;
-})();
+const REAL_CARGO = TOOLCHAIN_CARGO;
 const NEEDS_REAL = REAL_CARGO ? false : "needs Linux with a real cargo on PATH (native WSL2 counts); a simulated platform is not evidence";
 
 function tmp(t, prefix = "rk-item7-linux-") {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  assertTempFixture(dir);
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -417,7 +414,7 @@ const code = await main(["--to", "compile", "--commit", ${JSON.stringify(sha)}],
 const line = out.find((l) => l.startsWith("rightkit-gate: direct receipt "));
 const snapLine = out.map((l) => / snapshot (\\S+) is commit /.exec(l)).find(Boolean);
 console.log(JSON.stringify({ code, out: out.join("\\n").slice(-30000), snapshot: snapLine ? snapLine[1] : null, receipt: line ? JSON.parse(line.slice("rightkit-gate: direct receipt ".length)) : null }));\n`);
-  const env = { ...process.env, NODE_OPTIONS: "", RK_GATE_CACHE: "0", RIGHTKIT_SCRATCH_ROOT: path.join(dir, "scratch"), ...envOver };
+  const env = { ...toolchainCargoEnv(process.env), NODE_OPTIONS: "", RK_GATE_CACHE: "0", RIGHTKIT_SCRATCH_ROOT: path.join(dir, "scratch"), ...envOver };
   delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.CARGO_BUILD_TARGET_DIR; delete env.CARGO_LOG;
   if (!Object.hasOwn(envOver, "CARGO_TARGET_DIR")) delete env.CARGO_TARGET_DIR;
   const r = spawnSync(process.execPath, [driver], { env, encoding: "utf8", cwd: repo, timeout: 900_000, maxBuffer: 256 * 1024 * 1024 });
@@ -564,7 +561,7 @@ test("[behavior] item 7 row 7.30 (native Linux): with RustRight absent and with 
     const compile = { id: "direct-build", class: "A", tool: "node", root: "content", cwd: ".", env: {}, command: "direct-build",
       args: ["-e", 'const { spawnSync } = require("node:child" + "_process"); const r = spawnSync(process.env.CARGO, ["build", "--locked"], { stdio: "inherit" }); process.exit(r.status ?? 1);'] };
     const realBin = path.dirname(REAL_CARGO);
-    const res = runDoor(dir, { repo, sha, extra: [compile], onlyExtra: true, env: { PATH: `${shimmed ? `${shim}${path.delimiter}` : ""}${realBin}${path.delimiter}${process.env.PATH}` } });
+    const res = runDoor(dir, { repo, sha, extra: [compile], onlyExtra: true, env: { PATH: `${shimmed ? `${shim}${path.delimiter}` : ""}${realBin}${path.delimiter}${toolchainCargoEnv(process.env).PATH}` } });
     const label = shimmed ? "RustRight shim first on PATH" : "RustRight absent";
     assert.equal(res.code, 0, `${label}: ${res.out.slice(-3000)}`);
     assert.match(res.out, /executor direct/, label);

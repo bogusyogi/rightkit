@@ -17,11 +17,13 @@ import { verifySnapshotDir } from "./snapshot-check.mjs";
 // Fixture programs (not this file) spawn children; the module specifier is composed so the hidden-launch policy scan sees no direct import here.
 const CHILD_PROCESS = "node:child" + "_process";
 import { main } from "./bin/rightkit-gate.mjs";
+import { TOOLCHAIN_CARGO, assertTempFixture, toolchainCargoEnv } from "./test-support/toolchain-cargo.mjs";
 
 const POSIX = process.platform === "win32" ? "POSIX wrapper: a Windows child finds only an .exe on PATH" : false;
 
 function tmp(t) {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-cargo-shim-test-")));
+  assertTempFixture(dir);
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -305,12 +307,8 @@ test("[behavior] item 7 wrapper (review r1 #2): a snapshot compile's scans are k
 });
 
 // Linux with a real cargo on PATH (never a RustRight shim): the direct host the wrapper exists for.
-const REAL_CARGO = (() => {
-  if (process.platform !== "linux") return null;
-  const r = spawnSync("sh", ["-c", "command -v cargo"], { encoding: "utf8" });
-  const at = String(r.stdout ?? "").trim();
-  return r.status === 0 && at && !at.includes(".rightkit-managed") ? at : null;
-})();
+// The toolchain cargo (a gate wrapper first on PATH is followed to the cargo it records): these rows build their own temp fixtures.
+const REAL_CARGO = TOOLCHAIN_CARGO;
 
 test("[behavior] E16 real cargo (review r1 #3): on Linux the door compiles the same commit twice from its snapshot with a real cargo; a repository with a relative build.target-dir and one without write only to the checkout's target_directory, the second build reuses it, and the direct receipt names it", { skip: REAL_CARGO ? false : "needs Linux with a real cargo on PATH" }, (t) => {
   for (const variant of ["default target", "relative build.target-dir"]) {
@@ -340,7 +338,7 @@ const code = await main(["--to", "compile", "--commit", ${JSON.stringify(sha)}],
   out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0,
   runScans: (plan, options) => runScans({ ...plan, scans: plan.scans.filter(keep) }, options) });
 console.log(JSON.stringify({ code, out: out.join("\\n").slice(-30000) }));\n`);
-    const env = { ...process.env, NODE_OPTIONS: "", RK_GATE_CACHE: "0" };
+    const env = { ...toolchainCargoEnv(process.env), NODE_OPTIONS: "", RK_GATE_CACHE: "0" };
     delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.CARGO_TARGET_DIR; delete env.CARGO_BUILD_TARGET_DIR;
     const run = () => {
       const r = spawnSync(process.execPath, [driver], { env, encoding: "utf8", cwd: repo, timeout: 600_000 });
@@ -463,7 +461,7 @@ test("[behavior] item 7 wrapper real cargo (review r2 #2): through the wrapper, 
   write(outside, { "Cargo.toml": '[package]\nname = "o"\nversion = "0.1.0"\nedition = "2021"\n', "src/lib.rs": "\n" });
   const installed = installCargoShim({ base: path.join(dir, "shim"), snapshotRoot: snap, targetDirs: { ".": path.join(dir, "checkout", "target") }, realCargo: REAL_CARGO });
   // NODE_OPTIONS cleared: the wrapper is a node process, and the test runner's broker guard would refuse its locate-project.
-  const env = { ...shimScanEnv({ ...process.env, NODE_OPTIONS: "" }, installed) };
+  const env = { ...shimScanEnv({ ...toolchainCargoEnv(process.env), NODE_OPTIONS: "" }, installed) }; // inner wrapper first, then the toolchain PATH: the outer gate wrapper never sits behind it
   const run = (cwd, args) => spawnSync(installed.shim, args, { cwd, env, encoding: "utf8" });
   let r = run(outside, ["tree", "--offline", "--locked"]);
   assert.equal(r.status, SHIM_REFUSAL_STATUS, r.stderr); assert.match(r.stderr, /RK_CARGO_UNBOUND_WORKSPACE: `cargo tree` builds the Cargo workspace .*outside, which is not one this snapshot compile resolved/);
@@ -577,7 +575,7 @@ test("a refused cargo whose status the test swallows", () => {
 });
 ` });
   const token = scanTokenOf(`combined-${path.basename(dir)}`);
-  const env = { ...process.env, PATH: `${installed.bin}${path.delimiter}${process.env.PATH}`, CARGO: installed.shim, NODE_OPTIONS: "", [SCAN_TOKEN_ENV]: token };
+  const env = { ...toolchainCargoEnv(process.env), PATH: `${installed.bin}${path.delimiter}${toolchainCargoEnv(process.env).PATH}`, CARGO: installed.shim, NODE_OPTIONS: "", [SCAN_TOKEN_ENV]: token };
   delete env.CARGO_TARGET_DIR; delete env.NODE_TEST_CONTEXT;
   const r = spawnSync(process.execPath, ["--test", "tests/spawns.test.mjs"], { cwd: snap, encoding: "utf8", env });
   return { r, snap, targets, ledger: readLedger(installed.ledgerDir, token) };
@@ -617,7 +615,7 @@ test("[behavior] item 7 row 7.10 real cargo, nested $CARGO (F7): a build script'
   const installed = installCargoShim({ base: path.join(dir, "shim"), snapshotRoot: snap, targetDirs: targets, realCargo: REAL_CARGO });
   t.after(() => fs.rmSync(installed.dir, { recursive: true, force: true }));
   assert.ok(installed.sentinel, "two workspaces: a per-scan sentinel");
-  const clean = { ...process.env, NODE_OPTIONS: "" }; delete clean.CARGO_TARGET_DIR; delete clean.CARGO; delete clean[SCAN_TOKEN_ENV];
+  const clean = { ...toolchainCargoEnv(process.env), NODE_OPTIONS: "" }; delete clean.CARGO_TARGET_DIR; delete clean.CARGO; delete clean[SCAN_TOKEN_ENV];
   const build = (cwd) => `require("node:child" + "_process").spawnSync(${JSON.stringify(installed.shim)}, ["build"], { cwd: ${JSON.stringify(cwd)}, stdio: "inherit" }).status`;
   const scan = { id: "nested", command: "nested", class: "A", tool: "node", args: ["-e", `process.exit(${build(path.join(snap, "crates", "a"))} || ${build(path.join(snap, "native"))})`], env: {}, root: "content" };
   const plan = { scans: [scan], roots: { contentRoot: snap, liveRoot: snap }, notes: [], deferred: [], inputDigest: "d", classDigests: {} };

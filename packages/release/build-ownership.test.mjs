@@ -14,8 +14,9 @@ import {
 } from "./build-ownership.mjs";
 import { keyPath, repoKey, snapshotCommand, syncSnapshot, verifySnapshot } from "./snapshot.mjs";
 import { capturedMs, loadMacTable, replaySpawn } from "./test-support/mac-replay.mjs";
+import { TOOLCHAIN_CARGO, assertTempFixture, toolchainCargoEnv } from "./test-support/toolchain-cargo.mjs";
 
-const tmp = (t, prefix) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix))); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })); return d; }; // a Windows job holder may still write into the directory as the test ends
+const tmp = (t, prefix) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix))); assertTempFixture(d); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })); return d; }; // a Windows job holder may still write into the directory as the test ends
 const NOW = Date.now();
 const iso = (ms) => new Date(ms).toISOString();
 
@@ -1741,7 +1742,14 @@ test("row 5.23 [native macOS, Windows]: a real first acquisition on a pre-existi
 // Row 5.24: ownership is held while a REAL compiler reads the snapshot (Linux direct: cargo and rustc are in the gate's tree).
 // ---------------------------------------------------------------------------------------------------------------------
 
-const REAL_TOOLS = process.platform === "linux" ? (() => { const r = spawnSync("sh", ["-c", "command -v cargo && command -v rustc"], { encoding: "utf8", env: { ...process.env, NODE_OPTIONS: "" } }); return r.status === 0 ? r.stdout.trim().split("\n") : null; })() : null;
+// The toolchain cargo (never the outer gate wrapper: these builds are of the test's own temp crate) and the rustc beside it, else the first rustc on the toolchain PATH.
+const REAL_TOOLS = process.platform === "linux" && TOOLCHAIN_CARGO ? (() => {
+  const beside = path.join(path.dirname(TOOLCHAIN_CARGO), "rustc");
+  if (fs.existsSync(beside)) return [TOOLCHAIN_CARGO, beside];
+  const r = spawnSync("sh", ["-c", "command -v rustc"], { encoding: "utf8", env: { ...toolchainCargoEnv(process.env), NODE_OPTIONS: "" } });
+  const rustc = String(r.stdout ?? "").trim();
+  return r.status === 0 && rustc ? [TOOLCHAIN_CARGO, rustc] : null;
+})() : null;
 const HAS_FIFO = process.platform === "linux" && spawnSync("mkfifo", ["--version"], { stdio: "ignore" }).status === 0;
 const pidsNamed = (name) => spawnSync("pgrep", ["-x", name], { encoding: "utf8" }).stdout.split("\n").filter(Boolean).map(Number);
 /** The real build-script binaries of `realCrate` (comm is cut to 15 characters, so match the command line). */
@@ -1789,7 +1797,7 @@ for (;;) {
   await new Promise((r) => setTimeout(r, 50));
 }
 `);
-  const env = { ...process.env }; delete env[OWNERSHIP_ENV]; delete env.NODE_OPTIONS;
+  const env = { ...toolchainCargoEnv(process.env) }; delete env[OWNERSHIP_ENV]; delete env.NODE_OPTIONS; // the script spawns bare cargo and rustc: toolchain PATH, no outer wrapper
   const gate = spawn(process.execPath, [script], { stdio: ["ignore", "ignore", "inherit"], env, detached: true });
   t.after(() => { try { process.kill(-gate.pid, "SIGKILL"); } catch { /* gone */ } for (const pid of [...buildScriptPids(), ...pidsNamed("rustc"), ...pidsNamed("cargo")]) { try { if (fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").includes(path.dirname(path.dirname(file)))) process.kill(pid, "SIGKILL"); } catch { /* gone */ } } });
   await until(() => fs.existsSync(info), 60_000);

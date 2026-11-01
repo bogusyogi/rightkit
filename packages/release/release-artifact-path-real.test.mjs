@@ -17,16 +17,12 @@ import { resolveTargetRoot } from "./cargo-target.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import { expandWinPackageTarget } from "./package-recipe-targets.mjs";
 import { collectPreflight } from "./preflight.mjs";
+import { TOOLCHAIN_CARGO, assertTempFixture, toolchainCargoEnv } from "./test-support/toolchain-cargo.mjs";
 import { ArtifactPathError, SPLIT_TARGET_UNRESOLVED_CODE, boundTargetsEvidence, resolveArtifactPath, splitArtifactContext } from "./release-artifact-path.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const REAL_CARGO = (() => {
-  if (process.platform !== "linux") return null;
-  if (process.env.CI !== "true" && process.env.RIGHTKIT_TEST_REAL_BROKER !== "1") return null;
-  const r = spawnSync("sh", ["-c", "command -v cargo"], { encoding: "utf8" });
-  const at = String(r.stdout ?? "").trim();
-  return r.status === 0 && at && !at.includes(".rightkit-managed") ? at : null;
-})();
+// The toolchain cargo for this test's own temp fixture (the outer gate's wrapper binds none of it), only when CI=true or the real-broker switch lets it run.
+const REAL_CARGO = process.env.CI === "true" || process.env.RIGHTKIT_TEST_REAL_BROKER === "1" ? TOOLCHAIN_CARGO : null;
 const SKIP = REAL_CARGO ? false : "needs Linux with a real cargo on PATH and CI=true (or RIGHTKIT_TEST_REAL_BROKER=1)";
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const git = (cwd, ...a) => spawnSync("git", a, { cwd, encoding: "utf8" });
@@ -39,8 +35,17 @@ const FILES = {
   "README.md": "committed\n",
 };
 
+// The published resolvers run `cargo metadata` in this process on the temp fixture: give them the toolchain cargo (no outer wrapper, no $CARGO) for the call.
+function withToolchain(fn) {
+  const env = toolchainCargoEnv(process.env);
+  const saved = { PATH: process.env.PATH, CARGO: process.env.CARGO };
+  process.env.PATH = env.PATH; delete process.env.CARGO;
+  try { return fn(); } finally { process.env.PATH = saved.PATH; if (saved.CARGO === undefined) delete process.env.CARGO; else process.env.CARGO = saved.CARGO; }
+}
+
 function setup(t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-art-real-")));
+  assertTempFixture(root);
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const repo = path.join(root, "checkout"); fs.mkdirSync(repo);
   git(repo, "init", "-q", "-b", "main"); git(repo, "config", "user.email", "t@t"); git(repo, "config", "user.name", "t");
@@ -51,10 +56,10 @@ function setup(t) {
   assert.equal(spawnSync("sh", ["-c", `git -C '${repo}' archive ${commit} | tar -x -C '${snapshot}'`]).status, 0);
   const bound = path.join(repo, "src-tauri", "target"); // the checkout's target_directory: where the gate's 7.09 resolution points
   const artifactDir = path.join(root, "managed"); fs.mkdirSync(artifactDir);
-  const withTarget = (fn) => { const before = process.env.CARGO_TARGET_DIR; process.env.CARGO_TARGET_DIR = bound; try { return fn(); } finally { if (before === undefined) delete process.env.CARGO_TARGET_DIR; else process.env.CARGO_TARGET_DIR = before; } };
+  const withTarget = (fn) => withToolchain(() => { const before = process.env.CARGO_TARGET_DIR; process.env.CARGO_TARGET_DIR = bound; try { return fn(); } finally { if (before === undefined) delete process.env.CARGO_TARGET_DIR; else process.env.CARGO_TARGET_DIR = before; } });
   const env = { RK_GATE_CHECKOUT: repo, RIGHT_RELEASE_ARTIFACT_DIR: artifactDir, CARGO_TARGET_DIR: bound };
   const nativeLayout = resolveNativeCargoLayout({ appRoot: snapshot, config: {} });
-  const compile = () => spawnSync(REAL_CARGO, ["build", "--release", "--locked", "--offline", "--manifest-path", path.join(snapshot, "src-tauri", "Cargo.toml")], { cwd: snapshot, env: { ...process.env, CARGO_TARGET_DIR: bound, CARGO_TERM_COLOR: "never" }, encoding: "utf8" });
+  const compile = () => spawnSync(REAL_CARGO, ["build", "--release", "--locked", "--offline", "--manifest-path", path.join(snapshot, "src-tauri", "Cargo.toml")], { cwd: snapshot, env: { ...toolchainCargoEnv(process.env), CARGO_TARGET_DIR: bound, CARGO_TERM_COLOR: "never" }, encoding: "utf8" });
   return { root, repo, snapshot, bound, artifactDir, env, nativeLayout, withTarget, compile };
 }
 
@@ -114,7 +119,7 @@ test("[N8 real] an unpinned split (cargo's own answer for the snapshot is a targ
   const unpinned = { RK_GATE_CHECKOUT: w.repo, RIGHT_RELEASE_ARTIFACT_DIR: w.artifactDir };
   const before = process.env.CARGO_TARGET_DIR; delete process.env.CARGO_TARGET_DIR;
   try {
-    assert.throws(() => splitArtifactContext({ cwd: w.snapshot, env: unpinned, nativeLayout: w.nativeLayout, config: {}, snapshotRoot: w.snapshot }), (error) => error instanceof ArtifactPathError && error.code === SPLIT_TARGET_UNRESOLVED_CODE && /resolves inside the snapshot/.test(error.message));
+    assert.throws(() => withToolchain(() => splitArtifactContext({ cwd: w.snapshot, env: unpinned, nativeLayout: w.nativeLayout, config: {}, snapshotRoot: w.snapshot })), (error) => error instanceof ArtifactPathError && error.code === SPLIT_TARGET_UNRESOLVED_CODE && /resolves inside the snapshot/.test(error.message));
   } finally { if (before !== undefined) process.env.CARGO_TARGET_DIR = before; }
   const ctx = w.withTarget(() => splitArtifactContext({ cwd: w.snapshot, env: w.env, nativeLayout: w.nativeLayout, config: {}, snapshotRoot: w.snapshot }));
   fs.mkdirSync(path.join(w.snapshot, "src-tauri", "target"), { recursive: true });

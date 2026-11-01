@@ -10,14 +10,10 @@ import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 import { main } from "./bin/rightkit-gate.mjs";
+import { TOOLCHAIN_CARGO, assertTempFixture, toolchainCargoEnv } from "./test-support/toolchain-cargo.mjs";
 
 // Linux with a real cargo on PATH (never a RustRight shim): the direct host the ledger rule exists for.
-const REAL_CARGO = (() => {
-  if (process.platform !== "linux") return null;
-  const r = spawnSync("sh", ["-c", "command -v cargo"], { encoding: "utf8" });
-  const at = String(r.stdout ?? "").trim();
-  return r.status === 0 && at && !at.includes(".rightkit-managed") ? at : null;
-})();
+const REAL_CARGO = TOOLCHAIN_CARGO;
 const SKIP = REAL_CARGO ? false : "needs Linux with a real cargo on PATH";
 const triple = process.arch === "arm64" ? "aarch64-unknown-linux-gnu" : "x86_64-unknown-linux-gnu";
 const git = (cwd, ...a) => spawnSync("git", a, { cwd, encoding: "utf8" });
@@ -46,6 +42,7 @@ fn main() {
 
 function setup(t) {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-real-cargo-")));
+  assertTempFixture(dir);
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const repo = path.join(dir, "repo"); fs.mkdirSync(repo);
   git(repo, "init", "-q", "-b", "main"); git(repo, "config", "user.email", "t@t"); git(repo, "config", "user.name", "t");
@@ -53,7 +50,7 @@ function setup(t) {
   git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "c");
   const sha = git(repo, "rev-parse", "HEAD").stdout.trim();
   const snaps = path.join(dir, "snaps"); const target = path.join(dir, "checkout-target");
-  const env = { ...process.env, RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir, TAURI_ENV_TARGET_TRIPLE: triple };
+  const env = { ...toolchainCargoEnv(process.env), RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir, TAURI_ENV_TARGET_TRIPLE: triple };
   delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE; delete env.TAURI_CONFIG;
   const spawn = (c, a, opts) => (c === "git" ? spawnSync(c, a, { ...opts, encoding: "utf8" }) : c === "pnpm" && a[0] === "--version" ? { status: 0, stdout: "11.25.0\n", stderr: "" } : { status: 1, stdout: "", stderr: "" });
   const snapshot = () => path.join(snaps, fs.readdirSync(snaps).find((n) => !n.includes(".") && fs.statSync(path.join(snaps, n)).isDirectory()));
@@ -71,7 +68,7 @@ function setup(t) {
     // The test process runs under the broker guard (test-support/broker-guard.mjs), which refuses a build tool launched from it outside hosted CI: a real cargo is never started from a test process. This row is
     // about what a real cargo does to a snapshot, so the cargo runs in a plain child (the guard is not loaded there: NODE_OPTIONS cleared), exactly as item7-linux.test.mjs runs its real doors.
     const r = spawnSync(process.execPath, ["-e", "const { spawnSync } = require('node:child' + '_process'); const r = spawnSync(process.argv[1], ['build', '-v', '--locked', '--offline'], { stdio: 'inherit' }); process.exit(r.status ?? 1);", REAL_CARGO],
-      { cwd: snapshot(), env: { ...process.env, NODE_OPTIONS: "", CARGO_TARGET_DIR: target, CARGO_TERM_COLOR: "never" }, encoding: "utf8" });
+      { cwd: snapshot(), env: { ...toolchainCargoEnv(process.env), NODE_OPTIONS: "", CARGO_TARGET_DIR: target, CARGO_TERM_COLOR: "never" }, encoding: "utf8" });
     builds.push(r);
     return r.status === 0 ? 0 : 1;
   };
