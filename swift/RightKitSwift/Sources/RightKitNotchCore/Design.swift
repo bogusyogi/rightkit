@@ -1,4 +1,3 @@
-#if os(macOS)
 import SwiftUI
 
 /// Every number in this app's UI is measured off the Figma frame in
@@ -25,4 +24,3 @@ public enum Design {
         px(pixels) / capRatio
     }
 }
-#endif

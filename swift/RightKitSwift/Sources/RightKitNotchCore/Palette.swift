@@ -1,4 +1,3 @@
-#if os(macOS)
 import SwiftUI
 
 /// The dark values are sampled from `docs/design/frame-124-hover-tooltip.png`,
@@ -146,4 +145,3 @@ extension Palette {
         return Color(dark: lerp(from.dark, to.dark), light: lerp(from.light, to.light))
     }
 }
-#endif

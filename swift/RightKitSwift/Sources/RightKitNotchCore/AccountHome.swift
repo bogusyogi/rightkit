@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 
 /// The account's own home folder. `HOME` decides, except when it points into
@@ -28,4 +27,3 @@ public enum AccountHome {
         return environment
     }
 }
-#endif

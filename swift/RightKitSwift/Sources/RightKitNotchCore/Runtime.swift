@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 
 /// Whether this process is an `xcodebuild test` host rather than a the app
@@ -76,4 +75,3 @@ public enum Runtime {
             .appendingPathComponent("Library/Application Support", isDirectory: true)
     }
 }
-#endif

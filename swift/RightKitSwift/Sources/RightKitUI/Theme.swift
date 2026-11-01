@@ -96,8 +96,8 @@ struct SectionTitle: View {
 }
 
 /// A hairline between rows inside a card.
-struct Hairline: View {
-    var body: some View {
+public struct Hairline: View {
+    public var body: some View {
         Rectangle().fill(Theme.hair).frame(height: 1).accessibilityHidden(true)
     }
 }
@@ -128,12 +128,12 @@ struct StatusDot: View {
 }
 
 /// A small dot followed by plain text: the hub's way of showing state.
-struct StatusText: View {
-    let tone: StatusTone
-    let text: String
-    var font: Font = .subheadline
+public struct StatusText: View {
+    public let tone: StatusTone
+    public let text: String
+    public var font: Font = .subheadline
 
-    var body: some View {
+    public var body: some View {
         HStack(spacing: 6) {
             StatusDot(tone: tone)
             Text(text).font(font).foregroundStyle(Theme.ink2)

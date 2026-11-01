@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 
 /// The one process flag the shared notch face needs, without `Runtime`'s account-home lookups.
@@ -17,4 +16,3 @@ public enum RuntimeFlags {
         #endif
     }()
 }
-#endif
