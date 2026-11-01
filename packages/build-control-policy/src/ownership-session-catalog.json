@@ -205,6 +205,17 @@
       ]
     },
     {
+      "package": "rightkit-autoedit",
+      "capability": "video-autoedit",
+      "summary": "Automatic editing: transcript-driven cut engine, editorial engine, named cut variants, scoped editing rules and their resolution matrix.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-automation",
       "capability": "desktop-automation",
       "summary": "Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts.",
@@ -527,6 +538,17 @@
       ]
     },
     {
+      "package": "rightkit-captions",
+      "capability": "video-captions",
+      "summary": "Captions for Right Suite video apps: caption styles, per-language caption sets, cue layout and placement, font measurement, and swatch rendering through rightkit-typeset.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-channel-memory",
       "capability": "channel-memory",
       "summary": "Channel memory schema (channel-memory.v1, pending in tools/rightkit/contracts-pending) with serde types, schema and semantic validation, version gate, authoritative proof citation, and scope checks shared by PostRight P3 and GenRight G7.",
@@ -581,6 +603,17 @@
       ]
     },
     {
+      "package": "rightkit-color",
+      "capability": "video-color",
+      "summary": "Colour grading for Right Suite video apps: grade parameters, LUTs and FFmpeg filter rendering, and video scopes (waveform, vectorscope, histogram).; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-compose",
       "capability": "composition-model",
       "summary": "Evaluated composition model for Right Suite video: layered video, stills, cursor sprites with hotspots, procedural backgrounds, rounded clipping, shadows, motion blur, canvas-space overlays and an independently timed webcam, with keyframed transforms, crops and opacity; pure per-frame evaluation shared by preview and export",
@@ -589,6 +622,17 @@
       "policyNotes": [
         "Declaration-only: the composition contract and evaluation are not an ownership fingerprint.",
         "No renderer, codec or I/O lives in this crate; CutRight and the typed FFmpeg export consume its FrameDescription."
+      ]
+    },
+    {
+      "package": "rightkit-compositor",
+      "capability": "video-compositor",
+      "summary": "Native wgpu layer compositor: GPU context, layer blending, effect passes and SDF mask feathering, rendering evaluated frame descriptors. Product-neutral.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {
@@ -1912,6 +1956,17 @@
       ]
     },
     {
+      "package": "rightkit-mesh",
+      "capability": "device-mesh",
+      "summary": "Paired-device mesh: iroh live sessions, end-to-end encrypted mailbox, sync reconciliation and capped relayed transfers. Product-neutral; the host supplies identity and trust (PeerTrust).; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-models",
       "capability": "model-installation",
       "summary": "Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit.",
@@ -2717,6 +2772,17 @@
       ]
     },
     {
+      "package": "rightkit-reframe",
+      "capability": "video-reframe",
+      "summary": "Tracked 9:16 reframe for Right Suite video apps: ONNX face detection (YuNet; CoreML, DirectML or CPU), subject tracking, a smoothed crop path, and approval-gated crop plans.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-review",
       "capability": "content-review",
       "summary": "Shared review capability: typed deterministic checks over a media or brief description, declared holds, a hard-capped repair loop, an advisory judge interface that cannot override deterministic failures, versioned verdict records, and the autonomy ladder (reviewed, review-light, autonomous per content type and platform, with overridable thresholds and a version-tagged state).",
@@ -2929,6 +2995,17 @@
       "package": "rightkit-send",
       "capability": "nearby-sharing",
       "summary": "Nearby file and text sharing over the open LocalSend v2 protocol: TLS identity pinning, per-device trust, macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-shorts",
+      "capability": "video-shorts",
+      "summary": "Shorts finder for Right Suite video apps: candidate moments from a long video's transcript, scored and ranked (heuristics plus an optional BYOK LLM pass), with hooks, captions and edit plans per short.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -3179,6 +3256,17 @@
       ]
     },
     {
+      "package": "rightkit-timeline",
+      "capability": "video-timeline",
+      "summary": "Portable video timeline core: tracks, clips, rational time, revisions, ripple edits, titles and visuals, and the render-plan compiler with its FFmpeg argument builder. Pure computation.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-transcript",
       "capability": "timed-transcripts",
       "summary": "Product-neutral word-timed transcript contract, cue segmentation, and SRT/VTT/JSON import and export for Right Suite applications",
@@ -3404,6 +3492,17 @@
       "package": "rightkit-vault",
       "capability": "secret-vault",
       "summary": "Split-key secret vault: a small secret map sealed under a random data key, the key wrapped under a server-held wrapping key combined with a device-held client secret, blob kept in the user's own cloud app folder; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-video-project",
+      "capability": "video-project",
+      "summary": "Video project layer for Right Suite apps: project files, sources and their integrity, revisions on the timeline, render jobs, and portable project bundles.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

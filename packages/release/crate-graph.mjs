@@ -2,7 +2,11 @@
 // closure and Cargo.lock dependency closure. Pure TOML parsing (smol-toml); nothing shells out to cargo.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { parse } from "smol-toml";
+import { createRequire } from "node:module";
+// smol-toml loads on first parse, not at import: CI jobs whose closure reaches this module without installing
+// @rightkit/release dependencies (publish.yml crates pack, bind) never parse TOML here (rightkit#1341).
+let smolTomlParse;
+const parse = (text) => (smolTomlParse ??= createRequire(import.meta.url)("smol-toml").parse)(text);
 
 const DEP_TABLES = ["dependencies", "build-dependencies", "dev-dependencies"];
 

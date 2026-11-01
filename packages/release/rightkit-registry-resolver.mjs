@@ -25,7 +25,11 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { parse as parseToml } from "smol-toml";
+import { createRequire } from "node:module";
+// smol-toml loads on first parse, not at import: CI jobs whose closure reaches this module without installing
+// @rightkit/release dependencies (publish.yml crates pack, bind) never parse TOML here (rightkit#1341).
+let smolTomlParse;
+const parseToml = (text) => (smolTomlParse ??= createRequire(import.meta.url)("smol-toml").parse)(text);
 import { isExcludedScanDirectory } from "./cargo-contract.mjs";
 import { resolveSharedCacheRoot } from "./cache-policy.mjs";
 import { parsePnpmYaml } from "./ownership-lockfiles.mjs";

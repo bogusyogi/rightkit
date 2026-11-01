@@ -2,7 +2,11 @@
 import { isBlockingFinding } from "./ownership-verdict.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, resolveKeyLogTrust, sha256, verifyProtectedProvenance } from "./ownership-approval.mjs";
-import { parse as parseToml } from "smol-toml";
+import { createRequire } from "node:module";
+// smol-toml loads on first parse, not at import: CI jobs whose closure reaches this module without installing
+// @rightkit/release dependencies (publish.yml crates pack, bind) never parse TOML here (rightkit#1341).
+let smolTomlParse;
+const parseToml = (text) => (smolTomlParse ??= createRequire(import.meta.url)("smol-toml").parse)(text);
 import { sourceNonCode } from "./ownership-source.mjs";
 import { OWNERSHIP_LOCKFILES, transitiveDependencies } from "./ownership-lockfiles.mjs";
 import { ALLOWLIST_FILE, ALLOWLIST_FINDING_ID, evaluateDependency, sourceKind, validateAllowlist } from "./ownership-dependency-allowlist.mjs";

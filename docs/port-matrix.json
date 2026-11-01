@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T02:47:58Z",
-  "rightkitHead": "157fdc7",
+  "generatedAt": "2026-11-01T04:54:48Z",
+  "rightkitHead": "2eb4755",
   "legend": [
     {
       "state": "adopted",
@@ -7042,7 +7042,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "video-autoedit"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -7348,7 +7350,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "video-captions"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -7594,7 +7598,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "video-color"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -7726,7 +7732,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "video-compositor"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -10031,7 +10039,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "device-mesh"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -11169,7 +11179,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "video-reframe"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -11537,7 +11549,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "video-shorts"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -12277,7 +12291,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "video-timeline"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -12821,7 +12837,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "video-project"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
