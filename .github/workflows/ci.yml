@@ -540,6 +540,24 @@ jobs:
         run: |
           bash scripts/ci/owner-dep-graphs.sh || echo "owner-dep-graphs: warning: skipped"
 
+  # The publish route's own contract (scripts/ci/publish-preflight.mjs), exactly as publish.yml's plan job runs it: a merge that
+  # would leave every publication red is red here first.
+  publish-route:
+    needs: [plan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/rk-setup
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          rust: "false"
+          ignore-install-scripts: "true"
+      - name: Publish route contract
+        run: node scripts/ci/publish-preflight.mjs
+
   # Compile baselines prove this OS's exact shard/closure reports plus shared admission.
   # Known-red failures & missing reports block markers. Ownership still blocks overall summary.
   mark-green-windows:
@@ -567,7 +585,7 @@ jobs:
       windows_green: ${{ steps.verdict.outputs.windows_green }}
       macos_green: ${{ steps.verdict.outputs.macos_green }}
     if: ${{ always() }}
-    needs: [private-repo-guard, plan, hygiene, ownership, shards-windows, closure-windows, shards-macos, closure-macos]
+    needs: [private-repo-guard, plan, hygiene, ownership, publish-route, shards-windows, closure-windows, shards-macos, closure-macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
