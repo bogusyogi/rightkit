@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "_comment": "Advisory exceptions for this Cargo workspace (RightKit class A policy, as ci/advisory-exceptions.json in RightKit). deny.toml and .cargo/audit.toml must match it exactly; approvedBy needs a person.",
+  "exceptions": [
+    {
+      "id": "RUSTSEC-2024-0429",
+      "crate": "glib",
+      "affectedVersions": [
+        "0.18.5"
+      ],
+      "dependents": [
+        "atk 0.18.2",
+        "cairo-rs 0.18.5",
+        "gdk 0.18.2",
+        "gdk-pixbuf 0.18.5",
+        "gdkx11 0.18.2",
+        "gio 0.18.4",
+        "gtk 0.18.2",
+        "javascriptcore-rs 1.1.2",
+        "libappindicator 0.9.0",
+        "pango 0.18.3",
+        "soup3 0.5.0",
+        "webkit2gtk 2.0.2"
+      ],
+      "path": "atk -> glib",
+      "owner": "RK Fable",
+      "rationale": "glib arrives only through tauri's Linux/BSD-gated GTK dependency; RightKit release targets are Windows and macOS only. Invalidated the moment any GTK (Linux or BSD) target ships.",
+      "evidence": "deny.toml [advisories].ignore reason; Cargo.lock reverse dependencies of glib",
+      "reviewBy": "2026-11-22",
+      "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md (RightKit ci/advisory-exceptions.json, same advisory)"
+    }
+  ]
+}

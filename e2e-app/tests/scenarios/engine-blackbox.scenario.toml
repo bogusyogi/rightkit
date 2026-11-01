@@ -1,0 +1,85 @@
+name = "engine black box: one-shot CLI contract"
+tier = "fast"
+target = "engine"
+
+[[step]]
+kind = "cli"
+label = "doctor reports version and the isolated data dir"
+command = "doctor"
+input = {}
+  [[step.expect]]
+  path = "code"
+  eq = 0
+  [[step.expect]]
+  path = "json.ok"
+  eq = true
+  [[step.expect]]
+  path = "json.version"
+  eq = "0.1.0"
+  [[step.expect]]
+  path = "json.app_data"
+  contains = "rke2e"
+
+[[step]]
+kind = "cli"
+label = "echo returns its input unchanged"
+command = "echo"
+input = { n = 1, s = "kept" }
+  [[step.expect]]
+  path = "json.n"
+  eq = 1
+  [[step.expect]]
+  path = "json.s"
+  eq = "kept"
+
+[[step]]
+kind = "cli"
+label = "unknown command is a refusal (exit 2) with a stable error code"
+command = "frobnicate"
+allow_error = true
+  [[step.expect]]
+  path = "code"
+  eq = 2
+  [[step.expect]]
+  path = "json.error.code"
+  eq = "unknown_command"
+
+[[step]]
+kind = "cli"
+label = "the CLI contract (M22) lists every tool with its effect, needs no data root"
+command = "contract"
+  [[step.expect]]
+  path = "json.schema"
+  eq = "rightkit-agent-tools/app-contract/1"
+  [[step.expect]]
+  path = "json.contract_version"
+  eq = 2
+
+# The one-shot CLI is a process on purpose (its exit codes are the contract); everything above is served by the persistent
+# --stdio sidecar, so the two surfaces are held to the same command table.
+[[step]]
+kind = "cold_cli"
+label = "malformed input is a usage error with a stable exit code"
+cold_reason = "cli-entry"
+args = ["echo", "--input", "{not json"]
+allow_error = true
+  [[step.expect]]
+  path = "code"
+  eq = 2
+
+[[step]]
+kind = "assert_no_orphans"
+
+# Every RightKit crate's real probe (crates/engine/src/probes), run by the engine on this scenario's isolated data. One failing
+# probe fails the scenario; its error names the crate and what it observed.
+[[step]]
+kind = "cli"
+label = "every RightKit crate's probe passes on isolated data"
+command = "probe all"
+input = {}
+  [[step.expect]]
+  path = "code"
+  eq = 0
+  [[step.expect]]
+  path = "json.failed"
+  eq = 0

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+target/
+.cache/
+.right-release/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+src-tauri/gen/
+.rightkit-qa-bin/
+.rightkit-qa-app-binary
