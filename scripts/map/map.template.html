@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RightKit Connection Map</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+:root{--bg:#f7f7f5;--panel:#ffffff;--ink:#1d1d1b;--muted:#6b6b66;--line:#d9d9d4;--crate:#3b6fd8;--npm:#c2410c;--app:#15803d;--warn:#dc2626;--set:#16a34a;--read:#2563eb;--mention:#9333ea;--edge:#9a9a94;--hl:#f59e0b}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121211;--panel:#1c1c1a;--ink:#ecece8;--muted:#9a9a94;--line:#33332f;--crate:#6f9bf2;--npm:#fb923c;--app:#4ade80;--warn:#f87171;--set:#4ade80;--read:#60a5fa;--mention:#c084fc;--edge:#5c5c57;--hl:#fbbf24}}
+:root[data-theme="dark"]{--bg:#121211;--panel:#1c1c1a;--ink:#ecece8;--muted:#9a9a94;--line:#33332f;--crate:#6f9bf2;--npm:#fb923c;--app:#4ade80;--warn:#f87171;--set:#4ade80;--read:#60a5fa;--mention:#c084fc;--edge:#5c5c57;--hl:#fbbf24}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;display:grid;grid-template-columns:280px 1fr 360px;grid-template-rows:auto 1fr;height:100vh;overflow:hidden}
+header{grid-column:1/-1;display:flex;gap:16px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:15px;margin:0;font-weight:600}header .stats{color:var(--muted);font-size:12px}
+.tabs{margin-left:auto;display:flex;gap:4px}.tabs button{border:1px solid var(--line);background:transparent;color:var(--ink);padding:5px 10px;border-radius:6px;cursor:pointer}
+.tabs button.on{background:var(--ink);color:var(--bg)}
+aside{overflow:auto;padding:12px 14px;background:var(--panel);border-right:1px solid var(--line)}
+#detail{border-right:0;border-left:1px solid var(--line)}
+aside h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:14px 0 6px}
+input[type=search]{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+label{display:flex;gap:6px;align-items:center;margin:3px 0;cursor:pointer}
+.legend span{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
+main{position:relative;overflow:hidden}svg{width:100%;height:100%;display:block}
+.node circle{stroke:var(--panel);stroke-width:1.5;cursor:pointer}.node text{font-size:10px;fill:var(--ink);pointer-events:none;paint-order:stroke;stroke:var(--bg);stroke-width:3px}
+.node.warn circle{stroke:var(--warn);stroke-width:3}.dim{opacity:.12}.link{stroke:var(--edge);stroke-opacity:.55}
+.link.dev{stroke-dasharray:3 3}.link.app-pin{stroke:var(--app);stroke-opacity:.25}.link.undeclared{stroke:var(--warn);stroke-width:2;stroke-opacity:.9}
+.link.hl{stroke:var(--hl);stroke-opacity:1;stroke-width:2}
+#envlist{max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:6px}
+#envlist div{padding:4px 8px;border-bottom:1px solid var(--line);cursor:pointer;font-family:ui-monospace,Menlo,monospace;font-size:11px;display:flex;justify-content:space-between;gap:6px}
+#envlist div:hover,#envlist div.on{background:var(--bg)}.badge{font-size:10px;padding:0 5px;border-radius:8px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.badge.w{color:var(--warn);border-color:var(--warn)}
+#detail h3{margin:4px 0;font-size:15px;word-break:break-all}#detail .k{color:var(--muted);font-size:11px;text-transform:uppercase;margin-top:12px}
+#detail ul{margin:4px 0;padding-left:16px}#detail li{margin:1px 0;word-break:break-all}code{font-family:ui-monospace,Menlo,monospace;font-size:11px}
+.chip{display:inline-block;margin:2px 3px 2px 0;padding:1px 6px;border-radius:9px;background:var(--bg);border:1px solid var(--line);font-family:ui-monospace,Menlo,monospace;font-size:11px;cursor:pointer}
+.chip.behind{border-color:var(--warn);color:var(--warn)}.chip.ahead{border-color:var(--hl)}.find{color:var(--warn)}
+.hint{color:var(--muted);font-size:12px}
+@media (max-width:900px){body{grid-template-columns:1fr;grid-template-rows:auto 40vh 1fr auto;overflow:auto;height:auto}aside{border:0}#detail{order:4}}
+</style>
+</head>
+<body>
+<header><h1>RightKit Connection Map</h1><div class="stats" id="stats"></div>
+<div class="tabs"><button id="t-deps" class="on">Dependencies</button><button id="t-env">Env contracts</button><button id="theme" title="Toggle theme">◐</button></div></header>
+<aside id="side">
+<input type="search" id="q" placeholder="Search units, env vars…">
+<h2>Show</h2>
+<label><input type="checkbox" id="f-crate" checked> Rust crates</label>
+<label><input type="checkbox" id="f-npm" checked> npm packages</label>
+<label><input type="checkbox" id="f-app"> Product apps (pins)</label>
+<label><input type="checkbox" id="f-dev"> Dev/test dependencies</label>
+<label><input type="checkbox" id="f-warn"> Only units with findings</label>
+<div class="legend"><h2>Legend</h2>
+<div><span style="background:var(--crate)"></span>crate</div><div><span style="background:var(--npm)"></span>npm package</div><div><span style="background:var(--app)"></span>app</div>
+<div><span style="border:2px solid var(--warn)"></span>has a finding</div><div class="hint">Red edge: used but not declared. Dashed: dev. Size: lines of code.</div></div>
+<div id="envpane" hidden><h2>Environment variables</h2>
+<label><input type="checkbox" id="e-cross" checked> Shared across units only</label>
+<label><input type="checkbox" id="e-flag"> Only flagged (one-sided)</label>
+<div id="envlist"></div>
+<div class="hint" style="margin-top:6px"><b style="color:var(--set)">green</b> sets · <b style="color:var(--read)">blue</b> reads · <b style="color:var(--mention)">purple</b> names it</div></div>
+</aside>
+<main><svg id="g"></svg></main>
+<aside id="detail"><p class="hint">Click a unit to see what it depends on, what uses it, the environment it reads and sets, what it spawns, and the findings of the three passes. Click an environment variable (Env contracts) to see who sets and reads it.</p></aside>
+<script>
+const DATA = /*__DATA__*/null;
+const root = document.documentElement;
+try { const t = localStorage.getItem("rkmap-theme"); if (t) root.dataset.theme = t; } catch (e) {}
+document.getElementById("theme").onclick = () => { root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark"; try { localStorage.setItem("rkmap-theme", root.dataset.theme); } catch (e) {} };
+const css = (v) => getComputedStyle(root).getPropertyValue(v).trim();
+const byId = new Map(DATA.nodes.map((n) => [n.id, n]));
+const hasFinding = (n) => n.findings && Object.values(n.findings).some((a) => a.length);
+document.getElementById("stats").textContent = `${DATA.nodes.filter(n=>n.kind==="crate").length} crates · ${DATA.nodes.filter(n=>n.kind==="npm").length} npm packages · ${DATA.nodes.filter(n=>n.kind==="app").length} apps · ${DATA.links.filter(l=>l.kind!=="app-pin").length} internal edges · ${DATA.env.length} env vars`;
+const svg = d3.select("#g"), g = svg.append("g");
+svg.call(d3.zoom().scaleExtent([0.1, 6]).on("zoom", (e) => g.attr("transform", e.transform)));
+let mode = "deps", envSel = null, selected = null, sim;
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const color = (n) => css(n.kind === "crate" ? "--crate" : n.kind === "npm" ? "--npm" : "--app");
+const radius = (n) => n.kind === "app" ? 9 : 3 + 2.2 * Math.log10(Math.max(10, n.loc || 10));
+
+function visible() {
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  const show = { crate: f("f-crate"), npm: f("f-npm"), app: f("f-app") };
+  let nodes = DATA.nodes.filter((n) => show[n.kind] && (!f("f-warn") || hasFinding(n) || n.kind === "app"));
+  if (q && mode === "deps") { const hit = new Set(nodes.filter((n) => n.id.toLowerCase().includes(q) || (n.description||"").toLowerCase().includes(q)).map((n) => n.id));
+    for (const l of DATA.links) { if (hit.has(l.source.id ?? l.source)) hit.add(l.target.id ?? l.target); }
+    nodes = nodes.filter((n) => hit.has(n.id)); }
+  const ids = new Set(nodes.map((n) => n.id));
+  const links = DATA.links.filter((l) => { const s = l.source.id ?? l.source, t = l.target.id ?? l.target;
+    if (!ids.has(s) || !ids.has(t)) return false; if (l.kind === "dev" && !f("f-dev")) return false; return true; });
+  return { nodes, links };
+}
+function f(id) { return document.getElementById(id).checked; }
+
+function draw() {
+  const { nodes, links } = visible();
+  g.selectAll("*").remove();
+  const w = svg.node().clientWidth, h = svg.node().clientHeight;
+  const link = g.append("g").selectAll("line").data(links).join("line").attr("class", (l) => `link ${l.kind}`);
+  const node = g.append("g").selectAll("g").data(nodes, (n) => n.id).join("g").attr("class", (n) => "node" + (hasFinding(n) ? " warn" : ""))
+    .on("click", (e, n) => { e.stopPropagation(); select(n); })
+    .on("mouseenter", (e, n) => highlight(n)).on("mouseleave", () => highlight(selected))
+    .call(d3.drag().on("start", (e, n) => { if (!e.active) sim.alphaTarget(0.2).restart(); n.fx = n.x; n.fy = n.y; })
+      .on("drag", (e, n) => { n.fx = e.x; n.fy = e.y; }).on("end", (e, n) => { if (!e.active) sim.alphaTarget(0); n.fx = null; n.fy = null; }));
+  node.append("circle").attr("r", radius).attr("fill", color);
+  node.append("text").attr("dx", (n) => radius(n) + 3).attr("dy", 3).text((n) => n.id.replace(/^rightkit-/, "").replace(/^@rightkit\//, "@"));
+  node.append("title").text((n) => `${n.id} ${n.version || ""}\n${n.description || ""}`);
+  sim?.stop();
+  sim = d3.forceSimulation(nodes).force("link", d3.forceLink(links).id((n) => n.id).distance((l) => l.kind === "app-pin" ? 140 : 60).strength((l) => l.kind === "app-pin" ? 0.05 : 0.4))
+    .force("charge", d3.forceManyBody().strength(-160)).force("center", d3.forceCenter(w / 2, h / 2)).force("collide", d3.forceCollide().radius((n) => radius(n) + 6))
+    .on("tick", () => { link.attr("x1", (l) => l.source.x).attr("y1", (l) => l.source.y).attr("x2", (l) => l.target.x).attr("y2", (l) => l.target.y);
+      node.attr("transform", (n) => `translate(${n.x},${n.y})`); });
+  svg.on("click", () => { selected = null; envSel = null; highlight(null); renderEnvList(); });
+  highlight(selected); if (mode === "env") paintEnv();
+}
+
+function neighbours(n) {
+  const s = new Set([n.id]); for (const l of DATA.links) { const a = l.source.id ?? l.source, b = l.target.id ?? l.target; if (a === n.id) s.add(b); if (b === n.id) s.add(a); } return s;
+}
+function highlight(n) {
+  if (mode === "env") return paintEnv();
+  const nb = n ? neighbours(n) : null;
+  g.selectAll(".node").classed("dim", (d) => nb && !nb.has(d.id));
+  g.selectAll(".link").classed("dim", (l) => nb && !(l.source.id === n.id || l.target.id === n.id)).classed("hl", (l) => n && (l.source.id === n.id || l.target.id === n.id));
+}
+function select(n) { selected = n; highlight(n); showUnit(n); }
+const chip = (id, cls = "") => `<span class="chip ${cls}" data-id="${esc(id)}">${esc(id)}</span>`;
+function list(title, arr, fmt = (x) => `<code>${esc(x)}</code>`) { return arr && arr.length ? `<div class="k">${title} (${arr.length})</div><ul>${arr.map((x) => `<li>${fmt(x)}</li>`).join("")}</ul>` : ""; }
+
+function showUnit(n) {
+  const deps = DATA.links.filter((l) => (l.source.id ?? l.source) === n.id && l.kind !== "app-pin");
+  const users = DATA.links.filter((l) => (l.target.id ?? l.target) === n.id && l.kind !== "app-pin");
+  const apps = DATA.links.filter((l) => (l.target.id ?? l.target) === n.id && l.kind === "app-pin");
+  let h = `<h3>${esc(n.id)}</h3><div class="hint">${esc(n.kind)} ${esc(n.version)} ${n.published ? "" : "· not published"} · <code>${esc(n.dir)}</code></div><p>${esc(n.description)}</p>`;
+  const fd = n.findings || {};
+  const fl = [["declared_unused", "declared, never used"], ["used_undeclared", "used, not declared"], ["used_only_in_tests_but_normal_dep", "normal dependency used only by tests"], ["unknown_rightkit_refs", "names a unit that does not exist"]]
+    .filter(([k]) => fd[k] && fd[k].length).map(([k, t]) => `<li class="find">${t}: ${fd[k].map((x) => chip(x)).join(" ")}</li>`);
+  if (fl.length) h += `<div class="k">Findings</div><ul>${fl.join("")}</ul>`;
+  if (n.kind === "app") {
+    const by = { behind: [], ahead: [], current: [], path: [], unknown: [] };
+    for (const p of n.pinlist) (by[p.status] || by.unknown).push(p);
+    h += `<div class="k">RightKit pins (${n.pinlist.length})</div>` + ["behind", "ahead", "current", "path", "unknown"].filter((s) => by[s].length)
+      .map((s) => `<div class="hint">${s} (${by[s].length})</div>` + by[s].map((p) => `<span class="chip ${s}" data-id="${esc(p.name)}" title="${esc(p.pin)}">${esc(p.name.replace(/^rightkit-/, ""))} ${esc(p.pin)}</span>`).join("")).join("");
+  } else {
+    h += deps.length ? `<div class="k">Depends on (${deps.length})</div>` + deps.map((l) => chip(l.target.id ?? l.target, l.kind === "undeclared" ? "behind" : "") + (l.kind !== "normal" ? `<span class="hint">${esc(l.kind)}${l.target_cfg ? " " + esc(l.target_cfg) : ""}</span> ` : "")).join("") : "";
+    h += users.length ? `<div class="k">Used by (${users.length})</div>` + users.map((l) => chip(l.source.id ?? l.source)).join("") : "";
+    if (apps.length) h += `<div class="k">Apps pinning it (${apps.length})</div>` + apps.map((l) => { const st = (n.pins[l.source.id ?? l.source] || {}).status; return `<span class="chip ${st}" data-id="${esc(l.source.id ?? l.source)}">${esc(l.source.id ?? l.source)} ${esc(l.version)}</span>`; }).join("");
+  }
+  h += list("Reads env", n.env_read) + list("Sets env", n.env_set) + list("Spawns", n.spawns) + list("Sockets / pipes", n.sockets);
+  h += list("Features", n.features) + list("Public modules", n.modules) + list("Exports", n.exports) + list("Binaries", n.bins);
+  if (n.kind !== "app") h += `<div class="k">Size</div><div>${(n.loc || 0).toLocaleString()} lines · ${n.files} files · ${n.tests} tests</div>`;
+  document.getElementById("detail").innerHTML = h;
+  document.querySelectorAll("#detail .chip").forEach((c) => c.onclick = () => { const t = byId.get(c.dataset.id); if (t) select(t); });
+}
+
+function renderEnvList() {
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  const rows = DATA.env.filter((e) => (!f("e-cross") || e.cross) && (!f("e-flag") || e.readNeverSet || e.setNeverRead) && (!q || e.name.toLowerCase().includes(q)))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const el = document.getElementById("envlist");
+  el.innerHTML = rows.map((e) => `<div data-n="${esc(e.name)}" class="${envSel && envSel.name === e.name ? "on" : ""}"><span>${esc(e.name)}</span>${e.readNeverSet ? '<span class="badge w">no setter</span>' : e.setNeverRead ? '<span class="badge w">no reader</span>' : `<span class="badge">${Object.keys(e.setters).length}→${Object.keys(e.readers).length}</span>`}</div>`).join("") || '<div class="hint">none</div>';
+  el.querySelectorAll("div[data-n]").forEach((d) => d.onclick = () => { envSel = DATA.env.find((e) => e.name === d.dataset.n); renderEnvList(); paintEnv(); showEnv(envSel); });
+}
+function paintEnv() {
+  const e = envSel;
+  g.selectAll(".node circle").attr("fill", (n) => { if (!e) return color(n); if (e.setters[n.id]) return css("--set"); if (e.readers[n.id] || (e.apps && e.apps[n.id])) return css("--read"); if (e.mentioned.includes(n.id)) return css("--mention"); return color(n); });
+  g.selectAll(".node").classed("dim", (n) => e && !(e.setters[n.id] || e.readers[n.id] || e.mentioned.includes(n.id) || (e.apps && e.apps[n.id])));
+  g.selectAll(".link").classed("dim", !!e).classed("hl", false);
+}
+function showEnv(e) {
+  const sites = (o) => Object.entries(o).map(([u, s]) => `<li>${chip(u)}<ul>${s.map((x) => `<li><code>${esc(x)}</code></li>`).join("")}</ul></li>`).join("");
+  document.getElementById("detail").innerHTML = `<h3>${esc(e.name)}</h3>` + (e.readNeverSet ? '<p class="find">Read by RightKit, set by nothing in RightKit: a host or operator input.</p>' : "") + (e.setNeverRead ? '<p class="find">Set by RightKit, read by nothing scanned.</p>' : "") +
+    `<div class="k">Set by</div><ul>${sites(e.setters) || "<li>—</li>"}</ul><div class="k">Read by</div><ul>${sites(e.readers) || "<li>—</li>"}</ul>` +
+    (Object.keys(e.apps || {}).length ? `<div class="k">Read by apps</div><ul>${sites(e.apps)}</ul>` : "") + (e.mentioned.length ? `<div class="k">Named in code by</div>${e.mentioned.map((u) => chip(u)).join("")}` : "");
+  document.querySelectorAll("#detail .chip").forEach((c) => c.onclick = () => { const t = byId.get(c.dataset.id); if (t) { mode = "deps"; setTab(); select(t); } });
+}
+function setTab() {
+  document.getElementById("t-deps").classList.toggle("on", mode === "deps"); document.getElementById("t-env").classList.toggle("on", mode === "env");
+  document.getElementById("envpane").hidden = mode !== "env"; if (mode === "env") renderEnvList(); draw();
+}
+document.getElementById("t-deps").onclick = () => { mode = "deps"; envSel = null; setTab(); };
+document.getElementById("t-env").onclick = () => { mode = "env"; setTab(); };
+for (const id of ["f-crate", "f-npm", "f-app", "f-dev", "f-warn"]) document.getElementById(id).onchange = draw;
+for (const id of ["e-cross", "e-flag"]) document.getElementById(id).onchange = renderEnvList;
+document.getElementById("q").oninput = () => { if (mode === "env") renderEnvList(); else draw(); };
+window.addEventListener("resize", draw);
+draw();
+</script>
+</body>
+</html>
