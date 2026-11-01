@@ -23,6 +23,7 @@ pub mod effect;
 pub mod intent;
 pub mod principal;
 pub mod task;
+pub mod task_cli;
 pub mod voice;
 
 pub use approval::{ApprovalBinding, ExecutorRef};
