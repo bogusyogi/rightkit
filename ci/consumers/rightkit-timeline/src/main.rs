@@ -79,10 +79,12 @@ fn main() {
         store.timeline().total_frames() == 60,
         "undo removes the last insert",
     );
+    // Media paths must be absolute on the host (a leading `/` is not absolute on Windows).
+    let media = std::env::temp_dir();
     let sources: std::collections::BTreeMap<SourceId, std::path::PathBuf> =
-        [('a', "/media/a.mov"), ('b', "/media/b.mov")]
+        [('a', "a.mov"), ('b', "b.mov")]
             .into_iter()
-            .map(|(c, p)| (sid(c), p.into()))
+            .map(|(c, p)| (sid(c), media.join(p)))
             .collect();
     let doc = to_otio(store.timeline(), &sources, &ExportOptions::new("consumer"));
     check(
