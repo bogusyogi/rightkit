@@ -9,3 +9,5 @@ publish = false
 [dependencies]
 rightkit-agent-gateway = { version = "=0.1.0" }
 serde_json = "1"
+# Windows has no system SQLite: the consumer links the bundled one, as the crate's own tests do.
+rightkit-db = { version = "0.5.2", default-features = false, features = ["bundled"] }
