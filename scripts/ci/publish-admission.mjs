@@ -187,7 +187,11 @@ export function readQualificationInput(text, { sha, registry, units }) {
     content.contentSha256 = q.contentSha256;
     // Exclusions are this code's, for one package: a qualification that claims excluded entries for any other unit is refused outright.
     requireThat(exclusionsFor(q.unit.name).length > 0 || q.contentExcluded === undefined, `the qualification receipt claims excluded archive entries for ${q.unit.name}, which has none`);
-    if (exclusionsFor(q.unit.name).length) {
+    if (exclusionsFor(q.unit.name).length && q.executor === "direct") {
+      // A Linux direct origin neither builds nor signs the swap helper; the hosted sign-swap job does. Its archive holds neither excluded entry.
+      requireThat(q.contentExcluded === undefined || (Array.isArray(q.contentExcluded) && q.contentExcluded.length === 0), `the direct-origin qualification for ${q.unit.name} claims excluded archive entries, but a direct origin holds neither ${exclusionsFor(q.unit.name).join(" nor ")}`);
+      content.contentExcluded = [];
+    } else if (exclusionsFor(q.unit.name).length) {
       requireThat(Array.isArray(q.contentExcluded) && sameSet(q.contentExcluded, exclusionsFor(q.unit.name)), `the qualification receipt does not record that its ${q.unit.name} archive held ${exclusionsFor(q.unit.name).join(" and ")}`);
       content.contentExcluded = sorted(q.contentExcluded);
     }
@@ -231,7 +235,8 @@ export function bindPackedToQualification({ manifest, qualification, listing = (
   const bound = { unit: name, version: entry.version, sha256: entry.sha256, file: entry.file, contentSha256: hosted.contentSha256, qualifiedSha256: qualification.artifactSha256 };
   if (name !== SWAP_HELPER_PACKAGE) return bound;
   // The swap helper: the sealed one is exactly the one the sign-swap job signed, and the hosted archive carries no signing receipt of the local route.
-  requireThat(sameSet(qualification.contentExcluded ?? [], exclude), `the qualification does not record that its ${name} archive held ${exclude.join(" and ")}`);
+  // A direct (Linux) origin holds neither entry locally; every other origin recorded that its archive held both.
+  requireThat(sameSet(qualification.contentExcluded ?? [], qualification.executor === "direct" ? [] : exclude), `the qualification does not record that its ${name} archive held ${exclude.join(" and ")}`);
   const helper = hosted.excluded[SWAP_HELPER_ARCHIVE_BIN];
   requireThat(helper && helper.type === "file" && helper.exec === true, `the sealed ${name}@${entry.version} holds no executable ${SWAP_HELPER_ARCHIVE_BIN}`);
   requireThat(Object.hasOwn(hosted.excluded, SWAP_HELPER_ARCHIVE_RECEIPT) === false, `the sealed ${name}@${entry.version} holds ${SWAP_HELPER_ARCHIVE_RECEIPT}, the local signing's receipt: the hosted helper is signed by the sign-swap job and carries none`);

@@ -2,6 +2,7 @@
 
 ## 0.6.18 (unpublished)
 
+- **`@rightkit/release` qualifies on a Linux direct origin:** `publish npm --package @rightkit/release --local --qualify-only` now runs on Linux (it no longer needs the Mac broker). The origin builds and signs no swap helper; its archive holds neither the helper nor `.sign.json`, and the qualification records `contentExcluded: []` (executor `direct`). publish.yml's build-swap/sign-swap jobs still build, sign and bind the sealed helper, so the package publishes through `admission=direct` like every other unit. The Mac rule (archive must hold both entries) is unchanged.
 - **`rightkit-linux-setup` (rightkit#1365):** one idempotent command for a Linux host (cloud container, VM, WSL2). From the app root it reads the pins (`.node-version` or `engines.node`, `packageManager`, `rust-toolchain.toml`), installs Node from the official tarball into `~/.local` (checksum verified), pnpm through corepack (npm into `~/.local` when corepack is absent) and Rust through rustup, then runs `pnpm fetch` in every committed lockroot to fill the pnpm store. The fetch uses a throwaway `--virtual-store-dir`, so an existing `node_modules` is never cleared. `--dry-run` prints the plan; `--root <dir>` picks the app. System packages (webkit2gtk and gtk for Tauri) are not installed yet.
 
 ## 0.6.17 (unpublished)

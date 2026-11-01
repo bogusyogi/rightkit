@@ -69,7 +69,12 @@ export function writeQualification({ report, artifact, unit, commit, tree, runti
     if (!/^[0-9a-f]{64}$/.test(artifact.contentSha256 ?? "")) throw new Error("release needs the qualified npm archive's content digest");
     content.contentSha256 = artifact.contentSha256;
     const excluded = exclusionsFor(unit.name);
-    if (excluded.length) {
+    if (excluded.length && executor?.kind === "direct") {
+      // A Linux direct origin neither builds nor signs the swap helper (publish.yml's build-swap/sign-swap do, hosted): its archive holds neither
+      // entry, and says so. The Mac rule below is unchanged.
+      if (!Array.isArray(artifact.contentExcluded) || artifact.contentExcluded.length) throw new Error(`a direct origin's ${unit.name} archive must hold neither ${excluded.join(" nor ")}`);
+      content.contentExcluded = [];
+    } else if (excluded.length) {
       if (!Array.isArray(artifact.contentExcluded) || [...artifact.contentExcluded].sort().join("\n") !== [...excluded].sort().join("\n")) throw new Error(`release needs the qualified ${unit.name} archive to hold ${excluded.join(" and ")}`);
       content.contentExcluded = [...artifact.contentExcluded].sort();
     }
