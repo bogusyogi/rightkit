@@ -455,10 +455,10 @@ pub fn detect_host(path: &Path) -> std::io::Result<&'static str> {
         };
         let Some(map) = obj.as_object() else { continue };
         match map.get("type").and_then(Value::as_str) {
-            Some(t) if matches!(t, "session_meta" | "response_item" | "event_msg") => {
+            Some("session_meta" | "response_item" | "event_msg") => {
                 return Ok("codex");
             }
-            Some(t) if matches!(t, "user" | "assistant" | "queue-operation") => {
+            Some("user" | "assistant" | "queue-operation") => {
                 return Ok("claude_code");
             }
             _ => {}
