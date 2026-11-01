@@ -58,7 +58,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
-import { parse } from "smol-toml";
+import { createRequire } from "node:module";
+// smol-toml loads on first parse, not at import: CI jobs whose closure reaches this module without installing
+// @rightkit/release dependencies (publish.yml crates pack, bind) never parse TOML here (rightkit#1341).
+let smolTomlParse;
+const parse = (text) => (smolTomlParse ??= createRequire(import.meta.url)("smol-toml").parse)(text);
 import { RUNTIME_BUDGET_CRATES } from "./runtime-budget-crates.mjs";
 import { singleHostOfPolicy } from "./publication-gate.mjs";
 import { findWorkspaceRoot, lockClosure, pathDependencyDirs, readCargoPackage } from "./crate-graph.mjs";

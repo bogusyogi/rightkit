@@ -1,5 +1,9 @@
 // Stage 1: resolved lock graphs, without feature or production-only pruning.
-import { parse as parseToml } from "smol-toml";
+import { createRequire } from "node:module";
+// smol-toml loads on first parse, not at import: CI jobs whose closure reaches this module without installing
+// @rightkit/release dependencies (publish.yml crates pack, bind) never parse TOML here (rightkit#1341).
+let smolTomlParse;
+const parseToml = (text) => (smolTomlParse ??= createRequire(import.meta.url)("smol-toml").parse)(text);
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { sha256 } from "./ownership-approval.mjs";

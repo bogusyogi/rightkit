@@ -8,7 +8,7 @@ Owners come from `packages/release/rightkit-ownership.json`, which the ownership
 - Detection: `fingerprinted` when the owner declares dependency or source fingerprints; `declaration-only` when it declares ownership without a precise fingerprint. A declared dependency alone does not prove integration.
 - Published availability: `published` means a registry version is recorded. `staged` means a version is prepared and unverified on the registry.
 
-Capabilities: 96 (58 with fingerprints, 38 declaration-only). Internal owners that are not application capabilities are excluded.
+Capabilities: 105 (58 with fingerprints, 47 declaration-only). Internal owners that are not application capabilities are excluded.
 
 | Capability | Owner | Tier | Detection | Fingerprints | Published availability |
 |---|---|---|---|---|---|
@@ -34,6 +34,7 @@ Capabilities: 96 (58 with fingerprints, 38 declaration-only). Internal owners th
 | desktop-overlay | `rightkit-overlay` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-overlay: published 0.2.0 (crates.io) |
 | desktop-qa | `rightkit-qa` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-qa: published 0.9.1 (crates.io) |
 | desktop-shell | `@rightkit/tauri-shell`, `rightkit-tauri-shell` | advise | declaration-only, fingerprinted | 6 (0 block, 6 advise) | @rightkit/tauri-shell: published 0.1.3 (npm); rightkit-tauri-shell: published 0.6.0 (crates.io) |
+| device-mesh | `rightkit-mesh` | none | declaration-only | 0 | rightkit-mesh: staged 0.1.0, not published |
 | disk-cache | `rightkit-cache` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-cache: published 0.2.3 (crates.io) |
 | document | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |
 | document-io | `rightkit-docs` | advise | fingerprinted | 11 (0 block, 11 advise) | rightkit-docs: published 0.1.2 (crates.io) |
@@ -105,6 +106,14 @@ Capabilities: 96 (58 with fingerprints, 38 declaration-only). Internal owners th
 | timed-transcripts | `rightkit-transcript` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-transcript: published 0.4.0 (crates.io) |
 | typeset | `rightkit-typeset` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-typeset: published 0.1.0 (crates.io) |
 | update-policy | `@rightkit/app-update` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/app-update: published 0.4.2 (npm) |
+| video-autoedit | `rightkit-autoedit` | none | declaration-only | 0 | rightkit-autoedit: staged 0.1.0, not published |
+| video-captions | `rightkit-captions` | none | declaration-only | 0 | rightkit-captions: staged 0.1.0, not published |
+| video-color | `rightkit-color` | none | declaration-only | 0 | rightkit-color: staged 0.1.0, not published |
+| video-compositor | `rightkit-compositor` | none | declaration-only | 0 | rightkit-compositor: staged 0.1.0, not published |
+| video-project | `rightkit-video-project` | none | declaration-only | 0 | rightkit-video-project: staged 0.1.0, not published |
+| video-reframe | `rightkit-reframe` | none | declaration-only | 0 | rightkit-reframe: staged 0.1.0, not published |
+| video-shorts | `rightkit-shorts` | none | declaration-only | 0 | rightkit-shorts: staged 0.1.0, not published |
+| video-timeline | `rightkit-timeline` | none | declaration-only | 0 | rightkit-timeline: staged 0.1.0, not published |
 | voice-activity-detection | `rightkit-vad` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-vad: published 0.1.2 (crates.io) |
 | windows-native-overlay-renderer | `rightkit-overlay-win` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-overlay-win: published 0.1.0 (crates.io) |
 | xlsx | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |
