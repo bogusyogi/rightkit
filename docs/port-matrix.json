@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T09:46:12Z",
-  "rightkitHead": "14db6d7",
+  "generatedAt": "2026-11-01T09:46:24Z",
+  "rightkitHead": "c43befd",
   "legend": [
     {
       "state": "adopted",
@@ -26450,7 +26450,7 @@
       "private": false,
       "source": "0.2.0",
       "registry": "0.2.0",
-      "staged": "0.2.1",
+      "staged": "0.2.0",
       "dir": "crates/rightkit-hooks",
       "toMoveFrom": {},
       "cells": {
