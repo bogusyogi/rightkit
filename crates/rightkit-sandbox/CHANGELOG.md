@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.2 (unreleased)
+## 0.6.3 (unreleased)
+
+- Feature `execution`: add `PLUGIN_SANDBOX_PROFILE` and `CommandLaunchSpec::starts_from_empty_env` (plugin children start from an empty environment), following CodeRight.
+
+## 0.6.2
 
 - Feature `execution`: agent execution backends registry, local effect performer and denial reports (moved from CodeRight `coderight-execution`).
 
