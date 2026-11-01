@@ -2,6 +2,7 @@
 
 ## 0.6.21 (unpublished)
 
+- **A store miss in the offline dependency install is named under pnpm 12:** pnpm 12 prints `ERR_PNPM_NO_OFFLINE_TARBALL` on its own line and wraps the tarball URL after `https://`, so the gate fell back to a tail of progress lines. The URL is rejoined and the code and URL may be lines apart (Dell, 2026-11-02).
 - **The compile stage produces the declared web build and Windows identity inputs before it stages sidecars (HeardRight Mac package through the broker, 2026-11-02):** the broker admits a compile only when every declared compile input is in the snapshot. `stage-sidecar`'s `cargo build` ran first, while `tauri-app-next/dist` (produced by the web build step) was still absent, and the broker REJECTED it ("snapshot admission: tauri-app-next/dist: No such file or directory"). `stageWebBuildOnce` and `stageWindowsIdentityOnce` now run before `stageSidecarsOnce`; neither depends on the sidecars.
 - **A carried cargo call that never got a request reference now says why (HeardRight Mac package through the broker, 2026-11-02):** in capture mode (a right-release step's `rustright cargo`, e.g. stage-sidecar's sidecar build) the gate kept the RustRight client's stderr but reported only "no request reference", so a client or broker refusal before acceptance read as a bare exit 125. The outcome now ends with the client's own `rustright: <reason>` lines (a bare `rustright: request <id>` line is not a reason), and `right-release stage-sidecar` prints the tail of a failed tool's captured stderr.
 

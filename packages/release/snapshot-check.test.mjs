@@ -309,6 +309,9 @@ test("install: pinned pnpm, --offline --frozen-lockfile --ignore-scripts --ignor
   // A store miss names the package and the root, never a skip.
   const miss = (c, a) => (a[0] === "--version" ? { status: 0, stdout: "11.25.0\n" } : { status: 1, stdout: "", stderr: "[ERR_PNPM_NO_OFFLINE_TARBALL] A package is missing from the store but cannot download it in offline mode. The missing package may be downloaded from https://registry.npmjs.org/katex/-/katex-0.18.11.tgz." });
   assert.throws(() => installSnapshotDependencies({ checkout, snapshot, ...selected, roots: ["."], spawn: miss }), (e) => e instanceof CheckError && /root \.: katex-0\.18\.11 is missing from the store/.test(e.message));
+  // pnpm 12: the code on its own line, the tarball URL wrapped after "https://" (Dell, 2026-11-02).
+  const wrapped = (c, a) => (a[0] === "--version" ? { status: 0, stdout: "11.25.0\n" } : { status: 1, stdout: "Progress: resolved 1, reused 0\n", stderr: "Error: ERR_PNPM_NO_OFFLINE_TARBALL\n  Failed to fetch tarball for @rightkit/release@0.6.20 from https://\n  registry.npmjs.org/@rightkit/release/-/release-0.6.20.tgz\n" });
+  assert.throws(() => installSnapshotDependencies({ checkout, snapshot, ...selected, roots: ["."], spawn: wrapped }), (e) => e instanceof CheckError && /root \.: release-0\.6\.20 is missing from the store/.test(e.message));
   // No lockfile: nothing to install from; recorded as skipped (the pnpm-lockfile scan judges it), never an install.
   const noLock = scenario(t);
   calls.length = 0;

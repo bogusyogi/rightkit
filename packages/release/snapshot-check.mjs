@@ -305,7 +305,10 @@ export function installSnapshotDependencies({ checkout, snapshot, commit, tree, 
     const ms = now() - started;
     if (failed(r) || /No projects matched the filters/.test(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`)) {
       const out = `${r?.stdout ?? ""}\n${r?.stderr ?? ""}`;
-      const miss = /ERR_PNPM_NO_OFFLINE_TARBALL[^\n]*?(https?:\/\/\S+?\/-\/(\S+?)\.tgz)/.exec(out);
+      // pnpm 12 prints the code on its own line and wraps the tarball URL ("from https://\n  registry.npmjs.org/..."): the URL is rejoined first,
+      // and the code and its URL may be a few lines apart (Dell, 2026-11-02: the specific message never fired; only progress lines showed).
+      const joined = out.replace(/(https?:\/\/)\s+/g, "$1");
+      const miss = /ERR_PNPM_NO_OFFLINE_TARBALL[\s\S]{0,600}?(https?:\/\/\S+?\/-\/(\S+?)\.tgz)/.exec(joined);
       const message = miss
         ? `root ${root}: ${miss[2]} is missing from the store ${storeDir} (offline install, no network fallback); install the checkout's dependencies so the store holds it, then run the check again`
         : `root ${root}: offline dependency install failed (store ${storeDir}): ${tail(r) || r?.error?.message || `exit ${r?.status}`}`;
