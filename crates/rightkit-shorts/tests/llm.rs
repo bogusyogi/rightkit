@@ -362,7 +362,7 @@ fn the_provider_debug_output_never_shows_the_key() {
 }
 
 /// Live call: needs the key in the OS secret store and the network. Run by hand with
-/// `cargo test -p cutright-shorts -- --ignored live`.
+/// `cargo test -p rightkit-shorts -- --ignored live`.
 #[test]
 #[ignore]
 fn live_anthropic_ranks_the_talk() {
