@@ -56,3 +56,34 @@ fn audit_helpers_clean_what_they_return() {
     assert_eq!(audit::extension("noext"), "");
     assert_eq!(audit::short_id("abcdef123456-xyz"), "abcdef12");
 }
+
+mod admin {
+    use rightkit_approvals::admin_sig;
+    use ring::rand::SystemRandom;
+    use ring::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
+
+    #[test]
+    fn a_phone_signature_verifies_only_over_the_bytes_it_signed() {
+        let rng = SystemRandom::new();
+        let pkcs8 =
+            EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).expect("a key");
+        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
+            .expect("a key pair");
+        let public = pair.public_key().as_ref().to_vec();
+        let message = admin_sig::approval_message("comp", "phone", "req", "hash", "nonce", 99);
+        let signature = pair.sign(&rng, &message).expect("sign");
+        assert!(admin_sig::verify(&public, &message, signature.as_ref()));
+        let other = admin_sig::approval_message("comp", "phone", "req2", "hash", "nonce", 99);
+        assert!(!admin_sig::verify(&public, &other, signature.as_ref()));
+        assert_eq!(admin_sig::key_id(&public).len(), 32);
+        assert_eq!(admin_sig::fingerprint("abcdefgh"), "abcd efgh");
+    }
+
+    #[test]
+    fn public_keys_are_65_byte_points() {
+        let good = format!("04{}", "ab".repeat(64));
+        assert!(admin_sig::parse_public(&good).is_some());
+        assert!(admin_sig::parse_public("04ab").is_none());
+        assert!(admin_sig::parse_public(&format!("05{}", "ab".repeat(64))).is_none());
+    }
+}

@@ -891,7 +891,8 @@ fn write_via_service(current: Vec<Approver>, wanted: &[Approver]) -> Result<()> 
             .iter()
             .filter(|k| !wanted.iter().any(|w| w.device == k.device))
         {
-            owner_keys_change(&format!("owner-revoke --key {}", old.key_id)).map_err(unavailable)?;
+            owner_keys_change(&format!("owner-revoke --key {}", old.key_id))
+                .map_err(unavailable)?;
         }
         for new in wanted
             .iter()

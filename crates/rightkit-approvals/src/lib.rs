@@ -15,6 +15,7 @@
 //! to the agent gateway). Both are installed once at start; until then every answer is neutral and
 //! fails closed.
 
+pub mod admin_sig;
 pub mod approval_sig;
 pub mod audit;
 pub mod protected_guard;
@@ -51,6 +52,40 @@ impl std::fmt::Display for Refusal {
 }
 
 impl std::error::Error for Refusal {}
+
+/// A refusal of an admin or phone request, with a stable code; `retryable` says whether the same
+/// request can succeed later.
+#[derive(Debug, Clone)]
+pub struct PhoneError {
+    pub code: String,
+    pub message: String,
+    pub retryable: bool,
+}
+
+impl PhoneError {
+    pub fn new(code: &str, message: impl Into<String>) -> Self {
+        Self {
+            code: code.to_string(),
+            message: message.into(),
+            retryable: false,
+        }
+    }
+
+    pub fn retry(code: &str, message: impl Into<String>) -> Self {
+        Self {
+            retryable: true,
+            ..Self::new(code, message)
+        }
+    }
+}
+
+impl std::fmt::Display for PhoneError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for PhoneError {}
 
 /// `Result` with a [`Refusal`].
 pub type Result<T> = std::result::Result<T, Refusal>;
@@ -109,6 +144,29 @@ pub trait OwnerKeyService: Send + Sync {
     fn service_installed(&self) -> bool;
     /// Runs one elevated change of the service's key list (`owner-enrol ...`, `owner-revoke ...`).
     fn change_owner_keys(&self, args: &str) -> std::result::Result<(), String>;
+    /// The service's enrolled phone keys as `(key id, device id, revoked)`. A service that is
+    /// missing or silent is an error, never an empty list.
+    fn phone_keys(&self) -> std::result::Result<Vec<(String, String, bool)>, PhoneError> {
+        Err(PhoneError::new(
+            "service_missing",
+            "the elevated service is not available",
+        ))
+    }
+    /// Has the service verify a phone's signature (`hex`) over `message`.
+    fn verify_phone_signature(
+        &self,
+        phone_id: &str,
+        computer_id: &str,
+        key_id: &str,
+        message: &[u8],
+        signature_hex: &str,
+    ) -> std::result::Result<(), PhoneError> {
+        let _ = (phone_id, computer_id, key_id, message, signature_hex);
+        Err(PhoneError::new(
+            "service_missing",
+            "the elevated service is not available",
+        ))
+    }
 }
 
 static KEY_SERVICE: OnceLock<Box<dyn OwnerKeyService>> = OnceLock::new();
@@ -134,4 +192,56 @@ pub fn set_signing_team(team: &str) -> bool {
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn signing_team() -> Option<&'static str> {
     SIGNING_TEAM.get().map(String::as_str)
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn phone_keys() -> std::result::Result<Vec<(String, String, bool)>, PhoneError> {
+    match owner_key_service() {
+        Some(service) => service.phone_keys(),
+        None => Err(PhoneError::new(
+            "service_missing",
+            "the elevated service is not available",
+        )),
+    }
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn verify_phone_signature(
+    phone_id: &str,
+    computer_id: &str,
+    key_id: &str,
+    message: &[u8],
+    signature_hex: &str,
+) -> std::result::Result<(), PhoneError> {
+    match owner_key_service() {
+        Some(service) => {
+            service.verify_phone_signature(phone_id, computer_id, key_id, message, signature_hex)
+        }
+        None => Err(PhoneError::new(
+            "service_missing",
+            "the elevated service is not available",
+        )),
+    }
+}
+
+static ADMIN_KEY_FILE: OnceLock<String> = OnceLock::new();
+
+/// Sets the root-owned file the enrolled phone keys live in on Unix. Only the first call takes
+/// effect. The default is `/etc/rightkit/admin-phones.json` (`/Library/Application
+/// Support/RightKit/admin-phones.json` on macOS).
+pub fn set_admin_key_file(path: &str) -> bool {
+    ADMIN_KEY_FILE.set(path.to_string()).is_ok()
+}
+
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(crate) fn admin_key_file() -> &'static str {
+    ADMIN_KEY_FILE
+        .get_or_init(|| {
+            if cfg!(target_os = "macos") {
+                "/Library/Application Support/RightKit/admin-phones.json".to_string()
+            } else {
+                "/etc/rightkit/admin-phones.json".to_string()
+            }
+        })
+        .as_str()
 }
