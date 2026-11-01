@@ -2,7 +2,7 @@
 //!
 //! All telemetry produced by the workflow control plane is local-first.
 //! Strings are the only projection — structured values are flattened,
-//! and any field matching a [`SecretPattern`] is replaced with
+//! and any field matching a `SecretPattern` is replaced with
 //! `[REDACTED]`.
 
 #![forbid(unsafe_code)]

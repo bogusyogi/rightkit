@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 /// Stable, prefix-bound ID for one workflow durable object.
 ///
 /// The constructor never accepts a free-form string. Use [`StableId::new`]
-/// or [`NamespacedId::next`] instead — they guarantee the prefix matches
+/// or the namespaced constructors instead — they guarantee the prefix matches
 /// the object class.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[serde(transparent)]

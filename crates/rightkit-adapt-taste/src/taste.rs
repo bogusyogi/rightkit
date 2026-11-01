@@ -130,10 +130,11 @@ pub fn counterfactual_for_candidate(candidate: &TasteCandidateV1) -> TasteCounte
                 && &event.text == text
         })
     });
-    let status = rejected
-        .is_some()
-        .then_some("recorded")
-        .unwrap_or(COUNTERFACTUAL_NONE_RECORDED);
+    let status = if rejected.is_some() {
+        "recorded"
+    } else {
+        COUNTERFACTUAL_NONE_RECORDED
+    };
     TasteCounterfactualV1 {
         schema_version: COUNTERFACTUAL_SCHEMA.into(),
         status: status.into(),

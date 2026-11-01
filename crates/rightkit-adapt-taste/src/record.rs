@@ -267,6 +267,7 @@ impl PreferenceRecordV1 {
     /// Construct a new candidate record. Identity derives deterministically;
     /// authority effect is computed by deterministic classification, never
     /// taken from model output.
+    #[allow(clippy::too_many_arguments)] // established public constructor; a params struct would break callers
     pub fn new_candidate(
         rule: &str,
         category: &str,

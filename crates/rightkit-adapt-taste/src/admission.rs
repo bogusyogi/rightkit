@@ -480,6 +480,7 @@ fn model_rule_matches_bound_excerpt(rule: &str, excerpt: &str) -> bool {
 /// Build a candidate record from an admitted proposal. This is the ONLY
 /// constructor path out of gate 1, and it stamps provisional influence +
 /// candidate lifecycle; nothing admitted here is durably authoritative yet.
+#[allow(clippy::too_many_arguments)] // established public constructor; a params struct would break callers
 pub fn build_candidate(
     rule: &str,
     category: &str,
