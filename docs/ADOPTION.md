@@ -217,7 +217,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/qa` | npm | 0.6.2 | 0.6.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `@rightkit/qa-chrome` | npm | 0.1.12 | 0.1.12 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `@rightkit/release` | npm | 0.6.16 | 0.6.13 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
+| `@rightkit/release` | npm | 0.6.17 | 0.6.13 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
 | `@rightkit/settings-ui` | npm | 0.7.0 | 0.7.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded | 0 | none | 4 vendored copies |
 | `@rightkit/tauri` | npm | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
