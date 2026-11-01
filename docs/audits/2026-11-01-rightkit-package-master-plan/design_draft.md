@@ -1,8 +1,8 @@
-# Design: all suite code in RightKit packages, in two tiers
+# Design: all common suite code in RightKit packages
 
 | Field | Value |
 |---|---|
-| Status | Draft v3, revised after EGM Goldfish review (stages 5–9) and the Stage 8 re-check (`consolidated_review_report.md`) |
+| Status | Draft v4. v3 was revised after the EGM Goldfish review; v4 applies Adrian's 2026-11-01 ruling: publishing is fine, product-specific logic and UI stay in apps (`consolidated_review_report.md`) |
 | Date | 2026-11-01 |
 | Author | Claude, for Adrian |
 | Decision owner | Adrian |
@@ -13,10 +13,9 @@ The suite has ten app repositories: `postright`, `scraperight`, `mailright`, `vi
 
 ## Goals
 
-1. Every capability in app code becomes a RightKit package: a Rust crate, an npm package, a Swift library product, or an Android library.
-2. Each app keeps only its shell: entry points, command tables, wiring, manifests and its own journey/e2e tests. The target is at most 10% of an app's code.
+1. Every common capability in app code becomes a public RightKit package (Rust crate, npm package, Swift library product or Android library). That covers foundation and add-on code (P13): app shell pieces, platform plumbing, engines and UI building blocks that any app could use.
+2. Each app keeps its product-specific domain logic and UI (P13 app-specific), its shell (entry points, command tables, wiring, manifests) and its journey/e2e tests.
 3. Duplicated capabilities are merged into one package.
-4. Product code stays private. Generic code stays public, as it is today.
 
 ## Non-goals
 
@@ -30,11 +29,11 @@ The suite has ten app repositories: `postright`, `scraperight`, `mailright`, `vi
 - **Gate**: `rightkit-gate check` from `@rightkit/release`. It runs the app checks (G13–G22) and the ownership checks against `.rightkit/ownership-exceptions.json`.
 - **Ownership exception**: an entry in an app's `.rightkit/ownership-exceptions.json`. It names a path in the app that should be owned by a RightKit package, plus the reason (usually an API gap in that package).
 - **Membrane**: Pulse's context engine (`pulse/membrane/`): context pull, durable memory, repository graph and learning.
-- **Tier**: *public* packages are generic. They are MIT/Apache licensed and published by CI to crates.io and npm (current RightKit). *Private* packages are product domain code. They are proprietary and published only to a private registry.
+- **Product code**: domain logic and presentation specific to one app (P13 "app-specific"). It stays in the app.
 
 ## Inputs
 
-- Master plan, with every package, its tier, wave, consumers, size and contents: [`2026-11-01-rightkit-package-master-plan.md`](../2026-11-01-rightkit-package-master-plan.md).
+- Master plan, with every package, its wave, consumers, size and contents: [`2026-11-01-rightkit-package-master-plan.md`](../2026-11-01-rightkit-package-master-plan.md).
 - Per-package data: [`packages.json`](packages.json).
 - Per-app file mapping: in each app repository, `docs/rightkit-inventory/<app>-rightkit-mapping.md` and `<app>-rightkit-files.json` (a pattern, not a link).
 - Mapping rules and scripts: [`rules/`](rules/), [`tools/`](tools/). To regenerate, run `python3 tools/mapper.py <app> rules/<app>.tsv out`, then `tools/render.py` and `tools/master.py`, against each app's `main`.
@@ -48,6 +47,7 @@ The suite has ten app repositories: `postright`, `scraperight`, `mailright`, `vi
    - EXTEND: added to an existing RightKit package. This includes ADOPT candidates that still have an ownership exception, because the RightKit owner lacks the API.
    - ADOPT: RightKit already ships it. Delete the app copy.
    - LEGION: skill code. It moves to Legion.
+   - PRODUCT: product-specific domain logic or UI. It stays in the app.
    - APPTEST: app journey or e2e test. It stays in the app.
    - VENDOR-OWN: vendored third-party code. Fork it into RightKit and remove the unused parts.
    - VENDOR-KEEP: vendored third-party code. Replace it with the upstream dependency and delete the copy.
@@ -61,128 +61,102 @@ The suite has ten app repositories: `postright`, `scraperight`, `mailright`, `vi
 | Measure | Lines |
 |---|---:|
 | Authored code in apps | 3,874,805 |
-| NEW (85 new packages) | 1,975,724 |
+| NEW (46 new packages) | 1,059,804 |
 | EXTEND (73 existing packages) | 772,649 |
 | ADOPT (delete app copy) | 103,182 |
 | LEGION (from other apps 63k, already in Legion 55k) | 117,695 |
 | VENDOR-OWN + VENDOR-KEEP | 336,454 |
 | DROP | 111,079 |
+| PRODUCT (stays in app) | 915,920 |
 | APPTEST (stays in app) | 276,901 |
-| SHELL + CONFIG (stays in app) | 181,121 (4.7%) |
+| SHELL + CONFIG (stays in app) | 181,121 |
 
-New packages: 85 in total. By kind, 63 crates, 16 npm packages and 6 Swift packages. By tier, 40 public and 45 private. Of the 73 existing packages that gain code, 23 gain it from only one app, and each of those needs a tier check (D4).
+New packages: 46 in total (37 crates, 6 npm packages, 3 Swift packages), all public. 27 have one consumer today, but each is a generic capability (an add-on, P13), not product code. Of the 73 existing packages that gain code, 23 gain it from only one app; each needs a check that it is generic (D2).
 
 ## Proposed architecture
 
-### Two tiers
-
 ```
-                 apps (shell + journey tests only)
-                    │ pins published versions
-        ┌───────────┴────────────────────────────┐
-  private tier (45 pkgs, repo rightkit-private)                   Legion (skills)
-  product domain: mail, social,             skill packs, doctrine,
-  video editor, code audit, agent server,   personas, skill loaders
-  dictation, system utilities, editors,     & host projection
-  product UIs
-        │ depends on (never the reverse)
-  public tier (existing 128 + 41 new)
-  generic: foundation (fs, db, http, logs, shell …), add-ons
-  (library, pipeline, approvals, agent engine, mesh, context …)
-  repo: public rightkit (unchanged)
+   apps: product logic & UI, shell, journey tests
+        │ pin published versions
+   ┌────┴───────────────────────────┐
+ RightKit (public, crates.io / npm)   Legion (skills)
+ foundation: fs, db, http, logs, shell …
+ add-ons: library, pipeline, approvals, agent engine,
+          mesh, context, video/timeline pieces, media gen …
 ```
 
 Dependency rules:
 
-1. A public package never depends on a private package.
-2. Within a tier, the layers are foundation, then domain, then UI. A package depends only on the same layer or a lower one. A cycle fails the RightKit gate, which already resolves the crate graph in dependency order.
-3. Apps depend on packages. Packages never depend on apps or on Legion.
-4. Mock data and mock servers stay with the app as APPTEST (for example PostRight's social platform mock); shared QA tooling lives in `rightkit-qa` / `@rightkit/qa` as dev-dependencies only. They never compile into a release build (§6, "no QA, test, mock or dev-control code in a release build").
-
-### Private tier: repository, pipeline and distribution
-
-- **Source.** A separate private repository, `rightkit-private`, holds all private-tier packages and their own catalog: its own `rightkit-ownership.json` and `rightkit-versions.json`. Private code never enters public `rightkit`, its catalog, or the public `@rightkit/release` package.
-- **Pipeline.** It uses the existing private-repository route (`docs/PIPELINE-ARCHITECTURE.md` §1 ③): qualify locally on the Mac and the Dell, then stage. It does not use the public GitHub CI, which refuses private repositories.
-- **Distribution.** One mechanism for all package kinds: git dependencies pinned to a tagged commit of `rightkit-private` (Cargo `git` + `rev`, npm git URL + commit, SwiftPM exact revision). This avoids running three private registries. The gate must accept these pins for private-tier packages only. That gate change is Wave 0 work.
-- **Shared with Legion.** Legion is proprietary too and must ship crates to CodeRight (D6). It uses the same channel.
-- **Dependencies.** Private packages depend on public RightKit through normal published pins.
+1. Apps depend on RightKit and Legion. RightKit never depends on an app or on Legion.
+2. Within RightKit the layers are foundation, then add-on, then UI. A package depends only on its own layer or a lower one. A cycle fails the RightKit gate.
+3. Mock data and mock servers stay with the app as APPTEST. Shared QA tooling lives in `rightkit-qa` and `@rightkit/qa`, as dev-dependencies only (§6).
 
 ### Development loop
 
-No new override. RightKit already has a fast local route: `right-release publish npm|cargo … --local` (`packages/release/local-publish.mjs`, Adrian's 2026-10-14 local-build grant), which batches by dependency layer. The release-throughput mitigation is: batch changes per family and publish locally when CI is too slow. Pointing an app at an editable checkout would break GATE-CONTRACT GC-T06 and GC-T14, so it is not proposed.
-
-### Relationship to P13
-
-P13 (`docs/PIPELINE-ARCHITECTURE.md`, 2026-10-24) says app-specific product domain logic and presentation stay in the app. This design changes that rule: the same code moves to the **private** tier instead. That keeps P13's intent, which is to keep product code out of the public kit, and also meets the factory goal. Adopting this design requires an amended P13. The proposed text: "product domain logic and presentation is a private-tier package; the app keeps only its shell. Until its wave, product code stays in the app, tracked by this plan rather than by 90-day ownership exceptions."
-
-A narrower amendment was considered and rejected: product code *may* stay in the app, and *must* move when a second app needs it. It is cheaper (Wave 4 would shrink to the 6 multi-consumer private packages), but it does not meet Adrian's goal that no app code sits outside the kit.
+RightKit's existing fast route is `right-release publish npm|cargo … --local` (`packages/release/local-publish.mjs`), batched by dependency layer. Changes are batched per family. Product changes no longer need a RightKit release, because product code stays in the app.
 
 ## Alternatives considered
 
-1. **Move only foundation and add-on code (P13 as written).** Rejected: product code stays locked inside each app, and a new app cannot reuse a video editor, mail mirror or dictation runtime. It does keep extraction cost lower; see Risks.
-2. **Extract only capabilities with two or more consumers.** Rejected as the end state, because 60 packages have one consumer today. It is adopted as the ordering: multi-consumer packages go first (Wave 2).
-3. **One suite monorepo with path dependencies, no publishing.** Rejected: it breaks the published-pin and sealed-bytes rules (P6, P8) and the per-app release model, and it puts private and public code in one repository.
-4. **Everything in public RightKit.** Rejected: it publishes proprietary product source under MIT/Apache.
-5. **DOCX editor stays an upstream npm dependency.** This is open, and Adrian decides (D3). A fork is proposed because ViewRight already modifies it.
+1. **Every piece of app code becomes a package, product code included** (drafts v1–v3). Rejected by Adrian on 2026-11-01. Product logic and UI stay in apps.
+2. **Extract only capabilities with two or more consumers.** Rejected: P13 places add-ons in RightKit from their first consumer. Adopted only as an ordering (Wave 2 before Wave 3).
+3. **One suite monorepo with path dependencies.** Rejected: it breaks published pins and sealed bytes (P6, P8) and the per-app release model.
+4. **A private tier for product code** (v3). Dropped: publishing is fine, and product code stays in apps anyway.
+5. **DOCX editor stays an upstream npm dependency.** Open (D1).
 
 ## Risks and mitigations
 
 | Risk | Mitigation |
 |---|---|
-| Extraction cost exceeds reuse for single-consumer packages | Private-tier packages come last (Wave 4). Each extraction needs a reviewed design doc (EGM). A package can be deferred by recording it as an app-owned exception with an expiry. |
+| Extraction cost exceeds reuse for single-consumer packages | Single-consumer packages come last (Wave 3). Each extraction needs a reviewed design doc (EGM), which can reclassify code as product. |
 | Large packages become dependency hubs (`rightkit-code-audit` 256k, `rightkit-agent-engine` 129k, `rightkit-agent-server` 117k, `rightkit-context` 99k) | The design doc for each must split any package over 50k lines into layered crates before code moves. |
-| Release throughput: every change needs a RightKit release | Local publish route (`--local`, batched by layer). Batched releases per family. Hotfix route: a patch release from a release branch. |
-| Product IP is exposed | The tier rule, plus a gate check that refuses a public package depending on a private one. |
-| Security-sensitive code moves (approval tokens, credentials, SQLCipher stores, privileged helper, licence enforcement) | The privileged helper is a private-tier package. App-side licence enforcement code (entitlement resolvers, pro bridges, trials) is reviewed under D4: any part that weakens enforcement if public goes to the private tier instead of extending `rightkit-license`. Each move keeps its existing tests and adds a security review in its design doc. |
+| Release throughput | Product changes stay in the app. Common code uses the local publish route, batched by layer. Hotfix route: a patch release from a release branch. |
+| Security-sensitive code moves (approval tokens, credentials, SQLCipher stores, privileged helper, licence enforcement) | Each package's design doc includes a security review. Existing tests move with the code. |
 | Mapping errors | Sample 50 random files per app against the mapping before each wave. Corrections go into `rules/`. |
 | ADOPT deletes code RightKit does not replace | ADOPT rows that have an exception are already EXTEND. Before deleting, each ADOPT row needs a parity test: the app test suite must pass against the owner. |
 
 ## Implementation plan
 
-### Preconditions (decisions D1–D6, by Adrian)
+### Preconditions (decisions D1–D4, by Adrian)
 
-- D1: Accept two tiers and amend P13.
-- D2: Choose the private registry.
-- D3: Vendored code, one decision per row of the master plan's vendored table:
-  - DOCX: fork or keep as a dependency.
-  - Tree-sitter grammars: switch to crates.io.
-  - WasmKit: switch to SwiftPM.
-  - tauri-runtime-wry: upstream the patch.
-  - sherpa-onnx: replace with `rightkit-asr`.
-  - GenRight legacy server: drop.
-- D4: Confirm the tier of each new package (the master plan proposes one), and of each of the 23 extended packages marked `check`. Check every tier against the import edges in the mapping data, not only by family: a public package must not import private code.
-- D5: Lift the publication hold in `docs/GATE-CONTRACT.md`, or schedule waves after it.
-- D6: Legion distributes its skill crates to CodeRight through the private channel (crate names).
+- D1: Vendored code, one decision per row of the master plan's vendored table.
+- D2: Confirm that each of the 23 extended packages marked `check` gains generic code, not product code.
+- D3: Lift the publication hold in `docs/GATE-CONTRACT.md`, or schedule waves after it.
+- D4: How CodeRight consumes Legion's skill crates (names and route).
 
 ### Procedure per action
 
 - **NEW / EXTEND**:
-  1. Write a design doc and review it with EGM (`egm-draft`, then `egm-review`). It records the public API, which app implementation wins where apps differ, the layer and tier, and the consumers.
-  2. Create the package, or add a module to the existing one, under `crates/`, `packages/` or `swift/` of `rightkit` (public tier) or `rightkit-private` (private tier).
-  3. Register it in that repository's `rightkit-ownership.json` and `rightkit-versions.json`.
+  1. Write a design doc and review it with EGM (`egm-draft`, then `egm-review`). It records the public API, which app implementation wins where apps differ, the layer, and the consumers.
+  2. Create the package, or add a module to the existing one, under `crates/`, `packages/` or `swift/`.
+  3. Register it in `packages/release/rightkit-ownership.json` and `rightkit-versions.json`.
   4. Move the code and its unit tests.
-  5. Publish: through CI qualification or `--local` (public), or by tagging `rightkit-private` after local qualification (private).
+  5. Publish through CI qualification, or through `--local`.
   6. Switch each consumer app to the published pin, one app per change.
   7. Delete the app copy, and its ownership exception if one exists.
   8. Pass that app's `rightkit-gate check` and journeys.
 - **ADOPT**: add a parity check: the app's tests pass against the owner. Then rewire the call sites, delete the copy, and pass the gate.
-- **LEGION**: move the code to Legion. The consumer then pins Legion's published crate (D6).
-- **VENDOR / DROP**: follow D3. Delete the copy, and add the dependency or the fork.
+- **LEGION**: move the code to Legion. The consumer then pins Legion's crate (D4).
+- **VENDOR / DROP**: follow D1. Delete the copy, and add the dependency or the fork.
 
 ### Waves
 
 Every package has a wave in the master plan's tables.
 
-- **Wave 0, decisions, private channel and deletions.** Decisions D1–D6. Create `rightkit-private` and its catalog. Gate support for private git pins. Then ADOPT rows without an exception, DROP rows, LEGION moves (the cross-app moves need the private channel) and vendored-code resolution.
+- **Wave 0, decisions and deletions.**
+  - Decisions D1–D4.
+  - ADOPT rows without an exception.
+  - DROP rows.
+  - LEGION moves.
+  - Vendored-code resolution.
+  - `rightkit-mesh`: Pulse built it to publish straight into RightKit, but it lives in the Pulse repo as `pulse-mesh`, with `publish = false`. Its default `pulse-link` feature depends on `pulse-core`, and it sits outside the Pulse workspace. Fix: move it into RightKit, rename it, make it publishable, and replace `pulse-link` with a trust trait that Pulse implements.
 - **Wave 1, extend existing packages (73).** These close the API gaps that ownership exceptions record today. Order by number of consumer apps, then by line count.
-- **Wave 2, new public packages with two or more consumers (20).** Examples: `rightkit-library`, `rightkit-pipeline`, `rightkit-approvals`, `rightkit-agent-gateway`, `rightkit-agent-engine`, `rightkit-agent-orchestration`, `rightkit-agent-policy`, `rightkit-memory`, `rightkit-adapt`, `rightkit-repo-graph`, `rightkit-doctor`, `@rightkit/config`. Rust config presets in `@rightkit/config` are written into each app by `rightkit-gate`, not read from npm. Within the wave, order by dependency layer. Mesh core goes first; it needs a decoupling design (see its design doc).
-- **Wave 3, new public packages with one consumer (20).**
-- **Wave 4, new private packages (45).** Needs D1 and D2. Order by dependency layer, then by the app whose release is next on Adrian's release list.
+- **Wave 2, new packages with two or more consumers.** Examples: `rightkit-library`, `rightkit-pipeline`, `rightkit-approvals`, `rightkit-agent-gateway`, `rightkit-agent-engine`, `rightkit-agent-orchestration`, `rightkit-agent-policy`, `rightkit-memory`, `rightkit-adapt`, `rightkit-repo-graph`, `rightkit-doctor`, `@rightkit/config`, `@rightkit/agent-ui`, `@rightkit/library-ui`. Order by dependency layer.
+- **Wave 3, new packages with one consumer today.** Order by dependency layer.
 
 ### Done when
 
 For each app:
 
-1. Regenerating the mapping against `main` shows only SHELL, CONFIG, APPTEST, NOTCODE and LEGION rows. LEGION rows are allowed in `legion` only.
+1. Regenerating the mapping against `main` shows only SHELL, CONFIG, PRODUCT, APPTEST, NOTCODE and LEGION rows. LEGION rows are allowed in `legion` only.
 2. Every ownership exception that named moved code is deleted. Exceptions on shell files are reviewed separately.
 3. The app passes `rightkit-gate check` and its journeys against published pins.

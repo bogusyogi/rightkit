@@ -46,3 +46,11 @@ Date: 2026-11-01. Protocol: EGM `egm-review`, consolidated preset. Each reviewer
 See `intermediate_zoom_out_report.md`.
 
 Stage 8 result on v2: NEEDS REVISION. Resolved in v3 (see `intermediate_zoom_out_report.md`), except M-4, which is contested on Adrian's goal.
+
+## v4 (Adrian, 2026-11-01)
+
+Adrian ruled: publishing everything public is fine, and product-specific logic and UI stay in apps (P13 as written). As a result:
+- The private tier is dropped. This resolves B1, the Stage 8 findings B-1, M-1, M-2, M-4 and M-5, and N-3.
+- 39 single-app product packages now map to PRODUCT and stay in their apps.
+- The 6 multi-app ones remain RightKit add-ons.
+- 46 new packages remain.

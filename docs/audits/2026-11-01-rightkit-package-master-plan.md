@@ -6,173 +6,129 @@ Goal: no app code outside RightKit except a thin app shell (entry points, comman
 
 ## Coverage by app
 
-| App | Code lines | NEW | EXTEND | ADOPT | To Legion | Vendor | DROP | App tests (stay) | Shell+config (stay) | Shell % |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| PostRight | 147,942 | 57,007 | 14,823 | 1,372 | 0 | 0 | 468 | 71,997 | 2,275 | 1% |
-| ScrapeRight | 103,419 | 41,676 | 30,085 | 11,537 | 0 | 0 | 2,573 | 7,847 | 9,701 | 9% |
-| MailRight | 113,155 | 80,211 | 23,636 | 3,664 | 0 | 0 | 164 | 1,198 | 4,282 | 3% |
-| ViewRight | 363,273 | 83,202 | 17,643 | 1,879 | 0 | 171,356 | 51,240 | 34,125 | 3,828 | 1% |
-| GenRight | 174,925 | 105,787 | 24,828 | 4,118 | 0 | 0 | 8,627 | 26,319 | 5,246 | 2% |
-| CutRight | 211,021 | 94,317 | 22,856 | 1,332 | 42,787 | 6,675 | 513 | 40,062 | 2,479 | 1% |
-| Pulse | 673,096 | 429,109 | 59,627 | 34,354 | 1,758 | 71,409 | 23,187 | 6,539 | 47,113 | 6% |
-| HeardRight | 460,166 | 174,423 | 136,497 | 17,457 | 0 | 60,335 | 21,987 | 28,886 | 20,581 | 4% |
-| CodeRight | 964,275 | 552,568 | 252,076 | 26,112 | 11,095 | 26,679 | 2,320 | 56,262 | 37,163 | 3% |
-| Legion | 663,533 | 357,424 | 190,578 | 1,357 | 62,055 | 0 | 0 | 3,666 | 48,453 | 7% |
-| **All** | **3,874,805** | **1,975,724** | **772,649** | **103,182** | **117,695** | **336,454** | **111,079** | **276,901** | **181,121** | **4%** |
+| App | Code lines | NEW | EXTEND | ADOPT | To Legion | Vendor | DROP | Product (stays) | App tests (stay) | Shell+config (stay) | Stays % |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| PostRight | 147,942 | 11,554 | 14,823 | 1,372 | 0 | 0 | 468 | 45,453 | 71,997 | 2,275 | 32% |
+| ScrapeRight | 103,419 | 41,676 | 30,085 | 11,537 | 0 | 0 | 2,573 | 0 | 7,847 | 9,701 | 9% |
+| MailRight | 113,155 | 32,831 | 23,636 | 3,664 | 0 | 0 | 164 | 47,380 | 1,198 | 4,282 | 45% |
+| ViewRight | 363,273 | 3,247 | 17,643 | 1,879 | 0 | 171,356 | 51,240 | 79,955 | 34,125 | 3,828 | 23% |
+| GenRight | 174,925 | 62,877 | 24,828 | 4,118 | 0 | 0 | 8,627 | 42,910 | 26,319 | 5,246 | 27% |
+| CutRight | 211,021 | 39,752 | 22,856 | 1,332 | 42,787 | 6,675 | 513 | 54,565 | 40,062 | 2,479 | 27% |
+| Pulse | 673,096 | 260,961 | 59,627 | 34,354 | 1,758 | 71,409 | 23,187 | 168,148 | 6,539 | 47,113 | 31% |
+| HeardRight | 460,166 | 21,230 | 136,497 | 17,457 | 0 | 60,335 | 21,987 | 153,193 | 28,886 | 20,581 | 37% |
+| CodeRight | 964,275 | 480,216 | 252,076 | 26,112 | 11,095 | 26,679 | 2,320 | 72,352 | 56,262 | 37,163 | 11% |
+| Legion | 663,533 | 105,460 | 190,578 | 1,357 | 62,055 | 0 | 0 | 251,964 | 3,666 | 48,453 | 45% |
+| **All** | **3,874,805** | **1,059,804** | **772,649** | **103,182** | **117,695** | **336,454** | **111,079** | **915,920** | **276,901** | **181,121** | **28%** |
 
-Unit tests move with their code; app journey/e2e tests stay with the app. Generated third-party notices, docs and data are not counted.
+Product-specific domain logic and UI stays in the app (P13). Unit tests move with their code; app journey/e2e tests stay with the app. Generated third-party notices, docs and data are not counted. Stays % = product + shell/config, excluding tests.
 
 ## Final list: new RightKit packages to create & publish
 
-**85 new packages**: 63 crates, 16 npm packages, 6 Swift packages. Grouped by family; within a family, ordered by size.
+**46 new packages**: 37 crates, 6 npm packages, 3 Swift packages, all public like the rest of RightKit. Wave 2 = used by two or more apps, wave 3 = one app today. Grouped by family; within a family, ordered by size.
 
 ### Agent platform
 
-| Package | Kind | Tier | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
-|---|---|---|---|---|---:|---|---|---|
-| `rightkit-agent-engine` | crate | public | 2 | Pulse, CodeRight | 129,186 | Swift | `rightkit-agent-runtime` | always-on agent: task envelope & transitions, principals, intents, effects, device/approval binding, voice handoff; agent loop, providers, budget (Swift: RightKitAgent); Swift agent UI/bridge; windows agent glue; agent loop, edit history & diffs, task graph, runtime middleware & bounded resources, attention, session storage, context folds/rehydrate, trajectory journal, wire protocol; interactive & headless session host; embedded agent runtime for fork-less hosts (iOS) |
-| `@rightkit/agent-ui` | npm | private | 4 | MailRight, Pulse, CodeRight | 121,233 |  |  | agent approval cards, pairing & audit views; approval IPC client; remote approvals & owner settings; agent workbench UI: chat timeline, composer, sessions, runtime/goals/memory/review panels, approvals, plugins/skills, orchestration, bots, environments, state stores; computer-use & browser panels; remote web client |
-| `rightkit-terminal-ui` | crate | public | 3 | CodeRight | 94,376 |  |  | terminal UI toolkit: composer, transcript, wrapping, panes, markdown render, image input, render metrics |
-| `rightkit-agent-orchestration` | crate | public | 2 | CodeRight, Legion | 87,895 |  | `rightkit-work-router` | agent room; multi-agent coordination: subagents, teams, delegation, roster; handoff packets, continuity gate, live state; capability routing runtime: plan, route, task, budget, grant, escalation, delivery, inventories, platform layers, skills/designer checks |
-| `rightkit-agent-server` | crate | private | 4 | CodeRight | 72,352 |  |  | OpenAPI client codegen & contract checks; agent daemon HTTP API: sessions, runtime, contract/OpenAPI, tool invocations, run changes, health, workspace, teams, coordination; server & daemon client runtime |
-| `rightkit-agent-gateway` | crate | public | 2 | MailRight, Pulse | 35,378 |  | `rightkit-remote-control` | paired external agents over local daemon: method registry, gate, approval cards (send/forward/delete/attach), audit log, untrusted-content contract, redaction; remote tools for agents (files, app launch, clipboard, chat read/start/term, browser address), local approvals, audit trail; agent gateway: LLM provider & tool routing |
-| `RightKitAgent` | Swift | private | 4 | Pulse, CodeRight | 34,981 | Swift | `RightKitRemoteUI` | phone remote-control screens; Swift agent client: local runtime bridge, chat library, code editor, diff walkthrough, plan review, markdown rendering, approvals |
-| `rightkit-evidence` | crate | public | 2 | CodeRight, Legion | 32,933 |  | `rightkit-specs` | spec-governed artifacts & coverage; contracts, effect execution & receipts, decision store, evidence/SARIF/HTML reports, certification & governance lifecycle |
-| `rightkit-chat-bridge` | crate | private | 4 | Pulse | 26,856 | Swift |  | deliver messages into running Claude/Codex chats (hooks, UIA/AX typing), envelopes, hub heartbeat, chat skill install, cross-user boundary |
-| `rightkit-agent-policy` | crate | public | 2 | CodeRight, Legion | 25,061 |  |  | pure permission decision engine, destructive-action guard, policy packs, audit; policy model, rules & enforcement |
-| `rightkit-ai-accounts` | crate | private | 4 | Pulse | 17,592 | Swift | `rightkit-ai-usage`, `rightkit-claude-accounts` | Claude Desktop/CLI account switching & Code-session sync across accounts; Claude/Codex plan usage, credentials, resets & credits (Swift providers); Claude sessions (Swift) |
-| `rightkit-approvals` | crate | public | 2 | MailRight, GenRight, Pulse | 16,672 | Swift |  | user approval cards for agent send/forward/delete/attach; approval tokens & cards for paid drafts/deliveries (minted by shell, verified by engine); signed phone/owner approvals for privileged & reserved actions; Windows admin service; Swift approvals |
-| `rightkit-scheduler` | crate | public | 3 | CodeRight | 9,315 |  |  | cron schedules & triggers for agent runs |
-| `rightkit-github` | crate | public | 3 | CodeRight | 8,586 | Swift |  | Swift forge connectors: GitHub, Cloudflare, Fly.io, git, PRs; GitHub App: auth, webhooks, PR/issue ops |
-| `rightkit-bot-messaging` | crate | public | 3 | CodeRight | 6,489 |  |  | remote access: Telegram bot, web auth, remote gateway |
-| `rightkit-agent-demo` | crate | private | 4 | CutRight | 4,434 | Swift |  | consented agent demo mode: agent drives a catalog app via rightkit-automation, recorded via rightkit-record, badge, kill hotkey, bundles |
-| `@rightkit/terminal-ui` | npm | public | 3 | CodeRight | 1,370 |  |  | xterm terminal pane |
+| Package | Kind | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
+|---|---|---|---|---:|---|---|---|
+| `rightkit-agent-engine` | crate | 2 | Pulse, CodeRight | 129,186 | Swift | `rightkit-agent-runtime` | always-on agent: task envelope & transitions, principals, intents, effects, device/approval binding, voice handoff; agent loop, providers, budget (Swift: RightKitAgent); Swift agent UI/bridge; windows agent glue; agent loop, edit history & diffs, task graph, runtime middleware & bounded resources, attention, session storage, context folds/rehydrate, trajectory journal, wire protocol; interactive & headless session host; embedded agent runtime for fork-less hosts (iOS) |
+| `@rightkit/agent-ui` | npm | 2 | MailRight, Pulse, CodeRight | 121,233 |  |  | agent approval cards, pairing & audit views; approval IPC client; remote approvals & owner settings; agent workbench UI: chat timeline, composer, sessions, runtime/goals/memory/review panels, approvals, plugins/skills, orchestration, bots, environments, state stores; computer-use & browser panels; remote web client |
+| `rightkit-terminal-ui` | crate | 3 | CodeRight | 94,376 |  |  | terminal UI toolkit: composer, transcript, wrapping, panes, markdown render, image input, render metrics |
+| `rightkit-agent-orchestration` | crate | 2 | CodeRight, Legion | 87,895 |  | `rightkit-work-router` | agent room; multi-agent coordination: subagents, teams, delegation, roster; handoff packets, continuity gate, live state; capability routing runtime: plan, route, task, budget, grant, escalation, delivery, inventories, platform layers, skills/designer checks |
+| `rightkit-agent-gateway` | crate | 2 | MailRight, Pulse | 35,378 |  | `rightkit-remote-control` | paired external agents over local daemon: method registry, gate, approval cards (send/forward/delete/attach), audit log, untrusted-content contract, redaction; remote tools for agents (files, app launch, clipboard, chat read/start/term, browser address), local approvals, audit trail; agent gateway: LLM provider & tool routing |
+| `RightKitAgent` | Swift | 2 | Pulse, CodeRight | 34,981 | Swift | `RightKitRemoteUI` | phone remote-control screens; Swift agent client: local runtime bridge, chat library, code editor, diff walkthrough, plan review, markdown rendering, approvals |
+| `rightkit-evidence` | crate | 2 | CodeRight, Legion | 32,933 |  | `rightkit-specs` | spec-governed artifacts & coverage; contracts, effect execution & receipts, decision store, evidence/SARIF/HTML reports, certification & governance lifecycle |
+| `rightkit-agent-policy` | crate | 2 | CodeRight, Legion | 25,061 |  |  | pure permission decision engine, destructive-action guard, policy packs, audit; policy model, rules & enforcement |
+| `rightkit-approvals` | crate | 2 | MailRight, GenRight, Pulse | 16,672 | Swift |  | user approval cards for agent send/forward/delete/attach; approval tokens & cards for paid drafts/deliveries (minted by shell, verified by engine); signed phone/owner approvals for privileged & reserved actions; Windows admin service; Swift approvals |
+| `rightkit-scheduler` | crate | 3 | CodeRight | 9,315 |  |  | cron schedules & triggers for agent runs |
+| `rightkit-github` | crate | 3 | CodeRight | 8,586 | Swift |  | Swift forge connectors: GitHub, Cloudflare, Fly.io, git, PRs; GitHub App: auth, webhooks, PR/issue ops |
+| `rightkit-bot-messaging` | crate | 3 | CodeRight | 6,489 |  |  | remote access: Telegram bot, web auth, remote gateway |
+| `@rightkit/terminal-ui` | npm | 3 | CodeRight | 1,370 |  |  | xterm terminal pane |
 
 ### Context, memory & code intelligence
 
-| Package | Kind | Tier | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
-|---|---|---|---|---|---:|---|---|---|
-| `rightkit-code-audit` | crate | private | 4 | Legion | 251,964 | Swift, Gradle |  | audit/verify commands & audit bench; repository audit engine: native providers (security, architecture, data, frontend, platform), DAG & scheduler, evidence issuers, findings history, review runtime, provider SDK, rule registry & qualification corpora |
-| `rightkit-context` | crate | public | 3 | Pulse | 98,511 | Swift, Python |  | host side of context engine; context engine: protocol, client, provider SDK, federation, budget/lanes, runtime, schemas, hooks |
-| `rightkit-repo-graph` | crate | public | 2 | Pulse, CodeRight | 37,879 |  |  | repository graph: structure, evidence, drift; tree-sitter skeletonization |
-| `rightkit-memory` | crate | public | 2 | Pulse, CodeRight | 24,602 |  |  | durable memory store (Cortex): scopes, identity, telemetry; adaptive memory retrieval & backend (over context engine) |
-| `rightkit-adapt` | crate | public | 2 | Pulse, CodeRight | 23,896 |  |  | governed behavioural learning (taste + insights); post-session learning pipeline |
-| `rightkit-research` | crate | public | 2 | PostRight, Legion | 10,619 |  |  | dated research digests & source readers (Reddit); research pipeline (sources, claims, evidence) |
+| Package | Kind | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
+|---|---|---|---|---:|---|---|---|
+| `rightkit-context` | crate | 3 | Pulse | 98,511 | Swift, Python |  | host side of context engine; context engine: protocol, client, provider SDK, federation, budget/lanes, runtime, schemas, hooks |
+| `rightkit-repo-graph` | crate | 2 | Pulse, CodeRight | 37,879 |  |  | repository graph: structure, evidence, drift; tree-sitter skeletonization |
+| `rightkit-memory` | crate | 2 | Pulse, CodeRight | 24,602 |  |  | durable memory store (Cortex): scopes, identity, telemetry; adaptive memory retrieval & backend (over context engine) |
+| `rightkit-adapt` | crate | 2 | Pulse, CodeRight | 23,896 |  |  | governed behavioural learning (taste + insights); post-session learning pipeline |
+| `rightkit-research` | crate | 2 | PostRight, Legion | 10,619 |  |  | dated research digests & source readers (Reddit); research pipeline (sources, claims, evidence) |
 
 ### Dictation & voice
 
-| Package | Kind | Tier | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
-|---|---|---|---|---|---:|---|---|---|
-| `rightkit-dictation` | crate | private | 4 | HeardRight | 60,504 | Python |  | dictation runtime: mic capture & conditioning, session state machine, JSON-RPC sidecar worker, wake listener, recording lifecycle |
-| `rightkit-text-polish` | crate | private | 4 | HeardRight | 18,564 | Swift |  | Swift polish clients (Apple Intelligence, BYOK); deterministic polish, LLM cleanup (L1-L3), vocabulary & learning, screen context |
-| `RightKitDictation` | Swift | private | 4 | HeardRight | 10,514 | Swift |  | iOS dictation: recording session, warm capture, long-form, import queue, live activity |
-| `rightkit-voice-commands` | crate | private | 4 | HeardRight | 9,784 | Swift |  | voice command recognition/classification, launch & OS command adapters |
-| `@rightkit/dictation-ui` | npm | private | 4 | HeardRight, CodeRight | 9,765 |  | `@rightkit/overlay-ui`, `@rightkit/text-polish-ui` | dictation home/controls, banners, command palette, PTT, sounds, metrics; polish & vocabulary pages; recording pill webview UI; voice conversation |
+| Package | Kind | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
+|---|---|---|---|---:|---|---|---|
+| `@rightkit/dictation-ui` | npm | 2 | HeardRight, CodeRight | 9,765 |  | `@rightkit/overlay-ui`, `@rightkit/text-polish-ui` | dictation home/controls, banners, command palette, PTT, sounds, metrics; polish & vocabulary pages; recording pill webview UI; voice conversation |
 
 ### Video editing
 
-| Package | Kind | Tier | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
-|---|---|---|---|---|---:|---|---|---|
-| `@rightkit/video-ui` | npm | private | 4 | CutRight | 16,768 |  | `@rightkit/timeline-ui` | project, captions, colour, shorts, recipes, outputs, batch & finished-edit screens; video editor UI: timeline, preview, inspector; vendored hyperframes player bits; client lib & engine bindings |
-| `rightkit-video-project` | crate | private | 4 | CutRight | 14,524 |  |  | video project layer: sources & integrity, revisions, portable bundle export/import, card slots, cache storage; media workflow methods: projects, transcription, render |
-| `rightkit-autoedit` | crate | private | 4 | CutRight | 14,279 |  | `rightkit-edit-rules` | transcript-driven cut & editorial engines, edit plans, named variants, style measurement, mic alignment; scoped editing rules & resolution matrix, autonomy levels |
-| `rightkit-timeline` | crate | public | 3 | CutRight | 8,011 |  | `rightkit-timeline-interchange` | FCPXML & OpenTimelineIO export; portable timeline core: tracks, clips, rational time, edits, undo |
-| `rightkit-shorts` | crate | private | 4 | CutRight | 4,992 |  |  | shorts finder & scoring, on-screen-text moment search |
-| `rightkit-reframe` | crate | public | 3 | CutRight | 4,222 |  |  | tracked 9:16 reframe: ONNX face detect, tracking, smoothed crop path |
-| `rightkit-color` | crate | public | 3 | CutRight | 4,108 |  |  | colour grading & scopes |
-| `rightkit-captions` | crate | public | 3 | CutRight | 3,177 |  |  | caption styles, per-language caption sets, placement, swatch preview |
-| `rightkit-compositor` | crate | public | 3 | CutRight | 3,088 |  |  | native wgpu layer compositor, GPU effects & SDF masks (adapted from OpenCut, MIT) |
-| `RightKitMedia` | Swift | public | 3 | CutRight | 1,859 | Swift |  | macOS media worker (Swift): AVFoundation render, audio finish, typography, Vision, motion compositor; Silero VAD & vision anchor |
+| Package | Kind | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
+|---|---|---|---|---:|---|---|---|
+| `rightkit-timeline` | crate | 3 | CutRight | 8,011 |  | `rightkit-timeline-interchange` | FCPXML & OpenTimelineIO export; portable timeline core: tracks, clips, rational time, edits, undo |
+| `rightkit-reframe` | crate | 3 | CutRight | 4,222 |  |  | tracked 9:16 reframe: ONNX face detect, tracking, smoothed crop path |
+| `rightkit-color` | crate | 3 | CutRight | 4,108 |  |  | colour grading & scopes |
+| `rightkit-captions` | crate | 3 | CutRight | 3,177 |  |  | caption styles, per-language caption sets, placement, swatch preview |
+| `rightkit-compositor` | crate | 3 | CutRight | 3,088 |  |  | native wgpu layer compositor, GPU effects & SDF masks (adapted from OpenCut, MIT) |
+| `RightKitMedia` | Swift | 3 | CutRight | 1,859 | Swift |  | macOS media worker (Swift): AVFoundation render, audio finish, typography, Vision, motion compositor; Silero VAD & vision anchor |
 
 ### Generative media
 
-| Package | Kind | Tier | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
-|---|---|---|---|---|---:|---|---|---|
-| `rightkit-media-gen` | crate | public | 3 | GenRight | 34,258 |  |  | generative media providers (fal, WaveSpeed, Veo/Gemini, OpenAI Images, ElevenLabs, HeyGen avatars, EvoLink, Higgsfield, Muapi, NanoBanana, Replicate, Wan2GP, Blender), model catalogue & facts, routing, durable gen jobs, result descriptors, balances |
-| `@rightkit/media-gen-ui` | npm | private | 4 | GenRight | 21,626 |  |  | generation studio UI: generate forms, gallery & library, jobs, recipes & templates, character/quality/video panels, voices, avatars, motion, production, pipelines, KDP, local image chat |
-| `rightkit-local-gen` | crate | public | 3 | GenRight | 12,312 |  | `rightkit-lipsync`, `rightkit-local-image`, `rightkit-music-gen`, `rightkit-upscale` | keyless local image gen: sd.cpp server runtime, memory modes, profiles, job store, artifacts; local Wav2Lip talking-head lip-sync on ONNX; local MusicGen ONNX music generation; local Real-ESRGAN image upscale |
-| `rightkit-prompt-recipes` | crate | private | 4 | GenRight | 12,135 |  |  | prompt contracts & validator, recipe composer & catalogue, characters/LoRA lock, video quality templates, template swap, brand codes, KDP workflow |
-| `rightkit-media-pipeline` | crate | private | 4 | GenRight | 9,149 |  |  | named production pipelines: compose, dubbing w/ retiming, translation w/ terminology, fan-out multi-job steps, finishing handoff, campaign factory |
-| `rightkit-blender-worker` | crate | public | 3 | GenRight | 4,386 | Python |  | Blender render worker (Python, runs inside Blender): scene, materials, product registration/review, finish profiles, contract |
-| `rightkit-remote-compute` | crate | public | 3 | GenRight | 2,681 |  |  | rented GPU workers (Vast): register/stage/run lifecycle, time-billed spend |
+| Package | Kind | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
+|---|---|---|---|---:|---|---|---|
+| `rightkit-media-gen` | crate | 3 | GenRight | 34,258 |  |  | generative media providers (fal, WaveSpeed, Veo/Gemini, OpenAI Images, ElevenLabs, HeyGen avatars, EvoLink, Higgsfield, Muapi, NanoBanana, Replicate, Wan2GP, Blender), model catalogue & facts, routing, durable gen jobs, result descriptors, balances |
+| `rightkit-local-gen` | crate | 3 | GenRight | 12,312 |  | `rightkit-lipsync`, `rightkit-local-image`, `rightkit-music-gen`, `rightkit-upscale` | keyless local image gen: sd.cpp server runtime, memory modes, profiles, job store, artifacts; local Wav2Lip talking-head lip-sync on ONNX; local MusicGen ONNX music generation; local Real-ESRGAN image upscale |
+| `rightkit-blender-worker` | crate | 3 | GenRight | 4,386 | Python |  | Blender render worker (Python, runs inside Blender): scene, materials, product registration/review, finish profiles, contract |
+| `rightkit-remote-compute` | crate | 3 | GenRight | 2,681 |  |  | rented GPU workers (Vast): register/stage/run lifecycle, time-billed spend |
 
 ### Content pipeline & social
 
-| Package | Kind | Tier | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
-|---|---|---|---|---|---:|---|---|---|
-| `rightkit-pipeline` | crate | public | 2 | PostRight, GenRight, CutRight | 17,975 |  |  | dispatch of content briefs to another engine as external process; brief run / delivery envelope handling between suite engines; brief check/run, channel recipes, unattended recipe runs, durable batch delivery; cross-engine orchestration: call generation engine, follow jobs, place results |
-| `@rightkit/social-ui` | npm | private | 4 | PostRight | 17,034 |  | `@rightkit/content-ui`, `@rightkit/social-client` | shared labels & scope select; TS client & types for social/content engine commands (generate from Rust); typed mock data source for UI QA; accounts, publish jobs, pacing, failures, inbox, DM threads screens; analytics, campaigns & links screens; content planning screens |
-| `rightkit-social-publish` | crate | private | 4 | PostRight | 16,930 |  | `rightkit-social-accounts` | connected platform accounts, readiness, platform data-deletion requests; durable publish job phase machine + platform adapters (X, Bluesky, Mastodon, Threads, Instagram, Facebook, LinkedIn, Pinterest, TikTok, YouTube); per-account quota pacing & publish job wire types |
-| `rightkit-social-analytics` | crate | private | 4 | PostRight, CutRight | 6,486 |  | `rightkit-link-tracking` | analytics pull/store, manual metric import, calendar optimisation proposals; campaigns, tracked short links & visit records; retention feedback import & analysis |
-| `rightkit-content-plan` | crate | private | 4 | PostRight | 4,599 |  | `rightkit-content-briefs`, `rightkit-content-calendar` | brief & calendar entry cache, proposals; typed briefs, platform variants, hook tests, manual drafts |
-| `rightkit-content-proof` | crate | private | 4 | PostRight | 3,820 |  |  | engine data assets (catalogues); acquisition chain gates & claim/proof semantics |
-| `rightkit-social-inbox` | crate | private | 4 | PostRight | 3,070 |  |  | signed webhook inbox & keyword-comment DM automation |
+| Package | Kind | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
+|---|---|---|---|---:|---|---|---|
+| `rightkit-pipeline` | crate | 2 | PostRight, GenRight, CutRight | 17,975 |  |  | dispatch of content briefs to another engine as external process; brief run / delivery envelope handling between suite engines; brief check/run, channel recipes, unattended recipe runs, durable batch delivery; cross-engine orchestration: call generation engine, follow jobs, place results |
+| `rightkit-social-analytics` | crate | 2 | PostRight, CutRight | 6,486 |  | `rightkit-link-tracking` | analytics pull/store, manual metric import, calendar optimisation proposals; campaigns, tracked short links & visit records; retention feedback import & analysis |
 
 ### Ingest & library
 
-| Package | Kind | Tier | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
-|---|---|---|---|---|---:|---|---|---|
-| `rightkit-library` | crate | public | 2 | PostRight, ScrapeRight, GenRight, HeardRight | 14,388 |  | `rightkit-text-enrich` | reusable media records with occurrence ids & expiry; non-LLM enrichment: keywords, links, source tags, text segmentation; local artifact library: history authority, SQLite FTS index, delete/restore; owned media library: import w/ provenance, asset facts (origin/evidence/rights), FTS search, artifact index; transcript history: SQLCipher store, key rotation, retention, recovery, export |
-| `@rightkit/library-ui` | npm | private | 4 | ScrapeRight, HeardRight | 11,064 |  | `@rightkit/queue-ui` | job queue UI: paste bar, drop overlay, job cards, queue board, engine event hook; library list, transcript/article reader, find-in-document, workbench; transcript history & file transcribe |
-| `rightkit-media-fetch` | crate | public | 2 | ScrapeRight, GenRight | 9,877 | Swift | `rightkit-source-detect`, `rightkit-stock-media` | yt-dlp download/normalize, playlists & channels, X/TikTok/Instagram post, carousel & image capture; URL/file job classifier, media-type table, URL & host helpers; fetch-pool vs compute-lane split; Swift port of detect; replace with UniFFI binding; stock & archive acquisition (Pexels, Pixabay, Internet Archive) w/ licence facts |
-| `RightKitLibrary` | Swift | private | 4 | ScrapeRight, HeardRight | 6,056 | Swift | `RightKitLibraryUI` | Swift artifact library & markdown export; SwiftUI queue, library, result detail, receive views; SwiftUI history & settings views; Swift transcript library, insights, cloud sync |
-| `rightkit-web-session` | crate | public | 2 | ScrapeRight, Pulse | 4,168 | Swift |  | signed-in web sessions: in-app sign-in webview, cookie import/export, profile dirs; agent browser logins on rightkit-browser; Swift browser logins |
-| `rightkit-web-extract` | crate | public | 3 | ScrapeRight | 2,734 | Swift | `RightKitExtract` | article extraction ladder: native fetch w/ TLS fingerprint, browser render, readability, content filters; Swift extractors: article, carousel, media URL, PDF, OCR, WebView render, fetch policy |
-
-### Documents
-
-| Package | Kind | Tier | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
-|---|---|---|---|---|---:|---|---|---|
-| `@rightkit/docx-editor` | npm | private | 4 | ViewRight | 173,190 |  |  | DOCX view/edit integration; vendored DOCX editor (core + react): own & trim in RightKit |
-| `@rightkit/document-workspace` | npm | private | 4 | ViewRight | 31,171 |  |  | multi-format document workspace: tabs & panes, drafts, autosave, external-change watcher, find & cross-doc search, command palette, explorer/library sidebar, print pipeline, zoom, plain-text editor; workspace styles |
-| `@rightkit/markdown-editor` | npm | private | 4 | ViewRight | 27,905 |  |  | markdown/MDX hybrid editor: projection, block & inline editing (code, math, mermaid, tables), citations, references, properties, export, safe HTML |
-| `@rightkit/html-editor` | npm | private | 4 | ViewRight | 15,898 |  |  | HTML document view/authoring: sandboxed session, blocks, site-root resources |
-| `rightkit-document-workspace` | crate | private | 4 | ViewRight | 3,147 |  |  | Rust side of document workspace: recent files & pins DB, explorer listing, markdown index/resource inspection, document IO |
+| Package | Kind | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
+|---|---|---|---|---:|---|---|---|
+| `rightkit-library` | crate | 2 | PostRight, ScrapeRight, GenRight, HeardRight | 14,388 |  | `rightkit-text-enrich` | reusable media records with occurrence ids & expiry; non-LLM enrichment: keywords, links, source tags, text segmentation; local artifact library: history authority, SQLite FTS index, delete/restore; owned media library: import w/ provenance, asset facts (origin/evidence/rights), FTS search, artifact index; transcript history: SQLCipher store, key rotation, retention, recovery, export |
+| `@rightkit/library-ui` | npm | 2 | ScrapeRight, HeardRight | 11,064 |  | `@rightkit/queue-ui` | job queue UI: paste bar, drop overlay, job cards, queue board, engine event hook; library list, transcript/article reader, find-in-document, workbench; transcript history & file transcribe |
+| `rightkit-media-fetch` | crate | 2 | ScrapeRight, GenRight | 9,877 | Swift | `rightkit-source-detect`, `rightkit-stock-media` | yt-dlp download/normalize, playlists & channels, X/TikTok/Instagram post, carousel & image capture; URL/file job classifier, media-type table, URL & host helpers; fetch-pool vs compute-lane split; Swift port of detect; replace with UniFFI binding; stock & archive acquisition (Pexels, Pixabay, Internet Archive) w/ licence facts |
+| `RightKitLibrary` | Swift | 2 | ScrapeRight, HeardRight | 6,056 | Swift | `RightKitLibraryUI` | Swift artifact library & markdown export; SwiftUI queue, library, result detail, receive views; SwiftUI history & settings views; Swift transcript library, insights, cloud sync |
+| `rightkit-web-session` | crate | 2 | ScrapeRight, Pulse | 4,168 | Swift |  | signed-in web sessions: in-app sign-in webview, cookie import/export, profile dirs; agent browser logins on rightkit-browser; Swift browser logins |
+| `rightkit-web-extract` | crate | 3 | ScrapeRight | 2,734 | Swift | `RightKitExtract` | article extraction ladder: native fetch w/ TLS fingerprint, browser render, readability, content filters; Swift extractors: article, carousel, media URL, PDF, OCR, WebView render, fetch policy |
 
 ### Mail & workspace
 
-| Package | Kind | Tier | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
-|---|---|---|---|---|---:|---|---|---|
-| `rightkit-mail` | crate | private | 4 | MailRight | 27,603 |  |  | provider-neutral local mail mirror: schema, outbox & pending ops, sync apply/rollups, recipients, risk/trust signals, remote-image proxy & tracker blocking, attachment cache, engine method groups |
-| `@rightkit/mail-ui` | npm | private | 4 | MailRight | 17,055 |  |  | inbox virtual list, reader & sandboxed email frame, compose editor & recipients, search routing/coverage/saved searches, image trust, attachment preview, account switcher, mail store |
-| `rightkit-google-apis` | crate | public | 3 | MailRight | 8,778 |  |  | Google Workspace clients: Gmail sync/history/batch/MIME/compose/labels/filters/vacation/drafts, Calendar, Drive, People/Contacts, Tasks, Meet, budgets & backoff |
-| `@rightkit/workspace-ui` | npm | private | 4 | MailRight | 2,722 |  |  | calendar grid & event forms, contacts, drive browser & preview, tasks, meet |
+| Package | Kind | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
+|---|---|---|---|---:|---|---|---|
+| `rightkit-google-apis` | crate | 3 | MailRight | 8,778 |  |  | Google Workspace clients: Gmail sync/history/batch/MIME/compose/labels/filters/vacation/drafts, Calendar, Drive, People/Contacts, Tasks, Meet, budgets & backoff |
 
 ### System utilities
 
-| Package | Kind | Tier | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
-|---|---|---|---|---|---:|---|---|---|
-| `rightkit-mesh` | crate | public | 2 | Pulse, HeardRight, CodeRight | 34,952 | Swift, Gradle |  | device mesh (iroh): link, device circle, join tokens, relay & mailbox/admission, FFI for iOS/Android (already named rightkit-mesh but lives in app repo: move & publish); device link module glue; Swift mesh client; Swift devices; devices UI; device pairing (Swift) (+1 more) |
-| `rightkit-disk-cleanup` | crate | private | 4 | Pulse | 25,046 |  |  | bounded metadata scans, cleanup plans/rules w/ undo journal, duplicates, folder growth, snapshots, storage browser, media compression |
-| `rightkit-launcher` | crate | private | 4 | Pulse | 22,237 | Swift |  | command launcher: calculator, dictionary, files, notes, rates, snippets, commands (Win32 + Swift) |
-| `RightKitSystemUI` | Swift | private | 4 | Pulse | 21,612 | Swift |  | SwiftUI system hub sections: overview, storage, cleanup, monitor, apps, chat, activity, membrane |
-| `RightKitNotch` | Swift | private | 4 | Pulse | 17,668 | Swift |  | macOS notch surface: notch window, design system, rings & cards, model |
-| `rightkit-app-manager` | crate | private | 4 | Pulse | 13,783 | Swift |  | installed-app inventory, leftovers, uninstall plans, updates, usage, startup items, quit/auto-quit, disk-image install |
-| `rightkit-system-monitor` | crate | public | 3 | Pulse | 13,212 | Swift |  | CPU/memory/GPU/disk gauges, process inspection, SMART drive health, metrics history, volumes & eject |
-| `rightkit-clipboard-history` | crate | private | 4 | Pulse | 12,760 | Swift |  | clipboard history: capture, detect, images, paste, seal, search, strip, shelf, snippet expansion |
-| `@rightkit/system-ui` | npm | private | 4 | Pulse | 7,889 |  |  | React system hub: overview, storage, cleanup, monitor, apps, chat, activity, membrane, drive health, charts |
-| `rightkit-desktop-tweaks` | crate | private | 4 | Pulse | 2,032 | Swift |  | Finder cut/paste, path field, window closer, dock-click minimize, window maximizer, event tap hub (Swift + Win) |
-| `rightkit-app-lock` | crate | public | 2 | MailRight, Pulse | 1,746 | Swift |  | app lock: OS-auth verification, serialized lock/unlock transitions, DB gate; owner unlock auth / app lock |
-| `rightkit-privileged-helper` | crate | private | 4 | Pulse | 673 | Swift |  | privileged helper & elevation broker (macOS SMAppService helper, Windows elevation), trash policy |
+| Package | Kind | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
+|---|---|---|---|---:|---|---|---|
+| `rightkit-mesh` | crate | 2 | Pulse, HeardRight, CodeRight | 34,952 | Swift, Gradle |  | device mesh (iroh): link, device circle, join tokens, relay & mailbox/admission, FFI for iOS/Android (already named rightkit-mesh but lives in app repo: move & publish); device link module glue; Swift mesh client; Swift devices; devices UI; device pairing (Swift) (+1 more) |
+| `rightkit-system-monitor` | crate | 3 | Pulse | 13,212 | Swift |  | CPU/memory/GPU/disk gauges, process inspection, SMART drive health, metrics history, volumes & eject |
+| `rightkit-app-lock` | crate | 2 | MailRight, Pulse | 1,746 | Swift |  | app lock: OS-auth verification, serialized lock/unlock transitions, DB gate; owner unlock auth / app lock |
 
 ### Foundation & tooling
 
-| Package | Kind | Tier | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
-|---|---|---|---|---|---:|---|---|---|
-| `rightkit-ml-lab` | crate | private | 4 | HeardRight | 53,827 | Swift, Python |  | model training & evaluation tooling: KWS/wake corpora & conditioning, ASR bakeoffs, polish-model training/eval, CoreML export |
-| `rightkit-bench` | crate | public | 2 | ScrapeRight, MailRight, ViewRight, CodeRight | 27,521 | Swift, Python |  | benchmark corpora runner, scoring, receipts & claim gate; SQLite perf proof & probes, load driver; association & PDF bench matrices; PDF perf bench; agent benchmarks |
-| `rightkit-apple-ops` | crate | public | 3 | Legion | 10,150 |  |  | Apple ops: App Store Connect API & upload, build analysis, preflight, profiling, SwiftUI traces |
-| `rightkit-doctor` | crate | public | 2 | PostRight, MailRight, CutRight, CodeRight | 2,262 |  |  | capability health probes behind doctor command; doctor report; doctor dimensions & probes |
-| `@rightkit/config` | npm | public | 2 | PostRight, ScrapeRight, MailRight, ViewRight, GenRight, CutRight, Pulse, HeardRight, CodeRight | 1,057 |  |  | shared toolchain/lint/vite presets; shared presets |
-| `@rightkit/waitlist-worker` | npm | public | 2 | MailRight, ViewRight | 529 |  |  | Cloudflare waitlist worker |
+| Package | Kind | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
+|---|---|---|---|---:|---|---|---|
+| `rightkit-bench` | crate | 2 | ScrapeRight, MailRight, ViewRight, CodeRight | 27,521 | Swift, Python |  | benchmark corpora runner, scoring, receipts & claim gate; SQLite perf proof & probes, load driver; association & PDF bench matrices; PDF perf bench; agent benchmarks |
+| `rightkit-apple-ops` | crate | 3 | Legion | 10,150 |  |  | Apple ops: App Store Connect API & upload, build analysis, preflight, profiling, SwiftUI traces |
+| `rightkit-doctor` | crate | 2 | PostRight, MailRight, CutRight, CodeRight | 2,262 |  |  | capability health probes behind doctor command; doctor report; doctor dimensions & probes |
+| `@rightkit/config` | npm | 2 | PostRight, ScrapeRight, MailRight, ViewRight, GenRight, CutRight, Pulse, HeardRight, CodeRight | 1,057 |  |  | shared toolchain/lint/vite presets; shared presets |
+| `@rightkit/waitlist-worker` | npm | 2 | MailRight, ViewRight | 529 |  |  | Cloudflare waitlist worker |
 
 ## Existing RightKit packages to extend
 
 **73 existing packages** gain capability now living in apps.
 
-Tier check: `check` = only one app adds code here, so confirm it is generic (public) and not product code that should be a private package instead (D4).
+Check: `check` = only one app adds code here; confirm it is generic, otherwise it is product code and stays in the app.
 
-| Package | Wave | Tier check | Used by | Lines moving in | What it gains |
+| Package | Wave | Check | Used by | Lines moving in | What it gains |
 |---|---|---|---|---:|---|
 | `rightkit-workflow` | 1 | shared | CodeRight, Legion | 158,335 | autonomous workflow control plane: runs, leases, fences, node executors; workflow port (scenario/state machine runtime) |
 | `rightkit-agent-tools` | 1 | shared | GenRight, CodeRight | 86,283 | agent tool profile; LSP API; coding tool suite: fs read/edit, shell, search, git, LSP, web, browser, MCP bridge, media |
@@ -262,6 +218,59 @@ Skills, doctrine, agent personas, skill manifests/loaders and host projection (C
 | Legion | 18,364 | capability catalog & frontmatter, host detection/projection into Claude Code/Codex/AGENTS.md, plugin marketplace install |
 | Legion | 6,445 | skill & designer checks |
 | Legion | 19,290 | agent skill packs & doctrine (architect, audit, council, designer, iOS/macOS/Android dev, marketing, SEO, research, writing, etc.) |
+
+## Stays in the app: product-specific code
+
+Single-app product domain logic and UI (P13 app-specific). Earlier drafts proposed these as packages; they stay in the app.
+
+| App | Lines | What |
+|---|---:|---|
+| PostRight | 15,268 | was `rightkit-social-publish` |
+| PostRight | 9,874 | was `@rightkit/social-client` |
+| PostRight | 4,330 | was `@rightkit/content-ui` |
+| PostRight | 3,820 | was `rightkit-content-proof` |
+| PostRight | 3,127 | was `rightkit-content-briefs` |
+| PostRight | 3,070 | was `rightkit-social-inbox` |
+| PostRight | 2,830 | was `@rightkit/social-ui` |
+| PostRight | 1,662 | was `rightkit-social-accounts` |
+| PostRight | 1,472 | was `rightkit-content-calendar` |
+| MailRight | 27,603 | was `rightkit-mail` |
+| MailRight | 17,055 | was `@rightkit/mail-ui` |
+| MailRight | 2,722 | was `@rightkit/workspace-ui` |
+| ViewRight | 31,171 | was `@rightkit/document-workspace` |
+| ViewRight | 27,905 | was `@rightkit/markdown-editor` |
+| ViewRight | 15,898 | was `@rightkit/html-editor` |
+| ViewRight | 3,147 | was `rightkit-document-workspace` |
+| ViewRight | 1,834 | was `@rightkit/docx-editor` |
+| GenRight | 21,626 | was `@rightkit/media-gen-ui` |
+| GenRight | 12,135 | was `rightkit-prompt-recipes` |
+| GenRight | 9,149 | was `rightkit-media-pipeline` |
+| CutRight | 14,524 | was `rightkit-video-project` |
+| CutRight | 12,104 | was `@rightkit/video-ui` |
+| CutRight | 11,894 | was `rightkit-autoedit` |
+| CutRight | 4,992 | was `rightkit-shorts` |
+| CutRight | 4,434 | was `rightkit-agent-demo` |
+| CutRight | 4,232 | was `@rightkit/timeline-ui` |
+| CutRight | 2,385 | was `rightkit-edit-rules` |
+| Pulse | 26,856 | was `rightkit-chat-bridge` |
+| Pulse | 25,046 | was `rightkit-disk-cleanup` |
+| Pulse | 22,237 | was `rightkit-launcher` |
+| Pulse | 21,612 | was `RightKitSystemUI` |
+| Pulse | 17,668 | was `RightKitNotch` |
+| Pulse | 13,783 | was `rightkit-app-manager` |
+| Pulse | 12,760 | was `rightkit-clipboard-history` |
+| Pulse | 11,684 | was `rightkit-claude-accounts` |
+| Pulse | 7,889 | was `@rightkit/system-ui` |
+| Pulse | 5,908 | was `rightkit-ai-usage` |
+| Pulse | 2,032 | was `rightkit-desktop-tweaks` |
+| Pulse | 673 | was `rightkit-privileged-helper` |
+| HeardRight | 60,504 | was `rightkit-dictation` |
+| HeardRight | 53,827 | was `rightkit-ml-lab` |
+| HeardRight | 18,564 | was `rightkit-text-polish` |
+| HeardRight | 10,514 | was `RightKitDictation` |
+| HeardRight | 9,784 | was `rightkit-voice-commands` |
+| CodeRight | 72,352 | was `rightkit-agent-server` |
+| Legion | 251,964 | was `rightkit-code-audit` |
 
 ## Already in RightKit: delete app copies & adopt
 
@@ -382,11 +391,9 @@ Skills, doctrine, agent personas, skill manifests/loaders and host projection (C
 
 Each app keeps only entry points (Tauri `main`/`lib`, iOS/Android app entry, engine binary & command table, CLI definitions), app manifests and release config. Largest leftovers are CodeRight's CLI (`main_runtime_*`, `cli_definitions*`), Legion's CLI commands, Pulse's per-platform entries (Windows `main.rs`, Mac `AppDelegate`, hub) and HeardRight's `app_run.rs`. Each app's mapping file lists them.
 
-## Decisions for Adrian (D1–D6, preconditions in the design draft)
+## Decisions for Adrian
 
-1. **D1, two tiers & P13.** Public RightKit stays as it is: generic, MIT/Apache, published by CI to crates.io/npm. Product domain code (45 packages marked `private` above, including `rightkit-privileged-helper`) goes to a private tier. P13 is amended: "app-specific product domain logic and presentation is a private-tier package; the app keeps only its shell." Without this, moving product code would publish proprietary source.
-2. **D2, private channel.** Proposed: a private `rightkit-private` repo with its own catalog, qualified locally (Mac + Dell), distributed as git dependencies pinned to tagged commits for Cargo, npm & SwiftPM. Legion uses the same channel.
-3. **D3, vendored code.** Each row of the vendored table:
+1. **D1, vendored code.** Each row of the vendored table:
    - DOCX: fork & trim (proposed) or keep upstream.
    - Tree-sitter grammars: crates.io.
    - WasmKit: SwiftPM.
@@ -394,9 +401,9 @@ Each app keeps only entry points (Tauri `main`/`lib`, iOS/Android app entry, eng
    - sherpa-onnx & prebuilt xcframeworks: replace with `rightkit-asr` built for iOS.
    - ONNX Runtime: binary via `rightkit-onnx`.
    - GenRight legacy Node server (8.6k lines): drop once confirmed unused.
-4. **D4, confirm tiers.** Confirm each new package's tier (column above) and each extended package marked `check`. Check them against import edges, so that no public package imports private code.
-5. **D5, publication hold.** `docs/GATE-CONTRACT.md` records a hold on publication. Either lift it or schedule the waves after it.
-6. **D6, Legion as a skills distributor (via the private channel).** CodeRight's skills, plugins & recipes crates move to Legion, so CodeRight needs Legion's crates under published names (crate names & registry).
+2. **D2, borderline extensions.** 23 existing packages gain code from only one app (marked `check`). Confirm each is generic. Otherwise it is product code and stays in the app.
+3. **D3, publication hold.** `docs/GATE-CONTRACT.md` records a hold on publication. Either lift it or schedule the waves after it.
+4. **D4, Legion as a skills distributor.** CodeRight's skills, plugins & recipes crates move to Legion. Decide how CodeRight consumes Legion's crates (names & route).
 
-Also settled: skills never become RightKit components. Legion owns them. Every NEW/EXTEND package gets an EGM-reviewed design doc before its code moves.
+Settled: everything extracted is public RightKit (crates.io/npm). Product-specific logic & UI stay in apps (P13). Skills live in Legion. Every NEW/EXTEND package gets an EGM-reviewed design doc before its code moves.
 

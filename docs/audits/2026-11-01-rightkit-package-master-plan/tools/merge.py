@@ -54,3 +54,7 @@ def tier(t): return 'private' if t in PRIVATE else 'public'
 APPTEST_RX=r'(tests/scenarios|scenarios-ui|/e2e/|crates/e2e/|-e2e/|qa-e2e/|installed_matrix|engine/tests/|bins/coderight/tests/|scripts/qa-|scripts/sidecar-smoke/|src-tauri/tests/|crates/cutright-engine/tests/|^qa/|hub/qa-e2e/|ios-native/Tests/|UITests/)'
 
 APPTEST_CAP_RX=r'(e2e|journey|E2E|iOS tests|deterministic mock of social)'
+
+# v4: no private tier. Single-app product domain logic & UI stays in the app (P13 app-specific class).
+PRODUCT={'rightkit-mail', 'rightkit-agent-demo', 'rightkit-shorts', 'rightkit-voice-commands', 'rightkit-autoedit', 'rightkit-dictation', '@rightkit/system-ui', 'rightkit-text-polish', 'rightkit-desktop-tweaks', '@rightkit/docx-editor', 'rightkit-media-pipeline', 'rightkit-video-project', 'RightKitNotch', 'rightkit-document-workspace', 'rightkit-privileged-helper', '@rightkit/html-editor', '@rightkit/document-workspace', 'rightkit-chat-bridge', 'rightkit-ai-accounts', 'RightKitSystemUI', 'rightkit-content-plan', '@rightkit/video-ui', '@rightkit/mail-ui', '@rightkit/markdown-editor', '@rightkit/media-gen-ui', 'RightKitDictation', 'rightkit-agent-server', 'rightkit-content-proof', 'rightkit-social-publish', 'rightkit-launcher', 'rightkit-code-audit', 'rightkit-clipboard-history', 'rightkit-prompt-recipes', '@rightkit/workspace-ui', 'rightkit-social-inbox', 'rightkit-app-manager', '@rightkit/social-ui', 'rightkit-ml-lab', 'rightkit-disk-cleanup'}
+def tier(t): return 'public'
