@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-tools"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One typed tool interface for agents over rightkit-automation, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI."
@@ -9,7 +9,7 @@ repository = "https://github.com/bogusyogi/rightkit"
 readme = "README.md"
 keywords = ["agents", "automation", "cli", "tools"]
 categories = ["command-line-utilities", "development-tools"]
-include = ["src/**", "tests/**", "docs/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "licenses/**", "assets/**", "docs/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = ["automation", "browser", "speech"]
@@ -18,6 +18,12 @@ browser = ["dep:rightkit-browser", "dep:tokio"]
 speech = ["dep:rightkit-speech-client"]
 # Agent demo mode (`demo.*` tools, `right-ctl demo`). Non-default: release builds omit it entirely.
 demo = []
+coding_tools-test-mode = ["coding_tools"]
+coding_tools-host = ["coding_tools", "coding_tools-code-mode", "dep:rightkit-browser", "dep:rightkit-sandbox", "dep:rightkit-ffmpeg", "dep:rightkit-agent-plugins", "dep:portable-pty", "rightkit-mcp/agent_mcp-os-keyring", "rightkit-llm/agent_providers-os-keyring", "rightkit-app-settings/agent_config-host-env", "rightkit-mcp/agent_mcp-host-env", "rightkit-llm/agent_providers-host-env"]
+coding_tools-code-mode = ["coding_tools", "dep:rquickjs"]
+coding_tools-embeddings = ["coding_tools", "rightkit-embed/inference"]
+coding_tools-test-support = ["coding_tools"]
+coding_tools = ["dep:bytes", "dep:rightkit-db", "dep:anyhow", "dep:rightkit-agent-engine-protocol", "dep:rightkit-agent-engine-runtime-resources", "dep:rightkit-fs", "dep:rightkit-crypto", "dep:rightkit-time", "dep:rightkit-agent-policy", "dep:rightkit-app-settings", "dep:rightkit-mcp", "dep:rightkit-agent-engine-history", "dep:rightkit-agent-skills", "dep:rightkit-llm", "dep:rightkit-logs", "dep:thiserror", "dep:tracing", "dep:tokio", "tokio/full", "dep:rightkit-http", "dep:url", "dep:async-trait", "dep:rightkit-embed", "dep:rightkit-sandbox", "dep:rightkit-child-process", "dep:futures", "dep:tempfile", "dep:scraper", "dep:git2", "dep:ignore", "dep:globset", "dep:regex", "dep:flate2", "dep:libc", "dep:rightkit-daemon", "dep:winapi", "dep:windows", "coding_tools-host"]
 
 [dependencies]
 rightkit-daemon = { version = "0.5.0", path = "../rightkit-daemon" }
@@ -27,9 +33,48 @@ rightkit-speech-client = { version = "0.4.0", path = "../rightkit-speech-client"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tokio = { version = "1", features = ["rt-multi-thread", "time"], optional = true }
+bytes = {version = "1", optional = true}
+rightkit-db = {version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db", optional = true}
+anyhow = {version = "1", optional = true}
+rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol", optional = true}
+rightkit-agent-engine-runtime-resources = {version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources", optional = true}
+rightkit-fs = {version = "0.4.8", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs", optional = true}
+rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto", optional = true}
+rightkit-time = {version = "0.1.0", path = "../rightkit-time", optional = true}
+rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy", optional = true}
+rightkit-app-settings = {version = "0.4.0", path = "../rightkit-app-settings", features = ["agent_config"], optional = true}
+rightkit-mcp = {version = "0.8.0", path = "../rightkit-mcp", features = ["agent_mcp"], optional = true}
+rightkit-agent-engine-history = {version = "0.1.0", path = "../rightkit-agent-engine-history", optional = true}
+rightkit-ffmpeg = {version = "0.3.0", path = "../rightkit-ffmpeg", features = ["agent_media"], optional = true}
+rightkit-agent-plugins = {version = "0.1.0", path = "../rightkit-agent-plugins", optional = true}
+rightkit-agent-skills = {version = "0.1.0", path = "../rightkit-agent-skills", optional = true}
+rightkit-sandbox = {version = "0.7.0", path = "../rightkit-sandbox", features = ["execution"], optional = true}
+rightkit-llm = {version = "0.4.0", path = "../rightkit-llm", features = ["agent_providers"], optional = true}
+rightkit-logs = {version = "0.4.0", path = "../rightkit-logs", features = ["agent_telemetry"], optional = true}
+thiserror = {version = "2", optional = true}
+tracing = {version = "0.1", optional = true}
+rightkit-http = {version = "0.3.9", features = ["gzip", "untrusted", "async"], path = "../rightkit-http", optional = true}
+url = {version = "2", optional = true}
+async-trait = {version = "0.1", optional = true}
+rightkit-embed = {version = "0.6.2", default-features = false, features = ["vector"], path = "../rightkit-embed", optional = true}
+rightkit-child-process = {version = "0.5.7", features = ["tokio"], path = "../rightkit-child-process", optional = true}
+portable-pty = {version = "0.9", optional = true}
+futures = {version = "0.3", optional = true}
+tempfile = {version = "3", optional = true}
+scraper = {version = "0.27", optional = true}
+git2 = {version = "0.21.0", default-features = false, features = ["vendored-libgit2"], optional = true}
+ignore = {version = "0.4", optional = true}
+globset = {version = "0.4", optional = true}
+regex = {version = "1", optional = true}
+flate2 = {version = "1", optional = true}
+rquickjs = {version = "=0.14.0", features = ["futures"], optional = true}
 
 [dev-dependencies]
 tempfile = "3"
+base64 = {version = "0.23"}
+rightkit-app-settings = {version = "0.4.0", path = "../rightkit-app-settings", features = ["agent_config", "agent_config-test-mode"]}
+mockito = {version = "1"}
+tokio = {version = "1", features = ["full", "test-util"]}
 
 [[bin]]
 name = "right-ctl"
@@ -87,3 +132,37 @@ incremental = false
 [profile.test.build-override]
 debug = false
 opt-level = 0
+
+[target."cfg(unix)"]
+[target."cfg(unix)".dependencies]
+libc = {version = "0.2", optional = true}
+
+[target."cfg(windows)"]
+[target."cfg(windows)".dependencies]
+rightkit-daemon = {version = "0.5.0", default-features = false, features = ["local"], path = "../rightkit-daemon", optional = true}
+winapi = {version = "0.3", features = ["consoleapi", "handleapi", "processthreadsapi", "synchapi", "minwindef", "winbase", "winnt", "namedpipeapi", "wincontypes", "ntdef"], optional = true}
+windows = {version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Isolation", "Win32_System_JobObjects", "Win32_System_Threading"], optional = true}
+[[test]]
+name = "coding_tools_shell_policy"
+path = "tests/coding_tools_shell_policy.rs"
+required-features = ["coding_tools"]
+
+[[test]]
+name = "coding_tools_managed_pty_consumer"
+path = "tests/coding_tools_managed_pty_consumer.rs"
+required-features = ["coding_tools"]
+
+[[test]]
+name = "coding_tools_krn010_expanded_mcp"
+path = "tests/coding_tools_krn010_expanded_mcp.rs"
+required-features = ["coding_tools"]
+
+[[test]]
+name = "coding_tools_process_resource_composition"
+path = "tests/coding_tools_process_resource_composition.rs"
+required-features = ["coding_tools"]
+
+[[test]]
+name = "coding_tools_managed_pty_closure"
+path = "tests/coding_tools_managed_pty_closure.rs"
+required-features = ["coding_tools"]
