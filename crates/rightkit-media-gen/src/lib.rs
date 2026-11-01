@@ -29,6 +29,7 @@ pub mod lease;
 pub mod ledger;
 pub mod library;
 pub mod media;
+pub mod media_commands;
 pub mod provenance;
 pub mod providers;
 pub mod qts;
