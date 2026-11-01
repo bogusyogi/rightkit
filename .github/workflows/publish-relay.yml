@@ -1,0 +1,50 @@
+# Relay for direct publication (rightkit#1341). publish.yml runs that qualify-direct.yml dispatches with its workflow token raise
+# no workflow_run event, so publish-direct.yml never starts for them on its own. Every few minutes this names each green
+# workflow_dispatch publish.yml run on main from the last day that has no publish-direct run yet to publish-direct.yml's own
+# workflow_dispatch (a workflow-token dispatch does start a run). It carries no authority: the uploader re-reads the named run
+# through the API and refuses anything but a green publish.yml run on main at that sha and attempt.
+name: publish-relay
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-relay
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    if: ${{ github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch publish-direct for unrelayed green publish runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          since=$(date -u -d '-1 day' +%Y-%m-%dT%H:%M:%SZ)
+          # Each publish-direct run's title names its publish run; keep its status and conclusion.
+          gh api -X GET "repos/$REPO/actions/workflows/publish-direct.yml/runs" -f per_page=100 -f created=">=$since" --paginate \
+            --jq '.workflow_runs[] | "\(.display_title)|\(.status)|\(.conclusion)"' > relayed.txt
+          gh api -X GET "repos/$REPO/actions/workflows/publish.yml/runs" -f per_page=100 -f created=">=$since" -f branch=main \
+            -f event=workflow_dispatch -f status=success --paginate \
+            --jq '.workflow_runs[] | "\(.id) \(.run_attempt) \(.head_sha)"' > green.txt
+          while read -r id attempt sha; do
+            title="publish-direct $id $attempt"
+            # Done once one upload succeeded or one is still queued or running; a failed upload (crates.io's new-crate rate
+            # limit answers 429) is retried, at most six times.
+            if grep -F "$title|" relayed.txt | grep -qvE '\|completed\|'; then continue; fi
+            if grep -qxF "$title|completed|success" relayed.txt; then continue; fi
+            if [ "$(grep -cF "$title|completed|" relayed.txt || true)" -ge 6 ]; then continue; fi
+            echo "relay publish run $id attempt $attempt at $sha"
+            gh workflow run publish-direct.yml --repo "$REPO" --ref main -f run_id="$id" -f run_attempt="$attempt" -f head_sha="$sha"
+          done < green.txt
