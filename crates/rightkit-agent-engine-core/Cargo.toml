@@ -19,7 +19,7 @@ rightkit-child-process = {version = "0.5.7", features = ["tokio"], path = "../ri
 rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol"}
 rightkit-cache = {version = "0.2.3", path = "../rightkit-cache"}
 rightkit-fs = {version = "0.4.8", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs"}
-rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy"}
+rightkit-agent-policy = {version = "0.2.0", path = "../rightkit-agent-policy"}
 rightkit-mcp = {version = "0.8.0", features = ["advanced-http", "agent_mcp"], path = "../rightkit-mcp"}
 rightkit-agent-tools = {version = "0.4.0", path = "../rightkit-agent-tools", features = ["coding_tools"]}
 rightkit-sandbox = {version = "0.7.0", path = "../rightkit-sandbox", features = ["execution"]}

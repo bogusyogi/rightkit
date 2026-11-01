@@ -16,7 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-agent-engine-protocol = { version = "0.1.0", path = "../rightkit-agent-engine-protocol" }
-rightkit-agent-policy = { version = "0.1.0", path = "../rightkit-agent-policy" }
+rightkit-agent-policy = { version = "0.2.0", path = "../rightkit-agent-policy" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }

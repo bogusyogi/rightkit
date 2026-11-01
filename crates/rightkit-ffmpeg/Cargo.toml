@@ -28,7 +28,7 @@ rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = f
 rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.0" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy", optional = true}
+rightkit-agent-policy = {version = "0.2.0", path = "../rightkit-agent-policy", optional = true}
 rightkit-ocr = {version = "0.2.3", default-features = false, features = ["native"], path = "../rightkit-ocr", optional = true}
 tokio = {version = "1", features = ["io-util", "macros", "process", "sync", "time"], optional = true}
 
