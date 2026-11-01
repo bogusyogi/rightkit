@@ -387,9 +387,16 @@ try {
       delete env[name];
     }
   }
-  // A split's Cargo target is the one the gate bound and handed this process (row 7.09, R-T1): Cache V2's shared target does not replace it, or
-  // the bound target the seal reads would not be the one Cargo wrote.
-  if (splitSource && !managedCargoTarget && typeof process.env.CARGO_TARGET_DIR === "string" && path.isAbsolute(process.env.CARGO_TARGET_DIR)) env.CARGO_TARGET_DIR = process.env.CARGO_TARGET_DIR;
+  // A split's Cargo environment is the one the gate bound and handed this process (row 7.09, R-T1): Cache V2's target, cargo home and compiler wrapper
+  // do not replace it, or the bound target the seal reads would not be the one Cargo wrote, and a prepare step that re-runs a build the compile stage
+  // already staged (stage-sidecar) would resolve crates from another cargo home (`--frozen` cannot fetch them) and rebuild the staged bytes
+  // (HeardRight Windows package, 2026-11-01: STAGE_SIDECAR_CATALOG_UNREADABLE, then "a staged entry is immutable for the door run").
+  if (splitSource && !managedCargoTarget) {
+    for (const name of ["CARGO_HOME", "CARGO_TARGET_DIR", "RUSTC_WRAPPER", "SCCACHE_DIR", "SCCACHE_BASEDIRS", "SCCACHE_CACHE_SIZE", "SCCACHE_IGNORE_SERVER_IO_ERROR"]) {
+      if (typeof process.env[name] === "string" && process.env[name] !== "") env[name] = process.env[name];
+      else delete env[name];
+    }
+  }
   if (cacheMode !== "shared") delete env.RIGHT_RELEASE_CACHE_OWNER;
   if (cacheMode === "shared" && env.RIGHT_RELEASE_CACHE_OWNER !== "rightkit-v2") fail("shared cache ownership token was not configured");
   if (cacheMode !== "shared" && !commandExists("sccache")) delete env.RUSTC_WRAPPER;

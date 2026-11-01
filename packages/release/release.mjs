@@ -15,7 +15,7 @@ import { assertQaAdoption, assertQaBackdoorContract } from "./qa-contract.mjs";
 import { assertLegalReleaseContract } from "./legal-contract.mjs";
 import { DECLARED_UNRELATED_POLICY, declaredUnrelatedRefusal, releaseArtifactPaths } from "./hosted-workflow-policy.mjs";
 import { assertNativeIosPrepareHasManifest, assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
-import { resolveReleaseSource, sourceRootOf } from "./release-source-identity.mjs";
+import { gitRootOf, isSnapshotSource, resolveReleaseSource, sourceRootOf } from "./release-source-identity.mjs";
 import { ArtifactPathError, assertSplitCommandPaths, releaseCommandSteps, resolveArtifactPath, splitArtifactContext } from "./release-artifact-path.mjs";
 import { declaredCargoManifest, hasDefaultTauriManifest, resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import {
@@ -622,7 +622,15 @@ if (problems.length || prebuildFindings.length) {
   process.exit(1);
 }
 
-const releaseLock = acquireReleaseLock(root, config.app ?? path.basename(root), opts.platform, opts.tier);
+// The lock is an output, so a door split keeps it in the checkout's app directory: the snapshot is the commit's bytes, and a lock directory left
+// there fails the door's after-stage verify (HeardRight Windows package, 2026-11-01: ".cache/right-release is an empty directory the commit does not have").
+const lockRoot = (() => {
+  if (!workerSource || !isSnapshotSource(workerSource)) return root;
+  const relative = path.relative(sourceRootOf(workerSource), root);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) fail(`the release config directory ${root} is not inside the door snapshot ${sourceRootOf(workerSource)}; the release lock has no checkout counterpart`);
+  return path.join(gitRootOf(workerSource), relative);
+})();
+const releaseLock = acquireReleaseLock(lockRoot, config.app ?? path.basename(root), opts.platform, opts.tier);
 const mode = "package";
 const command = target.package;
 if (!command && opts.platform !== "android" && opts.platform !== "ios" && !packageCommandOptional(target, resolveProjectType({ appRoot: root, config, target }), { expanded: true })) fail(`${config.app ?? "app"} has no ${opts.platform} ${mode} command`);
