@@ -32,6 +32,10 @@ impl Storage {
     /// identity plus restart epoch and is consumed in the same transaction as
     /// the archive. A duplicate is refused; validator failure rolls the
     /// consumption back with every other staged write.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "published commit API: the archive, its two events and the validator are committed in one transaction"
+    )]
     pub fn commit_compaction_with_decision<F>(
         &mut self,
         archive_id: &str,
@@ -63,6 +67,10 @@ impl Storage {
     /// Variant used by live compaction sinks. The validator is evaluated
     /// against the same single-writer state immediately before entering the
     /// commit boundary; a stale decision rolls back every staged write.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "published commit API: the archive, its two events and the validator are committed in one transaction"
+    )]
     pub fn commit_compaction_with_validation<F>(
         &mut self,
         archive_id: &str,
@@ -90,6 +98,10 @@ impl Storage {
         )
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "published commit API: the archive, its two events and the validator are committed in one transaction"
+    )]
     pub fn commit_compaction(
         &mut self,
         archive_id: &str,
@@ -278,6 +290,10 @@ impl Storage {
     /// Returns the archive's metadata row (no `transcript_json` payload,
     /// matching `insert_compaction_archive`'s convention) and the new,
     /// strictly-increased `compaction_epoch`.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "published commit API: the archive, its two events and the validator are committed in one transaction"
+    )]
     fn commit_compaction_inner<F>(
         &mut self,
         archive_id: &str,

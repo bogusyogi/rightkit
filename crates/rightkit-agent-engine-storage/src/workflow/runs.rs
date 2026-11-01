@@ -935,7 +935,7 @@ impl<'a> WorkflowRepository<'a> {
         now: &str,
         attention: &WorkflowAttentionRow,
     ) -> Result<bool> {
-        let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+        let tx = rightkit_db::write_txn_unchecked(self.conn)?;
         let run_id = tx
             .query_row(
                 "SELECT run_id FROM workflow_outbox WHERE id=?1 AND state='sending' AND claim_holder=?2 AND claim_fence=?3",
@@ -1168,7 +1168,7 @@ impl<'a> WorkflowRepository<'a> {
         let Some(_) = self.find_run(run_id)? else {
             return Err(StorageError::NotFound(format!("workflow run {run_id}")));
         };
-        let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+        let tx = rightkit_db::write_txn_unchecked(self.conn)?;
         tx.execute(
             "DELETE FROM workflow_node_states WHERE run_id=?1",
             params![run_id],
@@ -1225,7 +1225,7 @@ impl<'a> WorkflowRepository<'a> {
         holder: &str,
         fence: i64,
     ) -> Result<Option<WorkflowQueueRow>> {
-        let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+        let tx = rightkit_db::write_txn_unchecked(self.conn)?;
         let row: Option<WorkflowQueueRow> = tx.query_row("SELECT run_id,node_id,available_at,priority,claimed_by,claim_fence FROM workflow_queue WHERE available_at <= ?1 AND claimed_by IS NULL ORDER BY priority DESC, available_at, run_id, node_id LIMIT 1", params![now], |r| Ok(WorkflowQueueRow { run_id:r.get(0)?, node_id:r.get(1)?, available_at:r.get(2)?, priority:r.get(3)?, claimed_by:r.get(4)?, claim_fence:r.get(5)? })).optional()?;
         if let Some(mut claimed) = row {
             let changed = tx.execute("UPDATE workflow_queue SET claimed_by=?1, claim_fence=?2 WHERE run_id=?3 AND node_id=?4 AND claimed_by IS NULL", params![holder,fence,claimed.run_id,claimed.node_id])?;
@@ -1252,7 +1252,7 @@ impl<'a> WorkflowRepository<'a> {
         holder: &str,
         fence: i64,
     ) -> Result<Option<WorkflowQueueRow>> {
-        let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+        let tx = rightkit_db::write_txn_unchecked(self.conn)?;
         let changed = tx.execute(
             "UPDATE workflow_queue SET claimed_by=?1,claim_fence=?2
               WHERE run_id=?3 AND node_id=?4 AND available_at<=?5 AND claimed_by IS NULL",
@@ -1357,7 +1357,7 @@ impl<'a> WorkflowRepository<'a> {
                 "workflow_attempts: invalid terminal state {terminal_state:?}"
             )));
         }
-        let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+        let tx = rightkit_db::write_txn_unchecked(self.conn)?;
         let changed = tx.execute(
             "UPDATE workflow_attempts
                 SET state = ?4, finished_at = ?5, heartbeat_at = ?5,
@@ -1450,7 +1450,7 @@ impl<'a> WorkflowRepository<'a> {
     }
 
     pub fn record_monitoring(&self, row: &WorkflowMonitoringReceiptRow) -> Result<()> {
-        let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+        let tx = rightkit_db::write_txn_unchecked(self.conn)?;
         tx.execute("INSERT INTO workflow_monitoring_receipts(id,proposal_id,monitoring_id,passed,reason,created_at) VALUES(?1,?2,?3,?4,?5,?6)", params![row.id,row.proposal_id,row.monitoring_id,row.passed,row.reason,row.created_at])?;
         if !row.passed {
             tx.execute("UPDATE workflow_promotion_receipts SET state='rolled_back',updated_at=?2 WHERE proposal_id=?1", params![row.proposal_id,row.created_at])?;

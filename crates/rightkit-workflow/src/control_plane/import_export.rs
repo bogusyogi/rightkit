@@ -496,7 +496,7 @@ mod tests {
     #[test]
     fn authority_free_bot_fixture_has_no_import_authority() {
         let package = import_authority_free_bot_package(include_bytes!(
-            "../../../../fixtures/bots/authority-free-import.json"
+            "../../fixtures/bots/authority-free-import.json"
         ))
         .expect("authority-free fixture");
 

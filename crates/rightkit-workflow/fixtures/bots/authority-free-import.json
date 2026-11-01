@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "portable-reviewer",
+  "displayName": "Portable Review Bot",
+  "instructions": "Review changed files and summarize risks.",
+  "taskTemplates": ["review changes"],
+  "capabilityLabels": ["fs.read", "search"],
+  "schedules": [],
+  "provenance": "fixture",
+  "contentHash": ""
+}

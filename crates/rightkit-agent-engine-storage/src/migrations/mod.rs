@@ -1,6 +1,6 @@
 //! the host app's schema list for the session store's SQLite database.
 //!
-//! the host app owns the schemas (the `*_SQL` constants and [`all_migrations`]);
+//! the host app owns the schemas (the `*_SQL` constants and `all_migrations`);
 //! the runner is `rightkit_db::migrate`: one `BEGIN IMMEDIATE` transaction
 //! per step together with its `PRAGMA user_version` bump, an online
 //! pre-migration backup of a non-empty database, a `<db>.migrating` crash

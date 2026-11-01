@@ -28,7 +28,7 @@ impl<'a> WorkflowJournalWriter<'a> {
         event: &JournalAppend<'_>,
         projection: &ProjectionUpdate<'_>,
     ) -> Result<JournalAppendOutcome> {
-        let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+        let tx = rightkit_db::write_txn_unchecked(self.conn)?;
         let outcome = Self::append_with_projection_in_tx(&tx, event, projection)?;
         tx.commit()?;
         Ok(outcome)
@@ -186,7 +186,7 @@ impl<'a> WorkflowJournalWriter<'a> {
         outbox: Option<&WorkflowOutboxRow>,
         fail_at: Option<WorkflowCommandBoundary>,
     ) -> Result<WorkflowCommandApplyOutcome> {
-        let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+        let tx = rightkit_db::write_txn_unchecked(self.conn)?;
         let inserted = tx.execute(
             "INSERT OR IGNORE INTO workflow_commands(run_id,command_id,expected_revision,command_kind,payload_json,created_at,outcome_json) VALUES (?1,?2,?3,?4,?5,?6,?7)",
             params![command.run_id,command.command_id,command.expected_revision,command.command_kind,command.payload_json,command.created_at,outcome_json],
@@ -429,7 +429,7 @@ impl<'a> WorkflowJournalWriter<'a> {
         {
             return Err(StorageError::Serde("wait command binding mismatch".into()));
         }
-        let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+        let tx = rightkit_db::write_txn_unchecked(self.conn)?;
         if latest_attempt_generation_conn(&tx, &command.run_id, &node_command.node_id)?
             != Some(node_command.generation as i64)
         {
@@ -516,7 +516,7 @@ impl<'a> WorkflowJournalWriter<'a> {
                 "effect observation binding mismatch".into(),
             ));
         }
-        let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+        let tx = rightkit_db::write_txn_unchecked(self.conn)?;
         if latest_attempt_generation_conn(&tx, &command.run_id, &node_command.node_id)?
             != Some(node_command.generation as i64)
         {
@@ -582,7 +582,7 @@ impl<'a> WorkflowJournalWriter<'a> {
                 "workflow reducer rejected admission: {reason}"
             )));
         }
-        let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+        let tx = rightkit_db::write_txn_unchecked(self.conn)?;
         if let Some(prior) = tx
             .query_row(
                 "SELECT outcome_json FROM workflow_commands WHERE run_id=?1 AND command_id=?2",
@@ -666,7 +666,7 @@ impl<'a> WorkflowJournalWriter<'a> {
                 "approval decision binding mismatch".into(),
             ));
         }
-        let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+        let tx = rightkit_db::write_txn_unchecked(self.conn)?;
         if latest_attempt_generation_conn(&tx, &command.run_id, &node_command.node_id)?
             != Some(node_command.generation as i64)
         {
