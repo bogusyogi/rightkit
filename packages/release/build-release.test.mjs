@@ -267,7 +267,10 @@ test("native local builds retain Cache V2 while CI & explicit legacy use safe fa
   assert.match(source, /resolveReleaseCacheMode/);
   assert.match(source, /resolveSharedCacheRoot/);
   assert.match(source, /acquireSuiteBuildSlot/);
-  assert.match(source, /acquireHeavyWorkSlot/);
+  // The slot is taken through acquireRunHeavySlot (rightkit#1367 step 2; its behaviour is tested in heavy-command.test.mjs: a broker host takes none for the run, a direct host does).
+  assert.match(source, /acquireRunHeavySlot/);
+  // On a broker host the run holds no slot, so `pnpm install` (the one step it runs itself outside build-launch) takes the local step slot around itself.
+  assert.match(source, /await runLocalStep\(\(\) => runProgress\(config\.packageManager \?\? "pnpm", \["install", "--frozen-lockfile"\]/);
   assert.match(source, /heavyCommandEnvironment/);
   assert.match(source, /heavySlot\.trackChild/);
   assert.match(source, /detached: process\.platform !== "win32"/);

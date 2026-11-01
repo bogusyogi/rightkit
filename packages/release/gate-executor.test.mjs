@@ -9,6 +9,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { brokerManagedHost } from "./cargo-contract.mjs";
 import { EXECUTOR_KINDS, LINUX_BROKER_ROUTE, resolveExecutor } from "./gate-executor.mjs";
 import { LINUX_BROKER_CLIENT_ENV, LINUX_BROKER_CLIENT_SHA256_ENV, LINUX_BROKER_SOCKET_ENV } from "./managed-cargo.mjs";
 
@@ -100,4 +101,45 @@ test("the declaration changes nothing on Mac and Windows", () => {
   const env = { PATH: "/usr/bin", [LINUX_BROKER_CLIENT_ENV]: "/nope/rustright", [LINUX_BROKER_SOCKET_ENV]: "/nope/b.sock" };
   assert.deepEqual(resolve(env, "darwin", { which: (cmd) => (cmd === "rustright" ? ["/Volumes/D/.rightkit-managed/agent-bin/rustright"] : []) }), { kind: "broker", cargo: ["rustright", "cargo"] });
   assert.equal(resolve({ PATH: "C:\\Windows", ...env }, "win32").kind, "direct");
+});
+
+// rightkit#1367 step 2: two predicates say "the broker decides how many jobs run": the gate's `executor.kind === "broker"` (it plans and spawns the scans) and the release tools'
+// `brokerManagedHost()` (right-release's heavy-work slot, cargo-guard). They are NOT the same function: the executor takes a `rustright` or the guard shim anywhere on PATH, while
+// brokerManagedHost reads only the managed markers (installed client, broker socket variable, managed agent-bin on PATH, declared Linux route). Each row names both answers; the
+// rows where they differ are exactly the executor-broker / managed-host-direct ones below, and the difference falls on the safe side: a release tool that does not see the broker
+// keeps its host-wide heavy-work slot, never drops it.
+test("broker host: the gate's executor and brokerManagedHost() agree on every managed marker and differ only where the executor trusts a PATH client or the guard shim", async (t) => {
+  const shim = "/Users/a/Library/rightkit/build-control/agent-bin";
+  const shimExists = (p) => p === `${shim}/cargo`;
+  const guardShim = (cmd) => (cmd === "cargo" ? ["/opt/rk/cargo"] : []);
+  const rows = [
+    { name: "Mac with rustright on PATH and the broker socket named", platform: "darwin", env: { PATH: "/usr/bin", RUSTRIGHT_BUILD_BROKER_SOCKET: "/s" }, which: withRustright, exists: () => false, executor: "broker", managed: true },
+    { name: "Mac with the managed shim first on PATH", platform: "darwin", env: { PATH: `${shim}:/usr/bin` }, which: () => [], exists: shimExists, executor: "broker", managed: true },
+    { name: "Dell with rustright on PATH and the broker pipe named", platform: "win32", env: { PATH: "C:\\bin", RUSTRIGHT_BUILD_BROKER_SOCKET: "\\\\.\\pipe\\b" }, which: withRustright, exists: () => false, executor: "broker", managed: true },
+    { name: "Mac with no broker at all", platform: "darwin", env: { PATH: "/usr/bin" }, which: () => [], exists: () => false, executor: "direct", managed: false },
+    { name: "Linux with no declared route, rustright and a socket named", platform: "linux", env: { PATH: "/usr/bin", RUSTRIGHT_BUILD_BROKER_SOCKET: "/s" }, which: withRustright, exists: () => false, executor: "direct", managed: false },
+    { name: "Mac under the recorded no-broker exception", platform: "darwin", env: { PATH: "/usr/bin", RUSTRIGHT_BUILD_BROKER_SOCKET: "/s", RK_GATE_RUN: "run-1", RIGHTKIT_GATE_NO_BROKER: "exc-1" }, which: withRustright, exists: () => false, exception: true, executor: "direct", managed: false },
+    // The rows where they differ (documented, safe side):
+    { name: "Mac with rustright on PATH and no managed marker (no socket variable, no installed client, no agent-bin)", platform: "darwin", env: { PATH: "/usr/bin" }, which: withRustright, exists: () => false, executor: "broker", managed: false },
+    { name: "Mac with the cargo-guard shim first on PATH outside agent-bin", platform: "darwin", env: { PATH: "/opt/rk:/usr/bin" }, which: guardShim, exists: () => false, readFile: (f) => (f === "/opt/rk/cargo" ? "#!/usr/bin/env node // cargo-guard.mjs" : ""), executor: "broker", managed: false },
+  ];
+  for (const row of rows) {
+    const kind = resolveExecutor({ env: row.env, platform: row.platform, exists: row.exists, which: row.which, readFile: row.readFile ?? (() => ""), forceDirect: Boolean(row.exception) }).kind;
+    assert.equal(kind, row.executor, `${row.name}: executor`);
+    assert.equal(brokerManagedHost(row.env, row.platform, row.exists), row.managed, `${row.name}: brokerManagedHost`);
+  }
+  // A broker-managed machine whose broker cannot be reached refuses in the gate; the release tools also call it a broker host, so it is never read as direct.
+  const unreachable = { PATH: "/usr/bin", RUSTRIGHT_BUILD_BROKER_SOCKET: "/s" };
+  assert.equal(resolveExecutor({ ...base, env: unreachable, platform: "darwin", which: () => [] }).kind, "refuse");
+  assert.equal(brokerManagedHost(unreachable, "darwin", () => false), true);
+  // The declared Linux route: a valid declaration is a broker in both; an invalid one refuses in the gate and is still a managed host (the release tools never run direct around it).
+  if (!NO_UNIX_SOCKET) {
+    const host = await installed(t);
+    const declared = { PATH: "/usr/bin", [LINUX_BROKER_CLIENT_ENV]: host.client, [LINUX_BROKER_SOCKET_ENV]: host.socket, [LINUX_BROKER_CLIENT_SHA256_ENV]: host.sha };
+    assert.equal(resolve(declared).kind, "broker");
+    assert.equal(brokerManagedHost(declared, "linux", () => false), true, "declared Linux route: valid");
+    const broken = { ...declared, [LINUX_BROKER_SOCKET_ENV]: path.join(host.dir, "gone.sock") };
+    assert.equal(resolve(broken).kind, "refuse");
+    assert.equal(brokerManagedHost(broken, "linux", () => false), true, "declared Linux route: invalid, still managed (never direct)");
+  }
 });

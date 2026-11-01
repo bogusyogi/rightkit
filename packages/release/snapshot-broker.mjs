@@ -51,7 +51,12 @@ export const brokerOutputRoots = ({ dataRoot }) => [path.join(dataRoot, "rightki
 
 /** The broker's receipt of one request, read through the RustRight client (`rustright status <id>`), synchronously. */
 export function receiptSync({ client, requestId, env, spawn = spawnSync, platform = process.platform }) {
-  const r = spawnBrokerClient(spawn, client, ["status", requestId], { encoding: "utf8", env, timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }, { platform });
+  return receiptFromReply(spawnBrokerClient(spawn, client, ["status", requestId], statusOptions(env), { platform }), requestId);
+}
+const statusOptions = (env) => ({ encoding: "utf8", env, timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+
+/** The receipt one `rustright status <id>` reply carries, or the typed throw (shared by the synchronous and the asynchronous read). */
+function receiptFromReply(r, requestId) {
   const failedRun = () => new SnapshotRequestError("receipt", `rustright status ${requestId} failed (${r.error?.message ?? `exit ${r.status}`})`);
   if (r.error) throw failedRun();
   let doc;
@@ -165,7 +170,9 @@ function markCarriedRequest({ section, env, callHandle }) {
 }
 
 /** The spawn errors that prove the client process never started, so no byte reached the broker (GB-21). Anything else after a start is ambiguous and is never marked unsent. */
-const NO_SPAWN_CODES = new Set(["ENOENT", "EACCES", "EPERM", "EINVAL", "ENOEXEC", "ENOTDIR", BROKER_CLIENT_UNRESOLVED]);
+/** The code of a carried call whose abort signal fired before the client was started (the asynchronous carry): proof that no byte reached the broker. */
+export const CLIENT_CANCELLED_BEFORE_SPAWN = "RK_CLIENT_CANCELLED_BEFORE_SPAWN";
+const NO_SPAWN_CODES = new Set(["ENOENT", "EACCES", "EPERM", "EINVAL", "ENOEXEC", "ENOTDIR", BROKER_CLIENT_UNRESOLVED, CLIENT_CANCELLED_BEFORE_SPAWN]);
 export const provenNoSpawn = (error) => Boolean(error) && NO_SPAWN_CODES.has(error.code);
 
 /**
@@ -268,6 +275,8 @@ export function inheritedCarrierEnv(env) {
  * handle durably complete); ACTIVE, UNKNOWN, a wait that timed out, a reader that is absent or throws all leave ownership held, and the outcome says which. Never resubmits.
  */
 function reconcileAfterCancel({ section, callHandle, childEnv }) {
+  // This read BLOCKS the event loop for up to 30 s (a synchronous client call). Only the synchronous carry (carryBrokerAdapter, a stage step that blocks anyway) reaches it: the
+  // asynchronous carry (a Swift scan next to the gate's other scans) never calls it, because it must not freeze them; it reports the sub-handle UNKNOWN instead (deferredReconcile).
   const cancelWait = Number(childEnv?.RUSTRIGHT_CANCEL_WAIT_MS);
   const waitMs = Math.min(30_000, Number.isFinite(cancelWait) && cancelWait >= 0 ? Math.trunc(cancelWait) : 30_000);
   if (typeof section.leaseStatus !== "function") return { reaped: false, subHandle: { handle: callHandle, state: "UNKNOWN", why: "this gate has no lease reader" }, note: `the gate cannot ask the broker about sub-handle ${callHandle}, so ownership stays UNKNOWN until every sub-handle is REAPED` };
@@ -277,6 +286,11 @@ function reconcileAfterCancel({ section, callHandle, childEnv }) {
   const subHandle = { handle: callHandle, state, why: status?.why ?? null, ...(status?.waitedMs !== undefined ? { waitedMs: status.waitedMs } : {}), ...(status?.waitTimedOut !== undefined ? { waitTimedOut: status.waitTimedOut } : {}), ...(Array.isArray(status?.members) ? { members: status.members } : {}) };
   if (state === "REAPED") return { reaped: true, subHandle, note: `after the cancel the broker reports sub-handle ${callHandle} REAPED (every submission under it is settled)` };
   return { reaped: false, subHandle, note: `after the cancel the broker reports sub-handle ${callHandle} still ${state}${status?.why ? ` (${status.why})` : ""}: ownership stays held until it is REAPED; the job is not resubmitted` };
+}
+
+/** What the asynchronous carry reports after a cancel or an operation deadline instead of the blocking lease read: ownership stays held, fail closed, and is settled when every sub-handle is REAPED. */
+function deferredReconcile(callHandle) {
+  return { reaped: false, subHandle: { handle: callHandle, state: "UNKNOWN", why: "the asynchronous carry reads no lease: the lease reader blocks the event loop for up to 30 s" }, note: `the asynchronous carry does not read the broker's lease (that read blocks the gate for up to 30 s), so sub-handle ${callHandle} stays UNKNOWN and ownership stays held until every sub-handle is REAPED; the job is not resubmitted` };
 }
 
 /**
@@ -370,7 +384,7 @@ function carryBrokerCargoOnce({ words, cwd, env, section, workspace, checkoutWor
       const nonce = /^[0-9a-f]{64}$/.test(stageNonce ?? "") ? carriedCallNonce({ stageNonce, cwd: path.relative(section.checkout, checkoutCwd).split(path.sep).join("/") || ".", argv: words }) : undefined;
       made = writeSnapshotRequest({ controlRoot: section.controlRoot, commit: section.commit, snapshot: section.snapshot, declaredInputs: inputs, handle: section.handle, primaryCwd: checkoutCwd, argv: words, nonce, requestIdFile: path.join(refDir, "request.json") });
     } catch (e) { return refuse("RK_CARGO_BROKER_CARRIER", e.message); }
-    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, spawnCwd }); } catch (e) { removeCarrier(made.file); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
+    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, requestRef: path.join(refDir, "request.json"), ownershipHandle: made.carrier.ownership.handle, checkoutCwd, spawnCwd }); } catch (e) { removeCarrier(made.file); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
     // GB-52: the call's operation deadline (the caller's own cap is never replaced) and an outer guard past the client's own cancel wait.
     const childEnv = { ...clientEnv, ...made.env, ...operationDeadlineEnv({ env: clientEnv, deadlineMs }) };
     const guard = clientGuardMs(childEnv);
@@ -450,7 +464,82 @@ function carryBrokerCargoOnce({ words, cwd, env, section, workspace, checkoutWor
  */
 export function carryBrokerAdapter(call) { return carryWithRetries(carryBrokerAdapterOnce, call); }
 
-function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spawn = spawnSync, err, tmp = os.tmpdir(), stdio = "inherit", deadlineMs = null, ledgerId = null }) {
+/**
+ * The same carried adapter call without blocking the caller's event loop (rightkit#1367 step 2: a carried Swift scan used to freeze the gate for as long as it ran or
+ * queued). One body (carryBrokerAdapterSteps) serves both: it yields each client call (`{ args, options }`) and the driver runs it, `spawnSync` for the synchronous call and
+ * an awaited asynchronous spawn here. `signal` (an AbortSignal) is handed to the client's spawn, so the scan's deadline or a cancel stops the client's process tree; a
+ * retry wait is abortable too. The lease reconciliation after an operation deadline stays synchronous (a bounded read, never reached on the normal path).
+ */
+export async function carryBrokerAdapterAsync(call) {
+  const { spawn, signal = null, deadlineMs = null, now = Date.now, sleep = abortableSleep, err = () => {}, record = () => {}, ...rest } = call;
+  if (typeof spawn !== "function") throw new TypeError("carryBrokerAdapterAsync needs an asynchronous spawn");
+  const window = deadlineMs !== null && Number.isFinite(deadlineMs) ? Math.max(1, Math.trunc(deadlineMs)) : DEFAULT_RETRY_WINDOW_MS;
+  const started = now();
+  const ledgerId = crypto.randomUUID();
+  const drive = async (effect) => {
+    // An abort that arrived before the client was started proves nothing was sent: the error carries the code provenNoSpawn recognises, so the sub-handle is recorded unsent.
+    if (signal?.aborted && effect.args[0] === "run") return { status: null, stdout: "", stderr: "", cancelled: true, error: Object.assign(new Error("cancelled before the client started"), { code: CLIENT_CANCELLED_BEFORE_SPAWN }) };
+    return spawnBrokerClient(spawn, rest.section.client, effect.args, { ...effect.options, ...(signal ? { signal } : {}) }, { platform: rest.section.platform });
+  };
+  let attempt = 0; let held = []; let result;
+  for (;;) {
+    attempt += 1;
+    held = [];
+    const remaining = Math.max(1, window - (now() - started));
+    result = await runStepsAsync(carryBrokerAdapterSteps({ ...rest, record, err: (m) => held.push(m), deadlineMs: deadlineMs === null ? null : remaining, ledgerId, signal, asyncCarry: true }), drive);
+    const code = result.outcome?.status === "unverified" ? result.outcome.code : null;
+    if (code === null || !RETRYABLE_OUTCOME_CODES.has(code) || signal?.aborted) break;
+    const pause = retryPauseMs(attempt);
+    if (window - (now() - started) <= pause) {
+      const elapsed = now() - started;
+      const message = `${result.outcome.message}; retried ${attempt - 1} time(s) over ${elapsed} ms and the call's ${window} ms deadline passed before the broker would take it: it is a wait that did not clear, never a result`;
+      result = { ...result, outcome: { ...result.outcome, message, attempts: attempt, retried: attempt - 1 } };
+      try { record({ id: ledgerId, mode: "broker", status: "unverified", code: result.outcome.code, message }); } catch { /* the final record above stands */ }
+      held.push(`rightkit-gate: ${result.outcome.code}: ${message}`);
+      break;
+    }
+    await sleep(pause, signal);
+    // A cancel during the wait ends the carry here: nothing is marked or sent for another attempt (the refused attempt was already recorded as settled or unsent).
+    if (signal?.aborted) break;
+    try { record({ id: ledgerId, mode: "broker", status: "pending", code: null, message: null }); } catch { /* the attempt records its own pending state */ }
+  }
+  for (const m of held) err(m);
+  return result;
+}
+
+/** A retry wait that ends at once when the abort signal fires (the default `sleep` of the asynchronous carry). */
+function abortableSleep(ms, signal = null) {
+  return new Promise((resolve) => {
+    if (signal?.aborted) { resolve(); return; }
+    const done = () => { clearTimeout(timer); signal?.removeEventListener("abort", done); resolve(); };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
+/** Drives a steps generator synchronously: each yielded client call runs through `drive` (spawnSync or its test double). */
+function runStepsSync(steps, drive) {
+  let step = steps.next();
+  while (!step.done) step = steps.next(drive(step.value));
+  return step.value;
+}
+async function runStepsAsync(steps, drive) {
+  let step = steps.next();
+  while (!step.done) {
+    let reply;
+    try { reply = await drive(step.value); } catch (error) { step = steps.throw(error); continue; }
+    step = steps.next(reply);
+  }
+  return step.value;
+}
+
+function carryBrokerAdapterOnce(call) {
+  const { section, spawn = spawnSync } = call;
+  return runStepsSync(carryBrokerAdapterSteps(call), (effect) => spawnBrokerClient(spawn, section.client, effect.args, effect.options, { platform: section.platform }));
+}
+
+/** One carried adapter attempt as a generator: it yields `{ args, options }` for each client call (the carried run, then the receipt's status) and receives the spawn result. */
+function* carryBrokerAdapterSteps({ adapter, words, cwd, env, section, record, err, tmp = os.tmpdir(), stdio = "inherit", deadlineMs = null, ledgerId = null, signal = null, asyncCarry = false }) {
   const id = ledgerId ?? crypto.randomUUID();
   words = [...words].map(String);
   const base = { id, mode: "broker", shim: "adapter", adapter, cwd, argv: [...words] };
@@ -493,15 +582,17 @@ function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spa
       const nonce = /^[0-9a-f]{64}$/.test(stageNonce ?? "") ? carriedCallNonce({ stageNonce, cwd: path.relative(section.checkout, checkoutCwd).split(path.sep).join("/") || ".", argv: words }) : undefined;
       made = writeSnapshotRequest({ controlRoot: section.controlRoot, commit: section.commit, snapshot: section.snapshot, declaredInputs: inputs, handle: section.handle, primaryCwd: checkoutCwd, argv: words, nonce, requestIdFile: path.join(refDir, "request.json") });
     } catch (e) { return refuse("RK_ADAPTER_BROKER_CARRIER", e.message); }
-    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, spawnCwd }); } catch (e) { removeCarrier(made.file); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
+    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, requestRef: path.join(refDir, "request.json"), ownershipHandle: made.carrier.ownership.handle, checkoutCwd, spawnCwd }); } catch (e) { removeCarrier(made.file); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
     // GB-52: the call's operation deadline (the caller's own cap is never replaced) and an outer guard past the client's own cancel wait.
     const childEnv = { ...clientEnv, ...made.env, ...operationDeadlineEnv({ env: clientEnv, deadlineMs }) };
     const guard = clientGuardMs(childEnv);
     const capture = stdio === "capture";
     // Broker work may exist from the next statement on: the ownership records this request's sub-handle first (a mark that does not land sends nothing).
     { const startable = clientStartable(section.client, section.platform); if (startable) { removeCarrier(made.file); return refuse("RK_ADAPTER_BROKER_CLIENT", `${startable}; nothing was marked or sent`); } }
+    // A scan cancelled before the request is marked sends nothing and marks nothing (the mark records that broker work may exist).
+    if (signal?.aborted) { removeCarrier(made.file); return refuse("RK_ADAPTER_BROKER_CANCELLED", "the scan was cancelled before the request was marked or sent; nothing was sent"); }
     try { markCarriedRequest({ section, env, callHandle: made.carrier.ownership.handle }); } catch (e) { removeCarrier(made.file); return refuse("RK_ADAPTER_BROKER_OWNERSHIP", e.message); }
-    const r = spawnBrokerClient(spawn, section.client, ["run", adapter, "--", ...words], capture ? { cwd: spawnCwd, env: childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true, ...(guard ? { timeout: guard } : {}) } : { cwd: spawnCwd, env: childEnv, stdio: "inherit", ...(guard ? { timeout: guard } : {}) }, { platform: section.platform });
+    const r = yield { args: ["run", adapter, "--", ...words], options: capture ? { cwd: spawnCwd, env: childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true, ...(guard ? { timeout: guard } : {}) } : { cwd: spawnCwd, env: childEnv, stdio: "inherit", ...(guard ? { timeout: guard } : {}) } };
     removeCarrier(made.file);
     // GB-21: a client that provably never started sent nothing: that sub-handle is recorded unsent under the ownership lock, so it does not wedge a later reclaim. Any other
     // failure after a start (a lost connection, a timeout, an exit before a reference) is ambiguous and stays held, reconciled by the request id.
@@ -509,7 +600,13 @@ function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spa
     let outcome;
     let ref = null;
     let nativeManaged = null;
+    const cancelledRun = Boolean(r.error) && (r.cancelled === true || signal?.aborted === true);
     try {
+      if (r.error && cancelledRun) {
+        // The scan's own signal stopped the client: a cancel, never "the client did not start" (the request may exist at the broker; its reference is kept when the client wrote it).
+        try { ref = readRequestRef(path.join(refDir, "request.json")); } catch { ref = null; }
+        throw new SnapshotRequestError("cancelled", provenNoSpawn(r.error) ? "the scan was cancelled before the RustRight client started; nothing was sent" : `the scan was cancelled: its signal stopped the RustRight client${ref ? ` (request ${ref.requestId})` : ""}; the request is not resubmitted`);
+      }
       if (r.error) throw new SnapshotRequestError(r.error.code === BROKER_CLIENT_UNRESOLVED ? BROKER_CLIENT_UNRESOLVED : "spawn", `the RustRight client did not start (${r.error.message})`);
       ref = readRequestRef(path.join(refDir, "request.json"));
       // The request's workspace of a snapshot-bound adapter job is the directory the client ran in: the primary checkout's counterpart of the step's
@@ -517,7 +614,8 @@ function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spa
       // directory in the snapshot), which must be inside that root"). It is the carrier's primaryCwd, never the toplevel for a step run from a subfolder
       // (an app whose root is `app/`), and never a directory outside the primary checkout or one that is not this call's counterpart.
       if (canonicalCounterpart(ref.workspace) !== canonicalCounterpart(checkoutCwd) || !inside(canonicalCounterpart(ref.workspace), section.checkout)) throw new SnapshotRequestError("workspace", `the request's workspace ${ref.workspace} is not the primary checkout counterpart ${checkoutCwd} of the step's directory ${realCwd} (primary toplevel ${section.checkout})`);
-      const receipt = receiptSync({ client: section.client, requestId: ref.requestId, env: clientEnv, spawn, platform: section.platform });
+      const statusReply = yield { args: ["status", ref.requestId], options: statusOptions(clientEnv) };
+      const receipt = receiptFromReply(statusReply, ref.requestId);
       const { payload, evidence, attribution, toolchain, nestedChildren } = verifySnapshotReceipt(receipt, { pins: section.pins, jobId: ref.requestId, carrier: made.carrier, argv: words, workspace: ref.workspace, adapter, adapterEnv, checkout: section.checkout, outputRoots: section.outputRoots, platform: section.platform });
       nativeManaged = signedNativeOutputs(receipt, payload);
       outcome = { status: "verified", requestId: ref.requestId, workspace: ref.workspace, outputDir: evidence.outputDir, nestedChildren, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit, attribution, toolchain };
@@ -538,8 +636,8 @@ function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spa
       const seen = operationOutcomeInOutput(`${out.stdout}\n${out.stderr}`) ?? (r.error?.code === "ETIMEDOUT" ? { code: "operation-deadline", deadlineMs: null, requestId: ref?.requestId ?? null, cancelConfirmed: null, terminalState: null, guard: true } : null);
       if (seen) outcome = { status: "unverified", code: seen.code, message: seen.code === "operation-deadline" ? `the operation deadline${seen.deadlineMs ? ` of ${seen.deadlineMs} ms` : ""} passed${seen.guard ? " and the client was stopped by the gate's outer guard" : ""}; request ${seen.requestId ?? ref?.requestId ?? "unknown"}: cancelConfirmed: ${seen.cancelConfirmed ?? "unknown"}, terminal state: ${seen.terminalState ?? "not observed"}; the job is neither abandoned nor resubmitted and ownership stays UNKNOWN until every sub-handle is REAPED` : seen.code === "broker-busy" ? "every broker connection was busy (RK_BROKER_BUSY: a wait, not an outage); nothing was admitted" : "the broker was unavailable (RK_BROKER_UNAVAILABLE)", ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
-    if (outcome.status === "unverified" && outcome.code === "operation-deadline") {
-      const settled = reconcileAfterCancel({ section, callHandle: made.carrier.ownership.handle, childEnv });
+    if (outcome.status === "unverified" && (outcome.code === "operation-deadline" || (outcome.code === "cancelled" && !provenNoSpawn(r.error)))) {
+      const settled = asyncCarry ? deferredReconcile(made.carrier.ownership.handle) : reconcileAfterCancel({ section, callHandle: made.carrier.ownership.handle, childEnv });
       outcome = { ...outcome, message: `${outcome.message}; ${settled.note}`, reaped: settled.reaped, subHandle: settled.subHandle };
     }
     // RK_BROKER_BUSY with no request reference: the connection never opened, so no byte reached the broker. That is the gate's own proof that this sub-handle was never sent (GB-21), recorded under

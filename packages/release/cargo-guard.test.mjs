@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 
-import { assertComputePolicyAllowsCargo, cargoCacheEnvironment, cargoProjectRoot, cargoSubcommand, checkHookInput, computePolicyPath, resolveRealCargo, resolveRealRustc, runCargoGuard, shellRunsCargoTest, shouldGuardCargo } from "./cargo-guard.mjs";
+import { assertComputePolicyAllowsCargo, cargoCacheEnvironment, cargoProjectRoot, cargoSubcommand, checkHookInput, computePolicyPath, resolveBrokerClientRoute, resolveManagedCargoShim, resolveRealCargo, resolveRealRustc, runCargoGuard, shellRunsCargoTest, shouldGuardCargo } from "./cargo-guard.mjs";
 
 test("compute policy path ignores XDG_CONFIG_HOME regardless of value", () => {
   assert.equal(
@@ -109,14 +109,65 @@ test("Cargo guard hands the whole invocation to the broker on a managed host", a
   assert.equal(resolvedReal, false);
 });
 
-test("Cargo guard falls back to real resolution when a broker signal has no shim", async () => {
+test("Cargo guard on a broker host with no shim hands the call to the managed or declared client as `<client> cargo <args>`, never to the real toolchain (rightkit#1367 step 2)", async () => {
   const calls = [];
-  await runCargoGuard(["build"], {
+  const options = {
     env: cacheEnv(), isBrokerHost: () => true, resolveShim: () => null,
-    resolveCargo: () => "/real/cargo", resolveRustc: () => "/real/rustc",
-    runHeavy: async (args) => { calls.push(args); return 0; },
-  });
-  assert.deepEqual(calls[0].slice(0, 2), ["--", "/real/cargo"]);
+    resolveClientRoute: () => ({ client: "/managed/runtime/rustright", env: { SOCKET: "/s" } }),
+    resolveCargo: () => "/real/cargo", resolveRustc: () => { throw new Error("must not resolve rustc"); },
+    runHeavy: async () => { throw new Error("must not run heavy on a broker host"); },
+    runLight: async (command, args, env) => { calls.push([command, args, env]); return 0; },
+  };
+  assert.equal(await runCargoGuard(["build", "--release"], options), 0);
+  // A light command builds nothing: it keeps going to the real cargo, not to the client (rightkit#1367 step 2 review).
+  assert.equal(await runCargoGuard(["--version"], options), 0);
+  assert.equal(await runCargoGuard(["fmt", "--check"], options), 0);
+  assert.equal(await runCargoGuard(["metadata", "--no-deps"], options), 0);
+  assert.deepEqual(calls.map(([command, args]) => [command, args]), [["/managed/runtime/rustright", ["cargo", "build", "--release"]], ["/real/cargo", ["--version"]], ["/real/cargo", ["fmt", "--check"]], ["/real/cargo", ["metadata", "--no-deps"]]]);
+  assert.deepEqual(calls[0][2], { SOCKET: "/s" }, "the client runs against the endpoint it resolved");
+  // A refused route (invalid declared route, the Mac's missing socket) refuses a build with the reason and never runs it.
+  const errors = []; const original = console.error; console.error = (m) => errors.push(String(m));
+  try { assert.equal(await runCargoGuard(["build"], { ...options, resolveClientRoute: () => ({ refusal: "RightKit broker socket is unavailable" }) }), 1); } finally { console.error = original; }
+  assert.match(errors.join("\n"), /RightKit broker socket is unavailable/);
+  assert.equal(calls.length, 4, "the refused build ran nothing");
+});
+
+test("Cargo guard on a broker host with neither shim nor client refuses a guarded command and lets a light one build nothing; it never runs the real toolchain for a build", async () => {
+  const ran = [];
+  const errors = [];
+  const original = console.error; console.error = (m) => errors.push(String(m));
+  try {
+    const base = { env: cacheEnv(), isBrokerHost: () => true, resolveShim: () => null, resolveClientRoute: () => null, resolveRustc: () => "/real/rustc", runHeavy: async (a) => { ran.push(["heavy", a]); return 0; }, runLight: async (c, a) => { ran.push(["light", c, a]); return 0; } };
+    for (const args of [["build"], ["test", "-p", "x"], ["clippy"]]) {
+      const code = await runCargoGuard(args, { ...base, resolveCargo: () => { ran.push("resolveCargo"); return "/real/cargo"; } });
+      assert.notEqual(code, 0, args.join(" "));
+    }
+    assert.deepEqual(ran, [], "a build with no client runs nothing");
+    assert.match(errors.join("\n"), /neither the broker's cargo shim nor a RustRight client was found; refusing to run cargo outside the broker/);
+    const light = await runCargoGuard(["fmt", "--check"], { ...base, resolveCargo: () => "/real/cargo" });
+    assert.equal(light, 0);
+    assert.deepEqual(ran, [["light", "/real/cargo", ["fmt", "--check"]]], "a light command builds nothing and runs as it always did");
+  } finally { console.error = original; }
+});
+
+test("resolveBrokerClientRoute: the declared Linux route (only when it validates), else the installed client with its discovered socket, else none", () => {
+  const route = (over) => resolveBrokerClientRoute({ env: { PATH: "/x" }, platform: "darwin", exists: () => true, ...over });
+  assert.deepEqual(route({ linuxRoute: () => ({ declared: true, ok: true, client: "/opt/rustright", socket: "/run/broker.sock" }), platform: "linux" }), { client: "/opt/rustright", env: { PATH: "/x", RUSTRIGHT_BUILD_BROKER_SOCKET: "/run/broker.sock" }, mapUnavailable: true });
+  assert.deepEqual(route({ linuxRoute: () => ({ declared: true, ok: false, problem: "bad" }), platform: "linux", installedClient: () => "/other/rustright" }), { refusal: "bad" }, "an invalid declared route never falls back to another client");
+  assert.deepEqual(route({ linuxRoute: () => ({ declared: false }), installedClient: () => "/rt/rustright", socketOf: () => undefined }), { refusal: "RightKit broker socket is unavailable" }, "the Mac with no socket is refused, as runCargoSync refuses it");
+  assert.deepEqual(route({ linuxRoute: () => ({ declared: false }), installedClient: () => "/Volumes/D/.rightkit-managed/runtime/rustright", socketOf: () => "/Volumes/D/.rightkit-managed/broker.sock" }), { client: "/Volumes/D/.rightkit-managed/runtime/rustright", env: { PATH: "/x", RUSTRIGHT_BUILD_BROKER_SOCKET: "/Volumes/D/.rightkit-managed/broker.sock" }, mapUnavailable: true });
+  assert.deepEqual(route({ linuxRoute: () => ({ declared: false }), installedClient: () => "C:\\.rustright\\runtime\\rustright.exe", socketOf: () => undefined, platform: "win32" }).env, { PATH: "/x" }, "no socket discovered: the environment as it is");
+  assert.equal(route({ linuxRoute: () => ({ declared: false }), installedClient: () => undefined }), null);
+});
+
+test("the managed shim resolver accepts every PATHEXT extension the shim predicate accepts, .bat included", () => {
+  const dir = "C:\\Users\\a\\.rightkit-managed\\agent-bin";
+  const only = (name) => (candidate) => candidate === path.join(dir, name);
+  const env = { PATH: `${dir};C:\\Windows`, PATHEXT: ".COM;.EXE;.BAT;.CMD" };
+  for (const name of ["cargo.com", "cargo.exe", "cargo.bat", "cargo.cmd"]) assert.equal(resolveManagedCargoShim({ env, platform: "win32", exists: only(name) }), path.join(dir, name), name);
+  assert.equal(resolveManagedCargoShim({ env: { PATH: dir }, platform: "win32", exists: only("cargo.bat") }), path.join(dir, "cargo.bat"), "no PATHEXT: the default list");
+  assert.equal(resolveManagedCargoShim({ env, platform: "win32", exists: () => false }), null);
+  assert.equal(resolveManagedCargoShim({ env: { PATH: "/usr/bin:/Users/a/.rightkit-managed/agent-bin" }, platform: "darwin", exists: (c) => c === "/Users/a/.rightkit-managed/agent-bin/cargo" }), "/Users/a/.rightkit-managed/agent-bin/cargo");
 });
 
 test("Cargo guard routes heavy and light commands without recursion", async () => {

@@ -201,28 +201,35 @@ function carriedSeam(args, options, { platform, spawn }) {
   return runCarriedCargo(args, options, { map: carried.map, spawn });
 }
 
+/**
+ * The ONE route a call takes to the broker's client on a broker host (runCargoSync and cargo-guard both use it): the declared Linux route when the host declared one (only when it
+ * validates; an invalid one is `{ refusal }`, never a fallback to another client), else the installed runtime client with its discovered socket (on the Mac a missing socket is
+ * `{ refusal: "RightKit broker socket is unavailable" }`), else null. `{ client, env, mapUnavailable }` runs as `<client> cargo <args>`; `mapUnavailable` says a RK_BROKER_UNAVAILABLE
+ * answer of the client is to be reported as an unavailable broker (the declared route, and the Mac).
+ */
+export function brokerClientRoute({ env = process.env, platform = process.platform, exists = existsSync, fsOps, linuxRoute = resolveLinuxBrokerRoute, installedClient = managedRuntimeClient, socketOf = discoverBrokerSocket } = {}) {
+  const linux = linuxRoute({ env, platform, fsOps });
+  if (linux.declared) return linux.ok ? { client: linux.client, env: { ...env, RUSTRIGHT_BUILD_BROKER_SOCKET: linux.socket }, mapUnavailable: true } : { refusal: linux.problem };
+  const client = installedClient(env, platform, exists);
+  if (!client) return null;
+  const socket = socketOf(env, { platform, exists });
+  if (platform === 'darwin' && (!socket || !exists(socket))) return { refusal: 'RightKit broker socket is unavailable' };
+  return { client, env: socket ? { ...env, RUSTRIGHT_BUILD_BROKER_SOCKET: socket } : env, mapUnavailable: platform === 'darwin' };
+}
+
 export function runCargoSync(args, options = {}, { platform = process.platform, exists = existsSync, spawn = spawnSync, fsOps } = {}) {
   const env = options.env ?? process.env;
   const seam = carriedSeam(args, options, { platform, spawn });
   if (seam) return seam;
   // A gate run outside the broker by Adrian's recorded exception: the real toolchain, shims off PATH, on every platform (NO_BROKER_ENV).
   if (gateNoBroker(env)) return spawn("cargo", args, { ...options, env: directCargoEnv(env, platform, exists) });
-  // A Linux host that declared a broker route: every call goes to the validated client at the declared endpoint, or is refused. Never direct.
-  const linux = resolveLinuxBrokerRoute({ env, platform, fsOps });
-  if (linux.declared) {
-    if (!linux.ok) return unavailable(linux.problem);
-    const result = spawn(linux.client, ["cargo", ...args], { ...options, env: { ...env, RUSTRIGHT_BUILD_BROKER_SOCKET: linux.socket } });
-    if (result.status !== 0 && /RK_BROKER_UNAVAILABLE|RightKit broker (?:unavailable|endpoint is not configured)/i.test(String(result.stderr ?? ''))) return { ...result, error: unavailable(String(result.stderr).trim()).error };
-    return result;
-  }
-  const client = managedRuntimeClient(env, platform, exists);
-  if (client) {
-    const socket = discoverBrokerSocket(env, { platform, exists });
-    if (platform === 'darwin' && (!socket || !exists(socket))) return unavailable('RightKit broker socket is unavailable');
-    const childEnv = socket ? { ...env, RUSTRIGHT_BUILD_BROKER_SOCKET: socket } : env;
-    const invocation = managedRuntimeCommand(client, ["cargo", ...args]);
-    const result = spawn(invocation.command, invocation.args, { ...options, env: childEnv });
-    if (platform === 'darwin' && result.status !== 0 && /RK_BROKER_UNAVAILABLE|RightKit broker (?:unavailable|endpoint is not configured)/i.test(String(result.stderr ?? ''))) {
+  // A Linux host that declared a broker route: every call goes to the validated client at the declared endpoint, or is refused. Never direct. Otherwise the managed client (brokerClientRoute).
+  const route = brokerClientRoute({ env, platform, exists, fsOps });
+  if (route?.refusal) return unavailable(route.refusal);
+  if (route) {
+    const invocation = managedRuntimeCommand(route.client, ["cargo", ...args]);
+    const result = spawn(invocation.command, invocation.args, { ...options, env: route.env });
+    if (route.mapUnavailable && result.status !== 0 && /RK_BROKER_UNAVAILABLE|RightKit broker (?:unavailable|endpoint is not configured)/i.test(String(result.stderr ?? ''))) {
       return { ...result, error: unavailable(String(result.stderr).trim()).error };
     }
     return result;

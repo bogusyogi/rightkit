@@ -1711,6 +1711,278 @@ test("lanes: class B scans of different components run concurrently; one compone
   assert.equal(peak, 1, "without classBJobs class B stays one scan at a time");
 });
 
+// ---- rightkit#1367 step 2: the gate does not count builds on a broker host --------------------------------------------------------------------------------
+{
+  const { scheduleBrokerHostClassB, isBrokerCarriedScan } = scansModule;
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  /** `components` components, each with a compile, a doc and a tests scan; `carried(scan)` says which the broker carries. */
+  const fixture = (components, carried) => {
+    const scans = []; const lanes = { compile: [], doc: [], tests: [], quiet: [] };
+    for (let c = 0; c < components; c += 1) for (const lane of ["compile", "doc", "tests"]) { lanes[lane].push(scans.length); scans.push({ id: `${lane}:c${c}`, cwd: `crates/c${c}`, lane, carried: carried(lane, c) }); }
+    return { scans, lanes };
+  };
+  const observe = () => {
+    const events = []; let active = 0; let peak = 0; let localActive = 0; let localPeak = 0;
+    return { events, peaks: () => ({ peak, localPeak }), run: (scans, ms) => async (i) => {
+      const s = scans[i]; active += 1; peak = Math.max(peak, active); if (!s.carried) { localActive += 1; localPeak = Math.max(localPeak, localActive); }
+      events.push(`start ${s.id}`); await pause(typeof ms === "function" ? ms(s) : ms); events.push(`end ${s.id}`);
+      active -= 1; if (!s.carried) localActive -= 1;
+    } };
+  };
+
+  test("broker host: every component's carried class B scans start at once, no count, no compile/doc/tests barrier across components", async () => {
+    const { scans, lanes } = fixture(8, () => true);
+    const o = observe();
+    // Component c0's compile is slow: on a lane-wide barrier no other component's doc or tests scan could start before it ends.
+    await scheduleBrokerHostClassB({ scans, lanes, localJobs: 1, carried: (s) => s.carried, run: o.run(scans, (s) => (s.id === "compile:c0" ? 120 : 10)) });
+    assert.equal(o.peaks().peak, 8, "all 8 components in flight together (localJobs 1 does not bound carried scans)");
+    assert.ok(o.events.indexOf("start tests:c3") < o.events.indexOf("end compile:c0"), "another component reached its tests while c0 still compiled: no lane wait");
+    for (let c = 0; c < 8; c += 1) {
+      const order = o.events.filter((e) => e.endsWith(`:c${c}`));
+      assert.deepEqual(order, [`start compile:c${c}`, `end compile:c${c}`, `start doc:c${c}`, `end doc:c${c}`, `start tests:c${c}`, `end tests:c${c}`], `component c${c} keeps plan order and never overlaps itself`);
+    }
+  });
+
+  test("broker host: scans the broker never sees (npm/node suites) keep the local limit; carried scans beside them stay uncapped", async () => {
+    const { scans, lanes } = fixture(6, (lane, c) => c >= 3 || lane !== "tests"); // c0..c2's tests are local npm suites; every other scan is carried
+    const o = observe();
+    await scheduleBrokerHostClassB({ scans, lanes, localJobs: 2, carried: (s) => s.carried, run: o.run(scans, 15) });
+    assert.equal(o.peaks().localPeak, 2, "local suites run two at a time, never more");
+    assert.ok(o.peaks().peak > 2, "the carried scans were not held to the local limit");
+    assert.equal(o.events.filter((e) => e.startsWith("start")).length, 18, "every scan ran");
+    const all = fixture(5, () => false); const o2 = observe();
+    await scheduleBrokerHostClassB({ scans: all.scans, lanes: all.lanes, localJobs: 3, carried: (s) => s.carried, run: o2.run(all.scans, 10) });
+    assert.equal(o2.peaks().peak, 3, "with nothing carried the local limit is the whole bound");
+  });
+
+  test("broker host: every scan of every component's chain runs exactly once", async () => {
+    const { scans, lanes } = fixture(3, () => true);
+    const ran = [];
+    await scheduleBrokerHostClassB({ scans, lanes, localJobs: 1, carried: () => true, run: async (i) => { ran.push(scans[i].id); await pause(2); } });
+    assert.equal(ran.length, 9);
+  });
+
+  test("runScans on a broker host does not cap the broker-carried scans of different components; a direct host keeps classBJobs (rightkit#1367 step 2)", async () => {
+    const bar = { "crates/bar/Cargo.toml": 'edition = "2024"\nversion = "1.0.0"\nlicense = "MIT"\n', "crates/bar/CHANGELOG.md": "## 1.0.0\n- x\n", "crates/bar/src/lib.rs": "" };
+    const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/bar/src/lib.rs"], bar);
+    for (const scan of plan.scans) if (scan.class === "B") { const crate = /\bfoo\b/.test(scan.id) ? "foo" : /\bbar\b/.test(scan.id) ? "bar" : null; if (crate) scan.cwd = `crates/${crate}`; }
+    const peakOf = async (extra) => {
+      const active = new Map(); let peak = 0;
+      const spawn = async (command, args, options) => {
+        const builds = /(?:cargo|rustright)(?:\.exe)?$/.test(command) && ["check", "clippy", "rustdoc", "test"].includes((args ?? [])[1]);
+        const key = String(options?.cwd ?? "");
+        if (builds) { active.set(key, (active.get(key) ?? 0) + 1); peak = Math.max(peak, [...active.values()].reduce((a, b) => a + b, 0)); await pause(15); active.set(key, active.get(key) - 1); }
+        return fakeSpawn()(command, args);
+      };
+      const result = await runScans(plan, { ...deps({ ...fs, spawn }), jobs: 2, testJobs: 2, ...extra });
+      assert.equal(result.ok, true, scanFailures(result).join("\n"));
+      return peak;
+    };
+    // A broker host with no snapshot carrier still hands the scan's client call to the broker: those scans are carried, so no gate count bounds the two components.
+    assert.equal(await peakOf({ brokerHost: true, classBJobs: 1 }), 2, "carried by the broker: the local limit does not apply to them");
+    assert.equal(await peakOf({ brokerHost: true, classBJobs: 3 }), 2);
+    assert.equal(await peakOf({ classBJobs: 1 }), 1, "a direct host keeps its cap");
+  });
+
+  test("isBrokerCarriedScan is the one test: a broker host's cargo/rustright scans (with or without the snapshot carrier), carried Swift (carrier only) and npm suites with a broker call; nothing on a direct host", () => {
+    const sb = { handle: "h" };
+    for (const tool of ["rustright", "cargo"]) {
+      assert.equal(isBrokerCarriedScan({ tool, root: "cargoLive" }, { brokerHost: true }), true, `${tool} on a broker host with no snapshot: the client call is carried by the broker`);
+      assert.equal(isBrokerCarriedScan({ tool, root: "cargoLive" }, { snapshotBroker: sb }), true, `${tool} with the snapshot carrier (which implies a broker host)`);
+      assert.equal(isBrokerCarriedScan({ tool, root: "cargoLive" }, {}), false, `${tool} on a direct host`);
+    }
+    assert.equal(isBrokerCarriedScan({ tool: "swift" }, { snapshotBroker: sb, brokerHost: true }), true);
+    assert.equal(isBrokerCarriedScan({ tool: "swift" }, { brokerHost: true }), false, "a Swift scan with no carrier is a local process");
+    assert.equal(isBrokerCarriedScan({ tool: "pnpm", root: "content" }, { brokerHost: true, snapshotBroker: sb }), false, "an npm suite with no broker call is this host's process");
+    assert.equal(isBrokerCarriedScan({ tool: "node" }, { brokerHost: true }), false);
+    assert.equal(isBrokerCarriedScan({ tool: "pnpm", brokerCall: { command: "x" } }, { brokerHost: true }), true, "an npm suite whose script reaches the broker sends carried compiles");
+    assert.equal(isBrokerCarriedScan({ tool: "pnpm", brokerCall: { command: "x" } }, {}), false, "...and is a local process on a direct host");
+  });
+
+  test("local suites chain by their own package directory, not the shared root chain: the local limit of 3 is 3, and a root scan never waits behind them", async () => {
+    const dir = (n) => ({ id: `test:npm:p${n}`, class: "B", tool: "pnpm", args: ["--dir", `packages/p${n}`, "run", "test"], carried: false });
+    const scans = [{ id: "check:rust:root", class: "B", tool: "rustright", carried: true }, ...[0, 1, 2, 3, 4, 5].map(dir), { id: "test:rust:root", class: "B", tool: "rustright", carried: true }];
+    const lanes = { compile: [0], doc: [], tests: [1, 2, 3, 4, 5, 6, 7], quiet: [] };
+    assert.equal(scansModule.classBChainKey(scans[1], false), "local:packages/p0");
+    assert.equal(scansModule.classBChainKey({ id: "node:x", class: "B", tool: "node" }, false), "local:node:x", "no directory at all: its own chain, never the shared '.'");
+    assert.equal(scansModule.classBChainKey(scans[0], true), ".", "a carried root scan keeps the root chain");
+    const o = observe();
+    await scheduleBrokerHostClassB({ scans, lanes, localJobs: 3, carried: (s) => s.carried, run: o.run(scans, (s) => (s.carried ? 5 : 40)) });
+    assert.equal(o.peaks().localPeak, 3, "six local suites in six chains: exactly three at a time");
+    assert.ok(o.events.indexOf("start test:rust:root") < o.events.indexOf("end test:npm:p0"), "the root scan's tests did not wait behind the local suites");
+  });
+
+  test("the carrier routes derive from isBrokerCarriedScan: a snapshot-carried compile and a carried Swift call only with the carrier on a broker host", () => {
+    const sb = { handle: "h" };
+    const viaSnapshotBroker = (s, ctx) => isBrokerCarriedScan(s, ctx) && Boolean(ctx.snapshotBroker) && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
+    const swiftBrokered = (s, ctx) => isBrokerCarriedScan(s, ctx) && s.tool === "swift" && Boolean(ctx.snapshotBroker);
+    assert.equal(viaSnapshotBroker({ tool: "rustright", root: "cargoLive" }, { snapshotBroker: sb, brokerHost: true }), true);
+    assert.equal(viaSnapshotBroker({ tool: "rustright", root: "cargoLive" }, { brokerHost: true }), false, "no carrier: a plain client call");
+    assert.equal(swiftBrokered({ tool: "swift" }, { snapshotBroker: sb, brokerHost: true }), true);
+    assert.equal(swiftBrokered({ tool: "swift" }, {}), false);
+  });
+}
+
+// ---- rightkit#1367 step 2: queue time is not run time (the broker's live state, injected) ----------------------------------------------------------------
+{
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  // The scan under test is clippy:foo (a class B rustright scan); the rest of the plan runs through the quick recording spawn, so class A still runs and class B is not blocked.
+  const BROKER_CALL = (command, args) => /(?:cargo|rustright)(?:\.exe)?$/.test(command) && (args ?? [])[1] === "clippy";
+  const onlyChecks = (plan, timeoutMs) => ({ ...plan, scans: plan.scans.map((s) => (s.id === "clippy:foo" ? { ...s, timeoutMs } : s)) });
+
+  test("a carried scan's run limit does not tick while the broker holds it QUEUED, and runs again once it is admitted (the live status sequence is injected)", async () => {
+    const { fs, plan } = planFor(["crates/foo/src/lib.rs"]);
+    let state = "QUEUED"; let polls = 0; const cancels = [];
+    const live = { state: async () => { polls += 1; return state; }, cancel: async (id) => { cancels.push(id); } };
+    let aborted = false;
+    const spawn = async (command, args, options) => {
+      if (!BROKER_CALL(command, args)) return fakeSpawn()(command, args);
+      // The client writes the request reference at submit, as the real client does (RUSTRIGHT_REQUEST_ID_FILE).
+      writeFileSync(options.env.RUSTRIGHT_REQUEST_ID_FILE, JSON.stringify({ schema: "rustright.request-ref.v1", requestId: "req-queued", workspace: path.resolve("/ws") }));
+      await new Promise((resolve) => options.signal.addEventListener("abort", () => { aborted = true; resolve(); }, { once: true }));
+      return { status: null, stdout: "", stderr: "", error: new Error("cancelled"), cancelled: true };
+    };
+    const running = runScans(onlyChecks(plan, 200), { ...deps({ ...fs, spawn }), brokerHost: true, brokerLive: live, brokerPollMs: 1, brokerCancelGraceMs: 5 });
+    // Queued for 450 ms (more than twice the 200 ms limit, under the 800 ms ceiling) with reads going on: not stopped. Without the pause the limit would already have fired.
+    const queuedSince = Date.now();
+    while (Date.now() - queuedSince < 450 || polls < 3) await pause(5);
+    assert.equal(aborted, false, "queued time is not charged to the scan");
+    state = "RUNNING";
+    const result = await running;
+    const row = result.scans.find((r) => r.id === "clippy:foo");
+    assert.equal(row.status, "fail"); assert.equal(row.code, "TIMEOUT");
+    assert.match(row.detail, /run limit/);
+    assert.match(row.detail, /waited in the broker's queue does not count/);
+    assert.match(row.detail, /cancelled at the broker by id/);
+    assert.ok(cancels.includes("req-queued"), "at the end of its run time the request is cancelled by id");
+  });
+
+  test("a carried scan whose status cannot be read is counted as running (fail closed): it times out, it is never immortal", async () => {
+    const { fs, plan } = planFor(["crates/foo/src/lib.rs"]);
+    const live = { state: async () => null, cancel: async () => {} };
+    const spawn = async (command, args, options) => {
+      if (!BROKER_CALL(command, args)) return fakeSpawn()(command, args);
+      await new Promise((resolve) => options.signal.addEventListener("abort", resolve, { once: true }));
+      return { status: null, stdout: "", stderr: "", error: new Error("cancelled"), cancelled: true };
+    };
+    const result = await runScans(onlyChecks(plan, 25), { ...deps({ ...fs, spawn }), brokerHost: true, brokerLive: live, brokerPollMs: 1, brokerCancelGraceMs: 5 });
+    assert.equal(result.scans.find((r) => r.id === "clippy:foo").code, "TIMEOUT");
+  });
+
+  test("a carried scan with no live reader keeps its own limit (the client carries it as its operation deadline) and is stopped at it", async () => {
+    const { fs, plan } = planFor(["crates/foo/src/lib.rs"]);
+    const spawn = async (command, args, options) => {
+      if (!BROKER_CALL(command, args)) return fakeSpawn()(command, args);
+      assert.equal(options.env.RUSTRIGHT_REQUEST_ID_FILE, undefined, "nothing asks the broker, so no request-reference file is named");
+      await new Promise((resolve) => options.signal.addEventListener("abort", resolve, { once: true }));
+      return { status: null, stdout: "", stderr: "", error: new Error("cancelled"), cancelled: true };
+    };
+    const result = await runScans(onlyChecks(plan, 25), { ...deps({ ...fs, spawn }), brokerHost: true });
+    assert.equal(result.scans.find((r) => r.id === "clippy:foo").code, "TIMEOUT");
+  });
+
+  test("B3: every UNWATCHED broker-carried scan hands its client its own limit as the operation deadline (a rustright call with no carrier); a watched one sends none; a user-set deadline stays", async () => {
+    const { fs, plan } = planFor(["crates/foo/src/lib.rs"]);
+    const seen = [];
+    const spawn = async (command, args, options) => {
+      if (!BROKER_CALL(command, args)) return fakeSpawn()(command, args);
+      seen.push({ deadline: options.env.RUSTRIGHT_OPERATION_DEADLINE_MS, cancelWait: options.env.RUSTRIGHT_CANCEL_WAIT_MS });
+      return fakeSpawn()(command, args);
+    };
+    // Unwatched (no reader): a long limit gives limit - 20 s; a short one half the limit.
+    await runScans(onlyChecks(plan, 600_000), { ...deps({ ...fs, spawn }), brokerHost: true });
+    await runScans(onlyChecks(plan, 25), { ...deps({ ...fs, spawn }), brokerHost: true });
+    assert.deepEqual(seen.map((x) => x.deadline), ["580000", "12"], "RUSTRIGHT_OPERATION_DEADLINE_MS is the scan's own limit (before it, so the client cancels by id first)");
+    assert.equal(seen[0].cancelWait, "15000");
+    // Watched: no deadline (it would be absolute from the client's start and charge the queue time to the scan).
+    seen.length = 0;
+    await runScans(onlyChecks(plan, 600_000), { ...deps({ ...fs, spawn }), brokerHost: true, brokerLive: { state: async () => "RUNNING", cancel: async () => {} } });
+    assert.equal(seen[0].deadline, undefined);
+    // A user-set deadline is never replaced.
+    seen.length = 0;
+    await runScans(onlyChecks(plan, 600_000), { ...deps({ ...fs, spawn }), brokerHost: true, env: { ...deps({ ...fs }).env, RUSTRIGHT_OPERATION_DEADLINE_MS: "777" } });
+    assert.equal(seen[0].deadline, "777");
+  });
+
+  test("B3: a carried Swift scan's call budget: unwatched passes its own limit as the operation deadline and the retry bound, watched passes none; a user-set deadline stays", () => {
+    assert.deepEqual(scansModule.carriedCallBudget({ env: {}, limitMs: 600_000, watched: false }), { env: { RUSTRIGHT_OPERATION_DEADLINE_MS: "580000", RUSTRIGHT_CANCEL_WAIT_MS: "15000" }, deadlineMs: 580_000 });
+    assert.deepEqual(scansModule.carriedCallBudget({ env: {}, limitMs: 600_000, watched: true }), { env: {} });
+    assert.equal(scansModule.carriedCallBudget({ env: { RUSTRIGHT_OPERATION_DEADLINE_MS: "777" }, limitMs: 600_000, watched: false }).env.RUSTRIGHT_OPERATION_DEADLINE_MS, undefined, "the caller's own deadline is never replaced");
+  });
+
+  test("B1: a watched scan the broker keeps QUEUED is stopped at its wall-clock ceiling (4 x its limit): cancelled by id, then the tree, and the TIMEOUT says it was hit while queued", async () => {
+    const { fs, plan } = planFor(["crates/foo/src/lib.rs"]);
+    const cancels = []; let heldMs = 0;
+    const live = { state: async () => "QUEUED", cancel: async (id) => { cancels.push(id); } };
+    const spawn = async (command, args, options) => {
+      if (!BROKER_CALL(command, args)) return fakeSpawn()(command, args);
+      writeFileSync(options.env.RUSTRIGHT_REQUEST_ID_FILE, JSON.stringify({ schema: "rustright.request-ref.v1", requestId: "req-wedged", workspace: path.resolve("/ws") }));
+      const at = Date.now();
+      await new Promise((resolve) => options.signal.addEventListener("abort", resolve, { once: true }));
+      heldMs = Date.now() - at;
+      return { status: null, stdout: "", stderr: "", error: new Error("cancelled"), cancelled: true };
+    };
+    const result = await runScans(onlyChecks(plan, 40), { ...deps({ ...fs, spawn }), brokerHost: true, brokerLive: live, brokerPollMs: 1, brokerCancelGraceMs: 5 });
+    const row = result.scans.find((r) => r.id === "clippy:foo");
+    assert.equal(row.status, "fail"); assert.equal(row.code, "TIMEOUT");
+    assert.match(row.detail, /wall-clock ceiling while it waited in the broker's queue/);
+    assert.match(row.detail, /4 x its 0 s run limit|4 x its \d+ s run limit/);
+    assert.match(row.detail, /not a count/);
+    assert.match(row.detail, /cancelled at the broker by id/);
+    assert.deepEqual([...new Set(cancels)], ["req-wedged"], "cancelled by id at the ceiling");
+    assert.ok(heldMs >= 150, `the scan was held for the ceiling (4 x 40 ms), not stopped at its own 40 ms limit (${heldMs} ms)`);
+  });
+
+  test("a watched scan leaves no timer of the gate's behind: the status poller, run clock, ceiling and kill grace are all cleared once the run resolves (normal end, run-limit stop and ceiling stop)", async () => {
+    const timeouts = () => process.getActiveResourcesInfo().filter((r) => r === "Timeout").length;
+    const { fs, plan } = planFor(["crates/foo/src/lib.rs"]);
+    const before = timeouts();
+    const live = { state: async () => "QUEUED", cancel: async () => {} };
+    const hang = async (command, args, options) => {
+      if (!BROKER_CALL(command, args)) return fakeSpawn()(command, args);
+      writeFileSync(options.env.RUSTRIGHT_REQUEST_ID_FILE, JSON.stringify({ schema: "rustright.request-ref.v1", requestId: "req-t", workspace: path.resolve("/ws") }));
+      await new Promise((resolve) => options.signal.addEventListener("abort", resolve, { once: true }));
+      return { status: null, stdout: "", stderr: "", error: new Error("cancelled"), cancelled: true };
+    };
+    // Ended by its own ceiling (queued throughout), then by a normal exit (the default fake spawn), both with the real poller.
+    await runScans(onlyChecks(plan, 30), { ...deps({ ...fs, spawn: hang }), brokerHost: true, brokerLive: live, brokerPollMs: 1000, brokerCancelGraceMs: 20 });
+    await runScans(onlyChecks(plan, 600_000), { ...deps({ ...fs }), brokerHost: true, brokerLive: live, brokerPollMs: 1000 });
+    await pause(50);
+    assert.ok(timeouts() <= before, `no gate timer outlives its run (${before} before, ${timeouts()} after)`);
+  });
+
+  test("S6: a broker host that sets no classBJobs (local-qualify) still bounds the local npm suites at LOCAL_CLASS_B_JOBS, never at 1", async () => {
+    const units = [0, 1, 2, 3, 4].map((n) => ({ name: `p${n}`, dir: `packages/p${n}` }));
+    const files = Object.fromEntries(units.flatMap((u) => [[`${u.dir}/package.json`, '{"name":"x","license":"MIT","scripts":{"test":"x"}}'], [`${u.dir}/src/a.ts`, ""]]));
+    const { fs, plan } = planFor(units.map((u) => `${u.dir}/src/a.ts`), files, { rustUnits: [], npmUnits: units });
+    const suites = plan.scans.filter((x) => x.class === "B" && /^test:npm:/.test(x.id));
+    assert.equal(suites.length, 5, plan.scans.map((x) => x.id).join(" "));
+    const peakOf = async (extra) => {
+      let active = 0; let peak = 0;
+      const spawn = async (command, args, options) => {
+        if (!(args ?? []).includes("test") || !(args ?? []).includes("--dir")) return fakeSpawn()(command, args);
+        active += 1; peak = Math.max(peak, active); await pause(20); active -= 1;
+        return fakeSpawn()(command, args);
+      };
+      await runScans(plan, { ...deps({ ...fs, spawn }), jobs: 2, testJobs: 2, ...extra });
+      return peak;
+    };
+    assert.equal(await peakOf({ brokerHost: true }), scansModule.LOCAL_CLASS_B_JOBS, "no classBJobs on a broker host: the local limit, not 1");
+    assert.equal(await peakOf({ brokerHost: true, classBJobs: 1 }), 1, "an explicit limit still wins");
+  });
+
+  test("S2: an npm/node suite with a broker call is scheduled under the LOCAL limit (its runner is local); cargo/rustright and carried Swift are the broker's", () => {
+    const ctx = { brokerHost: true, snapshotBroker: { handle: "h" } };
+    assert.equal(scansModule.isBrokerScheduledScan({ tool: "rustright" }, ctx), true);
+    assert.equal(scansModule.isBrokerScheduledScan({ tool: "cargo" }, ctx), true);
+    assert.equal(scansModule.isBrokerScheduledScan({ tool: "swift" }, ctx), true);
+    assert.equal(scansModule.isBrokerScheduledScan({ tool: "pnpm", brokerCall: { command: "x" } }, ctx), false, "a suite whose runner is a local process holds a local slot");
+    assert.equal(scansModule.isBrokerCarriedScan({ tool: "pnpm", brokerCall: { command: "x" } }, ctx), true, "its broker calls are still carried (and watched)");
+    assert.equal(scansModule.isBrokerScheduledScan({ tool: "rustright" }, {}), false);
+    assert.equal(scansModule.LOCAL_CLASS_B_JOBS, 3);
+  });
+}
+
 test("lanes: class B tests run one at a time after compile; quiet scans run last under the lease", async () => {
   const bar = { "crates/bar/Cargo.toml": 'edition = "2024"\nversion = "1.0.0"\nlicense = "MIT"\n', "crates/bar/CHANGELOG.md": "## 1.0.0\n- x\n", "crates/bar/src/lib.rs": "" };
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/bar/src/lib.rs"], bar, { crateFeatures: { foo: { quietTests: true } } });

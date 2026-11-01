@@ -35,7 +35,8 @@ import { LAUNCH_GUARD_IMPORT } from "./class-a-launch-guard.mjs";
 import { advisoryCacheRoot, ensureAdvisoryDb, prepareDenyOverlay, readAdvisoryPin } from "./advisory-db.mjs";
 import { observedEnvOf, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest } from "./snapshot-request.mjs";
 import { SCAN_TOKEN_ENV, appendLedger, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
-import { brokerSection, carryBrokerAdapter, verifyBrokerLedger } from "./snapshot-broker.mjs";
+import { brokerSection, carryBrokerAdapterAsync, verifyBrokerLedger } from "./snapshot-broker.mjs";
+import { ADMISSION_POLL_MS, CARRIED_CANCEL_GRACE_MS, QUEUED_CEILING_FACTOR, createBrokerLive, createRunClock, createStatusPoller, watchBrokerAdmission } from "./broker-admission.mjs";
 import { CANCEL_WAIT_ENV, operationDeadlineEnv } from "./broker-wire.mjs";
 import { removeCarrier } from "./carrier-census.mjs";
 
@@ -1804,6 +1805,69 @@ export function scanTimeoutMs(scan, options = {}) {
   return scan?.class === SCAN_CLASS.B ? 60 * 60_000 : 30 * 60_000;
 }
 
+/**
+ * A scan the broker carries (rightkit#1367 step 2): on a broker host (`brokerHost`; a snapshot carrier implies one) a cargo or rustright scan, a carried Swift package build
+ * (only with the snapshot carrier: a Swift scan with no carrier is a local process), and an npm or node suite that declares a broker call (`brokerCall`: its compiles are
+ * carried requests). The broker queues and orders these; the gate neither counts them nor puts a clock on their queue time. This is the ONE test: the scheduler, the
+ * run clock, the snapshot carrier (`viaSnapshotBroker`) and the carried Swift route (`swiftBrokered`) all derive from it.
+ */
+export function isBrokerCarriedScan(scan, { brokerHost = false, snapshotBroker = null } = {}) {
+  if (brokerHost !== true && !snapshotBroker) return false;
+  if (scan?.tool === "rustright" || scan?.tool === "cargo") return true;
+  if (scan?.tool === "swift") return Boolean(snapshotBroker);
+  return Boolean(scan?.brokerCall);
+}
+
+/** Class B processes the broker never sees (npm or node test suites run on this host) are bounded here, one slot per suite; the broker bounds everything it carries (rightkit#1367 step 2). */
+export const LOCAL_CLASS_B_JOBS = 3;
+
+/**
+ * Whether a class B scan is the BROKER's to queue for scheduling: a cargo or rustright scan and a carried Swift build (isBrokerCarriedScan). An npm or node suite that merely makes broker
+ * calls (`brokerCall`) is still a process of this host, so it holds one of the local slots; only its broker calls are carried and watched.
+ */
+export function isBrokerScheduledScan(scan, ctx) {
+  return isBrokerCarriedScan(scan, ctx) && (scan?.tool === "rustright" || scan?.tool === "cargo" || scan?.tool === "swift");
+}
+
+/** The directory a class B scan works in: its `cwd`, else the package an `--dir <package>` argument names (an npm suite); null when it names none. */
+function scanDirectory(scan) {
+  if (typeof scan?.cwd === "string") return scan.cwd;
+  const at = Array.isArray(scan?.args) ? scan.args.indexOf("--dir") : -1;
+  return at >= 0 && typeof scan.args[at + 1] === "string" ? scan.args[at + 1] : null;
+}
+/**
+ * The chain a class B scan belongs to on a broker host. Scans of one component's directory share its output directory and run in plan order. A carried scan chains by its
+ * directory (the repository root, `.`, when it names none). A scan the broker never sees chains by ITS OWN package directory (else its id), never the shared `.` chain, so the
+ * local limit counts real suites and a root build never waits behind them.
+ */
+export function classBChainKey(scan, carried) {
+  const dir = scanDirectory(scan);
+  return carried ? (dir ?? ".") : `local:${dir ?? scan?.id ?? "."}`;
+}
+
+/**
+ * Class B on a broker host (rightkit#1367 step 2): one chain per component, its scans in plan order (compile, doc, tests: they share the component's output directory),
+ * every chain started at once. A broker-carried scan starts without a count; the broker queues and orders it. A scan the broker never sees (an npm or node suite) holds one
+ * of `localJobs` local slots while it runs. `run(index)` runs one scan and never rejects.
+ */
+export async function scheduleBrokerHostClassB({ scans, lanes, carried, localJobs, run }) {
+  const chains = new Map();
+  for (const lane of ["compile", "doc", "tests"]) {
+    for (const i of lanes[lane] ?? []) { const key = classBChainKey(scans[i], carried(scans[i])); if (!chains.has(key)) chains.set(key, []); chains.get(key).push(i); }
+  }
+  const limit = Math.max(1, Number(localJobs) || 1);
+  let held = 0; const waiters = [];
+  const take = async () => { while (held >= limit) await new Promise((resolve) => waiters.push(resolve)); held += 1; };
+  const free = () => { held -= 1; waiters.shift()?.(); };
+  await Promise.all([...chains.values()].map(async (chain) => {
+    for (const i of chain) {
+      const local = !carried(scans[i]);
+      if (local) await take();
+      try { await run(i); } finally { if (local) free(); }
+    }
+  }));
+}
+
 export function laneOf(scan) {
   if (/^(clippy|check|check-features|check-dependent):/.test(scan.id)) return "compile";
   if (/^doc:/.test(scan.id)) return "doc";
@@ -2078,8 +2142,18 @@ const INTERNAL = {
  * GB-52: a carried scan's client gets an operation deadline BEFORE the scan's own limit, so the client cancels the job by id and watches its terminal state (within a 15 s cancel wait)
  * instead of being killed with the job still running; a user-set RUSTRIGHT_OPERATION_DEADLINE_MS or cancel wait is never replaced.
  */
+/** A span for a message: whole seconds under a minute, minutes from then on. */
+export const spanText = (ms) => (ms < 60_000 ? `${Math.max(0, Math.round(ms / 1000))} s` : `${Math.round(ms / 60_000)} min`);
+export const scanOperationDeadlineMs = (limitMs) => Math.max(Math.floor(limitMs / 2), limitMs - 20_000);
+/**
+ * What a carried Swift scan gives carryBrokerAdapterAsync: an UNWATCHED one passes its own limit as the client's operation deadline (the env, and `deadlineMs`, which also bounds the
+ * retry wait); a watched one passes neither (the stopwatch and the ceiling bound it, and the client's deadline is absolute from its start).
+ */
+export function carriedCallBudget({ env, limitMs, watched }) {
+  return watched ? { env: {} } : { env: scanOperationEnv(env, limitMs), deadlineMs: scanOperationDeadlineMs(limitMs) };
+}
 export function scanOperationEnv(env, limitMs) {
-  const deadline = operationDeadlineEnv({ env, deadlineMs: Math.max(Math.floor(limitMs / 2), limitMs - 20_000) });
+  const deadline = operationDeadlineEnv({ env, deadlineMs: scanOperationDeadlineMs(limitMs) });
   if (Object.keys(deadline).length === 0) return {};
   return { ...deadline, ...(Object.keys(env ?? {}).some((k) => k.toUpperCase() === CANCEL_WAIT_ENV) ? {} : { [CANCEL_WAIT_ENV]: "15000" }) };
 }
@@ -2143,6 +2217,14 @@ export async function runScans(plan, options = {}) {
   const ordered = [...selected.filter((s) => s.class === SCAN_CLASS.A), ...selected.filter((s) => s.class === SCAN_CLASS.B)];
   const ctx = { deps, contentRoot, read: (f) => deps.readFile(path.join(contentRoot, f)) };
   const cargoReadsAreCarried = Boolean(deps.snapshotBroker) || options.cargoReadsCarried === true;
+  // A broker host: the gate says so (options.brokerHost, from its executor) and a snapshot carrier implies it. One predicate (isBrokerCarriedScan) names the scans the broker carries.
+  const brokerHost = options.brokerHost === true || Boolean(deps.snapshotBroker);
+  const carriedCtx = { brokerHost, snapshotBroker: deps.snapshotBroker ?? null };
+  // The broker's live state of a request (queued or running), through an ASYNCHRONOUS client call: the gate's own reader when it hands one, else the carrier's client.
+  const brokerLive = options.brokerLive ?? (brokerHost && typeof deps.snapshotBroker?.client === "string" ? createBrokerLive({ client: deps.snapshotBroker.client, env: deps.env, spawn: defaultSpawnAsync, platform: deps.platform }) : null);
+  // One reader for the whole run: every watched scan registers with it (first read after 1 s, then every 5 s, two reads in flight at most), instead of a client spawn per scan.
+  const pollMs = options.brokerPollMs ?? ADMISSION_POLL_MS;
+  const statusPoller = brokerLive ? createStatusPoller({ live: brokerLive, intervalMs: pollMs }) : null;
   const toolVersions = {}; const toolIdentities = {}; const probed = new Map(); const advisoryDbs = new Map();
   const results = [];
   // The gate-owned cargo ledger of a wrapped snapshot compile (options.cargoLedger = { dir }): every call the wrapper decided, filed
@@ -2290,11 +2372,15 @@ export async function runScans(plan, options = {}) {
     const slots = new Array(bScans.length);
     const lanes = { compile: [], doc: [], tests: [], quiet: [] };
     bScans.forEach((s, i) => lanes[laneOf(s)].push(i));
-    // RightKit is many components, never one build (Adrian, 2026-10-29; rightkit#1285): class B scans of different components run
-    // concurrently, `classBJobs` at a time (the broker queues beyond its build capacity). A component is the directory a scan runs in
-    // (`cwd`, its own Cargo workspace and output directory); scans of one component stay in plan order, because they share its
-    // output directory and cargo locks it.
-    const bJobs = Math.max(1, Number(options.classBJobs ?? 1) || 1);
+    // RightKit is many components, never one build (Adrian, 2026-10-29; rightkit#1285). A component is the directory a scan runs in (`cwd`, its
+    // own Cargo workspace and output directory); scans of one component stay in plan order, because they share its output directory and cargo
+    // locks it.
+    // Direct host: class B scans of different components run `classBJobs` at a time (nothing else bounds work there), compile, doc, then tests.
+    // Broker host (options.brokerHost; rightkit#1367 step 2, Adrian 2026-11-01: "the broker manages the how many builds happen. That is not the
+    // job of the gate"): the scans the broker carries start with no count and no lane-wide wait, each component running its own chain while the
+    // broker queues and orders them. A scan the broker never sees (an npm or node test suite) is a process of this host: those keep the local limit.
+    const bJobs = Math.max(1, Number(options.classBJobs ?? (brokerHost ? LOCAL_CLASS_B_JOBS : 1)) || 1);
+    const failedRow = (i, error) => ({ id: bScans[i].id, class: bScans[i].class, command: bScans[i].command, tool: bScans[i].tool ?? null, toolVersion: null, status: "fail", code: "SCAN_ERROR", detail: String(error?.message ?? error) });
     const drain = async (queue, extraEnv = null) => {
       const busy = new Set(); const running = new Set();
       const keyOf = (i) => bScans[i].cwd ?? ".";
@@ -2304,14 +2390,21 @@ export async function runScans(plan, options = {}) {
         const [i] = queue.splice(at, 1); const key = keyOf(i); busy.add(key);
         // A scan that throws becomes a failed row: with several components in flight, a rejection must not abandon the others.
         const job = runOne(bScans[i], extraEnv)
-          .catch((error) => ({ id: bScans[i].id, class: bScans[i].class, command: bScans[i].command, tool: bScans[i].tool ?? null, toolVersion: null, status: "fail", code: "SCAN_ERROR", detail: String(error?.message ?? error) }))
+          .catch((error) => failedRow(i, error))
           .then((row) => { slots[i] = row; }).finally(() => { busy.delete(key); running.delete(job); });
         running.add(job);
       }
     };
-    await drain(lanes.compile);
-    await drain(lanes.doc);
-    await drain(lanes.tests);
+    if (brokerHost) {
+      await scheduleBrokerHostClassB({
+        scans: bScans, lanes, localJobs: bJobs, carried: (scan) => isBrokerScheduledScan(scan, carriedCtx),
+        run: async (i) => { try { slots[i] = await runOne(bScans[i]); } catch (error) { slots[i] = failedRow(i, error); } },
+      });
+    } else {
+      await drain(lanes.compile);
+      await drain(lanes.doc);
+      await drain(lanes.tests);
+    }
     if (lanes.quiet.length) {
       // One lease per quiet suite, as in class A above.
       for (const i of lanes.quiet) {
@@ -2418,7 +2511,8 @@ export async function runScans(plan, options = {}) {
           let cacheKey = null;
           // A cargo request that builds the commit snapshot through the broker (options.snapshotBroker) is never served from or written
           // to the scan cache: each run must carry its own request and verify the broker's own signed evidence.
-          const viaSnapshotBroker = Boolean(deps.snapshotBroker) && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
+          const carriedScan = isBrokerCarriedScan(s, carriedCtx);
+          const viaSnapshotBroker = carriedScan && Boolean(deps.snapshotBroker) && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
           const carriedRead = cargoReadsAreCarried && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo"); // a snapshot compile never reuses a cargo read either
           if (cache && !viaSnapshotBroker && !carriedRead) {
             try {
@@ -2508,7 +2602,20 @@ export async function runScans(plan, options = {}) {
           }
           const limitMs = scanTimeoutMs(s, options);
           const timer = new AbortController();
-          const clock = setTimeout(() => timer.abort(), limitMs);
+          // The scan's run limit is a stopwatch. A scan the broker carries (class B, not a quiet suite under its lease) is watched: the stopwatch does not tick while
+          // every request of the scan is QUEUED at the broker (broker-admission.mjs), so queue time is neither charged to the scan nor bounded by a gate allowance.
+          // Without a live reader (no client to ask) the stopwatch simply runs, and every unwatched carried scan gives its client the scan's own limit as the operation deadline
+          // (RUSTRIGHT_OPERATION_DEADLINE_MS: the snapshot carrier, a rustright or cargo call, a carried Swift call through deadlineMs), so the client cancels by id before the gate stops it.
+          const watched = carriedScan && s.class === SCAN_CLASS.B && s.quiet !== true && brokerLive !== null;
+          let admission = null; let graceTimer = null; let genRefDir = null; let clockExpired = false;
+          // A carried scan is cancelled by id first and its process tree stopped only after a grace; any other scan is stopped at once.
+          const stopScan = () => {
+            clockExpired = true;
+            if (admission) { admission.cancelKnown().catch(() => {}); graceTimer = setTimeout(() => timer.abort(), options.brokerCancelGraceMs ?? CARRIED_CANCEL_GRACE_MS); } else timer.abort();
+          };
+          // A watched scan also has ONE wall-clock ceiling, its own limit x QUEUED_CEILING_FACTOR: a safety stop for a wedged broker queue (the broker's job deadlines are off by default), not a count.
+          const runClock = createRunClock({ limitMs, onExpire: stopScan, ...(watched ? { ceilingMs: limitMs * QUEUED_CEILING_FACTOR, onCeiling: stopScan } : {}) });
+          const stopClock = () => { runClock.stop(); admission?.stop(); if (graceTimer) clearTimeout(graceTimer); if (genRefDir) { fs.rmSync(genRefDir, { recursive: true, force: true }); genRefDir = null; } };
           const scanSignal = signal ? AbortSignal.any([signal, timer.signal]) : timer.signal;
           // A class A test row runs under the launch guard (class-a-launch-guard.mjs): its Node processes may not launch a compile.
           // Every class A row that executes repository code (tests, lint/typecheck with repository config, generators) runs under the
@@ -2521,12 +2628,12 @@ export async function runScans(plan, options = {}) {
           // build directory is the gate's own, keyed by the repository and the scan so it stays warm.
           // GB-67: on a broker host the scan is the carried `rightkit-swift` adapter job and the broker owns SwiftPM's scratch (it appends the one managed path and the
           // product location is `build --show-bin-path`): the gate sends no scratch or build path, and never adds one. Only a host with no broker (Linux direct) keeps its own.
-          const swiftBrokered = s.tool === "swift" && Boolean(deps.snapshotBroker);
+          const swiftBrokered = carriedScan && s.tool === "swift" && Boolean(deps.snapshotBroker);
           // The adapter takes exactly one relative --package-path (adapter.rs check_swift_package); the scan runs in its package directory, so that is `.`.
           if (swiftBrokered && finalArgs[0] === "build" && !finalArgs.some((a) => a === "--package-path" || a.startsWith("--package-path="))) finalArgs.splice(1, 0, "--package-path", ".");
           if (s.tool === "swift" && finalArgs[0] === "build" && !swiftBrokered && !finalArgs.some((a) => a === "--scratch-path" || a === "--build-path" || a.startsWith("--scratch-path=") || a.startsWith("--build-path="))) {
             try { finalArgs.push("--scratch-path", swiftScratchPath({ tmpRoot, roots: [contentRoot, liveRoot, cargoLiveRoot], id: s.id })); }
-            catch (e) { advisory?.cleanup?.(); return { ...row, status: "fail", code: "SWIFT_SCRATCH", detail: `${s.id}: ${e.message}` }; }
+            catch (e) { stopClock(); advisory?.cleanup?.(); return { ...row, status: "fail", code: "SWIFT_SCRATCH", detail: `${s.id}: ${e.message}` }; }
           }
           let carrier = null;
           if (viaSnapshotBroker) {
@@ -2537,7 +2644,7 @@ export async function runScans(plan, options = {}) {
               const cargoArgv = s.tool === "rustright" ? finalArgs.slice(1) : finalArgs;
               const made = writeSnapshotRequest({ controlRoot: sb.controlRoot, commit: sb.commit, snapshot: sb.snapshot, declaredInputs: sb.declaredInputs ?? [], handle: sb.handle, primaryCwd: fs.realpathSync.native(cwd), argv: cargoArgv, requestIdFile: path.join(refDir, "request.json") });
               carrier = { made, refDir, cargoArgv };
-            } catch (e) { fs.rmSync(refDir, { recursive: true, force: true }); clearTimeout(clock); advisory?.cleanup?.(); return { ...row, status: "fail", code: "SNAPSHOT_REQUEST", detail: `the snapshot request for ${s.id} could not be written: ${e.message}` }; }
+            } catch (e) { fs.rmSync(refDir, { recursive: true, force: true }); stopClock(); advisory?.cleanup?.(); return { ...row, status: "fail", code: "SNAPSHOT_REQUEST", detail: `the snapshot request for ${s.id} could not be written: ${e.message}` }; }
           }
           // From here to the end of its verification the carrier and the request reference are this request's: every exit (cancel,
           // timeout, a thrown spawn, a refused receipt) removes them.
@@ -2560,22 +2667,26 @@ export async function runScans(plan, options = {}) {
             let marked = null; let why = null;
             try { if (typeof deps.snapshotBroker.markBrokerSubmit !== "function") throw new Error("no build-ownership submit hook"); marked = deps.snapshotBroker.markBrokerSubmit(sub); } catch (e) { why = e.message; }
             if (marked?.broker?.submitted !== true || marked.handle !== deps.snapshotBroker.handle || !marked.broker.handles?.includes(sub)) {
-              clearTimeout(clock); advisory?.cleanup?.();
+              stopClock(); advisory?.cleanup?.();
               return { ...row, status: "fail", code: "SNAPSHOT_REQUEST", detail: `the snapshot request for ${s.id} was not sent: the build ownership did not record the broker submit under ${deps.snapshotBroker.handle}${why ? ` (${why})` : ""}` };
             }
           }
           if (swiftBrokered) {
             // One signed, ledgered adapter request in the commit's snapshot (the ownership records its sub-handle before it is sent); a refused or unverified call fails the scan.
+            // The carry is asynchronous (the gate's other scans keep running while this one queues or builds) and takes the scan's own signal: the run limit, or a cancel, stops it.
+            const swiftRefs = [];
+            const swiftBudget = carriedCallBudget({ env: { ...deps.env, ...s.env }, limitMs, watched });
+            if (watched) { admission = watchBrokerAdmission({ clock: runClock, refFiles: () => swiftRefs, live: brokerLive, poller: statusPoller }); admission.start(); }
             try {
-              const carried = carryBrokerAdapter({ adapter: "rightkit-swift", words: finalArgs, cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, section: brokerSection(deps.snapshotBroker), record: (entry) => { if (cargoLedger && ledgerToken) appendLedger(cargoLedger.dir, ledgerToken, entry); }, err: () => {}, stdio: "capture" });
+              const carried = await carryBrokerAdapterAsync({ adapter: "rightkit-swift", words: finalArgs, cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}), ...swiftBudget.env }, ...(swiftBudget.deadlineMs !== undefined ? { deadlineMs: swiftBudget.deadlineMs } : {}), section: brokerSection(deps.snapshotBroker), record: (entry) => { if (typeof entry.requestRef === "string" && !swiftRefs.includes(entry.requestRef)) swiftRefs.push(entry.requestRef); if (cargoLedger && ledgerToken) appendLedger(cargoLedger.dir, ledgerToken, entry); }, err: () => {}, stdio: "capture", signal: scanSignal, spawn: deps.adapterSpawn ?? defaultSpawnAsync });
               r = { status: carried.status, stdout: carried.stdout, stderr: carried.stderr };
-            } catch (e) { r = { error: e }; } finally { clearTimeout(clock); advisory?.cleanup?.(); }
+            } catch (e) { r = { error: e }; } finally { stopClock(); advisory?.cleanup?.(); }
           } else {
           // The executables this scan runs are the ones resolved and verified above: read their bytes again now, immediately before the launch
           // (a replaced binary is TOOL_REPLACED), and hand the scan only those paths: actionlint its shellcheck, cargo its cargo-deny / cargo-audit.
           for (const identity of identities) {
             const swapped = trustedScanToolProblem(identity, { ops: options.toolOps });
-            if (swapped) { clearTimeout(clock); advisory?.cleanup?.(); return { ...row, status: "fail", code: swapped.code, detail: `${swapped.code}: ${swapped.detail}; the scan did not run` }; }
+            if (swapped) { stopClock(); advisory?.cleanup?.(); return { ...row, status: "fail", code: swapped.code, detail: `${swapped.code}: ${swapped.detail}; the scan did not run` }; }
           }
           const shellcheckIdentity = s.tool === "actionlint" ? identities.find((i) => i.tool === "shellcheck") : null;
           const spawnArgs = shellcheckIdentity ? ["-shellcheck", shellcheckIdentity.path, ...finalArgs] : finalArgs;
@@ -2590,10 +2701,25 @@ export async function runScans(plan, options = {}) {
           const wrapperBin = (cargoLedger || options.cargoSentinel) && typeof scanCargo === "string" && typeof scanPath === "string" ? (deps.platform === "win32" ? path.win32 : path.posix).dirname(scanCargo) : null;
           const wrapperFirst = wrapperBin !== null && scanPath.split(pathSep)[0] === wrapperBin;
           const trustEnv = trustedDirs.length ? { [pathKey]: (wrapperFirst ? [wrapperBin, ...trustedDirs, scanPath.slice(wrapperBin.length + 1)] : [...trustedDirs, scanPath]).filter(Boolean).join(pathSep) } : {};
-          try { r = await deps.spawn(p.command, spawnArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...(carrier ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
+          // A watched scan names where its client writes the request id (RUSTRIGHT_REQUEST_ID_FILE) so the gate can ask the broker for it: the carrier's own reference, a file of its own for
+          // a scan that reaches the broker through `rustright cargo`, or the reference files its carried calls record in the cargo ledger (an npm suite with a broker call).
+          let refEnv = {};
+          if (watched) {
+            let refFiles;
+            if (carrier) refFiles = () => [path.join(carrier.refDir, "request.json")];
+            else if (s.tool === "rustright" || s.tool === "cargo") { genRefDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-scanreq-")); const file = path.join(genRefDir, "request.json"); refEnv = { RUSTRIGHT_REQUEST_ID_FILE: file }; refFiles = () => [file]; }
+            else refFiles = () => { try { return ledgerToken && cargoLedger ? readLedger(cargoLedger.dir, ledgerToken).entries.filter((e) => e.status === "pending" && typeof e.requestRef === "string").map((e) => e.requestRef) : []; } catch { return []; } };
+            admission = watchBrokerAdmission({ clock: runClock, refFiles, live: brokerLive, poller: statusPoller });
+            admission.start();
+          }
+          try { r = await deps.spawn(p.command, spawnArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...refEnv, ...(carriedScan && !watched ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv }, signal: scanSignal, ...(watched ? {} : { timeout: limitMs }) }); } finally { stopClock(); advisory?.cleanup?.(); }
           }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
-          if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };
+          if ((clockExpired || timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) {
+            const how = `was ${admission ? "cancelled at the broker by id and stopped" : "killed"} with its process tree; a scan that does not finish fails`;
+            if (runClock.ceilingHit) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} hit its wall-clock ceiling while it waited in the broker's queue (${spanText(limitMs * QUEUED_CEILING_FACTOR)}: ${QUEUED_CEILING_FACTOR} x its ${spanText(limitMs)} run limit, a safety stop for a wedged broker queue, not a count; it had waited ${spanText(runClock.queuedMs)} in the queue) and ${how}` };
+            return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than its ${spanText(limitMs)} run limit${runClock.queuedMs > 0 ? ` (the ${spanText(runClock.queuedMs)} it waited in the broker's queue does not count)` : ""} and ${how}` };
+          }
           if (!r || r.error) { status = "fail"; code = "SPAWN_ERROR"; detail = r?.error?.message ?? "no result"; }
           else if (r.status !== 0) { status = "fail"; code = "EXIT"; detail = tail(r) || `exit ${r.status}`; }
           // cargo-deny reports some failures only as an [ERROR] line and still exits 0 (under the broker, its nested offline

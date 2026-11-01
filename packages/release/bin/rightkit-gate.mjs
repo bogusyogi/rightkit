@@ -61,8 +61,12 @@
 // rust.<crate>.testInputs lists the paths they read, for npm, node and docs scans, and whenever a reference cannot be resolved
 // statically) are all identical. Stored in <git common dir>/rightkit-gate-cache; a hit prints
 // `cached` and is listed in the result's cacheHits. Failures, deferrals and class A scans are never cached.
-// RK_GATE_JOBS (default 4) sets class A scan concurrency. RK_GATE_CLASS_B_JOBS (default 3, the Mac broker's build capacity; the
-// broker queues beyond its own) sets how many components' class B scans run at once; one component's scans stay in order (rightkit#1285).
+// RK_GATE_JOBS (default 4) sets class A scan concurrency. Class B on a broker host (rightkit#1367 step 2): the gate does not count builds; every
+// component's broker-carried scans (cargo, rustright, carried Swift, and npm suites that declare a broker call) start without a limit, each component in plan order,
+// and the broker queues and orders them. A carried scan's run limit is a stopwatch that stops while the broker holds all its requests QUEUED (broker-admission.mjs),
+// so queue time is neither charged to the scan nor bounded by a gate allowance. Only class B suites the broker never sees (npm or node tests run on this host)
+// keep a local limit of 3, one slot per suite. On a host with no broker RK_GATE_CLASS_B_JOBS (default 3) sets how many components' class B scans run at once; one
+// component's scans stay in order (rightkit#1285).
 // A crate whose ci/gate.config.json entry says `quietTests: true` has its test scans run last,
 // one at a time, under the RustRight quiet lease (`rustright quiet acquire`, RUSTRIGHT_QUIET_LEASE in their environment).
 // SIGINT/SIGTERM stop scheduling, kill every running scan's process tree and exit non-zero listing the scans not run.
@@ -74,13 +78,14 @@ import os from "node:os";
 import path from "node:path";
 import { FOREIGN_PRE_COMMIT, retireHooksIn } from "../hook-retirement.mjs";
 import { fileURLToPath } from "node:url";
-import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanToolPolicyFromPipeline, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
+import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanToolPolicyFromPipeline, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 import { ALL_UNITS_ERRORS, ALL_UNITS_EXCEPTIONS_FILE, BROKER_EXCEPTIONS_FILE, BROKER_EXCEPTION_ERRORS, CARGO_WORKSPACE_LIST_FILE, CARGO_WORKSPACE_LIST_KEY, RIGHTKIT_IDENTITY_FILE, authorizeAllUnits, authorizeNoBroker, checkCargoWorkspaceList, describeAllUnitsException, describeBrokerException, isRightKitIdentity, unitsOfSelector } from "../broker-exception.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { gitListRustFiles } from "../signing-files.mjs";
-import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directPlatform, linuxBrokerDeclared } from "../managed-cargo.mjs";
+import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directPlatform, linuxBrokerDeclared, managedRuntimeClient } from "../managed-cargo.mjs";
+import { createBrokerLive } from "../broker-admission.mjs";
 import { bindingOf, compileOutputsRecord, compileReuseProblem, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
 import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
@@ -3755,7 +3760,16 @@ export async function main(argv, io = {}) {
     o.onQualifyOwed?.((plan.qualifyOwed ?? []).filter((x) => x.kind !== "e2e-crate" || plan.scans.some((s) => s.id === x.id)));
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
     const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);
-    const classBJobs = Math.max(1, Number(o.env.RK_GATE_CLASS_B_JOBS ?? 3) || 3);
+    // A broker host has no gate-side build count: the broker decides it. What remains is the local limit on class B processes the broker never sees.
+    const brokerHost = executor.kind === "broker";
+    const classBJobs = brokerHost ? LOCAL_CLASS_B_JOBS : Math.max(1, Number(o.env.RK_GATE_CLASS_B_JOBS ?? 3) || 3);
+    // The broker's live state of a request (queued or running), asked through the executor's own client with an asynchronous spawn: a carried scan's run limit does not tick
+    // while the broker holds it queued. No client to ask (none resolves): no reader, and a carried scan's limit simply runs, counting its queue time.
+    // The client is the declared Linux route's, else the managed runtime client, else the executor's own: a broker host whose executor is the `rustright` found on PATH
+    // (`["rustright", ...]`) asks through that one. No client to ask (a shim-only executor with none resolved): no reader, and the scan's limit simply runs.
+    const executorClient = path.basename(String(cargoCommand[0] ?? "")).replace(/\.(exe|cmd|bat)$/i, "") === "rustright" ? (brokerClientOf(o, executor) ?? cargoCommand[0]) : null;
+    const brokerClient = !brokerHost ? null : declaredClient ? "rustright" : managedRuntimeClient(o.env, o.platform, o.exists) ?? executorClient;
+    const brokerLive = brokerClient ? createBrokerLive({ client: brokerClient, env: { ...o.env, ...(executor.env ?? {}) }, spawn: withDeclaredClient(defaultSpawnAsync), platform: o.platform }) : null;
 
     if (planOnly) {
       o.out(`${tag} plan: ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)} (reads the working tree; nothing runs)`);
@@ -3771,7 +3785,7 @@ export async function main(argv, io = {}) {
     for (const n of plan.notes) o.out(`${tag} note: ${n}`);
     o.out(`${tag} executor: ${executor.kind}${executor.kind === "broker" ? ` (${cargoCommand.join(" ")})` : " (no broker on this host: cargo runs directly, through the same gates)"}`);
     const quietCount = plan.scans.filter((s) => s.quiet === true).length;
-    o.out(`${tag} ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)}; class A scans ${jobs} at a time, class B scans ${classBJobs} component(s) at a time${quietCount ? `, ${quietCount} quiet test scan(s) last under the broker's quiet lease` : ""}`);
+    o.out(`${tag} ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)}; class A scans ${jobs} at a time, ${brokerHost ? `class B: the broker queues and orders the carried scans of every component, no gate count (local test suites the broker does not see: ${classBJobs} at a time)` : `class B scans ${classBJobs} component(s) at a time`}${quietCount ? `, ${quietCount} quiet test scan(s) last under the broker's quiet lease` : ""}`);
     let signalCode = 0;
     for (const sig of ["SIGINT", "SIGTERM"]) {
       const handler = () => {
@@ -3916,7 +3930,7 @@ export async function main(argv, io = {}) {
     directTiming.cargoStart = Date.now();
     census?.start();
     const scanResult = await (o.runScans ?? runScans)(plan, {
-      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, testJobs, classBJobs, signal: ac.signal, ...(cache ? { cache } : {}),
+      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, testJobs, classBJobs, ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
       ...(census ? { spawn: census.wrapSpawn(defaultSpawnAsync) } : {}),
       // The declared Linux broker route: the scans are planned with the logical `rustright`, which this spawn (and scanSpawn's pass-through below) starts as the
       // executor's validated client, never a PATH lookup (withDeclaredClient).

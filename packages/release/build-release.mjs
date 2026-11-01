@@ -46,7 +46,7 @@ import { collectSwiftToolVersions, planSwiftBuild } from "./swift-build-context.
 import { planIosNativeBuild, resolveIosBuildContext } from "./ios-build-context.mjs";
 import { packageCommandOptional, requiredBuildExecutables, resolveProjectType, targetUsesMsix } from "./project-type.mjs";
 import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
-import { acquireHeavyWorkSlot, heavyCommandEnvironment, summarizePreBrokerWaits, terminateProcessTree } from "./heavy-command.mjs";
+import { acquireRunHeavySlot, heavyCommandEnvironment, summarizePreBrokerWaits, terminateProcessTree, withLocalHeavySlot } from "./heavy-command.mjs";
 import { processGroupCpuSeconds } from "./process-liveness.mjs";
 import { cancelAndReapManagedRequest, firstManagedRequestId, releaseProgressLimits } from "./progress-control.mjs";
 import { beginArtifactLease, completeArtifactLease, materializeArtifacts, retainArtifacts, resolveArtifactDir, resolveManagedRoot } from "./artifact-storage.mjs";
@@ -171,6 +171,8 @@ let child = null;
 let suiteSlot;
 let cacheLease;
 let heavySlot;
+// The run's slot decision (heavySlotDecision): on a broker host the run holds no slot and takes one only around its own local steps (runLocalStep).
+let heavyDecisionOfRun = null;
 let interrupted;
 let requestActiveRunStop = null;
 
@@ -391,13 +393,27 @@ try {
   if (cacheMode !== "shared") delete env.RIGHT_RELEASE_CACHE_OWNER;
   if (cacheMode === "shared" && env.RIGHT_RELEASE_CACHE_OWNER !== "rightkit-v2") fail("shared cache ownership token was not configured");
   if (cacheMode !== "shared" && !commandExists("sccache")) delete env.RUSTC_WRAPPER;
-  if (process.env.RIGHTSUITE_HEAVY_WORK_OWNER !== "1") heavySlot = acquireHeavyWorkSlot();
+  // The host-wide heavy-work slot (rightkit#1367 step 2). A direct host takes it for the whole run. On a broker host every hook the build runs (cargo, SwiftPM, xcodebuild,
+  // pnpm, node, QA) goes through build-launch and becomes a broker job, which the broker's scheduler and resource budget admit: no slot and no memory/CPU wait for the run.
+  // What this process runs itself, outside build-launch, is local work the broker never sees: today its own `pnpm install` (prepare, below), which takes the slot around just
+  // that step (runLocalStep). A child of a skipped slot is not told it has one (no RIGHTSUITE_HEAVY_WORK_OWNER), so a heavy-command it starts takes its own. The worker's
+  // signing, notarization and disk-image steps (sign-macos, notarize-macos, dmg-build) are not builds and hold no slot on a broker host.
+  const { decision: heavyDecision, slot: runSlot } = acquireRunHeavySlot({ env: process.env, brokerHost: brokerManagedHost(process.env) });
+  heavyDecisionOfRun = heavyDecision;
+  if (runSlot) heavySlot = runSlot;
+  else if (heavyDecision.skipReason) {
+    delete env.RIGHTSUITE_HEAVY_WORK_OWNER;
+    console.error(`[right-release] heavy-work slot not held for the run (${heavyDecision.skipReason})`);
+  }
+  // The shared-cache suite slot (acquireSuiteBuildSlot, below) is one-at-a-time per cache layout, not a build count of the broker's. It runs only in cache mode "shared", which a
+  // broker host never has: a Cargo build there is forced to "broker" (managedCargoTarget above) and SwiftPM and native iOS plans are always "legacy" (swift-build-context,
+  // ios-build-context). So on a broker host it is skipped, with no exception; a direct host keeps it.
   if (cacheMode === "shared") {
     suiteSlot = acquireSuiteBuildSlot({ layout: sharedLayout, pid: process.pid, argv: process.argv, waitMs: Number(process.env.BUILD_GUARD_WAIT_SECS ?? 900) * 1000 });
     cacheLease = acquireCacheLease({ layout: sharedLayout, pid: process.pid, argv: process.argv });
   }
   // Pre-broker wait attribution: every layer, ms, and blocker identity (Step 1 instrumentation).
-  const preBrokerWaits = summarizePreBrokerWaits({ heavySlot, suiteSlot, heavyOwnerInherited: process.env.RIGHTSUITE_HEAVY_WORK_OWNER === "1" });
+  const preBrokerWaits = summarizePreBrokerWaits({ heavySlot, suiteSlot, heavyOwnerInherited: heavyDecision.inherited, heavySkipped: heavyDecision.skipReason });
   console.error(`[right-release] pre-broker waits: ${preBrokerWaits.summary}`);
   throwIfInterrupted();
   const managedRoot = resolveManagedRoot({ env: process.env });
@@ -540,7 +556,7 @@ try {
           if (linked.action === "moved-aside") console.error(`[right-release] hosted CI: moved existing ${targetLink} aside to ${linked.aside}`);
         }
         // A Cargo-less native iOS app installs Node dependencies only when it has a package.json.
-        if (nativeIos ? hasPackageJson : resolveProjectType({ appRoot, config, target }) !== "swiftpm" || config.packageManager) await runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, env, cacheTarget, path.join(stateRoot, "stall-install.log"));
+        if (nativeIos ? hasPackageJson : resolveProjectType({ appRoot, config, target }) !== "swiftpm" || config.packageManager) await runLocalStep(() => runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, heavyDecisionOfRun?.localSteps ? { ...env, RIGHTSUITE_HEAVY_WORK_OWNER: "1" } : env, cacheTarget, path.join(stateRoot, "stall-install.log")));
       },
       build: async () => {
         throwIfInterrupted();
@@ -915,6 +931,12 @@ function collectToolVersions(packageManager, probeDir = process.cwd()) {
     rustHost: rustcVerbose.match(/^host:\s*(.+)$/m)?.[1] ?? "unknown",
     sccache: commandExists("sccache") ? commandOutput("sccache", ["--version"]) : null,
   };
+}
+
+/** On a broker host: the heavy-work slot, held around just the local step `run` (the release's own `pnpm install`), never around broker jobs. Elsewhere `run` runs as it is (the run holds the slot or inherits it). */
+function runLocalStep(run) {
+  const outer = heavySlot;
+  return withLocalHeavySlot(heavyDecisionOfRun, run, { onSlot: (slot) => { heavySlot = slot ?? outer; } });
 }
 
 async function runProgress(cmd, runArgs, cwd, env, watchDir, diagnosticPath = null, { livenessOwnerTimeoutMs = null } = {}) {

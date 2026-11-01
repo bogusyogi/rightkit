@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { resolveSharedCacheRoot, resolveStableRoot } from "./cache-policy.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
+import { brokerClientRoute } from "./managed-cargo.mjs";
 import { runHeavyCommand } from "./heavy-command.mjs";
 
 const LIGHT_COMMANDS = new Set(["fmt", "metadata", "tree", "fetch", "search", "locate-project", "read-manifest", "help", "version", "--version", "-V"]);
@@ -137,15 +138,24 @@ export function resolveManagedCargoShim({ env = process.env, platform = process.
   const win = platform === "win32" || platform === "win";
   const delimiter = win ? ";" : ":";
   const agentBin = /(?:^|[\\/])(?:\.rightkit-managed|rightkitmanagedagent|rightkit[\\/]build-control)[\\/]agent-bin[\\/]?$/i;
+  // Every extension cargo-contract.mjs managedCargoShimOnPath accepts (PATHEXT, else .COM;.EXE;.BAT;.CMD), so a shim that predicate sees is a shim this finds.
+  const extensions = win ? String(env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean).map((extension) => extension.toLowerCase()) : [""];
   for (const directory of String(env.PATH ?? "").split(delimiter).filter(Boolean)) {
     if (!agentBin.test(directory)) continue;
-    for (const name of win ? ["cargo.exe", "cargo.cmd"] : ["cargo"]) {
-      const candidate = path.join(directory, name);
+    for (const extension of extensions) {
+      const candidate = path.join(directory, `cargo${extension}`);
       if (exists(candidate)) return candidate;
     }
   }
   return null;
 }
+
+/**
+ * The broker's own client for a broker host whose cargo shim is not on PATH (a Dell socket or managed client with no agent-bin directory, a non-login shell, the declared
+ * Linux route): the shared route managed-cargo.mjs runCargoSync takes (`brokerClientRoute`): `{ client, env }`, run as `<client> cargo <args>`; `{ refusal }` when the declared
+ * route is invalid or the Mac's socket is unavailable; null when no client is reachable.
+ */
+export const resolveBrokerClientRoute = brokerClientRoute;
 
 function pathApi(platform) {
   return platform === "win32" || platform === "win" ? path.win32 : path.posix;
@@ -229,7 +239,7 @@ function spawnCargo(command, args, env) {
   });
 }
 
-export async function runCargoGuard(args, { env = process.env, policyOptions = {}, resolveCargo = resolveRealCargo, resolveRustc = resolveRealRustc, runHeavy = runHeavyCommand, runLight = spawnCargo, resolveShim = resolveManagedCargoShim, isBrokerHost = brokerManagedHost } = {}) {
+export async function runCargoGuard(args, { env = process.env, policyOptions = {}, resolveCargo = resolveRealCargo, resolveRustc = resolveRealRustc, runHeavy = runHeavyCommand, runLight = spawnCargo, resolveShim = resolveManagedCargoShim, resolveClientRoute = resolveBrokerClientRoute, isBrokerHost = brokerManagedHost } = {}) {
   assertComputePolicyAllowsCargo(args, { ...policyOptions, env });
   // On a broker-managed host the build broker owns the toolchain, cache, and
   // quotas. Resolving the real Cargo here and running it via runHeavy would
@@ -240,8 +250,18 @@ export async function runCargoGuard(args, { env = process.env, policyOptions = {
   if (isBrokerHost(env)) {
     const shim = resolveShim({ env });
     if (shim) return runLight(shim, args, env);
-    // No shim found despite a broker signal: fall through to legacy resolution
-    // rather than silently dropping the guard.
+    // No shim on PATH (a Dell socket or managed client with no agent-bin, a non-login shell, the declared Linux route): hand the call to the managed or declared runtime
+    // client, the client brokerManagedHost resolves, as `<client> cargo <args>`. Running the real cargo here would be a build outside the broker, which neither counts nor
+    // admits it (the heavy-work slot is not taken on a broker host, rightkit#1367 step 2), so a call that guards (a build) is refused when no client is reachable.
+    // Only a command that guards (a build) goes to the client; a light command (fmt, metadata, --version, ...) builds nothing and runs the real cargo as it always did.
+    if (shouldGuardCargo(args)) {
+      const route = resolveClientRoute({ env });
+      if (route && !route.refusal) return runLight(route.client, ["cargo", ...args], route.env);
+      console.error(route?.refusal
+        ? `cargo-guard: this machine is broker-managed and no broker shim is on PATH, and the RustRight client route is refused (${route.refusal}); refusing to run cargo outside the broker. Start or repair the broker, then run again.`
+        : "cargo-guard: this machine is broker-managed but neither the broker's cargo shim nor a RustRight client was found; refusing to run cargo outside the broker. Start or repair the broker, then run again.");
+      return 1;
+    }
   }
   const cargo = resolveCargo({ env });
   if (shouldGuardCargo(args)) {

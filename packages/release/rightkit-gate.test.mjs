@@ -2579,6 +2579,11 @@ test("a declared Linux broker plans the scans with the logical rustright, starts
   assert.deepEqual(seen[0].options.toolPolicy, { shellcheck: { path: analyzer, sha256, version: "0.11.0" } });
   assert.match(c.out.join("\n"), /scan-tool policy: shellcheck \(enrolled\)/);
   assert.equal(seen[0].options.cargoReadsCarried, undefined, "no snapshot, no carried reads: the check demands nothing it has not got");
+  // rightkit#1367 step 2: on a broker host the gate sets no component count; the broker orders what it carries (the local limit is for suites it never sees).
+  assert.equal(seen[0].options.brokerHost, true);
+  assert.equal(seen[0].options.classBJobs, 3, "the local limit for class B suites the broker does not see");
+  assert.match(c.out.join("\n"), /class B: the broker queues and orders the carried scans of every component, no gate count/);
+  assert.doesNotMatch(c.out.join("\n"), /class B scans \d+ component\(s\) at a time|build capacity/);
 });
 
 test("the scan-tool policy: an enrolled record is read from the managed data root, a malformed or foreign record refuses the run before any scan, and none enrolled passes an empty policy", async (t) => {
@@ -2592,12 +2597,47 @@ test("the scan-tool policy: an enrolled record is read from the managed data roo
   const run = async () => { const seen = []; const c = capture(); const code = await main(["--class-a", "--full-a", "--worktree", "--no-cache"], { ...c.io, cwd: repo, env: { ...process.env, RUSTRIGHT_DATA_ROOT: dataRoot, RIGHTKIT_DATA_ROOT: dataRoot }, platform: "linux", resolveExecutor: directExecutor, spawn: withPnpm, appCheck: async () => 0, runScans: fakeRun(seen) }); return { code, seen, err: c.err.join("\n") }; };
   const none = await run();
   assert.equal(none.code, 0, none.err); assert.deepEqual(none.seen[0].options.toolPolicy, {}, "nothing enrolled: an empty policy, never PATH");
+  // A host with no broker keeps its class B count (rightkit#1367 step 2): nothing else bounds work there.
+  assert.equal(none.seen[0].options.brokerHost, undefined);
+  assert.equal(none.seen[0].options.classBJobs, Number(process.env.RK_GATE_CLASS_B_JOBS ?? 3) || 3);
   // A record of another platform under this platform's name is refused, and the refusal stops the run before any scan.
   fs.mkdirSync(path.join(dataRoot, "scan-tools"), { mode: 0o700 });
   fs.writeFileSync(path.join(dataRoot, "scan-tools", "linux.json"), JSON.stringify({ schema: "rightkit.scan-tools/1", platform: "darwin", tools: {} }), { mode: 0o600 });
   const refused = await run();
   assert.equal(refused.code, 1); assert.equal(refused.seen.length, 0, "no scan ran");
   assert.match(refused.err, /BLOCKED: RK_SCAN_TOOLS_INVALID: .*record of darwin, not linux/);
+});
+
+test("rightkit#1367 step 2: a broker executor tells runScans it is a broker host and the gate prints no component count; a direct one keeps RK_GATE_CLASS_B_JOBS", async (t) => {
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-brokerhost-repo-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT" })); git("add", "-A"); git("commit", "-q", "-m", "one");
+  const run = async (resolve, env = {}) => {
+    const seen = []; const c = capture();
+    const code = await main(["--class-a", "--full-a", "--worktree", "--no-cache"], { ...c.io, cwd: repo, env: { ...process.env, ...env }, platform: "linux", resolveExecutor: resolve, spawn: withPnpm, appCheck: async () => 0, runScans: fakeRun(seen) });
+    return { code, seen, out: c.out.join("\n"), err: c.err.join("\n") };
+  };
+  const broker = await run(() => ({ kind: "broker", cargo: ["rustright", "cargo"] }), { RK_GATE_CLASS_B_JOBS: "9" });
+  assert.equal(broker.code, 0, `${broker.out}\n${broker.err}`);
+  assert.equal(broker.seen[0].options.brokerHost, true);
+  assert.equal(broker.seen[0].options.classBJobs, 3, "RK_GATE_CLASS_B_JOBS does not apply on a broker host; only the local limit for suites the broker never sees");
+  assert.match(broker.out, /class B: the broker queues and orders the carried scans of every component, no gate count \(local test suites the broker does not see: 3 at a time\)/);
+  assert.doesNotMatch(broker.out, /component\(s\) at a time|build capacity/);
+  // The live-status watcher is built from the executor's own client: a broker host whose executor is the `rustright` on PATH (no managed runtime client) is watched too.
+  assert.equal(typeof broker.seen[0].options.brokerLive?.state, "function", "a rustright-on-PATH executor gets a live reader");
+  assert.equal(typeof broker.seen[0].options.brokerLive?.cancel, "function");
+  const shimOnly = await run(() => ({ kind: "broker", cargo: ["cargo"] }));
+  assert.equal(shimOnly.code, 0, `${shimOnly.out}\n${shimOnly.err}`);
+  assert.equal(shimOnly.seen[0].options.brokerHost, true);
+  assert.equal(shimOnly.seen[0].options.brokerLive, undefined, "a shim-only executor with no client to ask has no reader: its scans keep their own limit as the client's operation deadline");
+  const direct = await run(directExecutor, { RK_GATE_CLASS_B_JOBS: "2" });
+  assert.equal(direct.code, 0, `${direct.out}\n${direct.err}`);
+  assert.equal(direct.seen[0].options.brokerLive, undefined);
+  assert.equal(direct.seen[0].options.brokerHost, undefined);
+  assert.equal(direct.seen[0].options.classBJobs, 2);
+  assert.match(direct.out, /class B scans 2 component\(s\) at a time/);
 });
 
 test("check stage on a broker host (real broker): the class A cargo reads are carried requests, so cargo-deny and cargo-audit count as the broker's (options.cargoReadsCarried), though the check stage has no compile carrier", async (t) => {

@@ -7,9 +7,11 @@ import test from "node:test";
 
 import {
   acquireHeavyWorkSlot,
+  acquireRunHeavySlot,
   summarizePreBrokerWaits,
   formatResourceSnapshot,
   heavyChildDetached,
+  heavySlotDecision,
   heavyCommandEnvironment,
   heavyWorkRoot,
   parseMacResourceSnapshot,
@@ -20,6 +22,7 @@ import {
   systemResourceSnapshot,
   terminateProcessTree,
   watchOwnedProcessTree,
+  withLocalHeavySlot,
 } from "./heavy-command.mjs";
 
 test("heavy-work root is machine-wide rather than repository-local", () => {
@@ -243,4 +246,76 @@ test("slot records wait attribution: holder identity, slot ms and resource block
   assert.match(summary.summary, /suite-build-slot=7ms blocked-by suite build slot active pid 9/);
   assert.equal(summarizePreBrokerWaits({ heavyOwnerInherited: true }).layers[0].skipped, "slot owned by parent heavy-command");
   second.release();
+});
+
+test("slot decision: a broker host's run holds no slot but has local steps; a direct host's run holds it; an inherited slot is never taken twice (rightkit#1367 step 2)", () => {
+  const broker = heavySlotDecision({ env: {}, brokerHost: true });
+  assert.deepEqual([broker.take, broker.localSteps, broker.inherited], [false, true, false]);
+  assert.match(broker.skipReason, /broker host: build-launch makes the build steps broker jobs.*held only around the release's own local steps/);
+  const direct = heavySlotDecision({ env: {}, brokerHost: false });
+  assert.deepEqual([direct.take, direct.localSteps, direct.skipReason], [true, false, null]);
+  for (const brokerHost of [true, false]) {
+    const inherited = heavySlotDecision({ env: { RIGHTSUITE_HEAVY_WORK_OWNER: "1" }, brokerHost });
+    assert.deepEqual([inherited.take, inherited.localSteps, inherited.inherited, inherited.skipReason], [false, false, true, null], `brokerHost ${brokerHost}`);
+  }
+  const summary = summarizePreBrokerWaits({ heavySkipped: broker.skipReason });
+  assert.equal(summary.layers[0].skipped, broker.skipReason);
+  assert.match(summary.summary, /heavy-work-slot=0ms \(broker host/);
+});
+
+test("acquireRunHeavySlot: a broker-host run never creates the slot directory; a direct-host run (a Swift build included) takes it and releases it", () => {
+  const good = { freePercent: 50, swapUsedBytes: 0, swapTotalBytes: 0, thermalLimited: false };
+  const slotOptions = (root) => ({ root, snapshot: () => good, log: () => {} });
+  const brokerRoot = mkdtempSync(path.join(os.tmpdir(), "rightsuite-heavy-run-broker-"));
+  const broker = acquireRunHeavySlot({ env: {}, brokerHost: true, ...slotOptions(brokerRoot) });
+  assert.equal(broker.slot, null);
+  assert.equal(existsSync(path.join(brokerRoot, "slot")), false, "no slot for a run whose builds are the broker's");
+  const directRoot = mkdtempSync(path.join(os.tmpdir(), "rightsuite-heavy-run-direct-"));
+  const direct = acquireRunHeavySlot({ env: {}, brokerHost: false, ...slotOptions(directRoot) });
+  assert.ok(direct.slot);
+  assert.equal(existsSync(path.join(directRoot, "slot")), true, "a direct host's run holds the slot");
+  direct.slot.release();
+  assert.equal(existsSync(path.join(directRoot, "slot")), false);
+  const inheritedRoot = mkdtempSync(path.join(os.tmpdir(), "rightsuite-heavy-run-inherited-"));
+  assert.equal(acquireRunHeavySlot({ env: { RIGHTSUITE_HEAVY_WORK_OWNER: "1" }, brokerHost: false, ...slotOptions(inheritedRoot) }).slot, null);
+  assert.equal(existsSync(path.join(inheritedRoot, "slot")), false);
+});
+
+test("withLocalHeavySlot: on a broker host the slot is held around just the local step; elsewhere the step runs as it is", async () => {
+  const good = { freePercent: 50, swapUsedBytes: 0, swapTotalBytes: 0, thermalLimited: false };
+  const root = mkdtempSync(path.join(os.tmpdir(), "rightsuite-heavy-local-"));
+  const slotDir = path.join(root, "slot");
+  const options = { root, snapshot: () => good, log: () => {} };
+  const told = [];
+  const seen = [];
+  const out = await withLocalHeavySlot(heavySlotDecision({ env: {}, brokerHost: true }), async (slot) => { seen.push(existsSync(slotDir)); assert.ok(slot); return "installed"; }, { ...options, onSlot: (slot) => told.push(slot === null ? "end" : "start") });
+  assert.equal(out, "installed");
+  assert.deepEqual(seen, [true], "held while the local step runs");
+  assert.deepEqual(told, ["start", "end"]);
+  assert.equal(existsSync(slotDir), false, "released when the step ends, also by a throw");
+  await assert.rejects(withLocalHeavySlot(heavySlotDecision({ env: {}, brokerHost: true }), async () => { throw new Error("install failed"); }, options), /install failed/);
+  assert.equal(existsSync(slotDir), false);
+  for (const decision of [heavySlotDecision({ env: {}, brokerHost: false }), heavySlotDecision({ env: { RIGHTSUITE_HEAVY_WORK_OWNER: "1" }, brokerHost: true })]) {
+    let sawSlot = null;
+    await withLocalHeavySlot(decision, async (slot) => { sawSlot = slot ?? (existsSync(slotDir) ? "dir" : null); }, options);
+    assert.equal(sawSlot, null, "no extra slot for a run that holds or inherits one");
+  }
+});
+
+test("runHeavyCommand still takes the slot around its command, and a parent that owns one takes none (unchanged by rightkit#1367 step 2)", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "rightsuite-heavy-runheavy-"));
+  const slotDir = path.join(root, "slot");
+  const saved = { root: process.env.RIGHTSUITE_HEAVY_WORK_ROOT, mem: process.env.BUILD_GUARD_MIN_MEMORY_FREE_PERCENT, cpu: process.env.BUILD_GUARD_MAX_CPU_LOAD_PERCENT };
+  process.env.RIGHTSUITE_HEAVY_WORK_ROOT = root; process.env.BUILD_GUARD_MIN_MEMORY_FREE_PERCENT = "0"; process.env.BUILD_GUARD_MAX_CPU_LOAD_PERCENT = "100";
+  try {
+    // The child exits 0 when the slot directory exists while it runs, 7 when it does not.
+    const probe = ["--", process.execPath, "-e", "process.exit(require('node:fs').existsSync(process.argv[1]) ? 0 : 7)", slotDir];
+    const { RIGHTSUITE_HEAVY_WORK_OWNER: _owner, ...clean } = process.env;
+    assert.equal(await runHeavyCommand(probe, { env: clean }), 0, "the command ran while this process held the slot");
+    assert.equal(existsSync(slotDir), false, "and released it");
+    assert.equal(await runHeavyCommand(probe, { env: { ...clean, RIGHTSUITE_HEAVY_WORK_OWNER: "1" } }), 7, "a parent that owns a slot: none is taken");
+    assert.equal(existsSync(slotDir), false);
+  } finally {
+    for (const [key, name] of [["root", "RIGHTSUITE_HEAVY_WORK_ROOT"], ["mem", "BUILD_GUARD_MIN_MEMORY_FREE_PERCENT"], ["cpu", "BUILD_GUARD_MAX_CPU_LOAD_PERCENT"]]) { if (saved[key] === undefined) delete process.env[name]; else process.env[name] = saved[key]; }
+  }
 });

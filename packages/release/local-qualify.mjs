@@ -31,7 +31,8 @@ import zlib from "node:zlib";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { managedRuntimeClient, spawnCollect } from "./managed-cargo.mjs";
-import { planScans, runScans } from "./deterministic-scans.mjs";
+import { defaultSpawnAsync, planScans, runScans } from "./deterministic-scans.mjs";
+import { createBrokerLive } from "./broker-admission.mjs";
 import { pathDependencyDirs, readCargoPackage } from "./crate-graph.mjs";
 import { deriveCrateLayers } from "./local-publish.mjs";
 import { RUNTIME_BUDGET_CRATES } from "./runtime-budget-crates.mjs";
@@ -409,10 +410,15 @@ async function localScanRecord({ root, commit, crates, jobs, scratch, deps, log 
     // Repository-level scans (workflows, YAML) plus every scan of the units, each in its own crate workspace (lock, deny, audit); other crates and npm packages stay out of scope.
     const files = tracked.filter((file) => (!file.startsWith("crates/") && !file.startsWith("packages/")) || unitDirs.some((dir) => file.startsWith(dir)));
     const crateFeatures = (deps.readJson ?? defaultReadJson)(path.join(repo, "ci", "gate.config.json"))?.rust ?? {};
-    const plan = (deps.planScans ?? planScans)({ changed: files, contentRoot: repo, liveRoot: root, includeTests: false, localCompile: true, cargoCommand: detectCargoCommand(deps), crateFeatures, readBytes: (file) => fs.readFileSync(file) });
+    const hostCommand = detectCargoCommand(deps);
+    const plan = (deps.planScans ?? planScans)({ changed: files, contentRoot: repo, liveRoot: root, includeTests: false, localCompile: true, cargoCommand: hostCommand, crateFeatures, readBytes: (file) => fs.readFileSync(file) });
     const observedTools = modules.observeToolVersions();
     log(`[local-qualify] scans: ${plan.scans.length} planned over ${files.length} files (class A, then class B through the broker)`);
-    const result = await (deps.runScans ?? runScans)(plan, { classes: ["A", "B"], jobs: Math.max(1, Number(jobs ?? 4) || 4), onResult: (row, progress) => log(`[local-qualify] scan [${progress.done}/${progress.total}] ${row.status.padEnd(7)} ${row.id}`) });
+    // detectCargoCommand above accepts only `rustright` or the managed shim on PATH, so this is always a broker host: the broker orders the carried class B scans (rightkit#1367 step 2).
+    // The client the live reader asks through: the managed runtime client, else the `rustright` the scans themselves run through.
+    const client = managedRuntimeClient(deps.env ?? process.env, deps.platform ?? process.platform) ?? (hostCommand[0] === "rustright" ? "rustright" : null);
+    const brokerLive = client ? createBrokerLive({ client, env: deps.env ?? process.env, spawn: defaultSpawnAsync, platform: deps.platform ?? process.platform }) : null;
+    const result = await (deps.runScans ?? runScans)(plan, { classes: ["A", "B"], jobs: Math.max(1, Number(jobs ?? 4) || 4), brokerHost: true, ...(brokerLive ? { brokerLive } : {}), onResult: (row, progress) => log(`[local-qualify] scan [${progress.done}/${progress.total}] ${row.status.padEnd(7)} ${row.id}`) });
     // Every unit is bound to its own crate workspace lock (#1285): crates/<x>/Cargo.lock, no root lock.
     const cargoLocks = Object.fromEntries([...crates].sort().map((name) => [name, { path: `crates/${name}/Cargo.lock`, sha256: sha256(fs.readFileSync(path.join(root, "crates", name, "Cargo.lock"))) }]));
     return modules.buildLocalScanRecord({ result, planned: plan.scans, sourceCommit: commit, headCommit: commit, cargoLocks, observedTools, units: crates, files: files.length });

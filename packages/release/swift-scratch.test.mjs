@@ -11,7 +11,7 @@ import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
 import { SWIFT_SCRATCH_REFUSED, swiftScratchOption, swiftScratchRefusal } from "./swift-scratch.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend, brokerLeaseState } from "./build-ownership.mjs";
-import { brokerOutputRoots, brokerSection, carryBrokerAdapter, receiptSync } from "./snapshot-broker.mjs";
+import { brokerOutputRoots, brokerSection, carryBrokerAdapter, carryBrokerAdapterAsync, receiptSync } from "./snapshot-broker.mjs";
 import { syncSnapshot } from "./snapshot.mjs";
 import { realChildProcess } from "./test-support/broker-guard.mjs";
 import { startRealBroker } from "./test-support/real-broker.mjs";
@@ -127,6 +127,110 @@ test("data: [GB-67] a carried rightkit-swift call that names a scratch path is r
   assert.deepEqual(sent, [], "zero client launches");
   assert.deepEqual(fs.existsSync(path.join(fx.controlRoot, "snapshot-requests")) ? fs.readdirSync(path.join(fx.controlRoot, "snapshot-requests")) : [], [], "no carrier was written");
   assert.ok(records.length === SPELLINGS.length && records.every((r) => r.status === "refused" && r.code === SWIFT_SCRATCH_REFUSED), "each refusal is ledgered");
+});
+
+test("data: [rightkit#1367] carryBrokerAdapterAsync keeps the event loop running while the client runs, gives the client the scan's signal, and records where the request reference will appear", async (t) => {
+  const fx = dataHost(t);
+  const section = brokerSection(fx.sb);
+  const env = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" };
+  const records = []; const calls = [];
+  const ac = new AbortController();
+  let ticks = 0; const timer = setInterval(() => { ticks += 1; }, 1);
+  t.after(() => clearInterval(timer));
+  const spawn = (file, args, options) => { calls.push({ file, args, options }); return new Promise((resolve) => setTimeout(() => resolve({ status: 0, stdout: "", stderr: "" }), 60)); };
+  const pending = carryBrokerAdapterAsync({ adapter: "rightkit-swift", words: ["build", "--package-path", "crates/a"], cwd: fx.snapshot, env, section, record: (e) => records.push(e), err: () => {}, stdio: "capture", signal: ac.signal, spawn });
+  assert.ok(pending instanceof Promise);
+  const result = await pending;
+  clearInterval(timer);
+  assert.ok(ticks >= 5, `the event loop kept running while the client ran (${ticks} ticks)`);
+  assert.equal(calls[0].args.slice(0, 3).join(" "), "run rightkit-swift --", "the client's own run command");
+  assert.equal(calls[0].options.signal, ac.signal, "the scan's signal reaches the client's spawn: the run limit or a cancel stops its process tree");
+  const pendingRecord = records.find((r) => r.status === "pending");
+  assert.match(pendingRecord.requestRef, /rk-snapreq-[^/\\]+[/\\]request\.json$/, "the pending record names the request reference the client will write (the gate's admission watch reads it)");
+  // No request reference was written by this client double: the call is unverified, never green.
+  assert.equal(result.outcome.status, "unverified");
+  assert.equal(fs.existsSync(path.dirname(pendingRecord.requestRef)), false, "the request directory is removed after the call");
+});
+
+test("data: [rightkit#1367] carryBrokerAdapterAsync refuses what the synchronous call refuses, before any client starts, and an aborted signal ends it without a retry loop", async (t) => {
+  const fx = dataHost(t);
+  const section = brokerSection(fx.sb);
+  const env = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" };
+  const sent = [];
+  const spawn = async (...call) => { sent.push(call); throw new Error("a refused call reaches no client"); };
+  const refused = await carryBrokerAdapterAsync({ adapter: "rightkit-swift", words: ["build", "--package-path", "crates/a", "--scratch-path", "/x"], cwd: fx.snapshot, env, section, record: () => {}, err: () => {}, stdio: "capture", spawn });
+  assert.equal(refused.outcome.status, "refused"); assert.equal(refused.outcome.code, SWIFT_SCRATCH_REFUSED);
+  assert.deepEqual(sent, []);
+  await assert.rejects(carryBrokerAdapterAsync({ adapter: "rightkit-swift", words: ["build"], cwd: fx.snapshot, env, section, record: () => {}, err: () => {}, stdio: "capture" }), /asynchronous spawn/);
+  const ac = new AbortController(); ac.abort();
+  let attempts = 0; const records = [];
+  const result = await carryBrokerAdapterAsync({ adapter: "rightkit-swift", words: ["build", "--package-path", "crates/a"], cwd: fx.snapshot, env, section, record: (e) => records.push(e), err: () => {}, stdio: "capture", signal: ac.signal, spawn: async () => { attempts += 1; return { error: Object.assign(new Error("cancelled"), { code: "ABORT_ERR" }), status: null, stdout: "", stderr: "" }; } });
+  assert.equal(attempts, 0, "a scan cancelled before the request is marked starts no client");
+  assert.deepEqual(fx.marks, [], "and marks nothing in the ownership (no broker work may exist)");
+  assert.equal(result.outcome.status, "refused"); assert.equal(result.outcome.code, "RK_ADAPTER_BROKER_CANCELLED");
+  assert.ok(records.some((r) => r.status === "refused" && r.code === "RK_ADAPTER_BROKER_CANCELLED"), "the refusal is ledgered");
+});
+
+test("data: [rightkit#1367 review] carryBrokerAdapterAsync gives the client the scan's operation deadline, from the env or from deadlineMs", async (t) => {
+  const fx = dataHost(t);
+  const section = brokerSection(fx.sb);
+  const base = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" };
+  const seen = [];
+  const spawn = async (file, args, options) => { seen.push(options.env.RUSTRIGHT_OPERATION_DEADLINE_MS); return { status: 0, stdout: "", stderr: "" }; };
+  const call = (extra) => carryBrokerAdapterAsync({ adapter: "rightkit-swift", words: ["build", "--package-path", "."], cwd: fx.snapshot, section, record: () => {}, err: () => {}, stdio: "capture", spawn, ...extra });
+  await call({ env: { ...base, RUSTRIGHT_OPERATION_DEADLINE_MS: "580000", RUSTRIGHT_CANCEL_WAIT_MS: "15000" }, deadlineMs: 580_000 });
+  await call({ env: base, deadlineMs: 580_000 });
+  await call({ env: base });
+  assert.equal(seen[0], "580000");
+  assert.ok(Number(seen[1]) > 570_000 && Number(seen[1]) <= 580_000, `deadlineMs becomes the client's deadline (${seen[1]})`);
+  assert.equal(seen[2], undefined, "no budget: no deadline");
+});
+
+test("data: [rightkit#1367 review] an abort that stops the running client is a cancel (not 'did not start'), keeps the request id, and is not reconciled by the blocking lease read", async (t) => {
+  const fx = dataHost(t);
+  let leaseReads = 0;
+  fx.sb.leaseStatus = () => { leaseReads += 1; return { state: "UNKNOWN", why: "must not be read" }; };
+  const section = brokerSection(fx.sb);
+  const env = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" };
+  const records = []; const ac = new AbortController();
+  const spawn = async (file, args, options) => {
+    const ref = records.find((r) => r.status === "pending").requestRef;
+    fs.writeFileSync(ref, JSON.stringify({ schema: "rustright.request-ref.v1", requestId: "req-cancel-1", workspace: path.resolve("/ws") }));
+    ac.abort();
+    return { status: null, stdout: "", stderr: "", error: new Error("cancelled"), cancelled: true };
+  };
+  const result = await carryBrokerAdapterAsync({ adapter: "rightkit-swift", words: ["build", "--package-path", "crates/a"], cwd: fx.snapshot, env, section, record: (e) => records.push(e), err: () => {}, stdio: "capture", signal: ac.signal, spawn });
+  assert.equal(result.outcome.status, "unverified"); assert.equal(result.outcome.code, "cancelled");
+  assert.doesNotMatch(result.outcome.message, /did not start/);
+  assert.match(result.outcome.message, /cancelled/); assert.equal(result.outcome.requestId, "req-cancel-1");
+  assert.equal(result.outcome.subHandle.state, "UNKNOWN", "ownership stays held until the sub-handle is reaped");
+  assert.equal(leaseReads, 0, "the asynchronous carry never blocks the gate on the lease read");
+  assert.equal(fx.marks.length, 1, "the request was marked once (it may exist at the broker)");
+});
+
+test("data: [rightkit#1367 review] a cancel during the retry wait ends the wait at once; an abort before the client starts is recorded unsent", async (t) => {
+  const fx = dataHost(t);
+  const unsent = [];
+  fx.sb.markBrokerUnsent = (callHandle, reason) => { unsent.push([callHandle, reason]); };
+  const section = brokerSection(fx.sb);
+  const env = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" };
+  // A broker that answers busy is retried after a pause; the scan is cancelled in the middle of the pause.
+  const ac = new AbortController(); let attempts = 0;
+  const started = Date.now();
+  setTimeout(() => ac.abort(), 30);
+  const result = await carryBrokerAdapterAsync({ adapter: "rightkit-swift", words: ["build", "--package-path", "crates/a"], cwd: fx.snapshot, env, section, record: () => {}, err: () => {}, stdio: "capture", signal: ac.signal, spawn: async () => { attempts += 1; return { status: 1, stdout: "", stderr: "RK_BROKER_BUSY: every connection is busy\n" }; } });
+  assert.equal(attempts, 1, "no second attempt after the cancel");
+  assert.ok(Date.now() - started < 2000, "the 250 ms retry pause did not outlive the abort by a retry");
+  assert.equal(result.outcome.code, "broker-busy"); assert.equal(unsent.length, 1, "the busy attempt never opened a connection: its sub-handle is recorded unsent");
+  // The abort that arrives between the mark and the client start is a proven no-spawn, recorded unsent too (drive-level check).
+  const ac2 = new AbortController(); unsent.length = 0;
+  const marks = fx.marks;
+  const section2 = brokerSection({ ...fx.sb, markBrokerSubmit: (h) => { const r = fx.sb.markBrokerSubmit(h); ac2.abort(); return r; } });
+  let spawned = 0;
+  const second = await carryBrokerAdapterAsync({ adapter: "rightkit-swift", words: ["build", "--package-path", "crates/a"], cwd: fx.snapshot, env, section: section2, record: () => {}, err: () => {}, stdio: "capture", signal: ac2.signal, spawn: async () => { spawned += 1; return { status: 0, stdout: "", stderr: "" }; } });
+  assert.equal(spawned, 0, "the client never started");
+  assert.equal(second.outcome.code, "cancelled"); assert.equal(unsent.length, 1, "the abort before the spawn is recorded unsent (provenNoSpawn recognises its code)");
+  assert.ok(marks.length >= 2);
 });
 
 test("real broker: [GB-67] a carried rightkit-swift build with no scratch path is accepted by the real broker, verifies, and the ownership records exactly its one sub-handle; one that names a scratch path is refused before any of that", async (t) => {

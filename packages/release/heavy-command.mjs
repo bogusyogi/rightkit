@@ -221,12 +221,43 @@ function spawnOwnerWatcher(details) {
   watcher.unref();
 }
 
-export function summarizePreBrokerWaits({ heavySlot, suiteSlot, heavyOwnerInherited = false } = {}) {
+/**
+ * Whether `right-release build` takes the host-wide heavy-work slot for the whole run (rightkit#1367 step 2). On a broker host every compile, Swift and
+ * xcodebuild step, pnpm and node step goes through build-launch and becomes a broker job (Cargo, SwiftPM, native iOS alike), so the broker's scheduler and
+ * resource budget admit the work: no slot for the run and no memory or CPU wait. What the release runs itself, outside build-launch, is local work the broker
+ * never sees (`localSteps`: its own `pnpm install`); the caller takes the slot around just those steps. A direct host takes the slot for the whole run. A
+ * parent that already owns one (RIGHTSUITE_HEAVY_WORK_OWNER=1) is inherited, never taken twice.
+ * @returns {{ take: boolean, localSteps: boolean, inherited: boolean, skipReason: string | null }}
+ */
+export function heavySlotDecision({ env = process.env, brokerHost = false } = {}) {
+  if (env.RIGHTSUITE_HEAVY_WORK_OWNER === "1") return { take: false, localSteps: false, inherited: true, skipReason: null };
+  if (brokerHost) return { take: false, localSteps: true, inherited: false, skipReason: "broker host: build-launch makes the build steps broker jobs, which the broker's scheduler admits; the slot is held only around the release's own local steps" };
+  return { take: true, localSteps: false, inherited: false, skipReason: null };
+}
+
+/** The slot decision and the slot it asks for, in one step: what a release run takes before it starts. `acquire` is a seam for tests. */
+export function acquireRunHeavySlot({ env = process.env, brokerHost = false, acquire = acquireHeavyWorkSlot, ...options } = {}) {
+  const decision = heavySlotDecision({ env, brokerHost });
+  return { decision, slot: decision.take ? acquire(options) : null };
+}
+
+/**
+ * Runs the local step `run` holding the heavy-work slot when the decision says the run holds none but has local steps (a broker host: its own `pnpm install` is a process
+ * the broker never sees); otherwise `run` runs as it is (the run holds the slot, or inherits one). `onSlot(slot)` is told when the slot is taken and `onSlot(null)` when it ends.
+ */
+export async function withLocalHeavySlot(decision, run, { acquire = acquireHeavyWorkSlot, onSlot = () => {}, ...options } = {}) {
+  if (!decision?.localSteps) return run(null);
+  const slot = acquire(options);
+  onSlot(slot);
+  try { return await run(slot); } finally { slot.release(); onSlot(null); }
+}
+
+export function summarizePreBrokerWaits({ heavySlot, suiteSlot, heavyOwnerInherited = false, heavySkipped = null } = {}) {
   const heavy = heavySlot?.waits ?? null;
   const suite = suiteSlot?.waits ?? null;
   const layers = [
     heavy ? { layer: "heavy-work-slot", ms: (heavy.slotWaitMs ?? 0) + (heavy.resourceWaitMs ?? 0), slotWaitMs: heavy.slotWaitMs ?? 0, resourceWaitMs: heavy.resourceWaitMs ?? 0, blockers: heavy.slotBlockers ?? [], resourceBlockers: heavy.resourceBlockers ?? [] }
-      : { layer: "heavy-work-slot", ms: 0, skipped: heavyOwnerInherited ? "slot owned by parent heavy-command" : "not acquired" },
+      : { layer: "heavy-work-slot", ms: 0, skipped: heavyOwnerInherited ? "slot owned by parent heavy-command" : heavySkipped ?? "not acquired" },
     suite ? { layer: "suite-build-slot", ms: suite.waitMs ?? 0, blockers: suite.blockers ?? [] } : { layer: "suite-build-slot", ms: 0, skipped: "inactive (non-shared cache mode)" },
   ];
   const totalMs = layers.reduce((sum, layer) => sum + layer.ms, 0);
