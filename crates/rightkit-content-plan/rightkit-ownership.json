@@ -2,7 +2,7 @@
   "package": "rightkit-content-plan",
   "capabilities": [
     {
-      "capability": "content plan",
+      "capability": "content-plan",
       "summary": "Store-free content planning rules: manual draft approval gate, first-sentence disclosure check and per-platform posted-link host table.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",

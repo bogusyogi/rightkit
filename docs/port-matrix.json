@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T10:15:44Z",
-  "rightkitHead": "1569dda",
+  "generatedAt": "2026-11-01T10:16:30Z",
+  "rightkitHead": "1721121",
   "legend": [
     {
       "state": "adopted",
@@ -20335,7 +20335,7 @@
       "private": false,
       "source": "0.1.0",
       "registry": "",
-      "staged": "",
+      "staged": "0.1.0",
       "dir": "crates/rightkit-agent-demo",
       "toMoveFrom": {},
       "cells": {
@@ -21338,7 +21338,7 @@
       "private": false,
       "source": "0.1.0",
       "registry": "",
-      "staged": "",
+      "staged": "0.1.0",
       "dir": "crates/rightkit-agent-gateway",
       "toMoveFrom": {},
       "cells": {
@@ -23240,7 +23240,7 @@
       "private": false,
       "source": "0.1.0",
       "registry": "",
-      "staged": "",
+      "staged": "0.1.0",
       "dir": "crates/rightkit-chat-bridge",
       "toMoveFrom": {},
       "cells": {
@@ -24814,7 +24814,7 @@
       "private": false,
       "source": "0.1.0",
       "registry": "",
-      "staged": "",
+      "staged": "0.1.0",
       "dir": "crates/rightkit-device-link-types",
       "toMoveFrom": {},
       "cells": {
@@ -25620,7 +25620,7 @@
       "private": false,
       "source": "0.1.0",
       "registry": "",
-      "staged": "",
+      "staged": "0.1.0",
       "dir": "crates/rightkit-doctor",
       "toMoveFrom": {},
       "cells": {
@@ -28584,7 +28584,7 @@
       "private": false,
       "source": "0.1.0",
       "registry": "",
-      "staged": "",
+      "staged": "0.1.0",
       "dir": "crates/rightkit-owner-approvals",
       "toMoveFrom": {},
       "cells": {
@@ -29472,7 +29472,7 @@
       "private": false,
       "source": "0.1.0",
       "registry": "",
-      "staged": "",
+      "staged": "0.1.0",
       "dir": "crates/rightkit-remote-gateway",
       "toMoveFrom": {},
       "cells": {
@@ -31843,7 +31843,7 @@
       "private": false,
       "source": "0.1.0",
       "registry": "",
-      "staged": "",
+      "staged": "0.1.0",
       "dir": "crates/rightkit-web-session",
       "toMoveFrom": {},
       "cells": {

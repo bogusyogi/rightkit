@@ -29,9 +29,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
-use rightkit_remote_gateway::settings::Settings;
 use rightkit_owner_approvals::PhoneError;
 use rightkit_owner_approvals::admin_sig::{self, Nonces};
+use rightkit_remote_gateway::settings::Settings;
 
 pub use driver::{Frame, supported};
 
@@ -747,7 +747,8 @@ impl Browser {
                 .filter(|s| s.is_object())
                 .ok_or_else(|| refuse("signature_required", "missing param `sig`"))?;
             let bad = |r: rightkit_owner_approvals::Refusal| PhoneError::new(r.code, r.message);
-            let signed = rightkit_owner_approvals::approval_sig::Signed::from_value(sig).map_err(bad)?;
+            let signed =
+                rightkit_owner_approvals::approval_sig::Signed::from_value(sig).map_err(bad)?;
             if !signed.nonce.eq_ignore_ascii_case(&nonce) {
                 return Err(refuse(
                     "sig_invalid",
@@ -774,8 +775,9 @@ impl Browser {
             // challenge named; any other enrolled key is refused.
             let own = rightkit_owner_approvals::approval_sig::own_owner_check_key()
                 .map(|(device, _, _)| device);
-            let signer = rightkit_owner_approvals::approval_sig::owner_check_key_device(&signed.key_id)
-                .map_err(bad)?;
+            let signer =
+                rightkit_owner_approvals::approval_sig::owner_check_key_device(&signed.key_id)
+                    .map_err(bad)?;
             if own.is_none() || signer != own {
                 return Err(refuse(
                     "approver_unknown",

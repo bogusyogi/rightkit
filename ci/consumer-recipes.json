@@ -2406,6 +2406,78 @@
         "README.md": "42f61f38971e8bdf2e717fef6846757537bcc5f0d557f4c649369bf9a84f06a1",
         "src/main.rs": "880da119ccefb720cfd04d3fdfd7748a63b9690c5e6f37ff6e28015ec84157b5"
       }
+    },
+    "rightkit-agent-demo": {
+      "pkId": "PK163",
+      "id": "ci/consumers/rightkit-agent-demo/src/main.rs",
+      "files": {
+        "Cargo.toml": "3e31952cfacbf11db1afa523ea2b04882386e969b69ce115f04d1c07c98d5e27",
+        "README.md": "07e2070360e741e4947d7b18f47f48ce0353ccb8cbc1a26a5ae2e28de449551a",
+        "src/main.rs": "8362bb912ee7a30b930d01b7af7d11228e38b241e2f3161b64a6a2afa29a7768"
+      }
+    },
+    "rightkit-agent-gateway": {
+      "pkId": "PK164",
+      "id": "ci/consumers/rightkit-agent-gateway/src/main.rs",
+      "files": {
+        "Cargo.toml": "f3c5b0cb7d8ff7f3eddf202f4f2d2af9840f5b0cf4fb2af955f24d07a10c8084",
+        "README.md": "fc0b081c1b96c3135820e752d3b610a157771fb5af8669be30d9e33418b48353",
+        "src/main.rs": "12ef4b2969b3cc92c03ee6bca9ea99ff06c078aa7e9596350da658587d222fe6"
+      }
+    },
+    "rightkit-chat-bridge": {
+      "pkId": "PK165",
+      "id": "ci/consumers/rightkit-chat-bridge/src/main.rs",
+      "files": {
+        "Cargo.toml": "535e2d997614a1399a7e760c4d66d101f465feccb14f796b6344b8c6d7f91d6f",
+        "README.md": "55704f4024119e42fc28dad9e529ce3ef1cf30f95166889d902ba765087b996b",
+        "src/main.rs": "72b5d81d5ee3555eaee6746feb93cbac8930deaabd875b7391786c6db9841925"
+      }
+    },
+    "rightkit-device-link-types": {
+      "pkId": "PK166",
+      "id": "ci/consumers/rightkit-device-link-types/src/main.rs",
+      "files": {
+        "Cargo.toml": "fc47b070e3953ec4d7e9937310527f9eb8e6b08ccd40ea21beb733ddf542e1ff",
+        "README.md": "0782809c2c4d9795524f9aebb26323457e764e1e71705479bd19106acca411db",
+        "src/main.rs": "2d09645493dfcb98e3fd22b34a399bc7f6a06022fa9bd91749cacbe4e98b5011"
+      }
+    },
+    "rightkit-doctor": {
+      "pkId": "PK167",
+      "id": "ci/consumers/rightkit-doctor/src/main.rs",
+      "files": {
+        "Cargo.toml": "3adeeac14225e8bd65a093106a3a537dcecc30210b0165456c7b9f7030099476",
+        "README.md": "d6151477c29010418ccffb9cefe78f35162251178eec5a009a9e23f9ba4f7054",
+        "src/main.rs": "7d053e296ea660f4f9807ef296588fb15a8898bbc6194483938ccaa3d654b993"
+      }
+    },
+    "rightkit-owner-approvals": {
+      "pkId": "PK168",
+      "id": "ci/consumers/rightkit-owner-approvals/src/main.rs",
+      "files": {
+        "Cargo.toml": "772d5687db8fb66578757237a7e8f74b25d0fc0fbb09d7cee7c3724f7d5f9db1",
+        "README.md": "69b36403a8ec9e6f6964566321cef8523ce2dd5b3689fe84ae75f1c95860fe2d",
+        "src/main.rs": "da2ac5cf2449c394f8cc23286bb46aa90baeac2a932024a0473e8119c2cade40"
+      }
+    },
+    "rightkit-remote-gateway": {
+      "pkId": "PK169",
+      "id": "ci/consumers/rightkit-remote-gateway/src/main.rs",
+      "files": {
+        "Cargo.toml": "dec51f582c76e2de14024c8ac788c9d889d2bb54fabfc72a4ef7cad9bb48f40b",
+        "README.md": "4f2ba6787df27803fedfc399debe234343831301113534f82195c40c9c6b4f43",
+        "src/main.rs": "e8075fc42b39ecb3dab23d733b4e9051b63a3961b9a929461c96179f99061451"
+      }
+    },
+    "rightkit-web-session": {
+      "pkId": "PK170",
+      "id": "ci/consumers/rightkit-web-session/src/main.rs",
+      "files": {
+        "Cargo.toml": "e46acfe53992e4945dbcda1ac97445997ff80fd949aa69bec1ce1deb4399e7e2",
+        "README.md": "7f4262513c9a81a0e37119e1912653a80f6f653319a3719b913c85fc9c9190a5",
+        "src/main.rs": "6f6e75f5d7f96a34ad221ae7abebbb31445cef2f0a3b4392137a277e0dda72eb"
+      }
     }
   }
 }
