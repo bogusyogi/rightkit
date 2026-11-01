@@ -9,8 +9,15 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
+[features]
+# The C ABI to the native macOS pill and splash (`pill::bridge_macos`). The application links the Swift library that defines the `hr_pill_*` symbols.
+macos-bridge = []
+# Compiles the QA launch switch for hidden launches. Never in a release build.
+qa-native = []
+
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [

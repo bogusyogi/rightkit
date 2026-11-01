@@ -39,6 +39,8 @@ desktop-context = [
   "dep:objc2-foundation",
 ]
 
+# Compiles the test-only QA switches (`RIGHTKIT_QA_*`). Never in a release build.
+test-mode = []
 # `Serialize` for `hotkey_conflict::HotkeyConflict`.
 serde = ["dep:serde"]
 # `desktop::delivery`: the real text-delivery backend (clipboard stage, paste chord, Enter, stop

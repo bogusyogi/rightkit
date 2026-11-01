@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 (unreleased)
+
+- `pill_native` module, moved from HeardRight (`pill_native_win`): the native Windows pill, hint and clip overlays (tokens, geometry, display lists, capsule model, hint and clipboard cards, prompt-hint trigger, and the owner-thread driver). App callbacks go through `rightkit_overlay::pill::actions::PillActions`, installed with `pill_native::install_actions`. Overlay window titles are now `Pill Hint` and `Pill Recent`; the hub button reads "Open app". NOT BUILT: written without a compiler.
+
 ## 0.1.0 (unreleased)
 
 Verified on the Dell (Windows): the crate builds, the 83 unit tests, the doc test and the ignored desktop smoke test (`tests/windows_smoke.rs`) pass. The changes listed under "Review fixes" below were made after that run and are source-level until the integration owner reruns it, together with the new ignored `tests/windows_gdi_handles.rs` and a manual demo pass on a mixed-DPI host.

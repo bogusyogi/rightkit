@@ -3,6 +3,7 @@
 ## 0.2.1 (unreleased)
 
 - `pill` module, moved from HeardRight (`heardright_core::pill`): the `PillEvent` payload, work-area clamp geometry and the hover gate for the pill capsule. Pure Rust; no window calls.
+- `pill::actions` (`PillActions`, `install_actions`): the application seam of the native pills (dictation actions, hub navigation, settings patch, diagnostics). `pill::bridge_macos` (feature `macos-bridge`, macOS): the C ABI to the native macOS pill and splash, moved from HeardRight `pill_bridge_macos`; the `hr_pill_*` and `hr_splash_*` symbols are the Swift library's and keep their names. `qa-native` feature for the hidden-launch splash skip.
 
 ## 0.2.0 (unreleased)
 

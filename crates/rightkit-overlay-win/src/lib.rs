@@ -78,6 +78,7 @@ mod window;
 mod win;
 
 pub mod icons;
+pub mod pill_native;
 
 pub use anim::{Animation, Easing, FrameInfo};
 pub use color::Rgba;
