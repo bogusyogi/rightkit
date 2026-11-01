@@ -108,7 +108,7 @@ pub struct SaveOrchestrationSettings {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::health::{SandboxSettingsRecord, WorkspaceQuery};
 
     #[test]
     fn workspace_query_parses_camel_case() {
