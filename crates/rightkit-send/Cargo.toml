@@ -24,7 +24,7 @@ bonjour = []
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rcgen = "0.14"
 sha2 = "0.11"
-rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sysinfo = { version = "=0.40.0", optional = true }

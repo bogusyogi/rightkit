@@ -12,6 +12,7 @@ categories = ["parser-implementations", "filesystem"]
 include = [
   "src/**",
   "tests/**",
+  "data/**",
   "BAKEOFF.md",
   "Cargo.toml",
   "README.md",
@@ -20,12 +21,21 @@ include = [
   "LICENSE-APACHE",
 ]
 
+[features]
+default = []
+# `files`: text/binary document file IO for a viewer: format table, legacy-encoding decode and
+# re-encode, size limits, fingerprints, and conflict-checked atomic saves.
+files = ["dep:encoding_rs", "dep:chardetng", "dep:base64", "rightkit-fs/lock", "rightkit-fs/digest"]
+
 [dependencies]
+encoding_rs = { version = "0.8.42", optional = true }
+chardetng = { version = "1.0.0", optional = true }
+base64 = { version = "0.23.1", optional = true }
 # PDF read and edit are rightkit-pdf's; this crate is the one-shot facade over it.
-rightkit-pdf = { version = "0.3.2", path = "../rightkit-pdf", default-features = false, features = ["edit", "merge", "extract"] }
+rightkit-pdf = { version = "0.3.4", path = "../rightkit-pdf", default-features = false, features = ["edit", "merge", "extract"] }
 lopdf = { version = "0.46", default-features = false, features = ["rayon"] }
 # The one writer behind every write (temp sibling, flush, rename, directory sync).
-rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 # XLSX read (typed cells, cached formula results) and XLSX create. Both pull zip 9.x.
 calamine = "0.37.0"
 rust_xlsxwriter = "0.102"
@@ -40,7 +50,7 @@ sha2 = "0.11.1"
 [dev-dependencies]
 serde_json = "1.0.154"
 # Fault seam around the replace call (debug and test builds only).
-rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }
 
 [package.metadata.rightkit]
 continuous = false

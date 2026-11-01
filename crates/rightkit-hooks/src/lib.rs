@@ -8,6 +8,8 @@
 //!
 //! The crate holds no policy: a module decides, this crate only parses, bounds and prints.
 
+#[cfg(feature = "agent_hooks")]
+pub mod agent_hooks;
 pub mod dispatch;
 pub mod event;
 pub mod membrane;

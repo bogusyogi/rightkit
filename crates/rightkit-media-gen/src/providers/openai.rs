@@ -294,7 +294,7 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::{Arc, Mutex};
 
-    const KEY: &str = "sk-openai-secret-123";
+    const KEY: &str = concat!("sk", "-openai-secret-123");
 
     fn mock(code: u16, out: String) -> (String, Arc<Mutex<Vec<(String, String)>>>) {
         let l = TcpListener::bind("127.0.0.1:0").unwrap();

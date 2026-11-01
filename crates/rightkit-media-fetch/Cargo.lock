@@ -438,7 +438,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.2.11"
+version = "0.2.13"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -448,7 +448,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "libc",
  "sha2",

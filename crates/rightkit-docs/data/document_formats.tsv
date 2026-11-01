@@ -1,0 +1,87 @@
+# extension<TAB>format<TAB>optional MIME type
+md	md
+markdown	md
+mdx	mdx
+txt	txt
+text	txt
+log	txt
+csv	txt
+tsv	txt
+json	txt
+jsonc	txt
+jsonl	txt
+ndjson	txt
+json5	txt
+properties	txt
+xml	txt
+srt	txt
+vtt	txt
+dockerignore	txt
+yml	txt
+yaml	txt
+toml	txt
+ini	txt
+cfg	txt
+conf	txt
+config	txt
+env	txt
+gitignore	txt
+gitattributes	txt
+editorconfig	txt
+npmrc	txt
+css	txt
+scss	txt
+sass	txt
+less	txt
+js	txt
+jsx	txt
+ts	txt
+tsx	txt
+mjs	txt
+cjs	txt
+vue	txt
+svelte	txt
+astro	txt
+py	txt
+rb	txt
+php	txt
+java	txt
+kt	txt
+kts	txt
+cs	txt
+c	txt
+h	txt
+cpp	txt
+cc	txt
+cxx	txt
+hpp	txt
+rs	txt
+go	txt
+swift	txt
+sh	txt
+bash	txt
+zsh	txt
+fish	txt
+ps1	txt
+psm1	txt
+bat	txt
+cmd	txt
+sql	txt
+lua	txt
+pl	txt
+r	txt
+dockerfile	txt
+makefile	txt
+pdf	pdf	application/pdf
+html	html
+htm	html
+docx	docx	application/vnd.openxmlformats-officedocument.wordprocessingml.document
+png	image	image/png
+jpg	image	image/jpeg
+jpeg	image	image/jpeg
+webp	image	image/webp
+gif	image	image/gif
+bmp	image	image/bmp
+svg	image	image/svg+xml
+ico	image	image/x-icon
+avif	image	image/avif

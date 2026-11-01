@@ -23,6 +23,7 @@ mod migrate;
 mod namespace;
 mod rotation;
 mod secret;
+pub mod secure_prompt;
 mod store;
 
 pub mod android;

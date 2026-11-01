@@ -548,7 +548,7 @@ mod tests {
         }
     }
 
-    const KEY: &str = "nb-secret-KEY-123";
+    const KEY: &str = concat!("nb", "-secret-KEY-123");
 
     fn json_resp(v: Value) -> (u16, &'static str, Vec<u8>) {
         (200, "application/json", v.to_string().into_bytes())

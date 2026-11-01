@@ -1,0 +1,2 @@
+{"version": 1, "scenario": "cancel_midstream", "recorded_at": "2026-08-10T16:52:54Z", "redacted": true, "provider": "openrouter", "model": "test-model"}
+{"index": 0, "id": "chatcmpl-3", "role": "assistant", "content": "partial", "reasoning_content": null, "tool_call_name": null, "tool_call_arguments_fragment": null, "finish_reason": "stop"}

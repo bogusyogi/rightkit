@@ -39,3 +39,32 @@ pub struct HealthResponse {
     /// state visible to every daemon client.
     pub provider_key_storage: ProviderKeyStorageStatus,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn health_response_serialises_camel_case() {
+        let response = HealthResponse {
+            ok: true,
+            service: "engine".into(),
+            port: 8080,
+            database_path: "/tmp/db".into(),
+            utc_now: "2026-01-01T00:00:00Z".into(),
+            storage_read_pool_idle: None,
+            provider_key_storage: ProviderKeyStorageStatus {
+                keychain_failure_observed: false,
+            },
+        };
+        let value = serde_json::to_value(&response).unwrap();
+        assert_eq!(value["databasePath"], "/tmp/db");
+        assert!(value["storageReadPoolIdle"].is_null());
+        assert_eq!(
+            value["providerKeyStorage"]["keychainFailureObserved"],
+            false
+        );
+        let back: HealthResponse = serde_json::from_value(value).unwrap();
+        assert_eq!(back.port, 8080);
+    }
+}

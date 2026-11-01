@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "workflow_id": "wfd-vendor-channel-quiet-hours",
+  "trace_kind": "deferred",
+  "description": "Expected journal sequence when the message timestamp falls inside the operator's quiet-hour window (>=22:00 or <07:00 local). The condition evaluates true, defer-and-batch stages a deferred desktop draft, and log-outcome records the decision for audit.",
+  "trigger": {
+    "kind": "event",
+    "event_kind": "vendor.message_received",
+    "filter": "input.channel == 'primary'",
+    "payload_summary": {
+      "channel": "primary",
+      "message": {
+        "id": "msg-001",
+        "body": "Customer escalation about an integration outage."
+      },
+      "timestamp": {
+        "iso": "2026-08-06T23:14:00-07:00",
+        "hour": 23
+      }
+    }
+  },
+  "journal_sequence": [
+    { "event_kind": "run_started",        "node_id": null,              "expected_seq": 1, "note": "Trigger normalized; event admitted with dedupe key." },
+    { "event_kind": "node_started",       "node_id": "is-quiet-hour?",  "expected_seq": 2, "note": "Condition evaluates quiet-hour expression." },
+    { "event_kind": "condition_evaluated","node_id": "is-quiet-hour?",  "expected_seq": 3, "note": "Result: true (input.timestamp.hour >= 22). Edge with when: 'true' is taken." },
+    { "event_kind": "node_started",       "node_id": "defer-and-batch", "expected_seq": 4, "note": "Effect node dispatched; capability SendUnattendedMessage used." },
+    { "event_kind": "node_completed",     "node_id": "defer-and-batch", "expected_seq": 5, "note": "Deferred desktop draft confirmed; idempotency key recorded." },
+    { "event_kind": "node_started",       "node_id": "log-outcome",     "expected_seq": 6, "note": "Transform writes routing decision to in-run memory." },
+    { "event_kind": "node_completed",     "node_id": "log-outcome",     "expected_seq": 7, "note": "Decision record stored with route='deferred'." },
+    { "event_kind": "delivery_recorded",  "node_id": "defer-and-batch", "expected_seq": 8, "note": "Attention item 'deferred-message' created." },
+    { "event_kind": "run_succeeded",      "node_id": null,              "expected_seq": 9, "note": "Reducer advances phase to Succeeded." }
+  ],
+  "expected_final_lifecycle_revision": 9,
+  "expected_terminal_phase": "succeeded",
+  "expected_cost_usd": 0.05,
+  "expected_token_count": 1000,
+  "expected_lifecycle": {
+    "workflow_id": "wfd-vendor-channel-quiet-hours",
+    "version_id": "wfv_<see-compile-output>",
+    "phase": "Succeeded",
+    "revision": 9
+  },
+  "expected_projection_final_state": {
+    "nodes": {
+      "is-quiet-hour?":  { "state": "succeeded", "evaluated": true,  "routing": "true" },
+      "defer-and-batch": { "state": "succeeded", "effect_receipt_state": "confirmed" },
+      "log-outcome":     { "state": "succeeded", "memory_record_route": "deferred" },
+      "deliver-now":     { "state": "skipped",   "reason": "condition-true" }
+    },
+    "attention_items": [
+      {
+        "kind": "deferred-message",
+        "deep_link": "coderight://automations/wfd-vendor-channel-quiet-hours/runs/<run-id>",
+        "node_id": "defer-and-batch"
+      }
+    ],
+    "deliveries": [
+      {
+        "channel": "desktop-draft",
+        "destination": "coderight://desktop-draft",
+        "kind": "deferred-message",
+        "state": "confirmed",
+        "release_at_local": "2026-08-07T07:00:00-07:00"
+      }
+    ],
+    "memory_records": [
+      {
+        "key": "quiet-hours:<run-id>",
+        "record": {
+          "message_id": "msg-001",
+          "timestamp": "2026-08-06T23:14:00-07:00",
+          "route": "deferred"
+        }
+      }
+    ]
+  },
+  "cost_audit": {
+    "expected_wall_time_seconds_max": 30,
+    "expected_depth_max": 1,
+    "actual_run_cost_estimate_usd": 0.01,
+    "actual_run_token_estimate": 120,
+    "actual_run_wall_time_seconds": 2,
+    "actual_run_depth_used": 1
+  },
+  "expected_terminal_node": "log-outcome",
+  "compile_assertions": {
+    "schema_version": 1,
+    "expected_node_count": 4,
+    "expected_entry_node": "is-quiet-hour?",
+    "expected_capabilities_in_workflow_ceiling": [
+      "Capability::SendUnattendedMessage"
+    ],
+    "expected_capabilities_in_effective_set": [
+      "Capability::SendUnattendedMessage"
+    ],
+    "expected_node_ids": [
+      "is-quiet-hour?",
+      "defer-and-batch",
+      "deliver-now",
+      "log-outcome"
+    ]
+  }
+}

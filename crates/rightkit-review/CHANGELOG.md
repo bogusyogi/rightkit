@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1 (unreleased)
+
+- Add feature `code`: module `code_review` (moved from Legion's `legion-review`): candidate
+  envelopes, adjudication of independent provider judgments, deterministic normalization, review
+  rounds, untrusted-evidence envelopes and receipts.
+- Add feature `minimize`: module `minimize` (moved from Legion's `legion-minimize`): minimal-diff
+  review and decision receipts. `minimize::resolve_minimize_paths` takes the roots to search for
+  the policy asset instead of locating an installed release.
+- Both features enable `serde_json/preserve_order`. Default features and the existing API are
+  unchanged.
+
 ## 0.4.0 (2026-10-17)
 
 - Add `qa` product report model: Pass/Fail/NotApplicable, Error/Warning, severity-aware blocking

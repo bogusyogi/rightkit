@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ffmpeg"
-version = "0.2.11"
+version = "0.2.13"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines."
@@ -21,15 +21,20 @@ native = []
 # Never implied by a build profile (a dev profile has debug_assertions on and still refuses) and never a
 # default feature. An app enables it only from its QA/test configuration.
 dev-overrides = []
+agent_media = ["dep:rightkit-agent-policy", "dep:rightkit-ocr", "dep:tokio"]
 
 [dependencies]
-rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
-rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.0" }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
+rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.7" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy", optional = true}
+rightkit-ocr = {version = "0.2.3", default-features = false, features = ["native"], path = "../rightkit-ocr", optional = true}
+tokio = {version = "1", features = ["io-util", "macros", "process", "sync", "time"], optional = true}
 
 [dev-dependencies]
 tempfile = "3"
+tokio = {version = "1", features = ["full", "test-util"]}
 
 [[test]]
 name = "native_catalog_e2e"

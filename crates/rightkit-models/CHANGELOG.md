@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.3 (unreleased)
+
+- Feature `agent_local_models`: local model server lifecycle for agent hosts, moved from CodeRight `coderight-local-models`.
+
 ## 0.5.2 (unpublished; rightkit#1222)
 
 - Dependencies: requires `rightkit-daemon` 0.5.0 (was 0.4.0), which publishes first.

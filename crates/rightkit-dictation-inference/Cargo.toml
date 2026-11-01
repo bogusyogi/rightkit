@@ -1,0 +1,124 @@
+[package]
+name = "rightkit-dictation-inference"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Dictation inference: Parakeet TDT on CoreML and ONNX Runtime, Whisper, keyword spotting, VAD, calibration, file transcription and the ASR timeline, for a push-to-talk dictation engine."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "data/**", "examples/**", "build.rs", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_dictation_inference"
+path = "src/lib.rs"
+
+[features]
+default = []
+cuda-bench = ["rightkit-asr/cuda", "rightkit-onnx/cuda"]
+rust-kws = []
+test-mode = ["rightkit-asr/test-mode", "rightkit-dictation-core/test-mode", "rightkit-dictation-text-pipeline/test-mode"]
+
+[dependencies]
+rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
+rightkit-text-polish = { version = "0.1.0", path = "../rightkit-text-polish" }
+rightkit-dictation-text-pipeline = { version = "0.1.0", path = "../rightkit-dictation-text-pipeline" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+unicode-normalization-alignments = { version = "0.1" }
+tracing = { version = "0.1" }
+parking_lot = { version = "0.13" }
+rightkit-audio = { version = "0.3.1", default-features = false, path = "../rightkit-audio" }
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
+libloading = { version = "0.9" }
+rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
+rightkit-ffmpeg = { version = "0.2.13", default-features = false, path = "../rightkit-ffmpeg" }
+rightkit-vad = { version = "0.1.2", path = "../rightkit-vad" }
+rightkit-asr = { version = "0.3.4", default-features = false, path = "../rightkit-asr" }
+
+[dev-dependencies]
+rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core", features = ["test-mode"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["digest"], path = "../rightkit-fs" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+rightkit-asr = { version = "0.3.4", default-features = false, path = "../rightkit-asr", features = ["onnx-tdt", "directml"] }
+ndarray = { version = "0.17" }
+rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session", "ndarray", "directml"], path = "../rightkit-onnx" }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_Memory", "Win32_System_Threading"] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Dxgi"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-av-foundation = { version = "0.3", features = ["AVAsset", "AVAssetReader", "AVAssetReaderOutput", "AVMediaFormat", "AVAssetTrack", "objc2-core-media"] }
+objc2-core-media = { version = "0.3" }
+rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session", "ndarray", "coreml"], path = "../rightkit-onnx" }
+objc2 = { version = "0.6" }
+objc2-core-ml = { version = "0.3" }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
+objc2-foundation = { version = "0.3" }
+half = { version = "2" }
+realfft = { version = "3.5" }
+ndarray = { version = "0.17" }
+
+[target.'cfg(target_os = "macos")'.build-dependencies]
+cc = { version = "1" }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+rightkit-asr = { version = "0.3.4", default-features = false, path = "../rightkit-asr", features = ["onnx-tdt"] }
+ndarray = { version = "0.17" }
+rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session", "ndarray"], path = "../rightkit-onnx" }
+
+[[example]]
+name = "parakeet_eval_onnx"
+required-features = ["test-mode"]
+
+[[example]]
+name = "windows_decoder_threads"
+required-features = ["test-mode"]
+
+[[example]]
+name = "windows_decode_probe"
+required-features = ["test-mode"]
+
+[[example]]
+name = "windows_duration_cap_parity"
+required-features = ["test-mode"]
+
+[[example]]
+name = "windows_predictor_parity"
+required-features = ["test-mode"]
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

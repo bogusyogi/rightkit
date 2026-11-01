@@ -15,15 +15,20 @@ path = "src/lib.rs"
 
 [dependencies]
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
-rightkit-time = { version = "0.1.0", path = "../rightkit-time" }
+rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rightkit-agent-engine-protocol = { version = "0.1.0", path = "../rightkit-agent-engine-protocol" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
 rightkit-search = { version = "0.4.1", default-features = false, path = "../rightkit-search" }
-rightkit-fs = { version = "0.4.8", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.4.9", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }
 tracing = { version = "0.1" }
+rightkit-workflow = { version = "0.2.1", path = "../rightkit-workflow", features = ["control_plane"], optional = true }
+
+[features]
+# Durable storage for the agent workflow control plane (journal writer, repository, triggers).
+workflow = ["dep:rightkit-workflow"]
 
 [dev-dependencies]
 tempfile = { version = "3" }

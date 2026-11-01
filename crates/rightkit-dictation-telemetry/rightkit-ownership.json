@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-dictation-telemetry",
+  "capabilities": [
+    {
+      "capability": "dictation-telemetry",
+      "summary": "Dictation telemetry: local utterance timelines, telemetry writer, crash dump capture, feedback and HTTP client for diagnostics, redacted before anything is written.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

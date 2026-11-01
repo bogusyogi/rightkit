@@ -22,6 +22,8 @@ mod legacy;
 pub mod model;
 pub mod opacity;
 pub mod retime;
+#[cfg(feature = "still-finish")]
+pub mod still_finish;
 pub mod ticks;
 pub mod track;
 pub mod validate;

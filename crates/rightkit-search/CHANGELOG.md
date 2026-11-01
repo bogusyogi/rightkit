@@ -2,6 +2,7 @@
 
 ## 0.4.1 (unpublished)
 
+- `html_text::html_to_text`: HTML to indexable plain text (drops tags, attributes, comments, script/style/head; decodes entities; collapses whitespace). No dependency. Moved from MailRight (db/fts_text.rs). Existing API unchanged.
 - Dependency: `rusqlite` 0.40 -> 0.41 (filename index); no source change. (rightkit#1284)
 
 ## 0.4.0 (2026-10-17)

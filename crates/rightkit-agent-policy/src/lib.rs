@@ -86,5 +86,7 @@ pub use workspace_trust_gate::{GateOutcome, TrustGateState, WorkspaceTrustGate};
 
 #[cfg(test)]
 mod injection_harness_tests;
+#[cfg(feature = "legion")]
+pub mod legion;
 
 pub use approval_binding::{ApprovalBinding, ApprovalBindingError, PayloadDigest, SessionGrants};

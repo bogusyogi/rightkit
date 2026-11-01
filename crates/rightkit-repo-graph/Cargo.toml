@@ -15,7 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
-rightkit-fs = { version = "0.4.8", features = ["fs", "digest"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.4.9", features = ["fs", "digest"], path = "../rightkit-fs" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }
@@ -59,7 +59,7 @@ rightkit-repo-graph-grammars = { version = "0.1.0", path = "../rightkit-repo-gra
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 unicode-normalization = { version = "0.1" }
 rightkit-embed = { version = "0.6.2", path = "../rightkit-embed" }
-rightkit-onnx = { version = "0.2.8", path = "../rightkit-onnx" }
+rightkit-onnx = { version = "0.2.9", path = "../rightkit-onnx" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
 rightkit-file-watch = { version = "0.4.2", path = "../rightkit-file-watch" }
 rightkit-context-core = { version = "0.1.0", path = "../rightkit-context-core" }

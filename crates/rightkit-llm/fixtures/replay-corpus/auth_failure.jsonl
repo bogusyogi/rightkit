@@ -1,0 +1,2 @@
+{"version": 1, "scenario": "auth_failure", "recorded_at": "2026-08-10T16:52:54Z", "redacted": true, "provider": "openrouter", "model": "test-model"}
+{"error": {"kind": "auth", "message": "auth failed"}}

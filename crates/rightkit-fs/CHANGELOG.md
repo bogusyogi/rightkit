@@ -1,7 +1,13 @@
 # Changelog
 
+## 0.4.9
+
+- `profile_home` (feature `app-dirs`) and `private_cached` (feature `fs`) from Pulse.
+
 ## 0.4.8 (unpublished)
 
+- Added (feature `fs`): `private_cached` module, moved from Pulse's store: `ensure_dir` and `ensure_private_dir_repairing` (owner-only folders behind a 5-minute per-process trust cache keyed by folder identity; an elevated-run folder on Windows is moved aside and recreated), plus `private_dir_verified`, `note_private_dir`, `forget_private_dir`. Additive.
+- Added (feature `app-dirs`): `profile_home` module, moved from Pulse's `home.rs`: `profile_aware_home(profiles_dir)`, `profile_aware_env_var(key, profiles_dir)` (an environment reader for `AppDirs::resolve_with`) and `profiles_owner(path, profiles_dir)`. They honour `HOME`/`USERPROFILE` except inside the account's secondary-profiles folder, where the account's own folders win. Additive.
 - Performance: the Windows known-folder answers (`SHGetKnownFolderPath`, and the `User Shell Folders`
   read plus `ExpandEnvironmentStringsForUserW` for Roaming and Local AppData) are memoized per
   process, keyed by the folder id (rightkit#1337). They depend only on the process token and the

@@ -14,14 +14,14 @@ name = "rightkit_memory_core"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-time = { version = "0.1.0", path = "../rightkit-time" }
+rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }
 tiktoken-rs = { version = "0.12" }
 rayon = { version = "=1.12.0" }
 rightkit-embed = { version = "0.6.2", path = "../rightkit-embed" }
-rightkit-fs = { version = "0.4.8", features = ["digest"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.4.9", features = ["digest"], path = "../rightkit-fs" }
 
 [workspace]
 

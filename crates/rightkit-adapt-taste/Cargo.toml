@@ -17,7 +17,7 @@ path = "src/lib.rs"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }
-rightkit-fs = { version = "0.4.8", features = ["digest"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.4.9", features = ["digest"], path = "../rightkit-fs" }
 regex = { version = "1" }
 ring = { version = "0.17" }
 rightkit-agent-transcript = { version = "0.1.0", path = "../rightkit-agent-transcript" }

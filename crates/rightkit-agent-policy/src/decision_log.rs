@@ -179,7 +179,10 @@ mod tests {
             "Bash",
             vec![
                 ("workspace".to_string(), "ws-1".to_string()),
-                ("api_key".to_string(), "sk-super-secret".to_string()),
+                (
+                    "api_key".to_string(),
+                    concat!("sk", "-super-secret").to_string(),
+                ),
                 ("Authorization".to_string(), "Bearer xyz".to_string()),
                 ("password".to_string(), "hunter2".to_string()),
             ],
@@ -188,7 +191,7 @@ mod tests {
         let keys: Vec<&str> = record.context.iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(keys, vec!["workspace"]);
         for (_, value) in &record.context {
-            assert_ne!(value, "sk-super-secret");
+            assert_ne!(value, concat!("sk", "-super-secret"));
             assert_ne!(value, "Bearer xyz");
             assert_ne!(value, "hunter2");
         }

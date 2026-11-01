@@ -16,6 +16,7 @@ pub mod ffi;
 mod inline;
 #[cfg(feature = "protocol")]
 mod launch;
+pub mod lease;
 #[cfg(feature = "store")]
 mod lock_queue;
 #[cfg(feature = "store")]

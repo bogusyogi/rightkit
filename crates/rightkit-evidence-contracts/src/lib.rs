@@ -53,10 +53,10 @@ pub use provider::{Coverage, FindingRef, ProviderResult, ProviderSpec, ProviderS
 pub use receipt::{ExecutorBindingOutcome, InvocationReceipt, InvocationStatus};
 pub use report::{
     classify_confidence, derive_status, parse_location, position_anchor, position_anchor_canonical,
-    Anchor, AnchorState, Attribution, Confidence, DiffTag, Disposition, Exactness, FindingV2,
-    LiftContext, LineRange, ReasoningBudgetUsed, ReflectionOutcome, ReportScope, ReportV2,
-    StatusDecision, StatusInputs, REPORT_SCHEMA_V1, REPORT_SCHEMA_V2, V2_FINDING_EVIDENCE_KEY,
-    V2_REPORT_EXTENSION_KEY,
+    Anchor, AnchorState, Attribution, CanonicalAnchorParams, Confidence, DiffTag, Disposition,
+    Exactness, FindingV2, LiftContext, LineRange, ReasoningBudgetUsed, ReflectionOutcome,
+    ReportScope, ReportV2, StatusDecision, StatusInputs, REPORT_SCHEMA_V1, REPORT_SCHEMA_V2,
+    V2_FINDING_EVIDENCE_KEY, V2_REPORT_EXTENSION_KEY,
 };
 pub use report::{Finding, Report, ReportStatus};
 pub use task::{Latitude, TaskSpec, TaskStatus};

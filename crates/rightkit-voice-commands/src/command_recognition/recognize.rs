@@ -131,14 +131,11 @@ pub fn command_token_supported_on_current_platform(token: &str) -> bool {
             macos_command(token) != MacCommand::Unsupported
         }
     }
-    #[cfg(target_os = "windows")]
+    // Windows and every non-macOS platform (Linux included) use the
+    // ctrl-based key tables; only the macOS-specific tokens are hidden.
+    #[cfg(not(target_os = "macos"))]
     {
         token != "__mac_force_quit"
-    }
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    {
-        let _ = token;
-        false
     }
 }
 

@@ -34,6 +34,7 @@ mod system_proxy;
 mod trust;
 #[cfg(feature = "untrusted")]
 pub mod untrusted;
+pub mod urlguard;
 mod urlredact;
 
 #[cfg(feature = "testing")]

@@ -29,14 +29,17 @@ pub mod lease;
 pub mod ledger;
 pub mod library;
 pub mod media;
+pub mod media_commands;
 pub mod provenance;
 pub mod providers;
 pub mod qts;
+pub mod reference;
 pub mod routing;
 pub mod runner;
 pub mod search;
 pub mod stock;
 pub mod store;
+pub mod voices;
 
 /// ONNX Runtime readiness for the engine's `doctor` (resolve + load probe).
 pub use crate::qts::models::{onnxruntime_report, OnnxRuntimeReport};

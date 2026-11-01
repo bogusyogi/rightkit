@@ -22,8 +22,8 @@
 use crate::backend::contract::{CallContext, MemoryBackend};
 use crate::backend::error::{MemoryBackendError, MemoryBackendErrorKind};
 use crate::backend::types::{
-    normalize_scope, path_to_scope, BackendBinding, BackendIdentity, FullMemoryRecord, JsonValue,
-    MemoryEntry, MemoryId, MemoryListRow, MemoryTier, Score,
+    normalize_scope, BackendBinding, BackendIdentity, FullMemoryRecord, JsonValue, MemoryEntry,
+    MemoryId, MemoryListRow, MemoryTier, Score,
 };
 use crate::membrane::{
     ContextPull, MembraneBackend, MembraneCli, MembraneError, MemoryItem, Unavailable, OFF_REASON,
@@ -636,7 +636,7 @@ pub fn canonical_repository_scope(path: &Path) -> String {
     if let Some(rest) = value.strip_prefix("//?/") {
         value = rest.to_owned();
     }
-    value = value.replace(':', "-").replace('/', "-");
+    value = value.replace([':', '/'], "-");
     let value = value.trim_matches('-');
     if value.is_empty() {
         return "global".to_owned();
@@ -744,6 +744,7 @@ impl AdaptClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::types::path_to_scope;
 
     fn item(scope: Option<&str>, tier: &str) -> MemoryItem {
         MemoryItem {
