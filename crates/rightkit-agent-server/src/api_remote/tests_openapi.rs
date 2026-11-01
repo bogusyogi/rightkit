@@ -1,0 +1,80 @@
+#[cfg(test)]
+mod tests_openapi {
+    use super::*;
+    #[allow(dead_code)]
+    fn remote_openapi_components_cover_remote_routes() {
+        let components = remote_openapi_components();
+        for name in [
+            "RemoteChannelsSnapshot",
+            "TelegramRuntimeStatus",
+            "TelegramStatusResponse",
+            "TelegramReadinessCheck",
+            "TelegramTestResponse",
+            "TelegramDiscoveredUser",
+            "TelegramUsersResponse",
+            "RemoteBindingRequest",
+            "RemoteBindingResponse",
+            "RemoteChannelProfileRequest",
+            "RemoteChannelProfileResponse",
+            "RemoteChannelFanoutRequest",
+            "RemoteChannelFanoutResponse",
+            "RemoteChannelOutboundTarget",
+            "RemoteChannelOutboundRequest",
+            "RemoteChannelOutboundResponse",
+        ] {
+            assert!(components.contains_key(name), "missing {name}");
+        }
+        assert_eq!(
+            remote_channels_response_schema()["$ref"],
+            "#/components/schemas/RemoteChannelsSnapshot"
+        );
+        assert_eq!(
+            telegram_status_response_schema()["$ref"],
+            "#/components/schemas/TelegramStatusResponse"
+        );
+        assert_eq!(
+            telegram_test_response_schema()["$ref"],
+            "#/components/schemas/TelegramTestResponse"
+        );
+        assert_eq!(
+            telegram_users_response_schema()["$ref"],
+            "#/components/schemas/TelegramUsersResponse"
+        );
+        assert_eq!(
+            components["TelegramUsersResponse"]["properties"]["users"]["items"]["$ref"],
+            "#/components/schemas/TelegramDiscoveredUser"
+        );
+        assert_eq!(
+            remote_binding_response_schema()["$ref"],
+            "#/components/schemas/RemoteBindingResponse"
+        );
+        assert_eq!(
+            remote_binding_request_schema()["$ref"],
+            "#/components/schemas/RemoteBindingRequest"
+        );
+        assert_eq!(
+            remote_channel_profile_request_schema()["$ref"],
+            "#/components/schemas/RemoteChannelProfileRequest"
+        );
+        assert_eq!(
+            remote_channel_profile_response_schema()["$ref"],
+            "#/components/schemas/RemoteChannelProfileResponse"
+        );
+        assert_eq!(
+            remote_channel_fanout_request_schema()["$ref"],
+            "#/components/schemas/RemoteChannelFanoutRequest"
+        );
+        assert_eq!(
+            remote_channel_fanout_response_schema()["$ref"],
+            "#/components/schemas/RemoteChannelFanoutResponse"
+        );
+        assert_eq!(
+            remote_channel_outbound_request_schema()["$ref"],
+            "#/components/schemas/RemoteChannelOutboundRequest"
+        );
+        assert_eq!(
+            remote_channel_outbound_response_schema()["$ref"],
+            "#/components/schemas/RemoteChannelOutboundResponse"
+        );
+    }
+}

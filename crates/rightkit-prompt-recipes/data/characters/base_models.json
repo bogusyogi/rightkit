@@ -1,0 +1,4 @@
+{
+  "source": "tools/lib/lora-base-model-lock.mjs (ported 2026-10-06)",
+  "base_models": ["FLUX.1-dev", "FLUX.1-schnell", "FLUX.2-dev", "FLUX.2-pro", "FLUX.2-Klein-9B"]
+}

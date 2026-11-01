@@ -69,3 +69,7 @@ pub use untrusted::{
 
 #[cfg(feature = "async")]
 pub use async_client::{AsyncClient, AsyncStreamResponse, BodyStream, SseStream};
+
+#[cfg(feature = "agent_host")]
+#[allow(missing_docs, clippy::all, rustdoc::all, unused)]
+pub mod http_client;

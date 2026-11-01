@@ -1,0 +1,38 @@
+{
+  "kind": "kdp_color_thumbnail",
+  "title": "Color thumbnail",
+  "notes_prefix": "KDP Color Thumbnail",
+  "default_style": "colored_pencil",
+  "default_project_slug": "kdp-color-thumbnail",
+  "locks": {
+    "provider": "nanobanana",
+    "model": "nano-banana-2",
+    "model_label": "NB2",
+    "aspect": "1:1",
+    "resolution": "2K",
+    "brand": "KDP"
+  },
+  "estimate": { "credits": 12, "usd": 0.06 },
+  "prompt": {
+    "label": "KDP colorize",
+    "lines": [
+      "Colorize the selected KDP black-and-white coloring page as a polished back-cover or store thumbnail.",
+      "Preserve the exact black-and-white line art, characters, composition, clean outlines, facial expressions, and object placement.",
+      "{style}",
+      "Keep the result family-friendly, bright, readable at thumbnail size, and suitable for KDP product imagery.",
+      "Do not add text, logos, borders, watermarks, new characters, extra animals, speech bubbles, page numbers, or decorative typography.",
+      "Do not crop, reframe, erase line art, redraw faces, change character count, or convert the image into a photoreal scene."
+    ]
+  },
+  "sources": {
+    "reference_cap": 200,
+    "scan_factor": 3,
+    "image_extensions": ["png", "jpg", "jpeg", "webp"],
+    "codex_root_env": "CODEX_GENERATED_IMAGES_ROOT",
+    "default_roots": [
+      { "path": "D:/Claude/KDP", "kind": "kdp" },
+      { "path": "/Volumes/D/claude/KDP", "kind": "kdp" },
+      { "path": "~/.codex/generated_images", "kind": "codex" }
+    ]
+  }
+}

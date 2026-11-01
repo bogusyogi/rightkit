@@ -1,0 +1,544 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "created": "2026-05-04",
+    "sources": [
+      "Google Cloud Veo 3.1 docs — https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/veo/3-1-generate",
+      "Runway Gen-4 Video Prompting Guide — https://help.runwayml.com/hc/en-us/articles/39789879462419-Gen-4-Video-Prompting-Guide",
+      "Runway Creating with Gen-4 — https://help.runwayml.com/hc/en-us/articles/37327109429011-Creating-with-Gen-4-Video",
+      "fal.ai + WaveSpeed model registry capabilities (router.mjs)",
+      "Codex audit 2026-05-04"
+    ],
+    "principle": "Router knows model CAPABILITIES (resolution, duration, FLF support, ref-count). This file documents PROMPT-LEVEL behavior — what each model rewards and what it punishes.",
+    "category": "video",
+    "subcategory": "per-model-quirks",
+    "consumed_by": [
+      "tools/pipelines/video/create.mjs:composePrompt — per-model constraint compilation (Phase 2.11i)",
+      "tools/pipelines/video/router.mjs — capability flags (informational cross-reference)"
+    ],
+    "updated": "2026-05-04"
+  },
+  "models": {
+    "veo3-flf": {
+      "family": "veo",
+      "backend": "fal",
+      "duration_seconds": [
+        4,
+        6,
+        8
+      ],
+      "duration_strict": true,
+      "supports_negatives": "explicit_field_or_inline",
+      "negative_strategy": "constraints_no_x",
+      "ref_image_count": 0,
+      "frame_anchors": [
+        "start",
+        "end"
+      ],
+      "audio_default": false,
+      "motion_complexity": "high",
+      "prompt_style": "structured_detailed",
+      "rewards": [
+        "explicit camera move + stability cue (locked / smooth / handheld)",
+        "single-axis direction per shot (no stacked verbs)",
+        "visible motivated light source — 'window from camera-left'",
+        "named lens + focal length when realism matters",
+        "explicit NO-X constraints when failure modes are known"
+      ],
+      "punishes": [
+        "stacked motion verbs ('pan AND dolly AND zoom')",
+        "abstract aesthetic descriptors without anchoring nouns",
+        "FLF mismatched physics (start frame and end frame depict impossible interpolation)"
+      ],
+      "tips": [
+        "Audio off saves 50% ($0.40/s → $0.20/s). Mix audio externally via tools/pipelines/audio/.",
+        "FLF: start AND end frames are mandatory for clean interpolation. Single-frame I2V drifts."
+      ]
+    },
+    "veo3-ref": {
+      "family": "veo",
+      "backend": "fal",
+      "duration_seconds": [
+        8
+      ],
+      "duration_strict": true,
+      "supports_negatives": "explicit_field_or_inline",
+      "negative_strategy": "constraints_no_x",
+      "ref_image_count": 3,
+      "frame_anchors": [],
+      "audio_default": false,
+      "motion_complexity": "high",
+      "prompt_style": "motion_focused",
+      "rewards": [
+        "prompt focuses on motion/action — visual identity comes from refs",
+        "1-3 character/product/environment refs locked across all shots",
+        "named subject continuity ('Alex' is the same across shots)"
+      ],
+      "punishes": [
+        "describing visual details already in refs (wastes prompt budget)",
+        "more than 3 refs (hard cap)",
+        "FLF expectations (this is reference-mode, not frame-anchored)"
+      ],
+      "tips": [
+        "Use for multi-shot campaigns where character/product identity must lock.",
+        "Ref images burned 1h after upload — re-upload per session."
+      ]
+    },
+    "kling-3-pro": {
+      "family": "kling",
+      "backend": "wavespeed",
+      "duration_seconds": [
+        5,
+        10
+      ],
+      "duration_strict": false,
+      "supports_negatives": "explicit_field",
+      "negative_strategy": "constraints_no_x",
+      "ref_image_count": 2,
+      "frame_anchors": [
+        "start",
+        "end"
+      ],
+      "audio_default": false,
+      "motion_complexity": "medium",
+      "prompt_style": "structured_compact",
+      "rewards": [
+        "shorter clips (5s) drift less than long",
+        "explicit camera direction (up/down/left/right) — Kling reads 1-axis cleanly",
+        "FLF anchors stabilize identity"
+      ],
+      "punishes": [
+        "very long clips (>8s) — drift accumulates",
+        "complex motion compounds — keep it to ONE verb",
+        "abstract emotional descriptors with no visible referent"
+      ],
+      "tips": [
+        "Cheaper anchored A/B vs Veo at $0.112/s with FLF. Good for social-budget campaigns.",
+        "2026-05-03 hero-shot color regression flagged Kling as social-budget tier, not premium."
+      ]
+    },
+    "seedance-2-fast": {
+      "family": "seedance",
+      "backend": "wavespeed",
+      "duration_seconds": [
+        4,
+        5,
+        6,
+        8,
+        10
+      ],
+      "duration_strict": false,
+      "supports_negatives": "explicit_field",
+      "negative_strategy": "constraints_no_x",
+      "ref_image_count": 1,
+      "frame_anchors": [
+        "start",
+        "end"
+      ],
+      "audio_default": false,
+      "motion_complexity": "medium",
+      "prompt_style": "compact",
+      "rewards": [
+        "concise prompts — verbose hurts",
+        "explicit FLF anchors for identity continuity",
+        "resolution-aware pricing"
+      ],
+      "punishes": [
+        "long descriptive paragraphs",
+        "stacked motion verbs"
+      ],
+      "tips": [
+        "Resolution-tiered: 480p / 720p / 1080p, prices differ. Specify resolution context.",
+        "Best budget option for high-volume social where cost-per-second matters."
+      ]
+    },
+    "runway-gen4": {
+      "family": "runway",
+      "backend": "runway",
+      "duration_seconds": [
+        5,
+        10
+      ],
+      "duration_strict": false,
+      "supports_negatives": "discouraged",
+      "negative_strategy": "rewrite_to_positive",
+      "ref_image_count": 3,
+      "frame_anchors": [
+        "start"
+      ],
+      "audio_default": false,
+      "motion_complexity": "high",
+      "prompt_style": "positive_phrasing_only",
+      "rewards": [
+        "positive descriptive phrasing — 'locked camera', 'one visible hand'",
+        "concrete sensory verbs (steam rises, fabric sways, light shifts)",
+        "subject-motion + scene-motion described separately from camera-motion",
+        "image references carry 80% of visual identity — prompt is mostly motion"
+      ],
+      "punishes": [
+        "NO-X / negative constraints — Runway docs explicitly warn 'negative phrasing can behave unpredictably'",
+        "'don't', 'avoid', 'no' clauses — frequently produce the forbidden element instead",
+        "abstract emotional adjectives without visible motion referent"
+      ],
+      "tips": [
+        "Composer MUST rewrite NO-X constraints to positive equivalents for this family.",
+        "Examples: 'NO camera movement' → 'locked camera, no shake'; 'NO extra hands' → 'only one visible hand'; 'NO text on screen' → 'screen displays a clean photograph, no overlays'."
+      ]
+    },
+    "wan-2-2": {
+      "family": "wan",
+      "backend": "wavespeed",
+      "duration_seconds": [
+        5,
+        8
+      ],
+      "duration_strict": true,
+      "supports_negatives": "explicit_field",
+      "negative_strategy": "constraints_no_x",
+      "ref_image_count": 1,
+      "frame_anchors": [
+        "start"
+      ],
+      "audio_default": false,
+      "motion_complexity": "low",
+      "prompt_style": "compact",
+      "rewards": [
+        "simple subject motion — head turn, hand wave, product rotate",
+        "clear single-axis camera direction",
+        "concrete short prompts"
+      ],
+      "punishes": [
+        "complex multi-element scenes",
+        "long abstract descriptions",
+        "stacked motion verbs"
+      ],
+      "tips": [
+        "Budget option for low-complexity social cuts. Drift escalates fast past 6s.",
+        "WaveSpeed listing — confirm pricing per invoice (no invoiceVerified flag yet)."
+      ]
+    },
+    "infinitetalk": {
+      "family": "infinitetalk",
+      "backend": "wavespeed",
+      "duration_seconds": [
+        3,
+        4,
+        5,
+        6,
+        8
+      ],
+      "duration_strict": false,
+      "supports_negatives": "explicit_field",
+      "negative_strategy": "constraints_no_x",
+      "ref_image_count": 1,
+      "frame_anchors": [
+        "start"
+      ],
+      "audio_default": false,
+      "motion_complexity": "specialty_lipsync",
+      "prompt_style": "lipsync_focused",
+      "rewards": [
+        "talking-head lipsync — feed reference image + transcript",
+        "natural facial micro-motion under speech",
+        "sustained close-up shots"
+      ],
+      "punishes": [
+        "non-talking-head shots",
+        "complex camera moves",
+        "wide framing where face occupies <30% of frame"
+      ],
+      "tips": [
+        "Use exclusively for lipsync VO shots. Other shot types route to Veo/Kling/Seedance.",
+        "Pair with audio.json voice_over_styles + qa-rubrics.json#lipsync."
+      ]
+    }
+  },
+  "_constraint_rewrite_map": {
+    "_comment": "Used by composePrompt per-model compilation when the model's negative_strategy is 'rewrite_to_positive'. Common NO-X patterns and their positive rewrites. Composer falls back to a generic 'with X visible only / cleanly framed' template if no map entry matches.",
+    "no camera movement": "locked camera, no shake",
+    "no shake": "stable smooth motion",
+    "no extra hands": "only one visible hand",
+    "no extra fingers": "five fingers per hand, anatomically correct",
+    "no text": "no overlay text, clean image",
+    "no text on screen": "screen displays a clean photograph, no overlays",
+    "no logo": "untagged surface, no branding visible",
+    "no people": "empty scene, no figures",
+    "no audio": "silent ambient atmosphere",
+    "no warping": "stable proportions throughout",
+    "no morphing": "consistent identity throughout",
+    "no jitter": "smooth continuous motion",
+    "no zoom": "fixed focal length, no zoom",
+    "no pan": "stationary frame",
+    "no extra limbs": "anatomically standard human form"
+  },
+  "items": {
+    "veo3-flf": {
+      "name": "Veo3 Flf",
+      "use": "Rewards: explicit camera move + stability cue (locked / smooth / handheld); single-axis direction per shot (no stacked verbs); visible motivated light source — 'window from camera-left'; named lens + focal length when realism matters; explicit NO-X constraints when failure modes are known",
+      "fragment": "Audio off saves 50% ($0.40/s → $0.20/s). Mix audio externally via tools/pipelines/audio/. FLF: start AND end frames are mandatory for clean interpolation. Single-frame I2V drifts.",
+      "model_quirk": {
+        "family": "veo",
+        "backend": "fal",
+        "duration_seconds": [
+          4,
+          6,
+          8
+        ],
+        "duration_strict": true,
+        "supports_negatives": "explicit_field_or_inline",
+        "negative_strategy": "constraints_no_x",
+        "ref_image_count": 0,
+        "frame_anchors": [
+          "start",
+          "end"
+        ],
+        "audio_default": false,
+        "motion_complexity": "high",
+        "prompt_style": "structured_detailed",
+        "rewards": [
+          "explicit camera move + stability cue (locked / smooth / handheld)",
+          "single-axis direction per shot (no stacked verbs)",
+          "visible motivated light source — 'window from camera-left'",
+          "named lens + focal length when realism matters",
+          "explicit NO-X constraints when failure modes are known"
+        ],
+        "punishes": [
+          "stacked motion verbs ('pan AND dolly AND zoom')",
+          "abstract aesthetic descriptors without anchoring nouns",
+          "FLF mismatched physics (start frame and end frame depict impossible interpolation)"
+        ],
+        "tips": [
+          "Audio off saves 50% ($0.40/s → $0.20/s). Mix audio externally via tools/pipelines/audio/.",
+          "FLF: start AND end frames are mandatory for clean interpolation. Single-frame I2V drifts."
+        ]
+      }
+    },
+    "veo3-ref": {
+      "name": "Veo3 Ref",
+      "use": "Rewards: prompt focuses on motion/action — visual identity comes from refs; 1-3 character/product/environment refs locked across all shots; named subject continuity ('Alex' is the same across shots)",
+      "fragment": "Use for multi-shot campaigns where character/product identity must lock. Ref images burned 1h after upload — re-upload per session.",
+      "model_quirk": {
+        "family": "veo",
+        "backend": "fal",
+        "duration_seconds": [
+          8
+        ],
+        "duration_strict": true,
+        "supports_negatives": "explicit_field_or_inline",
+        "negative_strategy": "constraints_no_x",
+        "ref_image_count": 3,
+        "frame_anchors": [],
+        "audio_default": false,
+        "motion_complexity": "high",
+        "prompt_style": "motion_focused",
+        "rewards": [
+          "prompt focuses on motion/action — visual identity comes from refs",
+          "1-3 character/product/environment refs locked across all shots",
+          "named subject continuity ('Alex' is the same across shots)"
+        ],
+        "punishes": [
+          "describing visual details already in refs (wastes prompt budget)",
+          "more than 3 refs (hard cap)",
+          "FLF expectations (this is reference-mode, not frame-anchored)"
+        ],
+        "tips": [
+          "Use for multi-shot campaigns where character/product identity must lock.",
+          "Ref images burned 1h after upload — re-upload per session."
+        ]
+      }
+    },
+    "kling-3-pro": {
+      "name": "Kling 3 Pro",
+      "use": "Rewards: shorter clips (5s) drift less than long; explicit camera direction (up/down/left/right) — Kling reads 1-axis cleanly; FLF anchors stabilize identity",
+      "fragment": "Cheaper anchored A/B vs Veo at $0.112/s with FLF. Good for social-budget campaigns. 2026-05-03 hero-shot color regression flagged Kling as social-budget tier, not premium.",
+      "model_quirk": {
+        "family": "kling",
+        "backend": "wavespeed",
+        "duration_seconds": [
+          5,
+          10
+        ],
+        "duration_strict": false,
+        "supports_negatives": "explicit_field",
+        "negative_strategy": "constraints_no_x",
+        "ref_image_count": 2,
+        "frame_anchors": [
+          "start",
+          "end"
+        ],
+        "audio_default": false,
+        "motion_complexity": "medium",
+        "prompt_style": "structured_compact",
+        "rewards": [
+          "shorter clips (5s) drift less than long",
+          "explicit camera direction (up/down/left/right) — Kling reads 1-axis cleanly",
+          "FLF anchors stabilize identity"
+        ],
+        "punishes": [
+          "very long clips (>8s) — drift accumulates",
+          "complex motion compounds — keep it to ONE verb",
+          "abstract emotional descriptors with no visible referent"
+        ],
+        "tips": [
+          "Cheaper anchored A/B vs Veo at $0.112/s with FLF. Good for social-budget campaigns.",
+          "2026-05-03 hero-shot color regression flagged Kling as social-budget tier, not premium."
+        ]
+      }
+    },
+    "seedance-2-fast": {
+      "name": "Seedance 2 Fast",
+      "use": "Rewards: concise prompts — verbose hurts; explicit FLF anchors for identity continuity; resolution-aware pricing",
+      "fragment": "Resolution-tiered: 480p / 720p / 1080p, prices differ. Specify resolution context. Best budget option for high-volume social where cost-per-second matters.",
+      "model_quirk": {
+        "family": "seedance",
+        "backend": "wavespeed",
+        "duration_seconds": [
+          4,
+          5,
+          6,
+          8,
+          10
+        ],
+        "duration_strict": false,
+        "supports_negatives": "explicit_field",
+        "negative_strategy": "constraints_no_x",
+        "ref_image_count": 1,
+        "frame_anchors": [
+          "start",
+          "end"
+        ],
+        "audio_default": false,
+        "motion_complexity": "medium",
+        "prompt_style": "compact",
+        "rewards": [
+          "concise prompts — verbose hurts",
+          "explicit FLF anchors for identity continuity",
+          "resolution-aware pricing"
+        ],
+        "punishes": [
+          "long descriptive paragraphs",
+          "stacked motion verbs"
+        ],
+        "tips": [
+          "Resolution-tiered: 480p / 720p / 1080p, prices differ. Specify resolution context.",
+          "Best budget option for high-volume social where cost-per-second matters."
+        ]
+      }
+    },
+    "runway-gen4": {
+      "name": "Runway Gen4",
+      "use": "Rewards: positive descriptive phrasing — 'locked camera', 'one visible hand'; concrete sensory verbs (steam rises, fabric sways, light shifts); subject-motion + scene-motion described separately from camera-motion; image references carry 80% of visual identity — prompt is mostly motion",
+      "fragment": "Composer MUST rewrite NO-X constraints to positive equivalents for this family. Examples: 'NO camera movement' → 'locked camera, no shake'; 'NO extra hands' → 'only one visible hand'; 'NO text on screen' → 'screen displays a clean photograph, no overlays'.",
+      "model_quirk": {
+        "family": "runway",
+        "backend": "runway",
+        "duration_seconds": [
+          5,
+          10
+        ],
+        "duration_strict": false,
+        "supports_negatives": "discouraged",
+        "negative_strategy": "rewrite_to_positive",
+        "ref_image_count": 3,
+        "frame_anchors": [
+          "start"
+        ],
+        "audio_default": false,
+        "motion_complexity": "high",
+        "prompt_style": "positive_phrasing_only",
+        "rewards": [
+          "positive descriptive phrasing — 'locked camera', 'one visible hand'",
+          "concrete sensory verbs (steam rises, fabric sways, light shifts)",
+          "subject-motion + scene-motion described separately from camera-motion",
+          "image references carry 80% of visual identity — prompt is mostly motion"
+        ],
+        "punishes": [
+          "NO-X / negative constraints — Runway docs explicitly warn 'negative phrasing can behave unpredictably'",
+          "'don't', 'avoid', 'no' clauses — frequently produce the forbidden element instead",
+          "abstract emotional adjectives without visible motion referent"
+        ],
+        "tips": [
+          "Composer MUST rewrite NO-X constraints to positive equivalents for this family.",
+          "Examples: 'NO camera movement' → 'locked camera, no shake'; 'NO extra hands' → 'only one visible hand'; 'NO text on screen' → 'screen displays a clean photograph, no overlays'."
+        ]
+      }
+    },
+    "wan-2-2": {
+      "name": "Wan 2 2",
+      "use": "Rewards: simple subject motion — head turn, hand wave, product rotate; clear single-axis camera direction; concrete short prompts",
+      "fragment": "Budget option for low-complexity social cuts. Drift escalates fast past 6s. WaveSpeed listing — confirm pricing per invoice (no invoiceVerified flag yet).",
+      "model_quirk": {
+        "family": "wan",
+        "backend": "wavespeed",
+        "duration_seconds": [
+          5,
+          8
+        ],
+        "duration_strict": true,
+        "supports_negatives": "explicit_field",
+        "negative_strategy": "constraints_no_x",
+        "ref_image_count": 1,
+        "frame_anchors": [
+          "start"
+        ],
+        "audio_default": false,
+        "motion_complexity": "low",
+        "prompt_style": "compact",
+        "rewards": [
+          "simple subject motion — head turn, hand wave, product rotate",
+          "clear single-axis camera direction",
+          "concrete short prompts"
+        ],
+        "punishes": [
+          "complex multi-element scenes",
+          "long abstract descriptions",
+          "stacked motion verbs"
+        ],
+        "tips": [
+          "Budget option for low-complexity social cuts. Drift escalates fast past 6s.",
+          "WaveSpeed listing — confirm pricing per invoice (no invoiceVerified flag yet)."
+        ]
+      }
+    },
+    "infinitetalk": {
+      "name": "Infinitetalk",
+      "use": "Rewards: talking-head lipsync — feed reference image + transcript; natural facial micro-motion under speech; sustained close-up shots",
+      "fragment": "Use exclusively for lipsync VO shots. Other shot types route to Veo/Kling/Seedance. Pair with audio.json voice_over_styles + qa-rubrics.json#lipsync.",
+      "model_quirk": {
+        "family": "infinitetalk",
+        "backend": "wavespeed",
+        "duration_seconds": [
+          3,
+          4,
+          5,
+          6,
+          8
+        ],
+        "duration_strict": false,
+        "supports_negatives": "explicit_field",
+        "negative_strategy": "constraints_no_x",
+        "ref_image_count": 1,
+        "frame_anchors": [
+          "start"
+        ],
+        "audio_default": false,
+        "motion_complexity": "specialty_lipsync",
+        "prompt_style": "lipsync_focused",
+        "rewards": [
+          "talking-head lipsync — feed reference image + transcript",
+          "natural facial micro-motion under speech",
+          "sustained close-up shots"
+        ],
+        "punishes": [
+          "non-talking-head shots",
+          "complex camera moves",
+          "wide framing where face occupies <30% of frame"
+        ],
+        "tips": [
+          "Use exclusively for lipsync VO shots. Other shot types route to Veo/Kling/Seedance.",
+          "Pair with audio.json voice_over_styles + qa-rubrics.json#lipsync."
+        ]
+      }
+    }
+  }
+}

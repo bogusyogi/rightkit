@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-win-ui",
+  "capabilities": [
+    {
+      "capability": "win32-ui-toolkit",
+      "summary": "Win32 UI toolkit: RAII window and GDI wrappers, software canvas, GDI surface and text painter, vector glyphs, shell file icons; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

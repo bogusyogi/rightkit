@@ -1,0 +1,323 @@
+{
+  "schema_version": "1.0.0",
+  "groups": [
+    {
+      "id": "portrait",
+      "label": "Character / Portrait",
+      "provider": "fal",
+      "model_slugs": [
+        "flux-2-pro",
+        "flux-2-dev"
+      ],
+      "route_intents": [
+        "mid",
+        "bottom"
+      ],
+      "best_for": [
+        "text-only character scene portraits on flux-2-pro",
+        "editorial scenes",
+        "Flux 2 Dev LoRA portraits only when the LoRA base model is FLUX.2-dev"
+      ],
+      "prompt_rules": [
+        "The served flux-2-pro route (fal-ai/flux-2-max) takes a text prompt only; no reference images are sent.",
+        "FLUX.1-dev aesthetic or character LoRAs are not compatible with Flux 2 routes.",
+        "Trained LoRAs must pass license plus FLUX.2-dev base-model gates before generation.",
+        "Operator supplies scenario; flux-2-pro locks no identity, so Character Lock refuses characters with reference images or a LoRA on it."
+      ],
+      "workflows": [
+        {
+          "id": "character-portrait",
+          "label": "Character Scene",
+          "status": "guarded",
+          "model_slug": "flux-2-pro",
+          "description": "Place a character into a scenario. The served FLUX.2 Pro route takes text only, so no identity references are sent; trained LoRAs require a compatible Flux 2 Dev base.",
+          "locked_settings": {
+            "intent": "mid",
+            "aspect": "3:4",
+            "lora_base_model": "FLUX.2-dev"
+          },
+          "operator_choices": [
+            "character",
+            "scenario"
+          ],
+          "entry": "image-workflows"
+        }
+      ]
+    },
+    {
+      "id": "nb2",
+      "label": "NB2",
+      "provider": "nanobananaapi.ai",
+      "model_slugs": [
+        "nano-banana-pro"
+      ],
+      "route_intents": [
+        "premium"
+      ],
+      "best_for": [
+        "KDP color thumbnails",
+        "multi-reference composition",
+        "text on image",
+        "photoreal people",
+        "brand UI/ad mockups"
+      ],
+      "prompt_rules": [
+        "Use @imageN inline when references matter.",
+        "Prefer preservation clauses over loose negative prompts.",
+        "Resolution is 1K, 2K, or 4K; 2K is default for most app workflows.",
+        "Maximum 14 references."
+      ],
+      "workflows": [
+        {
+          "id": "kdp-color-thumbnail",
+          "label": "KDP Color Thumbnail",
+          "status": "runnable",
+          "model_slug": "nano-banana-pro",
+          "description": "Color a KDP line-art thumbnail with crayon, marker, or colored pencil.",
+          "locked_settings": {
+            "brand": "KDP",
+            "intent": "premium",
+            "aspect": "1:1",
+            "resolution": "2K",
+            "mode": "image_to_image"
+          },
+          "operator_choices": [
+            "source image",
+            "coloring material"
+          ],
+          "entry": "kdp"
+        },
+        {
+          "id": "nb2-composition",
+          "label": "Multi-Reference Composition",
+          "status": "runnable",
+          "model_slug": "nano-banana-pro",
+          "description": "Combine product, person, environment, and layout references with explicit @imageN roles.",
+          "locked_settings": {
+            "intent": "premium",
+            "resolution": "2K",
+            "max_references": 14
+          },
+          "operator_choices": [
+            "references",
+            "composition brief",
+            "aspect"
+          ],
+          "entry": "advanced-router"
+        }
+      ]
+    },
+    {
+      "id": "qwen",
+      "label": "Qwen Image",
+      "provider": "WaveSpeed",
+      "model_slugs": [
+        "qwen-image"
+      ],
+      "route_intents": [
+        "cartoon"
+      ],
+      "best_for": [
+        "soft painterly cartoon scenes",
+        "illustrated mood pieces",
+        "soft-anime kids channel aesthetic"
+      ],
+      "avoid_for": [
+        "strict white-background book illustrations",
+        "model sheets",
+        "engineering/orthographic layouts"
+      ],
+      "prompt_rules": [
+        "Keep prompt under the qwen-image contract cap.",
+        "Use size format like 1024*1024, not 1024x1024.",
+        "No separate negative_prompt field on the current WaveSpeed base route; express constraints inline.",
+        "Quote literal text and specify its position when rendering text."
+      ],
+      "workflows": [
+        {
+          "id": "qwen-cartoon-scene",
+          "label": "Cartoon Scene",
+          "status": "runnable",
+          "model_slug": "qwen-image",
+          "description": "Generate a soft illustrated scene from a structured subject/action/style prompt.",
+          "locked_settings": {
+            "intent": "cartoon",
+            "output_format": "png"
+          },
+          "operator_choices": [
+            "subject",
+            "scene",
+            "style intensity",
+            "aspect"
+          ],
+          "entry": "advanced-router"
+        }
+      ]
+    },
+    {
+      "id": "flux",
+      "label": "FLUX.2",
+      "provider": "fal",
+      "model_slugs": [
+        "flux-2-dev",
+        "flux-2-pro"
+      ],
+      "route_intents": [
+        "bottom",
+        "mid"
+      ],
+      "best_for": [
+        "draft lifestyle images",
+        "blog heroes",
+        "b-roll stills",
+        "sharper photoreal product scenes"
+      ],
+      "prompt_rules": [
+        "No negative prompt field; rewrite constraints positively.",
+        "Use BFL-style subject/action/style/context prompts.",
+        "flux-2-pro serves a text prompt only; reference images are not offered on this route.",
+        "LoRA base-model locks apply only to flux-2-dev; flux-2-pro does not accept LoRA weights."
+      ],
+      "workflows": [
+        {
+          "id": "flux-product-photo",
+          "label": "Product Photo",
+          "status": "runnable",
+          "model_slug": "flux-2-pro",
+          "description": "Photoreal product/lifestyle still with positive-only constraints; text prompt only on the served flux-2-pro route.",
+          "locked_settings": {
+            "intent": "mid",
+            "max_references": 0
+          },
+          "operator_choices": [
+            "product brief",
+            "setting",
+            "aspect"
+          ],
+          "entry": "advanced-router"
+        }
+      ]
+    },
+    {
+      "id": "recraft",
+      "label": "Recraft",
+      "provider": "WaveSpeed",
+      "model_slugs": [
+        "recraft-v4-vector",
+        "recraft-v4-pro-vector",
+        "recraft-v4-raster"
+      ],
+      "route_intents": [
+        "vector",
+        "vector_premium",
+        "design_layout"
+      ],
+      "best_for": [
+        "logos",
+        "icons",
+        "brand-aware raster layouts"
+      ],
+      "prompt_rules": [
+        "WaveSpeed Recraft V4 currently accepts prompt plus size only.",
+        "Put style and color direction into prompt text; do not send separate style/color params.",
+        "Raster layout workflows are for structured design assets, not photoreal images."
+      ],
+      "workflows": [
+        {
+          "id": "recraft-logo-icon",
+          "label": "Logo / Icon / Safe Render",
+          "status": "runnable",
+          "model_slug": "recraft-v4-raster",
+          "description": "Generate raster logo, icon, and layout assets on the served Recraft V4 route, or use Imagen as the safe fallback route. The Recraft vector (SVG) route is listed but unavailable: no served route produces SVG.",
+          "locked_settings": {
+            "intent": "design_layout",
+            "style": "digital_illustration"
+          },
+          "operator_choices": [
+            "route picker",
+            "object or layout brief",
+            "color direction"
+          ],
+          "entry": "image-workflows",
+          "route_options": [
+            {
+              "id": "recraft-vector",
+              "label": "Recraft Vector",
+              "intent": "vector",
+              "model_slug": "recraft-v4-vector",
+              "available": false,
+              "unavailable_reason": "no served route produces SVG",
+              "locked_settings": {}
+            },
+            {
+              "id": "recraft-raster",
+              "label": "Recraft Layout",
+              "intent": "design_layout",
+              "model_slug": "recraft-v4-raster",
+              "locked_settings": {}
+            },
+            {
+              "id": "imagen-safe",
+              "label": "Imagen Safe Fallback",
+              "intent": "google_safe",
+              "model_slug": "imagen-4-ultra",
+              "locked_settings": {
+                "fallback": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "article-illustrations",
+      "label": "Article Illustrations",
+      "provider": "Media Console",
+      "model_slugs": [
+        "gpt-image-2"
+      ],
+      "route_intents": [
+        "text_premium"
+      ],
+      "best_for": [
+        "article concept anchors",
+        "white-background editorial explainers",
+        "Chinese annotation-heavy still illustrations"
+      ],
+      "avoid_for": [
+        "formal slide decks",
+        "dense diagrams",
+        "mascot posters",
+        "commercial vector layouts"
+      ],
+      "prompt_rules": [
+        "Build shot list first; one image explains one core idea.",
+        "Pure white background, minimal black hand-drawn line art.",
+        "Sparse red, orange, or blue handwritten Chinese annotations.",
+        "Use Image Studio preflight or Codex imagegen; no provider call until approval."
+      ],
+      "workflows": [
+        {
+          "id": "article-illustrations",
+          "label": "Article Shot List",
+          "status": "runnable",
+          "model_slug": "gpt-image-2",
+          "description": "Turn article text or a concept into a shot list and first Image Studio prompt packet.",
+          "locked_settings": {
+            "intent": "text_premium",
+            "aspect": "16:9",
+            "count": "4-8",
+            "style_constraints": "white-background line art"
+          },
+          "operator_choices": [
+            "article or concept",
+            "count",
+            "language",
+            "output folder"
+          ],
+          "entry": "image-workflows"
+        }
+      ]
+    }
+  ]
+}

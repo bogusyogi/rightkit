@@ -1,0 +1,150 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated": "2026-05-04",
+    "category": "image",
+    "subcategory": "composition",
+    "principle": "Subject placement in frame ONLY. Where in the frame is the subject? Where do the eyes go first? Composition is the geometry of attention. Ownership boundary: composition does NOT describe focal length (lens.json) or spatial layering (depth.json).",
+    "sources": [
+      "Higgsfield AI tutorial transcript 2026-05-03 (rule of thirds, leading lines)",
+      "Bruce Block, The Visual Story (visual hierarchy)"
+    ],
+    "interpolation_rule": "Paste fragment verbatim into the composition clause."
+  },
+  "_brand_defaults": {
+    "DD": {
+      "item_key": "golden_ratio",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md DD: premium product elegance, considered framing"
+    },
+    "RH": {
+      "item_key": "rule_of_thirds_left",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md RH: editorial-magazine default"
+    },
+    "TS": {
+      "item_key": "dutch_angle",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md TS: defiant counter-culture tension"
+    },
+    "HR": {
+      "item_key": "centered_static",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md HR: Linear/Cron deliberate structured symmetry"
+    },
+    "DV": {
+      "item_key": "rule_of_thirds_left",
+      "status": "unknown_needs_owner_input",
+      "seeded_from": "no source yet"
+    },
+    "SS": {
+      "item_key": "golden_ratio",
+      "status": "owner_approved",
+      "seeded_from": "CLAUDE.md SS: fine-art photography editorial framing"
+    }
+  },
+  "items": {
+    "rule_of_thirds_left": {
+      "name": "Rule of thirds — subject left",
+      "use": "Subject on the left third line, looking or moving right. Most common cinematic composition. Looks intentional, not centered-default.",
+      "fragment": "subject placed on the left third vertical line of the frame, eye line on the upper third horizontal, ample negative space to the right that the subject is looking or moving into",
+      "tags": [
+        "thirds",
+        "off-center",
+        "directional"
+      ]
+    },
+    "rule_of_thirds_right": {
+      "name": "Rule of thirds — subject right",
+      "use": "Mirror of above. Subject on right third, looking left. Used to break visual rhythm in a sequence.",
+      "fragment": "subject placed on the right third vertical line of the frame, eye line on the upper third horizontal, ample negative space to the left",
+      "tags": [
+        "thirds",
+        "off-center",
+        "directional"
+      ]
+    },
+    "centered_static": {
+      "name": "Centered static",
+      "use": "Wes Anderson, symmetrical, deliberate. Use only when symmetry serves the meaning — formal, clinical, or comedic deadpan.",
+      "fragment": "subject perfectly centered in frame, symmetrical composition, deliberate static placement, geometric balance of elements around the center axis",
+      "tags": [
+        "symmetrical",
+        "static",
+        "formal"
+      ]
+    },
+    "leading_lines": {
+      "name": "Leading lines into subject",
+      "use": "Roads, hallways, fences, river, light path — visual lines lead the eye to the subject. Strong directional pull.",
+      "fragment": "strong leading lines in the scene (architectural edges, paths, light patterns) that draw the eye directly to the subject, vanishing-point geometry pulling attention toward the focal point",
+      "tags": [
+        "leading-lines",
+        "directional",
+        "geometric"
+      ]
+    },
+    "golden_ratio": {
+      "name": "Golden ratio spiral",
+      "use": "More elegant than rule of thirds. Subject sits at the spiral's tightest curl. Used for formal portraits and editorial photography.",
+      "fragment": "composition follows the golden ratio spiral with the subject at the spiral's tightest curl, surrounding elements arranged along the curving path, the elegant visual mathematics of fine-art photography",
+      "tags": [
+        "golden-ratio",
+        "elegant",
+        "editorial"
+      ]
+    },
+    "dutch_angle": {
+      "name": "Dutch angle (canted frame)",
+      "use": "Tilted horizon line. Tension, unease, drug trip, action. Use sparingly — strong effect.",
+      "fragment": "horizon line clearly tilted off-axis, the entire frame canted at an angle, off-balance geometry creating tension or unease",
+      "tags": [
+        "dutch",
+        "tilted",
+        "tense"
+      ],
+      "warning": "Strong effect. Only use when tension/unease is intentional."
+    },
+    "negative_space_top": {
+      "name": "Negative space above subject",
+      "use": "Subject low in frame, lots of sky/ceiling/blank space above. Loneliness, smallness, awe.",
+      "fragment": "subject placed low in the frame with abundant negative space above, the emptiness of sky or wall dominating the upper two-thirds, the subject made small by contrast",
+      "tags": [
+        "negative-space",
+        "loneliness",
+        "scale"
+      ]
+    },
+    "subject_low_in_frame": {
+      "name": "Subject low in frame",
+      "use": "Like negative-space-top but specifically used for environmental establishing shots. Subject is part of a larger world.",
+      "fragment": "subject occupying the lower portion of the frame, the rest of the frame given to environment and atmosphere, the subject contextualized within their setting",
+      "tags": [
+        "environmental",
+        "context",
+        "low-frame"
+      ]
+    },
+    "over_the_shoulder": {
+      "name": "Over the shoulder",
+      "use": "Foreground shoulder/back of head, subject of attention beyond. Conversation shots, POV-adjacent. Adds depth automatically.",
+      "fragment": "framed from over a shoulder in the foreground, the back of head and shoulder line visible at one edge, the subject of attention seen beyond at a slight angle",
+      "tags": [
+        "OTS",
+        "POV-adjacent",
+        "conversational"
+      ]
+    },
+    "top_down_flat_lay": {
+      "name": "Top-down flat lay",
+      "use": "Bird's-eye view of arrangement on flat surface. Product flat-lays, food, knolling. NOT for human subjects.",
+      "fragment": "top-down bird's-eye view of objects arranged on a flat surface, perfectly perpendicular angle, the subject(s) flat-laid for arrangement and pattern",
+      "tags": [
+        "flat-lay",
+        "top-down",
+        "product"
+      ],
+      "warning": "Not appropriate for human subjects. Use for product, food, or arrangement shots only."
+    }
+  }
+}

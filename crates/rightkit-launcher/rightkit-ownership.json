@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-launcher",
+  "capabilities": [
+    {
+      "capability": "command-launcher",
+      "summary": "Command launcher logic: arithmetic calculator and unit conversion parsers that never hand typed text to an evaluator.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Add `agent_host` feature: modules vendor_mcp_pipe (moved from an agent host binary).
+
 ## 0.2.1 (unreleased)
 
 - Features `agent_acp` (Agent Client Protocol types) and `driver_host` (external coding-agent CLI drivers: runtime profiles, login routes, ACP contract, harnesses) moved from CodeRight `coderight-acp` and `coderight-driver-host`.

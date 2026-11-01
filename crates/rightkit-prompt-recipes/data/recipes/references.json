@@ -1,0 +1,257 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated": "2026-05-04",
+    "category": "image",
+    "subcategory": "references",
+    "principle": "Reference-driven generation. Modern pipelines lock identity / style / product / layout via reference images, not prose. Each reference TYPE has a different semantic — composer threads the right type through the right field per-model. Style-ref, character-ref, product-ref, layout-ref are NOT interchangeable.",
+    "sources": [
+      "Midjourney style-reference docs (--sref + --sw weight)",
+      "Black Forest Labs FLUX prompting guide (multi-image refs for identity)",
+      "Runway Gen-4 prompting guide (@[character] @[style] reference syntax)",
+      "OpenAI image generation guide (image_urls for edit/reference workflows)",
+      "Google Imagen reference guide (style transfer + subject consistency)",
+      "Adrian's Puck v3 production lesson (lock product appearance via 1-3 ingredient images, never prose)",
+      "Adrian's KDP coloring book production (locked content-pipeline line-art reference across all 30 pages)"
+    ],
+    "interpolation_rule": "References are NOT prompt fragments — they're URL-threaded inputs that go in the model's reference field. Composer reads per-model-quirks.json `reference_field` + `reference_max` to thread correctly. Mention the reference role in prompt only if model-specific guide recommends it (NB2 uses inline @img1; FLUX/Imagen describe style in prose AND attach ref)."
+  },
+  "_brand_defaults": {
+    "DD": {
+      "item_key": "product_ref_appearance_lock",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md DD: Puck v3 lesson — product appearance MUST lock via reference"
+    },
+    "RH": {
+      "item_key": "style_ref_locked_aesthetic",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md RH: editorial spread consistency across blog imagery"
+    },
+    "TS": {
+      "item_key": "style_ref_locked_aesthetic",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md TS: counter-culture aesthetic must persist across drops"
+    },
+    "HR": {
+      "item_key": "product_ref_appearance_lock",
+      "status": "provisional_from_memory",
+      "seeded_from": "HR dictation-device shots: lock device appearance via reference"
+    },
+    "DV": {
+      "item_key": "style_ref_locked_aesthetic",
+      "status": "unknown_needs_owner_input",
+      "seeded_from": "no source yet"
+    },
+    "SS": {
+      "item_key": "character_ref_identity_lock",
+      "status": "owner_approved",
+      "seeded_from": "CLAUDE.md SS: photography subject identity preserved across series"
+    }
+  },
+  "items": {
+    "style_ref_locked_aesthetic": {
+      "name": "Style reference (locked aesthetic across batch)",
+      "use": "When the same illustration style must persist across 5+ images. KDP coloring books, ad-campaign creatives, character-consistent multi-shot reels. Lock once, thread to every image in the batch.",
+      "fragment": "in the exact line-art style of the reference image, match the line weight and decorative density of the reference",
+      "negative_constraints": [
+        "do not deviate from the reference style",
+        "do not introduce shading not present in the reference"
+      ],
+      "tags": [
+        "style",
+        "batch-consistency",
+        "kdp"
+      ],
+      "model_threading": {
+        "nano-banana-pro": {
+          "field": "imageUrls",
+          "syntax": "@img1 inline + URL in array",
+          "weight": "n/a"
+        },
+        "flux-2-dev": {
+          "field": "image_urls",
+          "syntax": "URL in array",
+          "weight": "n/a"
+        },
+        "flux-2-pro": {
+          "field": "image_urls",
+          "syntax": "URL in array",
+          "weight": "n/a"
+        },
+        "imagen-4-standard": {
+          "field": "image_urls",
+          "syntax": "URL in array — describe style explicitly in prompt too",
+          "weight": "loose"
+        },
+        "imagen-4-ultra": {
+          "field": "image_urls",
+          "syntax": "URL in array — describe style explicitly",
+          "weight": "loose"
+        },
+        "qwen-image": {
+          "field": "image_urls",
+          "syntax": "URL in array",
+          "weight": "n/a"
+        },
+        "recraft-v4-raster": {
+          "field": "image_urls",
+          "syntax": "URL in array — describe style explicitly",
+          "weight": "loose"
+        },
+        "gpt-image-2": {
+          "field": "image_urls",
+          "syntax": "URL in array, prompt mentions 'in the style of the reference'",
+          "weight": "moderate"
+        },
+        "mj-v7-evolink": {
+          "field": "prompt prefix URL + --sref",
+          "syntax": "https://... --sref 12345 --sw 100",
+          "weight": "--sw 0-1000"
+        }
+      }
+    },
+    "character_ref_identity_lock": {
+      "name": "Character reference (lock identity across shots)",
+      "use": "Same person/character in N different scenes. Multi-shot ad campaigns, dictation app demos with same actor, kids book main character. Lock face + clothing + body type via reference.",
+      "fragment": "the character shown in the reference image, preserve facial features and clothing exactly, only the pose and environment change",
+      "negative_constraints": [
+        "do not change facial features",
+        "do not change clothing",
+        "do not introduce a different person"
+      ],
+      "tags": [
+        "character",
+        "identity",
+        "multi-shot"
+      ],
+      "model_threading": {
+        "nano-banana-pro": {
+          "field": "imageUrls",
+          "syntax": "@img1 inline (multiple refs supported up to 14)",
+          "weight": "high"
+        },
+        "flux-2-dev": {
+          "field": "image_urls",
+          "syntax": "URL in array — 1-2 refs work best",
+          "weight": "moderate"
+        },
+        "flux-2-pro": {
+          "field": "image_urls",
+          "syntax": "URL in array — 1-2 refs",
+          "weight": "moderate"
+        },
+        "imagen-4-standard": {
+          "field": "image_urls",
+          "syntax": "URL in array; weight is loose, describe character in prompt",
+          "weight": "loose"
+        },
+        "qwen-image": {
+          "field": "image_urls",
+          "syntax": "URL in array",
+          "weight": "moderate"
+        },
+        "gpt-image-2": {
+          "field": "image_urls",
+          "syntax": "URL + 'preserve the person's identity from the reference' in prompt",
+          "weight": "high"
+        },
+        "mj-v7-evolink": {
+          "field": "prompt prefix URL + --cref",
+          "syntax": "https://... --cref --cw 100",
+          "weight": "--cw 0-100"
+        }
+      }
+    },
+    "product_ref_appearance_lock": {
+      "name": "Product reference (lock product appearance — Puck v3 lesson)",
+      "use": "Hero product shots where the product MUST look exactly like the real one. EDC blade, dictation device, packaging. Lock 1-3 reference images of the actual product, scale, color, materials. Do NOT describe the product in prose alone — that drifts.",
+      "fragment": "the product shown in the reference image, exact scale and proportions, exact materials and color, the same physical object placed in a new scene",
+      "negative_constraints": [
+        "do not redesign the product",
+        "do not change scale or proportions",
+        "do not invent details not visible in the reference",
+        "do not change color or materials"
+      ],
+      "tags": [
+        "product",
+        "appearance-lock",
+        "DD",
+        "puck-v3-lesson"
+      ],
+      "model_threading": {
+        "nano-banana-pro": {
+          "field": "imageUrls",
+          "syntax": "@img1 (multi-image composition is NB2's strength — pass product + environment refs together)",
+          "weight": "high"
+        },
+        "flux-2-pro": {
+          "field": "image_urls",
+          "syntax": "URL in array — describe scale explicitly in prompt",
+          "weight": "moderate"
+        },
+        "imagen-4-standard": {
+          "field": "image_urls",
+          "syntax": "URL + describe product attributes in prompt",
+          "weight": "loose"
+        },
+        "imagen-4-ultra": {
+          "field": "image_urls",
+          "syntax": "URL + product attributes in prompt",
+          "weight": "loose"
+        },
+        "gpt-image-2": {
+          "field": "image_urls",
+          "syntax": "URL + 'preserve the product exactly as shown' in prompt",
+          "weight": "high"
+        },
+        "mj-v7-evolink": {
+          "field": "prompt prefix URL + --iw 2",
+          "syntax": "https://... --iw 2 (max image weight)",
+          "weight": "--iw 0.5-2"
+        }
+      }
+    },
+    "layout_ref_composition_lock": {
+      "name": "Layout/sketch reference (lock composition)",
+      "use": "When you have a rough sketch, wireframe, or composition study and want the model to render it in a specific aesthetic. Storyboard frames, ad layout mockups, UI wireframes turned into hi-fi.",
+      "fragment": "follow the composition and layout shown in the reference sketch, preserve element placement and proportion, only refine the rendering quality and aesthetic",
+      "negative_constraints": [
+        "do not rearrange elements",
+        "do not move the focal point",
+        "do not crop differently than the reference"
+      ],
+      "tags": [
+        "layout",
+        "composition",
+        "sketch-to-render"
+      ],
+      "model_threading": {
+        "flux-2-dev": {
+          "field": "image_urls",
+          "syntax": "URL in array; FLUX has decent layout adherence with refs",
+          "weight": "moderate"
+        },
+        "flux-2-pro": {
+          "field": "image_urls",
+          "syntax": "URL in array",
+          "weight": "moderate"
+        },
+        "nano-banana-pro": {
+          "field": "imageUrls",
+          "syntax": "@img1 + 'follow the composition of @img1'",
+          "weight": "high"
+        },
+        "gpt-image-2": {
+          "field": "image_urls",
+          "syntax": "URL + 'render this composition in [aesthetic]' edit-style instruction",
+          "weight": "high"
+        },
+        "recraft-v4-raster": {
+          "field": "image_urls",
+          "syntax": "URL + describe layout intent — Recraft has good design-aware layout adherence",
+          "weight": "moderate"
+        }
+      }
+    }
+  }
+}

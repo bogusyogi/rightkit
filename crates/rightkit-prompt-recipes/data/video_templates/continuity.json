@@ -1,0 +1,183 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "created": "2026-05-04",
+    "sources": [
+      "veo3-ref Ingredients-to-Video continuity capability",
+      "Codex audit 2026-05-04 — manifest has refs but no recipe library for continuity locks",
+      "HR ad continuity-score climb 3.3 → 5.7 via cooking-state anchor frames"
+    ],
+    "principle": "Continuity is what makes a multi-shot ad read as ONE story. Each lock below is a recipe for what to anchor across shots — applied via image_prompt clauses, character_ref scene_anchor overrides, and ingredient ref images. The pipeline must repeat these clauses verbatim across shots.",
+    "category": "video",
+    "subcategory": "continuity",
+    "consumed_by": [
+      "tools/pipelines/video/campaign.mjs Stage 0.5 character_refs (existing)",
+      "tools/pipelines/video/campaign.mjs Stage 1 storyboard via shot.image_prompt",
+      "manifest characters[].scene_anchor (existing schema field)"
+    ],
+    "updated": "2026-05-04"
+  },
+  "lock_types": {
+    "product_scale": {
+      "_use": "Multi-shot product ads where the product must look the same SIZE across cuts. EDC knives, phones, mugs.",
+      "clause_template": "[PRODUCT] is approximately [DIMENSION] long, fits in an adult palm with [REFERENCE]",
+      "example": "the EDC knife is approximately 9cm closed, fits in an adult palm with the bolster visible past the thumb",
+      "applies_to_shots": "every shot featuring the product",
+      "fail_mode_caught": "product appears phone-sized in shot 2, watch-sized in shot 4 (Puck v2 bug)"
+    },
+    "character_identity": {
+      "_use": "Same person across shots — face, hair, build, expression baseline",
+      "clause_template": "the SAME [SUBJECT] every shot — [DETAILED FACE], [HAIR], [BUILD], [DEMEANOR]",
+      "example": "the SAME woman every shot — dark brown hair pulled back, warm freckled complexion, expressive brown eyes, slim athletic build, gentle approachable demeanor",
+      "applies_to_shots": "every shot featuring the protagonist",
+      "fail_mode_caught": "character morphs to a different ethnicity / build / hair color across cuts",
+      "tooling": "manifest.characters[].identity_constraints + Stage 0.5 character_refs (5 anchor frames per character)"
+    },
+    "wardrobe_persistence": {
+      "_use": "Same clothes across shots set in the same scene",
+      "clause_template": "wearing [WARDROBE], same garment as shot 1 — [SPECIFIC DETAILS]",
+      "example": "wearing a faded olive-green cotton apron over a comfortable grey t-shirt, sleeves rolled to the elbows, same as shot 1",
+      "applies_to_shots": "all shots within a single scene",
+      "fail_mode_caught": "apron is olive in shot 1, brown in shot 2, missing in shot 3"
+    },
+    "hand_identity": {
+      "_use": "Hands appearing in multiple shots — same skin tone, same nail length, same jewelry/lack-of",
+      "clause_template": "the same hands — [SKIN], [NAILS], [WEDDING RING/NO RING]",
+      "example": "the same hands — warm-toned, short trimmed nails, no rings or watches, slight herb staining at the fingertips",
+      "applies_to_shots": "every shot showing hands",
+      "fail_mode_caught": "different actor's hands appear in shot 3 (common Veo bug for product-handling shots)"
+    },
+    "lighting_continuity": {
+      "_use": "Multiple shots set in the same room/scene — light direction + color temp must match",
+      "clause_template": "same [LIGHT SOURCE] from [DIRECTION], [COLOR TEMP], [QUALITY]",
+      "example": "soft north-window light from camera-right, neutral 5500K, slightly diffused — same as shot 1",
+      "applies_to_shots": "all shots within a single scene/time-of-day",
+      "fail_mode_caught": "shot 1 is golden-hour, shot 2 is blue-hour, shot 3 is overcast — viewer reads as different days"
+    },
+    "prop_persistence": {
+      "_use": "Background props that anchor the location across shots",
+      "clause_template": "[PROP LIST] visible in background, same arrangement as shot N",
+      "example": "wooden cutting board, fresh tomatoes, stainless mixing bowl visible on the counter — same arrangement as shot 1",
+      "applies_to_shots": "shots in the same physical scene",
+      "fail_mode_caught": "kitchen has tomatoes in shot 1, oranges in shot 2, no produce in shot 3"
+    },
+    "geography_continuity": {
+      "_use": "Spatial relationship between subject and key landmarks — viewer must understand where they are",
+      "clause_template": "[SUBJECT] [POSITION] from [LANDMARK], [LANDMARK 2] visible [DIRECTION]",
+      "example": "the woman stands at the kitchen counter, window to her right, stove visible behind her left shoulder — consistent with shot 1",
+      "applies_to_shots": "shots establishing or returning to a location",
+      "fail_mode_caught": "kitchen is on her right in shot 1, on her left in shot 3, with no transition shot to explain the flip"
+    },
+    "color_palette_lock": {
+      "_use": "Brand-color continuity across shots — keep the accent visible",
+      "clause_template": "color palette features [BRAND COLORS] — [ACCENT] appears as [PROP/DETAIL]",
+      "example": "color palette features warm copper #C46A3D and beige #F7F2EA — copper appears as the kettle on the stove and the rim of the chopping board",
+      "applies_to_shots": "all shots in the campaign",
+      "fail_mode_caught": "campaign reads as ungrounded — no recurring brand color across cuts"
+    }
+  },
+  "rules": {
+    "scene_anchor_clauses_must_repeat_verbatim": "If a clause is meant to lock continuity, paste the EXACT same clause across all shots. Don't paraphrase — paraphrase = drift.",
+    "use_veo3_ref_for_3plus_shots": "For multi-shot continuity-heavy campaigns, use veo3-ref (Ingredients-to-Video) with 1-3 anchor refs over single-shot generation.",
+    "character_refs_pre_render_5_anchors": "Stage 0.5 generates 5 anchor angles (front, three-quarter, side-left, side-right, close-up) per character via NB2 + composeImagePrompt. These anchors get fed to veo3-ref."
+  },
+  "items": {
+    "product_scale": {
+      "name": "Product Scale",
+      "use": "Multi-shot product ads where the product must look the same SIZE across cuts. EDC knives, phones, mugs.",
+      "fragment": "[PRODUCT] is approximately [DIMENSION] long, fits in an adult palm with [REFERENCE]",
+      "lock": {
+        "_use": "Multi-shot product ads where the product must look the same SIZE across cuts. EDC knives, phones, mugs.",
+        "clause_template": "[PRODUCT] is approximately [DIMENSION] long, fits in an adult palm with [REFERENCE]",
+        "example": "the EDC knife is approximately 9cm closed, fits in an adult palm with the bolster visible past the thumb",
+        "applies_to_shots": "every shot featuring the product",
+        "fail_mode_caught": "product appears phone-sized in shot 2, watch-sized in shot 4 (Puck v2 bug)"
+      }
+    },
+    "character_identity": {
+      "name": "Character Identity",
+      "use": "Same person across shots — face, hair, build, expression baseline",
+      "fragment": "the SAME [SUBJECT] every shot — [DETAILED FACE], [HAIR], [BUILD], [DEMEANOR]",
+      "lock": {
+        "_use": "Same person across shots — face, hair, build, expression baseline",
+        "clause_template": "the SAME [SUBJECT] every shot — [DETAILED FACE], [HAIR], [BUILD], [DEMEANOR]",
+        "example": "the SAME woman every shot — dark brown hair pulled back, warm freckled complexion, expressive brown eyes, slim athletic build, gentle approachable demeanor",
+        "applies_to_shots": "every shot featuring the protagonist",
+        "fail_mode_caught": "character morphs to a different ethnicity / build / hair color across cuts",
+        "tooling": "manifest.characters[].identity_constraints + Stage 0.5 character_refs (5 anchor frames per character)"
+      }
+    },
+    "wardrobe_persistence": {
+      "name": "Wardrobe Persistence",
+      "use": "Same clothes across shots set in the same scene",
+      "fragment": "wearing [WARDROBE], same garment as shot 1 — [SPECIFIC DETAILS]",
+      "lock": {
+        "_use": "Same clothes across shots set in the same scene",
+        "clause_template": "wearing [WARDROBE], same garment as shot 1 — [SPECIFIC DETAILS]",
+        "example": "wearing a faded olive-green cotton apron over a comfortable grey t-shirt, sleeves rolled to the elbows, same as shot 1",
+        "applies_to_shots": "all shots within a single scene",
+        "fail_mode_caught": "apron is olive in shot 1, brown in shot 2, missing in shot 3"
+      }
+    },
+    "hand_identity": {
+      "name": "Hand Identity",
+      "use": "Hands appearing in multiple shots — same skin tone, same nail length, same jewelry/lack-of",
+      "fragment": "the same hands — [SKIN], [NAILS], [WEDDING RING/NO RING]",
+      "lock": {
+        "_use": "Hands appearing in multiple shots — same skin tone, same nail length, same jewelry/lack-of",
+        "clause_template": "the same hands — [SKIN], [NAILS], [WEDDING RING/NO RING]",
+        "example": "the same hands — warm-toned, short trimmed nails, no rings or watches, slight herb staining at the fingertips",
+        "applies_to_shots": "every shot showing hands",
+        "fail_mode_caught": "different actor's hands appear in shot 3 (common Veo bug for product-handling shots)"
+      }
+    },
+    "lighting_continuity": {
+      "name": "Lighting Continuity",
+      "use": "Multiple shots set in the same room/scene — light direction + color temp must match",
+      "fragment": "same [LIGHT SOURCE] from [DIRECTION], [COLOR TEMP], [QUALITY]",
+      "lock": {
+        "_use": "Multiple shots set in the same room/scene — light direction + color temp must match",
+        "clause_template": "same [LIGHT SOURCE] from [DIRECTION], [COLOR TEMP], [QUALITY]",
+        "example": "soft north-window light from camera-right, neutral 5500K, slightly diffused — same as shot 1",
+        "applies_to_shots": "all shots within a single scene/time-of-day",
+        "fail_mode_caught": "shot 1 is golden-hour, shot 2 is blue-hour, shot 3 is overcast — viewer reads as different days"
+      }
+    },
+    "prop_persistence": {
+      "name": "Prop Persistence",
+      "use": "Background props that anchor the location across shots",
+      "fragment": "[PROP LIST] visible in background, same arrangement as shot N",
+      "lock": {
+        "_use": "Background props that anchor the location across shots",
+        "clause_template": "[PROP LIST] visible in background, same arrangement as shot N",
+        "example": "wooden cutting board, fresh tomatoes, stainless mixing bowl visible on the counter — same arrangement as shot 1",
+        "applies_to_shots": "shots in the same physical scene",
+        "fail_mode_caught": "kitchen has tomatoes in shot 1, oranges in shot 2, no produce in shot 3"
+      }
+    },
+    "geography_continuity": {
+      "name": "Geography Continuity",
+      "use": "Spatial relationship between subject and key landmarks — viewer must understand where they are",
+      "fragment": "[SUBJECT] [POSITION] from [LANDMARK], [LANDMARK 2] visible [DIRECTION]",
+      "lock": {
+        "_use": "Spatial relationship between subject and key landmarks — viewer must understand where they are",
+        "clause_template": "[SUBJECT] [POSITION] from [LANDMARK], [LANDMARK 2] visible [DIRECTION]",
+        "example": "the woman stands at the kitchen counter, window to her right, stove visible behind her left shoulder — consistent with shot 1",
+        "applies_to_shots": "shots establishing or returning to a location",
+        "fail_mode_caught": "kitchen is on her right in shot 1, on her left in shot 3, with no transition shot to explain the flip"
+      }
+    },
+    "color_palette_lock": {
+      "name": "Color Palette Lock",
+      "use": "Brand-color continuity across shots — keep the accent visible",
+      "fragment": "color palette features [BRAND COLORS] — [ACCENT] appears as [PROP/DETAIL]",
+      "lock": {
+        "_use": "Brand-color continuity across shots — keep the accent visible",
+        "clause_template": "color palette features [BRAND COLORS] — [ACCENT] appears as [PROP/DETAIL]",
+        "example": "color palette features warm copper #C46A3D and beige #F7F2EA — copper appears as the kettle on the stove and the rim of the chopping board",
+        "applies_to_shots": "all shots in the campaign",
+        "fail_mode_caught": "campaign reads as ungrounded — no recurring brand color across cuts"
+      }
+    }
+  }
+}

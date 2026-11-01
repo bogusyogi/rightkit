@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-host-traits"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Host traits for agent runtimes: a skill catalog the host implements and installs, so RightKit agent crates never load skills themselves."
@@ -17,6 +17,7 @@ path = "src/lib.rs"
 default = []
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1.0" }
 
 [workspace]

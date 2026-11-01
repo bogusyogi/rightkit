@@ -4,12 +4,19 @@
 //! discovered installed engine path and the project directory, then
 //! `submit` -> `wait` -> `import`, or `recover` after a restart. See
 //! [`orchestrator`] for the crash-safety model.
+//!
+//! [`dispatch`] runs an outgoing content brief against an editor or generator engine as an
+//! external process (`dispatch.run`, `dispatch.list`, `dispatch.sweep`); the channel store and
+//! contract calls come from the host registered with [`dispatch_host::set_host`].
 
 #[cfg(all(not(debug_assertions), feature = "fake-engine"))]
 compile_error!("fake-engine is restricted to development/test builds");
 
 #[cfg(feature = "channel-recipe")]
 pub mod channel_recipe;
+pub mod dispatch;
+pub mod dispatch_host;
+pub mod dispatch_protocol;
 pub mod engine;
 pub mod error;
 pub mod generated_source;

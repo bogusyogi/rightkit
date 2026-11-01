@@ -2327,8 +2327,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-host-traits"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
+ "serde",
  "serde_json",
 ]
 
@@ -2416,16 +2417,18 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agents"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "futures",
  "libc",
+ "rightkit-agent-engine-protocol",
  "rightkit-agent-tools",
  "rightkit-app-settings",
  "rightkit-child-process",
  "rightkit-crypto",
  "rightkit-fs",
+ "rightkit-mcp",
  "rightkit-sandbox",
  "rightkit-sidecar",
  "rightkit-time",
@@ -2434,6 +2437,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2566,7 +2570,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-http"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "bytes",
  "futures-util",

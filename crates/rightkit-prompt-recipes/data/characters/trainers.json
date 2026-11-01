@@ -1,0 +1,34 @@
+{
+  "source": "fal model pages checked 2026-10-06 (fal.ai/models/fal-ai/flux-lora-fast-training, fal.ai/models/fal-ai/flux-2-trainer)",
+  "default_cap_usd": 10,
+  "default_steps": 1000,
+  "photo_range": [15, 30],
+  "default_trainer": "flux-lora-fast-training",
+  "trainers": [
+    {
+      "id": "flux-lora-fast-training",
+      "label": "FLUX.1 dev LoRA fast training",
+      "endpoint": "fal-ai/flux-lora-fast-training",
+      "base_model": "FLUX.1-dev",
+      "usd_per_step": 0.002,
+      "min_usd": 0,
+      "images_field": "images_data_url",
+      "extra_input": { "is_style": false },
+      "trigger_word": true,
+      "price_note": "$2 per 1000-step run, scales linearly with steps"
+    },
+    {
+      "id": "flux-2-trainer",
+      "label": "FLUX.2 dev trainer",
+      "endpoint": "fal-ai/flux-2-trainer",
+      "base_model": "FLUX.2-dev",
+      "usd_per_step": 0.0064,
+      "min_usd": 0,
+      "images_field": "image_data_url",
+      "extra_input": { "output_lora_format": "fal" },
+      "trigger_word": false,
+      "default_caption": true,
+      "price_note": "$0.0064 per step ($6.40 per 1000 steps)"
+    }
+  ]
+}

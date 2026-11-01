@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0.0",
+  "id": "tiktok_shop_pitch_18s",
+  "title": "TikTok Shop pitch: a character holds the product and speaks a pitch, 18 seconds",
+  "source": {
+    "template": "none in the repository: no prompt, route or node content",
+    "plan": "docs/plans/2026-10-08-genright-execution-plan.md:145 (G11 names the TikTok Shop pitch, character holds the product, 18 seconds)"
+  },
+  "inputs": [
+    {"name": "character_image", "type": "image"},
+    {"name": "product_image", "type": "image"},
+    {"name": "hold_prompt", "type": "text"},
+    {"name": "script_text", "type": "text"},
+    {"name": "pitch_prompt", "type": "text"}
+  ],
+  "nodes": [
+    {
+      "id": "holding",
+      "kind": "image",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "hold_prompt", "type": "text"},
+        "reference": {"input": "character_image", "type": "image"},
+        "product_reference": {"input": "product_image", "type": "image"}
+      },
+      "depends_on": []
+    },
+    {
+      "id": "speech",
+      "kind": "voice",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "script_text", "type": "text"}
+      },
+      "depends_on": []
+    },
+    {
+      "id": "pitch",
+      "kind": "avatar",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "pitch_prompt", "type": "text"},
+        "image_url": {"node": "holding", "type": "image"},
+        "audio_url": {"node": "speech", "type": "audio"},
+        "duration": 18
+      },
+      "depends_on": ["holding", "speech"]
+    }
+  ],
+  "outputs": [{"name": "pitch", "from": "pitch"}],
+  "review": {
+    "required": true,
+    "policy": "Default: review required. The per-recipe review policy (plan :92) is not yet expressed per recipe in the source. The 18-second duration is the plan's figure."
+  }
+}

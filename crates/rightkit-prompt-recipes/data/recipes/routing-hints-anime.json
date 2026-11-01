@@ -1,0 +1,235 @@
+{
+  "_meta": {
+    "version": "0.2.0",
+    "updated": "2026-05-05",
+    "category": "image",
+    "subcategory": "routing-hints-anime",
+    "status": "provisional_from_ab_v2_15cell",
+    "principle": "Use-case routing hints from anime/illustration A/B testing. These guide model selection for animation/illustration jobs only and must not override brand, product, or text-heavy routing pinned elsewhere.",
+    "evidence": {
+      "test_dirs": [
+        "D:/Claude/tools/pipelines/imagegen/out/anime-test/",
+        "D:/Claude/tools/pipelines/imagegen/out/anime-test-v2/",
+        "D:/Claude/tools/pipelines/imagegen/out/review-flat/",
+        "D:/Claude/tools/pipelines/imagegen/out/review-flat-v2/"
+      ],
+      "v1_cells": 5,
+      "v2_cells": 15,
+      "total_pngs_reviewed": 40,
+      "reviewers_v1": [
+        "opus_4_7_pass1_pass2",
+        "sonnet_independent_agent",
+        "opus_independent_agent",
+        "council_review_image_jury_3of3",
+        "operator_pasted_review"
+      ],
+      "reviewers_v2": [
+        "sonnet_independent_agent_30png",
+        "opus_independent_agent_30png",
+        "council_review_image_jury_3cells_contested"
+      ]
+    },
+    "version_history": [
+      "0.1.0 (2026-05-05) — initial 4 locked + 2 split + 3 unsupported from 5-cell test",
+      "0.2.0 (2026-05-05) — promoted to 14 locked from v2 15-cell test, demoted manga claim, resolved kids-book split, added text_heavy and lineart locks"
+    ]
+  },
+  "locked_hints": {
+    "character_model_sheet": {
+      "backend": "nb2",
+      "votes": "v1: 5/5 + v2: 2/2 (cells 03, 10)",
+      "confidence": "high",
+      "notes": "Locked across both rounds. Multi-view layout, expression strip, equipment callouts, color palette swatches. 12-face expression sheet (cell 03) and 12-pose sheet (cell 10) confirmed NB2 delivers grid count + character consistency where Qwen renders only 7-9 panels with character drift."
+    },
+    "expression_sheet_grid": {
+      "backend": "nb2",
+      "votes": "v2: 2/2 (cell 03)",
+      "confidence": "high",
+      "notes": "12-face grid with consistent character identity, labeled emotions, clean grid layout. Qwen produced 9 faces with inconsistent face/hair."
+    },
+    "pose_sheet_grid": {
+      "backend": "nb2",
+      "votes": "v2: 2/2 (cell 10)",
+      "confidence": "high",
+      "notes": "12-pose action reference sheet, JP labels, character continuity. Qwen produced 7-8 poses with weaker reference utility."
+    },
+    "manga_panel_storytelling": {
+      "backend": "nb2",
+      "votes": "v2: 2/2 (cells 09, 12) — DEMOTED from Qwen claim in v1",
+      "confidence": "high",
+      "notes": "4-panel grids with proper gutters, dialogue balloons, sequential beats, and character continuity. Qwen renders 3-panel widescreen strips with character drift. v1 'Qwen wins manga panel composition' claim was style-not-storytelling — DEMOTED."
+    },
+    "sequential_4panel_comic": {
+      "backend": "nb2",
+      "votes": "v2: 2/2 (cell 12)",
+      "confidence": "high",
+      "notes": "Same as manga_panel_storytelling — gutters + speech balloons + character continuity. NB2's panel-storytelling competence generalizes."
+    },
+    "lineart_only_no_atmosphere": {
+      "backend": "nb2",
+      "votes": "v2: 2/2 (cell 08)",
+      "confidence": "high",
+      "notes": "Pure black outlines on white, uniform stroke weight, no fills, no shading. Qwen treats 'lineart' as cel-shaded ink with heavy black masses (different aesthetic — fails brief)."
+    },
+    "watercolor_isolated_sticker": {
+      "backend": "nb2",
+      "votes": "v2: 2/2 (cell 15)",
+      "confidence": "high",
+      "notes": "Sticker die-cut white border + white background isolation. Qwen has stronger watercolor texture but renders on solid black — fails the 'isolated' brief."
+    },
+    "ghibli_painterly_portrait": {
+      "backend": "flux2_pro",
+      "votes": "v1: 4/5 (council 3/3 SHIP-WITH-FIXES)",
+      "confidence": "high",
+      "notes": "1990s cel-art aesthetic, grain, muted palette, restrained skin texture, atmospheric mood. Council vision_kimi: 'FLUX.2 Pro wins for animation pipeline'."
+    },
+    "kids_book_isolated_hero_character": {
+      "backend": "flux2_pro",
+      "votes": "v2: 2/2 (cell 06)",
+      "confidence": "high",
+      "notes": "Single hero character on clean background. Better illustrative texture and cleaner anatomy than NB2 for compositing-ready foreground asset."
+    },
+    "background_plate_compositing": {
+      "backend": "flux2_pro",
+      "votes": "v2: 2/2 (cell 02) — but flagged for re-test",
+      "confidence": "med",
+      "notes": "Cleaner painterly plate with usable depth layers. CAVEAT: both backends produced populated rooms not truly empty plates — re-test with explicit 'no foreground objects, no chairs, no decorations' constraint to lock fully."
+    },
+    "prop_orthographic_with_callouts": {
+      "backend": "flux2_pro",
+      "votes": "v2: 2/2 + council 1/2 ship (vision_kimi errored)",
+      "confidence": "med",
+      "notes": "Industrial-design orthographic with proper dimension lines, leader callouts, named views (front/top/side/back). NB2 character-sheet competence does NOT generalize to engineering-style orthographic — different convention. Lock medium pending second cell."
+    },
+    "turnaround_consistency": {
+      "backend": "flux2_pro",
+      "votes": "v2: 2/2 (cell 14)",
+      "confidence": "med",
+      "notes": "Front/side/back turnaround with same hair/outfit/proportions across views. NB2 had hair-color drift between front and side views. Counterintuitively NB2 wins expression+pose sheets but LOSES turnaround consistency — different sub-skill."
+    },
+    "text_heavy_signage": {
+      "backend": "flux2_pro",
+      "votes": "v2: 2/2 + council 2/2 ship-with-fixes (avg 6.5)",
+      "confidence": "low",
+      "notes": "Multi-line copy (storefront sign 5+ phrases) renders fully legible and correctly spelled. NB2 hallucinated a finance dashboard. CAVEAT: opus_independent_agent flagged this as both_fail — neither backend held the storefront-scene brief; FLUXpro held the text but rendered as UI mockup. For crisp text-on-image, FLUXpro is the lock; for text-INTEGRATED-IN-SCENE, brief still needs work."
+    },
+    "flat_vector_editorial_cartoon": {
+      "backend": "qwen",
+      "votes": "v1: 5/5",
+      "confidence": "high",
+      "aesthetic_key": "vector_flat_editorial",
+      "notes": "Bold outlines, flat fills, expressive faces, integrated street/scene composition with crowd dynamics."
+    },
+    "cyberpunk_neon_anime": {
+      "backend": "qwen",
+      "votes": "v1: 5/5",
+      "confidence": "high",
+      "aesthetic_key": "cyberpunk_anime",
+      "notes": "Atmospheric backlight, neon rim, glowing eyes, layered alley depth. Wins on mood/atmosphere axis."
+    },
+    "anime_action_motion_speedlines": {
+      "backend": "qwen",
+      "votes": "v2: 2/2 (cell 01)",
+      "confidence": "med",
+      "notes": "Cleaner shonen-anime motion vocabulary. FLUXpro went prop-overload with holographic billboards burying the action. Single-cell evidence — promote to high if next round confirms."
+    },
+    "i2v_keyframe_pair_continuity": {
+      "backend": "qwen",
+      "votes": "v2: 2/2 (cells 04, 05) — STRONGEST B.5 SIGNAL",
+      "confidence": "high",
+      "notes": "Pair continuity is the entire point of I2V handoff. Qwen delivered same character + palette + lighting across both start and end frames. FLUXpro broke continuity catastrophically — rendered 3 different characters across the pair. Direct upstream of Veo/Kling I2V pipeline. Most actionable v2 finding."
+    },
+    "watercolor_atmospheric_painterly": {
+      "backend": "qwen",
+      "votes": "v1+v2 split-resolved",
+      "confidence": "med",
+      "notes": "For mood-piece atmospheric watercolor (no isolation requirement), Qwen leads on texture and brushwork. For isolated-on-white sticker production, route to NB2 (see watercolor_isolated_sticker)."
+    }
+  },
+  "split_hints": {
+    "kids_book_full_scenic_spread": {
+      "split_axis": "storytelling_density_vs_storybook_texture",
+      "options": [
+        {
+          "condition": "richer_scene_density_active_character",
+          "backend": "nb2",
+          "evidence": "v2 cell 07 — sonnet pick",
+          "confidence": "med"
+        },
+        {
+          "condition": "stronger_storybook_texture_classic_picture_book_layout",
+          "backend": "flux2_pro",
+          "evidence": "v2 cell 07 — opus pick",
+          "confidence": "med"
+        }
+      ],
+      "needs_ab": true,
+      "council_jury_result": "SHIP-WITH-FIXES 2/3 avg 8.0 — did not break tie",
+      "next_test": "Run 4 prompts with explicit constraint: 2 'character must occupy >40% of frame' (NB2 expected) + 2 'rich background storytelling, character secondary' (FLUXpro expected)"
+    }
+  },
+  "demoted_claims": [
+    {
+      "claim_id": "qwen_wins_manga_panel_composition",
+      "v1_status": "unsupported_claims",
+      "v2_status": "DEMOTED — opposite proven",
+      "evidence": "v2 cells 09, 12 both went NB2",
+      "note": "Qwen's strength is single-frame anime style fidelity, not comic page composition. NB2 owns panel-storytelling with gutters, balloons, and continuity."
+    },
+    {
+      "claim_id": "nb2_on_image_text_discipline",
+      "v1_status": "unsupported_claims",
+      "v2_status": "SPLIT-RESOLVED — confirmed for short panel text only",
+      "evidence": "v2 cell 12 (dialogue balloons) NB2 wins; v2 cell 13 (storefront signage) NB2 fails, FLUXpro wins",
+      "note": "NB2 = good at SHORT readable copy in panel balloons. FLUXpro = better at SUSTAINED multi-word signage. Don't extend NB2 text crown beyond panel use."
+    },
+    {
+      "claim_id": "flux2_pro_wins_western_clean_foreground",
+      "v1_status": "unsupported_claims",
+      "v2_status": "PROMOTED to locked (kids_book_isolated_hero_character)",
+      "evidence": "v2 cell 06 confirmed",
+      "note": "v1 single-cell evidence held up in v2."
+    },
+    {
+      "claim_id": "nb2_character_sheet_generalizes_to_orthographic",
+      "v1_status": "not_in_v1",
+      "v2_status": "DEMOTED — proven false",
+      "evidence": "v2 cell 11 — FLUXpro wins, NB2 attempted illustrative grid not engineering orthographic",
+      "note": "Character sheets and orthographic prop sheets are different sub-skills. Don't extend NB2 lock to engineering-style technical illustration."
+    }
+  ],
+  "still_unsupported_claims": [
+    {
+      "claim": "NB2 has on-image text discipline broadly",
+      "reason": "Confirmed for panel balloons only. Storefront/scene signage failed in cell 13.",
+      "next_test": "render in-scene billboard with 30+ words at varied sizes"
+    }
+  ],
+  "missing_tests": [
+    {
+      "id": "kids_book_split_resolution",
+      "brief": "Resolve kids_book_full_scenic_spread split — 4 cells with character-density vs background-density variants",
+      "priority": "P1"
+    },
+    {
+      "id": "background_plate_truly_empty",
+      "brief": "Re-test compositing plate with 'NO foreground objects, NO chairs, NO decorations' constraint — current cell 02 had populated rooms",
+      "priority": "P2"
+    },
+    {
+      "id": "text_in_scene_signage_v2",
+      "brief": "Re-test text_heavy_signage with explicit 'storefront photo of cafe with hand-painted sign' framing — both backends rendered as UI mockups",
+      "priority": "P2"
+    },
+    {
+      "id": "second_orthographic_cell",
+      "brief": "Confirm prop_orthographic FLUXpro lock with second cell (med confidence currently)",
+      "priority": "P2"
+    },
+    {
+      "id": "second_action_motion_cell",
+      "brief": "Confirm anime_action_motion_speedlines Qwen lock with second cell (med confidence currently)",
+      "priority": "P2"
+    }
+  ]
+}

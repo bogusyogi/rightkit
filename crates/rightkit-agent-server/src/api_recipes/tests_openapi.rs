@@ -1,0 +1,64 @@
+#[test]
+fn recipes_openapi_components_cover_recipe_routes() {
+    let components = recipes_openapi_components();
+    for name in [
+        "Recipe",
+        "InstalledRecipe",
+        "RecipeRun",
+        "RecipeValidationRun",
+        "RenderedRecipe",
+        "RecipeDeeplink",
+        "InstallRecipeRequest",
+        "InstallRecipeFileRequest",
+        "InstallRecipeUrlRequest",
+        "ValidateRecipeRequest",
+        "RenderRecipeRequest",
+        "ParseRecipeDeeplinkRequest",
+        "RunRecipeRequest",
+        "ScheduleRecipeRequest",
+        "CreateRecipeDeeplinkRequest",
+        "ScheduleRecipeResponse",
+    ] {
+        assert!(components.contains_key(name), "missing {name}");
+    }
+    assert_eq!(
+        install_recipe_request_schema()["$ref"],
+        "#/components/schemas/InstallRecipeRequest"
+    );
+    assert_eq!(
+        install_recipe_file_request_schema()["$ref"],
+        "#/components/schemas/InstallRecipeFileRequest"
+    );
+    assert_eq!(
+        install_recipe_url_request_schema()["$ref"],
+        "#/components/schemas/InstallRecipeUrlRequest"
+    );
+    assert_eq!(
+        validate_recipe_request_schema()["$ref"],
+        "#/components/schemas/ValidateRecipeRequest"
+    );
+    assert_eq!(
+        render_recipe_response_schema()["$ref"],
+        "#/components/schemas/RenderedRecipe"
+    );
+    assert_eq!(
+        parse_recipe_deeplink_request_schema()["$ref"],
+        "#/components/schemas/ParseRecipeDeeplinkRequest"
+    );
+    assert_eq!(
+        run_recipe_request_schema()["$ref"],
+        "#/components/schemas/RunRecipeRequest"
+    );
+    assert_eq!(
+        schedule_recipe_request_schema()["$ref"],
+        "#/components/schemas/ScheduleRecipeRequest"
+    );
+    assert_eq!(
+        create_recipe_deeplink_request_schema()["$ref"],
+        "#/components/schemas/CreateRecipeDeeplinkRequest"
+    );
+    assert_eq!(
+        recipe_runs_response_schema()["items"]["$ref"],
+        "#/components/schemas/RecipeRun"
+    );
+}

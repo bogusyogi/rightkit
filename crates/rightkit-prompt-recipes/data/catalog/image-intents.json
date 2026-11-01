@@ -1,0 +1,68 @@
+{
+  "reference_limit": 14,
+  "brands": [
+    "DD",
+    "RH",
+    "TS",
+    "HR",
+    "DV",
+    "KDP",
+    "NA"
+  ],
+  "intents": {
+    "bottom": {
+      "model": "flux-2-dev",
+      "label": "Bottom",
+      "use": "Drafts, blog heroes, b-roll, lifestyle imagery without text",
+      "estimated_cost": "$0.012/MP"
+    },
+    "mid": {
+      "model": "flux-2-pro",
+      "label": "Mid",
+      "use": "Sharper photoreal, multi-element scenes, product shots",
+      "estimated_cost": "$0.025/MP"
+    },
+    "premium": {
+      "model": "nano-banana-pro",
+      "label": "Premium",
+      "use": "Text on image, photoreal humans, brand UI, ads with copy",
+      "estimated_cost": "$0.04-$0.09/image"
+    },
+    "cartoon": {
+      "model": "qwen-image",
+      "label": "Cartoon",
+      "use": "Soft painterly cartoon scenes and illustrated mood pieces",
+      "estimated_cost": "$0.02/image"
+    },
+    "vector": {
+      "model": "recraft-v4-vector",
+      "label": "Vector",
+      "use": "Logos, icons. Unavailable: no served route produces SVG.",
+      "estimated_cost": "$0.08/image"
+    },
+    "vector_premium": {
+      "model": "recraft-v4-pro-vector",
+      "label": "Vector Premium",
+      "use": "Premium SVG and brand identity work. Unavailable: no served route produces SVG.",
+      "estimated_cost": "$0.30/image"
+    },
+    "design_layout": {
+      "model": "recraft-v4-raster",
+      "label": "Design Layout",
+      "use": "Brand-aware marketing layouts and structured ads",
+      "estimated_cost": "$0.04/image"
+    },
+    "google_safe": {
+      "model": "imagen-4-ultra",
+      "label": "Google Safe",
+      "use": "Policy-safe escape hatch for blocked premium prompts",
+      "estimated_cost": "~$0.05/image"
+    },
+    "text_premium": {
+      "model": "gpt-image-2",
+      "label": "Text Premium",
+      "use": "Multilingual text rendering and reasoning-heavy UI mockups",
+      "estimated_cost": "$0.022 medium"
+    }
+  }
+}

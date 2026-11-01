@@ -1,0 +1,20 @@
+{
+  "source": "tools/lib/image-model-base-registry.mjs (2026-10-06); studio facts only (LoRA base model, video first-frame specs). Whether an image route is served, and which image routes take reference images, is read from the engine model list at run time; in_engine below is a claim the engine is checked against (base_lock reports any mismatch), not the source of truth.",
+  "reference_limit": 14,
+  "models": {
+    "fal/fal-ai/flux-2/lora": { "kind": "image", "in_engine": true, "lora": { "base_model": "FLUX.2-dev", "param": "loras" } },
+    "fal/fal-ai/flux-2/lora/edit": { "kind": "image", "in_engine": true, "lora": { "base_model": "FLUX.2-dev", "param": "loras" } },
+    "fal/fal-ai/flux-lora": { "kind": "image", "in_engine": false, "lora": { "base_model": "FLUX.1-dev", "param": "loras" } },
+    "fal/fal-ai/flux-2/klein/9b": { "kind": "image", "in_engine": true, "base_model": "FLUX.2-Klein-9B" },
+    "nanobanana/nano-banana-2": { "kind": "image", "in_engine": true },
+    "wavespeed/qwen-image": { "kind": "image", "in_engine": true },
+    "wavespeed/seedream-v4": { "kind": "image", "in_engine": true },
+    "wavespeed/recraft-v4": { "kind": "image", "in_engine": true },
+    "fal/fal-ai/veo3.1/fast": { "kind": "video", "in_engine": true, "references": { "param": "image_url", "max": 1, "shape": "first_frame" } },
+    "fal/fal-ai/veo3.1/fast/image-to-video": { "kind": "video", "in_engine": true, "references": { "param": "image_url", "max": 1, "shape": "first_frame" } },
+    "wavespeed/kling-3-pro": { "kind": "video", "in_engine": true, "references": { "param": "image_url", "max": 1, "shape": "first_frame" } },
+    "wavespeed/seedance-2-fast": { "kind": "video", "in_engine": true, "references": { "param": "image_url", "max": 1, "shape": "first_frame" } },
+    "wavespeed/wan-ultra": { "kind": "video", "in_engine": true, "references": { "param": "image_url", "max": 1, "shape": "first_frame" } },
+    "wavespeed/wan-hd": { "kind": "video", "in_engine": true, "references": { "param": "image_url", "max": 1, "shape": "first_frame" } }
+  }
+}

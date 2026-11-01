@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0.0",
+  "id": "singing_ad",
+  "title": "Singing ad: a presenter image performs a supplied song track",
+  "source": {
+    "template": "none in the repository: no prompt, route or node content",
+    "plan": "docs/plans/2026-10-08-genright-execution-plan.md:144 (G11 names the singing ad)"
+  },
+  "inputs": [
+    {"name": "presenter_image", "type": "image"},
+    {"name": "song_audio", "type": "audio"},
+    {"name": "prompt", "type": "text"}
+  ],
+  "nodes": [
+    {
+      "id": "sing",
+      "kind": "avatar",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "prompt", "type": "text"},
+        "image_url": {"input": "presenter_image", "type": "image"},
+        "audio_url": {"input": "song_audio", "type": "audio"}
+      },
+      "depends_on": []
+    }
+  ],
+  "outputs": [{"name": "clip", "from": "sing"}],
+  "review": {
+    "required": true,
+    "policy": "Default: review required. The per-recipe review policy (plan :92) is not yet expressed per recipe in the source."
+  }
+}

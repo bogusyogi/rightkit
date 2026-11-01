@@ -36,6 +36,17 @@
       ]
     },
     {
+      "package": "rightkit-agent-engine",
+      "capability": "agent-contracts",
+      "summary": "Always-on agent contracts: task envelope and transitions, principals, intents, effects, device and approval binding, voice hand-off; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-agent-engine-api-integrations",
       "capability": "agent-api-integrations",
       "summary": "Agent engine integrations HTTP API: plugin discovery, manifest projection and plugin middleware wiring; declaration-only detection (no precise implementation fingerprint)",
@@ -267,6 +278,17 @@
       ]
     },
     {
+      "package": "rightkit-agent-server",
+      "capability": "agent-server",
+      "summary": "Agent server host: daemon API routes, CLI and interactive-session runtime; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-agent-tools",
       "capability": "agent-tools",
       "summary": "One typed tool interface for agents over rightkit-automation, rightkit-qa-driver, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI.; declaration-only detection (no precise implementation fingerprint)",
@@ -368,6 +390,17 @@
       "package": "rightkit-app-host",
       "capability": "app-host",
       "summary": "Host services for companion crates; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-app-lock",
+      "capability": "app-lock",
+      "summary": "Application lock: lock state machine types, preference fail-closed rules, OS user verification (Windows Hello, Touch ID) and the shell-side unlock flow against an engine transport.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -963,6 +996,17 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "rightkit-clipboard-history",
+      "capability": "clipboard-history",
+      "summary": "Clipboard history logic: classify copied text (colour, link, code, plain) and spot whole-text secrets.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {
@@ -2468,6 +2512,17 @@
       ]
     },
     {
+      "package": "rightkit-launcher",
+      "capability": "command-launcher",
+      "summary": "Command launcher logic: arithmetic calculator and unit conversion parsers that never hand typed text to an evaluator.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-library",
       "capability": "local-artifact-library",
       "summary": "Local artifact library: SQLite-backed history/search index (files stay the source of truth) and a deterministic non-LLM enrichment pass (keywords, links, tags, segmentation).; declaration-only detection (no precise implementation fingerprint)",
@@ -2739,6 +2794,17 @@
       ]
     },
     {
+      "package": "rightkit-mail-store",
+      "capability": "mail-store",
+      "summary": "Mail store over SQLCipher: encrypted open with key candidates and lifetime lock, versioned schema and migration gate with backup, accounts, labels, threads, search adapter, outbox and pending queues, sync apply and the local semantic index.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-mcp",
       "capability": "mcp",
       "summary": "MCP client/server transports, trust gate, server pool",
@@ -2914,6 +2980,17 @@
       "detection": "declaration-only",
       "policyNotes": [
         "Declaration-only and gated: the take module is not built; this capability reserves the name until a producer is named (decision record docs/design/motion-owner.md)."
+      ]
+    },
+    {
+      "package": "rightkit-notch-ui",
+      "capability": "notch-ui",
+      "summary": "Notch drawing core: edge-aware geometry, spring motion, hover card model and a software renderer for ring gauges and cards; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {
@@ -3512,6 +3589,17 @@
       "package": "rightkit-privileged-helper",
       "capability": "privileged-helper",
       "summary": "Elevation broker for privileged-helper moves; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-prompt-recipes",
+      "capability": "prompt-recipes",
+      "summary": "Prompt contracts and validator, recipe composer and catalogue, character and LoRA lock, video quality templates, template swap, brand codes and the KDP workflow.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -4614,6 +4702,17 @@
       "package": "rightkit-web-session",
       "capability": "web-session",
       "summary": "Agent browser logins: one owner-approved Chromium session at a time on the login profile, with a network policy limited to the approved sites, a live view for the owner and signed approvals.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-win-ui",
+      "capability": "win32-ui-toolkit",
+      "summary": "Win32 UI toolkit: RAII window and GDI wrappers, software canvas, GDI surface and text painter, vector glyphs, shell file icons; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

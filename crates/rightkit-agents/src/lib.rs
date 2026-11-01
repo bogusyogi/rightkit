@@ -32,3 +32,8 @@ pub use event::{
     AgentEvent, ControlOutcome, ControlResponse, McpServerStatus, ParseError, PermissionDenial,
     RateLimitInfo, ResultSummary, SessionInit, UnknownPolicy, UsageCounts,
 };
+
+#[cfg(feature = "agent_host")]
+#[allow(missing_docs, clippy::all, rustdoc::all, unused)]
+#[cfg(windows)]
+pub mod vendor_mcp_pipe;

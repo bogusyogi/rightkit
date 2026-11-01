@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.10
+
+- Add `agent_host` feature: modules http_client (moved from an agent host binary).
+
 ## 0.3.9 (unpublished)
 
 - `urlguard`: string-level public-URL guard for non-rightkit-http transports (`ensure_public_http_url`: canonical IPv4 only, no fold-to-digit or percent hosts, port check), `strict_public_web_policy` (public_web plus NAT64 /32 and 6to4), `public_web_client`, `rate_limit_retry_policy`, `vet_resolved_host`, `ensure_public_and_resolved`, `error_text`, `is_policy_refusal`, `read_body_limited`. Moved from ScrapeRight (engine net.rs). Existing API unchanged.

@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "id": "studio_packshot",
+  "title": "Studio packshot: one product image on a studio backdrop",
+  "source": {
+    "template": "none in the repository: no node content",
+    "plan": "docs/plans/2026-10-08-genright-execution-plan.md:144 (G11 names the studio packshot)"
+  },
+  "inputs": [
+    {"name": "product_image", "type": "image"},
+    {"name": "prompt", "type": "text"}
+  ],
+  "nodes": [
+    {
+      "id": "packshot",
+      "kind": "image",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "prompt", "type": "text"},
+        "reference": {"input": "product_image", "type": "image"}
+      },
+      "depends_on": []
+    }
+  ],
+  "outputs": [{"name": "packshot", "from": "packshot"}],
+  "review": {
+    "required": true,
+    "policy": "Default: review required. The per-recipe review policy (plan :92) is not yet expressed per recipe in the source."
+  }
+}

@@ -2541,6 +2541,87 @@
         "README.md": "710d657261e186431a26ecdca482947fd67525a64737c99ebe6ef24a90b45d37",
         "src/main.rs": "916f09d569e886ca00e90b7bea4c80dd95b2e3149b5dbfbb3246af486cdedd5b"
       }
+    },
+    "rightkit-agent-engine": {
+      "pkId": "PK178",
+      "id": "ci/consumers/rightkit-agent-engine/src/main.rs",
+      "files": {
+        "Cargo.toml": "8048a25cf4c10133c0b3439b17958a7f5509916c5fc61b5310427cc1b73cc7a3",
+        "README.md": "ccd8038b30c06d93566326e5f335785290e1a7e5ffd8144d9b6411101d8c394f",
+        "src/main.rs": "c362e160a1ba1ac8ed91f2ccfe525648760aec69200fea88f7a211ece36970e7"
+      }
+    },
+    "rightkit-agent-server": {
+      "pkId": "PK179",
+      "id": "ci/consumers/rightkit-agent-server/src/main.rs",
+      "files": {
+        "Cargo.toml": "5017a5089ec06c1422e4c6fa6ee4ee3796bcc37f2802d8e1af8ce2e794486083",
+        "README.md": "7e68f3fbf624cc92392e65aed96513ef3bb308fbdf2b09b846be40efc53e9b8a",
+        "src/main.rs": "a6b0ccd55dbecb311a3416ae4c726cf9fe38bb8eb8a7f723a933101ce46faf24"
+      }
+    },
+    "rightkit-app-lock": {
+      "pkId": "PK180",
+      "id": "ci/consumers/rightkit-app-lock/src/main.rs",
+      "files": {
+        "Cargo.toml": "60a656ced78c6b03745729822dd1b10c2735f0ecd3d6a069046c3f9311905aa8",
+        "README.md": "bb741ffd405da3b9586756353bcda0d6d33be621d0dd14de67d977dcc250e344",
+        "src/main.rs": "7d8032d49d8866d630723fc3f2c5cf1c5c4c2d8054e821d98213b607cfb5af9d"
+      }
+    },
+    "rightkit-clipboard-history": {
+      "pkId": "PK181",
+      "id": "ci/consumers/rightkit-clipboard-history/src/main.rs",
+      "files": {
+        "Cargo.toml": "f54307664d7883e3499a9bda168733f7449829b54c1ac77bdf6b031f21f9fcd6",
+        "README.md": "30f95457e4c7358db1bad2373fdea309bf6a9ca5a3ac198448c68450a5af9fc6",
+        "src/main.rs": "7749606cbc608007310eced819286fd2a3a4eb15ebcc640e1f3778a616964864"
+      }
+    },
+    "rightkit-launcher": {
+      "pkId": "PK182",
+      "id": "ci/consumers/rightkit-launcher/src/main.rs",
+      "files": {
+        "Cargo.toml": "622296be0054bfeb2385f28ff88e72f4c38d6a6414653c8f020429daa9629795",
+        "README.md": "66b73b426bd07ec346e0769ae7add81042e38cbe4aeebf09b605c1b08e90066f",
+        "src/main.rs": "6892cf5c933c517da0fa4bab1ea3038f410103eb9a20c84f6b531e400ad42cd4"
+      }
+    },
+    "rightkit-mail-store": {
+      "pkId": "PK183",
+      "id": "ci/consumers/rightkit-mail-store/src/main.rs",
+      "files": {
+        "Cargo.toml": "bbe1b0dbb8a3d2a90947047f6710813595398cb2c246949d7c8e533991657fde",
+        "README.md": "a02d6d269e2ba7c90a6319be125df801ecf39b7b927def64492f3a7dd7e34bf1",
+        "src/main.rs": "d61c5d76b48e68b3f01135411a38a82d3db4683091633da6a7500572d5b570c1"
+      }
+    },
+    "rightkit-notch-ui": {
+      "pkId": "PK184",
+      "id": "ci/consumers/rightkit-notch-ui/src/main.rs",
+      "files": {
+        "Cargo.toml": "95c7a02991a43325b04f32b35700a8dfc90790fd0a7377ccea7b3eee18311114",
+        "README.md": "c0816e485392b8cd530b6d88d86f6ab06c4518d9e09a8276d790baf250171908",
+        "src/main.rs": "9d4485086e9ea3e2af996c1c6a5950499de096bbec226d65ac95cffbd450c7b7"
+      }
+    },
+    "rightkit-prompt-recipes": {
+      "pkId": "PK185",
+      "id": "ci/consumers/rightkit-prompt-recipes/src/main.rs",
+      "files": {
+        "Cargo.toml": "d2b37c2ca89c0912bdc679298c8493cc217378f55a223d48ab27d676e00b0571",
+        "README.md": "1988733c9541ab6b4f0b582ffbfef194ee999b0ff1381b6bcb622c7fba51a07d",
+        "src/main.rs": "02ada1bebc2349b48c6e2ec36b860e0439a89c4c136455e58ad325cb8597c455"
+      }
+    },
+    "rightkit-win-ui": {
+      "pkId": "PK186",
+      "id": "ci/consumers/rightkit-win-ui/src/main.rs",
+      "files": {
+        "Cargo.toml": "1a08baa6cc6776bf6033bc8bfd4c7ce6b2b5a39db1b4d5a55998be3ac0e55552",
+        "README.md": "121ee1869e0fa73914ef35ec1895cb838818542d08c342d064ace4579b344657",
+        "src/main.rs": "226ee6daee825355e333b0c358ed074e8aafc0388ad26639f6600cc9ad336c0b"
+      }
     }
   }
 }

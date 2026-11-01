@@ -1,0 +1,108 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated": "2026-05-04",
+    "category": "image",
+    "subcategory": "skin-texture",
+    "principle": "HUMAN-FACE-ONLY presets to prevent the plastic AI-face problem. Cinematic skin has pores, slight imperfection, subsurface warmth, real shadow geometry. Default AI generation tends to over-smooth toward waxy. These presets push back. ONLY pasted into prompt when subject_type ∈ {human, mixed}.",
+    "sources": [
+      "Higgsfield AI tutorial transcript 2026-05-03 (texture mention as part of cinematic image)",
+      "PJ Ace ad-creator playbook (anti-AI-face workflow)"
+    ],
+    "interpolation_rule": "Paste fragment verbatim into the skin-texture clause. Composer skips this entirely if subject_type is product/environment."
+  },
+  "_brand_defaults": {
+    "DD": {
+      "item_key": "natural_pores_subtle_imperfection",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md DD: premium honest skin (when humans appear)"
+    },
+    "RH": {
+      "item_key": "documentary_unretouched",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md RH: slow fashion real-people honest portraiture"
+    },
+    "TS": {
+      "item_key": "cinematic_film_grain_skin",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md TS: counter-culture film-grain aesthetic"
+    },
+    "HR": {
+      "item_key": "soft_portrait_smooth_no_plastic",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md HR: brand creatives soft skin without plastic"
+    },
+    "DV": {
+      "item_key": "natural_pores_subtle_imperfection",
+      "status": "unknown_needs_owner_input",
+      "seeded_from": "no source yet"
+    },
+    "SS": {
+      "item_key": "natural_pores_subtle_imperfection",
+      "status": "owner_approved",
+      "seeded_from": "CLAUDE.md SS: photography honest skin"
+    }
+  },
+  "items": {
+    "natural_pores_subtle_imperfection": {
+      "name": "Natural pores, subtle imperfection",
+      "use": "Default for any human subject in non-stylized work. Real skin texture, visible pores, subtle blemishes / freckles / fine lines preserved.",
+      "fragment": "natural skin texture with visible pores, subtle imperfections preserved (freckles, fine lines, faint blemishes), real subsurface warmth, NOT smoothed or retouched, NOT plastic, NOT waxy",
+      "tags": [
+        "default-realism",
+        "anti-plastic"
+      ]
+    },
+    "cinematic_film_grain_skin": {
+      "name": "Cinematic skin under film grain",
+      "use": "Film-grain aesthetic. Skin reads slightly grainy and organic, the way faces look on Kodak Vision3 or 500T stock.",
+      "fragment": "skin rendered with subtle film grain, organic photo-chemical texture, the slight noise of high-ISO film stock embedded in the skin, NOT digital smooth, NOT plastic",
+      "tags": [
+        "film-grain",
+        "cinematic",
+        "anti-plastic"
+      ]
+    },
+    "soft_portrait_smooth_no_plastic": {
+      "name": "Soft beauty portrait WITHOUT plastic",
+      "use": "When the look calls for softer skin (beauty, wellness brand, magazine cover) but the AI tendency to over-smooth must be checked.",
+      "fragment": "softly lit skin with gentle smoothing of fine texture but pores still visible at close inspection, organic subsurface warmth maintained, NOT airbrushed flat, NOT waxy, NOT plastic — soft beauty without losing humanity",
+      "tags": [
+        "soft-beauty",
+        "controlled-smooth",
+        "anti-plastic"
+      ],
+      "warning": "Easy to drift toward plastic. Pair with warning prompt phrases. Avoid stacking with `clamshell_portrait` lighting unless explicitly tested."
+    },
+    "documentary_unretouched": {
+      "name": "Documentary unretouched",
+      "use": "Hard-news, journalism, real-people portraiture. Show every line, every imperfection. The opposite of beauty retouching.",
+      "fragment": "completely unretouched skin, every line and imperfection visible, the character of real lived faces preserved, no smoothing, no airbrushing, the honest texture of documentary photography",
+      "tags": [
+        "documentary",
+        "unretouched",
+        "honest"
+      ]
+    },
+    "aged_weathered_character": {
+      "name": "Aged weathered character",
+      "use": "Older subjects, outdoor workers, people with stories on their faces. Push deep lines, sun damage, character.",
+      "fragment": "deeply weathered skin with character lines, sun-aged texture, visible folds and depth in older skin, the lived-in quality of a face that has spent time outdoors, every line a story",
+      "tags": [
+        "aged",
+        "weathered",
+        "character"
+      ]
+    },
+    "youthful_clear_no_smoothing": {
+      "name": "Youthful clear (no smoothing)",
+      "use": "Younger subjects whose skin is naturally clearer. Render that clarity honestly without artificial smoothing.",
+      "fragment": "naturally clear young skin, fine pore texture still visible at close inspection, healthy subsurface warmth, the genuine clarity of youthful skin, NOT artificially smoothed, NOT plastic",
+      "tags": [
+        "youthful",
+        "clear",
+        "anti-plastic"
+      ]
+    }
+  }
+}
