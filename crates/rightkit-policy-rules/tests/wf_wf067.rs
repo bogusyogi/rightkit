@@ -24,7 +24,7 @@ use rightkit_policy_rules::rules::wf_port::wf067::canonical::{
 use rightkit_policy_rules::rules::wf_port::wf067::errors::ArcCode;
 use rightkit_policy_rules::rules::wf_port::wf067::ids::{assert_id, is_id, mint_id, Family};
 use rightkit_policy_rules::rules::wf_port::wf067::invocation_proof::{
-    AuthorityInvocationProofIssuer, BindingKey, IssueOutcome, KeyRing, LedgerStore, StaticKeyRing,
+    AuthorityInvocationProofIssuer, BindingKey, IssueOutcome, LedgerStore, StaticKeyRing,
 };
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);

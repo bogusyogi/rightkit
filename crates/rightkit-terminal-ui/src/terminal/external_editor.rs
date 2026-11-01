@@ -60,7 +60,7 @@ fn editor_process(editor: &str, path: &Path) -> Command {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        // Deliberately NOT CREATE_NO_WINDOW: an interactive editor must inherit the
+        // windowless: deliberately NOT CREATE_NO_WINDOW: an interactive editor must inherit the
         // TUI's console, so no new window is created.
         #[allow(clippy::disallowed_methods)]
         let mut command = Command::new("cmd");

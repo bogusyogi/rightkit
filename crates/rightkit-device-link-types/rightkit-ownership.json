@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-device-link-types",
+  "capabilities": [
+    {
+      "capability": "device-link-types",
+      "summary": "Record types of the device link: device reference, effect classes, principals, paired-device registry records and the signed device-circle records.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

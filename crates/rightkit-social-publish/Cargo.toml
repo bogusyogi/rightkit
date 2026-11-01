@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-social-publish"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Social platform publish adapters (X, Bluesky, Mastodon, Threads, Instagram, Facebook, LinkedIn, Pinterest, TikTok, YouTube) with a no-retry HTTP layer, Retry-After parsing, media checks, pinned API versions and error-text redaction."
@@ -17,9 +17,10 @@ path = "src/lib.rs"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 rightkit-http = { version = "0.3.9", features = ["gzip", "untrusted"], path = "../rightkit-http" }
-rightkit-logs = { version = "0.3.7", default-features = false, path = "../rightkit-logs" }
+rightkit-logs = { version = "0.3.6", default-features = false, path = "../rightkit-logs" }
 rightkit-cache = { version = "0.2.3", path = "../rightkit-cache" }
-rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
+rightkit-fs = { version = "0.4.8", features = ["fs"], path = "../rightkit-fs" }
+rightkit-time = { version = "0.1.0", path = "../rightkit-time" }
 rightkit-platform-rules = { version = "0.1.0", path = "../rightkit-platform-rules" }
 
 [workspace]

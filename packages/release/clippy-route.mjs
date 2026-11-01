@@ -1,7 +1,7 @@
 // The Clippy route: `rightkit-gate clippy [<cargo clippy args>]` (GATE-CONTRACT §1 "Clippy route & batching", E13 to E15; item 8 of
 // the joint plan, rows 8.1 to 8.16 of the signed map). A gate-owned destination for a request such as
 // `cargo clippy --workspace --all-targets -- -D warnings`: it builds HEAD's commit (never the checkout) from the gate-owned
-// snapshot, under the host's build ownership, after FULL class A (D8-2), and stops after diagnostics. It has no stage chain, runs no
+// snapshot, under the repository's build ownership, after FULL class A (D8-2), and stops after diagnostics. It has no stage chain, runs no
 // package, sign, publish or release stage, and writes nothing a door receipt, qualification or the full gate could take as stage
 // evidence (row 8.5).
 //
@@ -362,11 +362,12 @@ export async function clippyCommand(o, args, deps = {}) {
   const snap = deps.snapshot ?? await import("./snapshot.mjs");
   const sc = deps.snapshotCheck ?? await import("./snapshot-check.mjs");
   const ownershipApi = deps.ownership ?? await import("./build-ownership.mjs");
-  let selected; let snapshotsAt; let snapshotDir;
+  let selected; let snapshotsAt; let snapshotDir; let repoKey;
   try {
     selected = snap.resolveCommit(root, "HEAD");
     snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
-    snapshotDir = path.join(snapshotsAt, snap.repositoryOf(root).key);
+    repoKey = snap.repositoryOf(root).key;
+    snapshotDir = path.join(snapshotsAt, repoKey);
   } catch (e) { o.err(`${tag} cannot select HEAD's commit: ${e.message}; nothing ran`); return REFUSED_EXIT; }
 
   // The output directory is the checkout's, resolved by the gate (row 8.12): a caller's CARGO_TARGET_DIR that points into the snapshot would
@@ -399,9 +400,9 @@ export async function clippyCommand(o, args, deps = {}) {
   if (preBound.length) { o.err(sidecarRefusal(tag, preBound, "read from the commit")); resultLine(o, tag, { result: "BLOCKED", code: ROUTE_CODES.sidecarBound, blockedOn: ["item7:7.05"], bound: preBound, launched: false }); return BLOCKED; }
 
   const timings = {}; const lap = (name, since) => { timings[name] = Date.now() - since; };
-  // Build ownership first (E6): held from before the sync until the diagnostics are written. A busy host runs nothing and syncs nothing.
+  // Build ownership first (E6): held from before the sync until the diagnostics are written. A busy repository runs nothing and syncs nothing.
   let own;
-  try { own = (deps.acquireOwnership ?? ownershipApi.acquireBuildOwnership)({ file: ownershipApi.ownershipFile({ platform: o.platform, beside: o.snapshotRoot }), stage: "clippy", snapshot: snapshotDir, commit: selected.commit, platform: o.platform, env: o.env }); }
+  try { own = (deps.acquireOwnership ?? ownershipApi.acquireBuildOwnership)({ file: ownershipApi.ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: repoKey }), stage: "clippy", snapshot: snapshotDir, commit: selected.commit, platform: o.platform, env: o.env }); }
   catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`${tag} BLOCKED: ${e.message}; ${e.code === "refused" ? "nothing ran, nothing created" : "the route never re-syncs a snapshot another request holds; nothing ran"}`); return BLOCKED; }
   o.out(`${tag} build ownership ${own.joined ? "joined" : "held"} ${own.handle}`);
   const abort = o.abort ?? new AbortController();

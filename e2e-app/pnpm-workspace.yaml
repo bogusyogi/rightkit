@@ -6,32 +6,26 @@ allowBuilds:
   esbuild: true
 # Keep the tauri adapter on the template's current logs patch for release admission.
 overrides:
+  # GHSA-238p-pmpm-9mq7 (katex <0.18.2): micromark-extension-math 3.1.0 still asks for ^0.16.
+  katex: ^0.18.2
   '@rightkit/tauri@0.3.0>@rightkit/logs': '0.1.6'
   '@rightkit/qa@0.6.1>@rightkit/qa-chrome': '0.1.12'
 # Pin-by-exact-version is the RightKit rule; the release-age guard needs an explicit allowance for
 # each freshly published @rightkit version this app pins. Keep this list equal to package.json.
 minimumReleaseAgeExclude:
   - '@rightkit/app-update@0.4.2'
-  - '@rightkit/ax@0.3.2'
-  - '@rightkit/ci@0.3.2'
-  - '@rightkit/doc-render@0.2.1'
-  - '@rightkit/hooks@0.1.2'
-  - '@rightkit/i18n@0.2.0'
-  - '@rightkit/issues-tracker@0.1.0'
-  - '@rightkit/legal@0.6.3'
   - '@rightkit/legal-ui@0.4.1'
+  - '@rightkit/legal@0.6.3'
   - '@rightkit/license@0.3.0'
   - '@rightkit/logs@0.1.6'
-  - '@rightkit/media-ui@0.3.4'
   - '@rightkit/onboarding@0.6.3'
-  - '@rightkit/outdated@0.3.0'
-  - '@rightkit/pdf-ui@0.2.0'
   - '@rightkit/platform-ui@0.4.0'
-  - '@rightkit/qa@0.6.1'
   - '@rightkit/qa-chrome@0.1.12'
+  - '@rightkit/qa@0.6.1'
   - '@rightkit/react-shell@0.7.2'
-  - '@rightkit/release@0.6.16'
+  - '@rightkit/release@0.6.13'
   - '@rightkit/settings-ui@0.7.0'
-  - '@rightkit/tauri@0.3.0'
   - '@rightkit/tauri-shell@0.1.3'
+  - '@rightkit/tauri@0.3.0'
   - '@rightkit/theme@0.3.1'
+  - '@rightkit/outdated@0.3.0'

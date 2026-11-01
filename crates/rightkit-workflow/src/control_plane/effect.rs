@@ -183,7 +183,7 @@ pub struct EffectAdapterRegistry {
 }
 
 impl EffectAdapterRegistry {
-    /// Build the V1 registry. The set is fixed by [`V1_ALLOWED_KINDS`];
+    /// Build the V1 registry. The set is fixed by `V1_ALLOWED_KINDS`;
     /// callers that need a wider surface must build their own registry
     /// from a future work package's policy.
     pub fn v1_default() -> Self {
@@ -210,7 +210,7 @@ impl EffectAdapterRegistry {
     /// The check is:
     ///
     /// 1. **Defensive keyword scan** — `kind` must not contain any of
-    ///    [`V1_DENIED_KEYWORDS`] (case-insensitive).
+    ///    `V1_DENIED_KEYWORDS` (case-insensitive).
     /// 2. **Exact-match allowlist** — `kind` must appear verbatim in the
     ///    registry's `allowed` list.
     pub fn is_allowed(&self, kind: &str) -> bool {

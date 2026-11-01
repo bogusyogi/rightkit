@@ -1395,7 +1395,7 @@ async function runStages(o, args, root, git, io) {
   // `--route`: which route this stage takes here and whether it refuses, answered without running anything (rightkit#1297).
   if (o.routeProbe) return await runRouteProbe(o, args, root, git, { to, platform, stages: devTest ? [] : stages, devTest, appDir });
   // Commit-only build (GATE-CONTRACT §1): on every host (not hosted CI, whose runner checkout is the commit) the door selects a commit
-  // (--commit <rev>, default HEAD), takes the host's build ownership, syncs the commit's gate-owned snapshot once, and every stage
+  // (--commit <rev>, default HEAD), takes the repository's build ownership, syncs the commit's gate-owned snapshot once, and every stage
   // below reads that snapshot; the checkout may hold anything and is never a build source. Every non-hosted host takes this route: Mac
   // and Dell compile it through the RustRight snapshot carrier (`deps.snapshotBroker`, wired by `productionEntryDeps`; item 7 rows 7.20
   // to 7.24, rightkit#1301), right-release's own children included. Once it is selected any failure refuses; there is no retry on the
@@ -1423,7 +1423,7 @@ async function runStages(o, args, root, git, io) {
     const { acquireBuildOwnership, ownershipFile } = await import("../build-ownership.mjs");
     const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
     let own;
-    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot }), stage: `door:${to}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit: selected.commit, platform: o.platform, env: o.env }); }
+    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: snap.repositoryOf(root).key }), stage: `door:${to}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit: selected.commit, platform: o.platform, env: o.env }); }
     catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`${tag} BLOCKED: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 1; }
     o.out(`${tag} build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
     try {
@@ -2249,7 +2249,7 @@ async function bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs, ext
 
 /**
  * `--to <stage> --unit <selector> [--commit <rev>]` on the snapshot route (row 7.06a): select a commit (HEAD by default), take the
- * host's build ownership, sync its snapshot, run class A of the snapshot (`check --commit <sha> --full-a --snapshot <dir>`), and build
+ * repository's build ownership, sync its snapshot, run class A of the snapshot (`check --commit <sha> --full-a --snapshot <dir>`), and build
  * the unit from the snapshot (`--workspace <snapshot>`). Commit and tree come from the selection; no HEAD or status is read. The unit
  * manifest and the local-build grant are read from the selected commit, so one present only in the checkout is refused. Each stage is
  * bracketed by the ledger verify (7.08); Cargo's output is pinned to the checkout's target directory (7.09); `--to release` keeps its
@@ -2287,7 +2287,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
   const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
   { const mismatch = await declaredSnapshotRootRefusal(o, executor, snapshotsAt); if (mismatch) { o.err(`${tag} BLOCKED: ${mismatch.code}: ${mismatch.message}; nothing ran`); return 1; } }
   let own;
-  try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot }), stage: `door:unit:${option("--to")}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit, platform: o.platform, env: o.env }); }
+  try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: snap.repositoryOf(root).key }), stage: `door:unit:${option("--to")}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit, platform: o.platform, env: o.env }); }
   catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`${tag} BLOCKED: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 1; }
   o.out(`${tag} build ownership ${own.joined ? "joined" : "held"} ${own.handle}`);
   try {
@@ -2967,7 +2967,7 @@ export async function main(argv, io = {}) {
   // commit, never a diff. Nothing compiles. The RustRight broker runs exactly this before it admits any compile. `--list`,
   // `--print-baseline` and `--only` stay app-check-only views.
   // `check --commit <sha>` without `--snapshot` reads the gate's one warm snapshot of that commit, selected the way
-  // every `--to` stage selects it: host-wide build ownership first, then one sync of the commit into the gate-owned source directory, then the
+  // every `--to` stage selects it: per-repository build ownership first, then one sync of the commit into the gate-owned source directory, then the
   // check of that snapshot below. There is no export and no copy of the source (docs/GATE-CONTRACT.md, 2026-10-29); the checkout's own files are
   // never read, so an uncommitted edit in it is ignored. Hosted CI has no warm snapshot: its runner checkout is the commit, scanned in place.
   // `check --commit <sha> --full-a` takes the same route (GB-48, GATE 34/36/44, E17): the selected commit's snapshot, never a conversion to
@@ -2987,7 +2987,7 @@ export async function main(argv, io = {}) {
       const selected = sc.commitOf(checkout, option("--commit") ?? "HEAD", o.spawn);
       const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
       if (!own) {
-        try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot }), stage: "check", snapshot: path.join(snapshotsAt, snap.repositoryOf(checkout).key), commit: selected.commit, platform: o.platform, env: o.env }); ownHere = true; }
+        try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: snap.repositoryOf(checkout).key }), stage: "check", snapshot: path.join(snapshotsAt, snap.repositoryOf(checkout).key), commit: selected.commit, platform: o.platform, env: o.env }); ownHere = true; }
         catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`rightkit-gate: RK_CHECK_ERROR: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 2; }
         o.out(`rightkit-gate: build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
       }
@@ -3003,12 +3003,19 @@ export async function main(argv, io = {}) {
     finally { if (ownHere) { const r = own.release(); if (r?.released === false && !own.joined) o.err(`rightkit-gate: build ownership ${own.handle} kept: ${r.why}`); } }
   }
   if ((sub === "check" || (!sub && args.includes("--all"))) && args.includes("--snapshot") && !o.buildOwnership) {
-    // Host-wide build ownership (../build-ownership.mjs; GATE-CONTRACT §1): held from before the first snapshot read through the
+    // Per-repository build ownership (../build-ownership.mjs; GATE-CONTRACT §1): held from before the first snapshot read through the
     // end of the check, so no other request can sync the snapshot while class A runs in it. A nested gate whose
     // RIGHTKIT_BUILD_OWNERSHIP names the current owner joins it. Busy (or liveness unknown) runs nothing.
     const { acquireBuildOwnership, ownershipFile } = await import("../build-ownership.mjs");
+    const snap = await import("../snapshot.mjs");
+    let key;
+    try { key = snap.repositoryOf(option("--repo") ? path.resolve(o.cwd, option("--repo")) : o.cwd).key; }
+    catch (e) { o.err(`rightkit-gate: RK_CHECK_ERROR: the repository whose build ownership this check takes cannot be identified: ${e.message}; nothing ran`); return 2; }
+    // The record is keyed by the repository --repo/cwd names while --snapshot names a separate directory: they must be one repository.
+    const snapshotRootHere = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
+    if (path.basename(option("--snapshot") ?? "") !== key || path.resolve(o.cwd, path.dirname(option("--snapshot"))) !== path.resolve(o.cwd, snapshotRootHere)) { o.err(`rightkit-gate: RK_CHECK_ERROR: --snapshot ${option("--snapshot")} is not the snapshot of repository ${key} (its directory name must be the repository key, inside the snapshot root ${snapshotRootHere}); nothing ran`); return 2; }
     let own;
-    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot }), stage: sub ?? "compile", snapshot: option("--snapshot") ?? null, commit: option("--commit") ?? null, platform: o.platform, env: o.env }); }
+    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: key }), stage: sub ?? "compile", snapshot: option("--snapshot") ?? null, commit: option("--commit") ?? null, platform: o.platform, env: o.env }); }
     catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`rightkit-gate: RK_CHECK_ERROR: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 2; }
     o.out(`rightkit-gate: build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
     try { return await main(argv, { ...io, buildOwnership: own }); }
@@ -3181,7 +3188,11 @@ export async function main(argv, io = {}) {
   const scopeDirs = args.flatMap((a, i) => a === "--scope" ? [args[i + 1]] : []);
   if (scopeDirs.length) {
     const bad = scopeDirs.find((d) => typeof d !== "string" || !d || d.startsWith("--") || path.isAbsolute(d) || /^[A-Za-z]:/.test(d) || /(^|[\\/])\.\.([\\/]|$)/.test(d));
-    if (!fullA || (!snapshotA && !hostedCommitA) || bad !== undefined || scopeDirs.some((d) => d === undefined)) { o.err("rightkit-gate: --scope needs full Class A of a snapshot or committed hosted CI checkout & repository-relative directories"); return 2; }
+    // Full Class A needs a snapshot or the committed hosted checkout. The content pass (`check --commit <sha> --scope <dir>`: publication
+    // admission, GC-A03) reads the commit the same way it always did (the warm snapshot, or the runner checkout proven to be that commit
+    // in place) and only narrows which executing workspace scans run, so it is the one other form --scope accepts; never the live tree.
+    const scopeForm = fullA ? Boolean(snapshotA || hostedCommitA) : classAOnly && !args.includes("--worktree");
+    if (!scopeForm || bad !== undefined || scopeDirs.some((d) => d === undefined)) { o.err("rightkit-gate: --scope needs full Class A of a snapshot or committed hosted CI checkout & repository-relative directories"); return 2; }
   }
   if (args.includes("--base") && (!option("--base") || option("--base").startsWith("--"))) { o.err("rightkit-gate: --base needs a ref"); return 2; }
 
@@ -3719,7 +3730,7 @@ export async function main(argv, io = {}) {
     if (closure) {
       let kept;
       try {
-        kept = closureTools.scopeScans(fullPlan.scans, closure, { rustUnits: rust.units });
+        kept = closureTools.scopeScans(fullPlan.scans, closure, { rustUnits: rust.units, npmUnits: npm });
         plan = closureTools.scopedPlan(fullPlan, kept.scans, closure);
       } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
       plan.notes = plan.notes.filter((n) => !n.includes("every Rust unit is in scope"));

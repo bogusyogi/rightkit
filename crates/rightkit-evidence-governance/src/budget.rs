@@ -374,7 +374,7 @@ fn validate_task_budget(value: &Value) -> Result<(), GovernanceError> {
         || o["progressDeadlineMs"].as_u64().unwrap_or(0) < 1
         || o["evidenceReferences"]
             .as_array()
-            .map_or(true, |a| a.is_empty())
+            .is_none_or(|a| a.is_empty())
     {
         return Err(GovernanceError::typed(
             "ARC_SCHEMA_INVALID",

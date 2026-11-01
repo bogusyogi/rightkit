@@ -120,6 +120,7 @@ test("data: RightKit is told apart by the release package's own name in the comm
 
 test("data: outside RightKit a broker exception needs no units and covers the repository's whole run; hosts, expiry and Adrian's approval still bind it", () => {
   const { units: _units, ...noUnits } = entry();
+  const { expires: _expires, ...undatedNoUnits } = noUnits;
   const outside = (over = {}) => ask({ inRightKit: false, units: unitsOfSelector(undefined), ...over });
   const x = outside({ record: record(noUnits) });
   assert.deepEqual(x.units, ["*"], "the run is the whole repository");
@@ -134,7 +135,7 @@ test("data: outside RightKit a broker exception needs no units and covers the re
   assert.equal(code(() => outside({ record: record({ ...noUnits, hosts: ["dell"] }) })), BROKER_EXCEPTION_ERRORS.host);
   assert.equal(code(() => outside({ record: record({ ...noUnits, expires: "2026-10-30" }) })), BROKER_EXCEPTION_ERRORS.expired);
   assert.equal(code(() => outside({ record: record({ ...noUnits, approvedBy: "Astra" }) })), BROKER_EXCEPTION_ERRORS.invalid);
-  assert.equal(code(() => outside({ record: record(noUnits), now: FAR })), null, "no date, no expiry");
+  assert.equal(code(() => outside({ record: record(undatedNoUnits), now: FAR })), null, "no date, no expiry");
   // In RightKit (and for a caller that does not say) the units are required: the unit is named every run.
   assert.equal(code(() => ask({ record: record(noUnits) })), BROKER_EXCEPTION_ERRORS.invalid);
   assert.equal(code(() => ask({ record: record(noUnits), inRightKit: true })), BROKER_EXCEPTION_ERRORS.invalid);
@@ -220,12 +221,12 @@ test("data: a list that differs from the discovered workspaces is refused, missi
 });
 
 test("data: a list that is not a plain, unique list of workspace directories is invalid", () => {
-  const bad = (list) => { try { checkCargoWorkspaceList({ discovered: ["."], record: JSON.stringify({ cargoWorkspaces: list }) }); } catch (e) { return e.code; } return null; };
+  const bad = (list, discovered = ["."]) => { try { checkCargoWorkspaceList({ discovered, record: JSON.stringify({ cargoWorkspaces: list }) }); } catch (e) { return e.code; } return null; };
   for (const list of ["."/* a string, not a list */, { a: 1 }, null, 5, [1], [""], ["/abs"], ["../x"], ["a/../b"], ["a//b"], ["a/./b"], ["./a"], ["a/"], ["a\\b"], ["C:/x"], [".", "."], ["a", "a"], [[".", "a"]]]) {
     assert.equal(bad(list), CARGO_WORKSPACE_LIST_ERRORS.invalid, JSON.stringify(list));
   }
   assert.equal(bad(["."]), null, "the root workspace is '.'");
-  assert.equal(bad(["apps/x/src-tauri", "."]), null);
+  assert.equal(bad(["apps/x/src-tauri", "."], ["apps/x/src-tauri", "."]), null);
 });
 
 // ---- #1325: the unit list of --units-file ----------------------------------------------------------------------------------------
@@ -320,6 +321,7 @@ test("a valid record routes the same stages through the direct executor and prin
 
 test("#1325: outside RightKit the gate takes a broker exception that lists no units, or other units, for the whole run; in RightKit the same record is refused", async (t) => {
   const { units: _units, ...noUnits } = entry();
+  const { expires: _expires, ...undatedNoUnits } = noUnits;
   const outsideNone = fixture(t, { [BROKER_EXCEPTIONS_FILE]: record(noUnits) });
   let r = await outsideNone.run(["--to", "compile", "--route", "--no-broker", "adrian-2026-10-31"], "darwin");
   assert.equal(r.exit, 0, r.err);
@@ -489,14 +491,14 @@ function listFixture(t, files) {
       metadataCalls.push(path.relative(snap.path, opts.cwd).replaceAll("\\", "/") || ".");
       const rel = path.relative(snap.path, opts.cwd).replaceAll("\\", "/");
       const members = rel === "" ? [["a", path.join(opts.cwd, "crates", "a")]] : [[path.basename(opts.cwd), opts.cwd]];
-      return { status: 0, stdout: JSON.stringify({ workspace_root: opts.cwd, packages: members.map(([name, dir]) => ({ name, manifest_path: path.join(dir, "Cargo.toml"), publish: null })) }), stderr: "" };
+      return { status: 0, stdout: JSON.stringify({ workspace_root: opts.cwd, target_directory: path.join(opts.cwd, "target"), packages: members.map(([name, dir]) => ({ name, manifest_path: path.join(dir, "Cargo.toml"), publish: null })) }), stderr: "" };
     }
     return defaultSpawn(cmd, args, opts);
   };
   const run = async (extraArgs = [], extraIo = {}) => {
     const out = []; const err = []; const plans = [];
     const exit = await main(["check", "--commit", commit, "--full-a", "--snapshot", snap.path, ...extraArgs], {
-      cwd: repo, gatePackage, env: { ...process.env, RK_GATE_CACHE: "0", RK_GATE_TMPDIR: base }, platform: process.platform, snapshotRoot: path.join(base, "snapshots-own"), spawn, out: (m) => out.push(m), err: (m) => err.push(m),
+      cwd: repo, gatePackage, env: { ...process.env, RK_GATE_CACHE: "0", RK_GATE_TMPDIR: base }, platform: process.platform, snapshotRoot: path.join(base, "snapshots"), spawn, out: (m) => out.push(m), err: (m) => err.push(m),
       appCheck: async () => 0, classA: undefined, selfPath: path.join(base, "elsewhere", "rightkit-gate.mjs"), resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }),
       runScans: async (plan) => { plans.push(plan); return { scans: [], notes: [], cacheHits: [] }; }, ...extraIo,
     });
@@ -554,7 +556,7 @@ test("#1325: a plan builds nothing, so it says what a run would be refused for a
       if (cmd === "cargo" && args[0] === "metadata") {
         const rel = path.relative(f.repo, opts.cwd).replaceAll("\\", "/");
         const members = rel === "" ? [["a", path.join(opts.cwd, "crates", "a")]] : [[path.basename(opts.cwd), opts.cwd]];
-        return { status: 0, stdout: JSON.stringify({ workspace_root: opts.cwd, packages: members.map(([name, dir]) => ({ name, manifest_path: path.join(dir, "Cargo.toml"), publish: null })) }), stderr: "" };
+        return { status: 0, stdout: JSON.stringify({ workspace_root: opts.cwd, target_directory: path.join(opts.cwd, "target"), packages: members.map(([name, dir]) => ({ name, manifest_path: path.join(dir, "Cargo.toml"), publish: null })) }), stderr: "" };
       }
       return defaultSpawn(cmd, args, opts);
     };

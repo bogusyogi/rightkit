@@ -317,7 +317,7 @@ fn shell_process(command: &str) -> Command {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        // Output is piped; `OwnedCommand` hides any new console window at spawn.
+        // windowless: output is piped and the caller hands this to `OwnedCommand`, which hides any new console window at spawn.
         #[allow(clippy::disallowed_methods)]
         let mut process = Command::new("cmd");
         process.raw_arg(format!("/C \"{command}\""));

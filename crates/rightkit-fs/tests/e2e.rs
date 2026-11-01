@@ -775,9 +775,15 @@ fn identity_follows_renames_moves_and_atomic_replacement() {
     // An editor-style safe save replaces the inode with identical bytes elsewhere.
     let saved = root.join("archive/2026/q3/report-final.txt");
     let before = rightkit_fs::FileKey::of_path(&saved).unwrap();
+    // Hold the old file open across the replacement: Linux filesystems reuse a freed inode
+    // number at once, which would make the new file look like the old one.
+    #[cfg(unix)]
+    let keep_old_inode = std::fs::File::open(&saved).unwrap();
     std::fs::remove_file(&saved).unwrap();
     atomic_write(&saved, b"quarterly numbers").unwrap();
     assert_ne!(rightkit_fs::FileKey::of_path(&saved).unwrap(), before);
+    #[cfg(unix)]
+    drop(keep_old_inode);
     assert_eq!(
         store.resolve(&id, std::slice::from_ref(&root)).unwrap(),
         Resolution::Replaced(saved.clone())

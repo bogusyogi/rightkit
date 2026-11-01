@@ -127,6 +127,7 @@ pub struct KeyRing {
 struct KeyRecord {
     key: Vec<u8>,
     created_at: String,
+    #[allow(dead_code)]
     custody: String,
     status: String,
 }
@@ -156,7 +157,7 @@ impl KeyRing {
                 )));
             }
         }
-        let mut ring = Self {
+        let ring = Self {
             keys: RefCell::new(BTreeMap::new()),
         };
         let entries =

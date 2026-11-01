@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-shorts"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shorts finder for Right Suite video apps: candidate moments from a long video's transcript, scored and ranked (heuristics plus an optional BYOK LLM pass), with hooks, captions and edit plans per short."
@@ -13,7 +13,20 @@ include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENS
 name = "rightkit_shorts"
 path = "src/lib.rs"
 
+[features]
+default = []
+# Engine command handlers (`cmd`): `moments.ocr_index` and `moments.search`. Adds OCR, text search, ffmpeg and the engine host.
+engine-commands = ["dep:rightkit-engine-host", "dep:chrono", "dep:rightkit-ocr", "dep:rightkit-search", "dep:rightkit-video-project", "dep:rightkit-ffmpeg"]
+# Reads RIGHTKIT_OCR_MODEL_DIR in `cmd::moments`. Never in a shipped build.
+test-mode = []
+
 [dependencies]
+chrono = { version = "0.4", features = ["serde", "clock"], optional = true }
+rightkit-engine-host = { version = "0.1.1", path = "../rightkit-engine-host", features = ["project-cmd"], optional = true }
+rightkit-ocr = { version = "0.2.3", path = "../rightkit-ocr", optional = true }
+rightkit-search = { version = "0.4.1", path = "../rightkit-search", optional = true }
+rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
+rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, optional = true }
 rightkit-captions = { version = "0.1.0", path = "../rightkit-captions" }
 rightkit-autoedit = { version = "0.1.0", path = "../rightkit-autoedit" }
 rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline" }

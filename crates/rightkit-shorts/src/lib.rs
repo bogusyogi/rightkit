@@ -15,6 +15,8 @@
 
 pub mod audio;
 pub mod budget;
+#[cfg(feature = "engine-commands")]
+pub mod cmd;
 pub mod config;
 pub mod error;
 pub mod judge;

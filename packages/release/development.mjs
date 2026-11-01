@@ -519,6 +519,14 @@ export function resolvePnpmCli({ root, env = process.env } = {}) {
   }
   // Unix global pnpm exposes its JavaScript entry through a PATH symlink.
   for (const dir of String(env.PATH ?? env.Path ?? "").split(path.delimiter).filter(Boolean)) candidates.push(path.join(dir, "pnpm"));
+  // pnpm >= 11 installed through pnpm/action-setup or `npm install -g pnpm` puts a native executable behind the PATH name (and behind npm_execpath);
+  // its package keeps the JavaScript entry Corepack loads beside it at bin/pnpm.mjs, which is the entry to launch under the current node.
+  for (const candidate of [...candidates]) {
+    try {
+      const resolved = realpathSync(candidate);
+      if (!/pnpm\.(?:mjs|cjs|js)$/i.test(resolved)) candidates.push(path.join(path.dirname(resolved), "bin", "pnpm.mjs"), path.join(path.dirname(resolved), "..", "pnpm", "bin", "pnpm.mjs"));
+    } catch { /* an absent candidate is skipped */ }
+  }
   const selected = candidates.map(resolveJavaScriptEntrypoint).find(Boolean);
   if (!selected) throw new Error("could not resolve pnpm JavaScript CLI entrypoint; install/pin pnpm through Corepack");
   return selected;

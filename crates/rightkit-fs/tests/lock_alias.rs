@@ -69,13 +69,23 @@ fn hard_link_pair(dir: &Path) -> (PathBuf, PathBuf) {
     (first, second)
 }
 
-/// A case alias, when this volume is case-insensitive (default APFS and NTFS are; Linux ext4 is
-/// not, and the case is skipped there).
-fn case_pair(dir: &Path) -> Option<(PathBuf, PathBuf)> {
+/// A second spelling of one file: the case alias on a case-insensitive volume (default APFS and
+/// NTFS), otherwise (Linux ext4 and the like) the same file reached through a `.` segment. Both
+/// are a different path string for one inode, which is what the registry must see through.
+fn case_pair(dir: &Path) -> (PathBuf, PathBuf) {
     let first = dir.join("case.lock");
     std::fs::File::create(&first).unwrap();
     let alias = dir.join("CASE.LOCK");
-    alias.exists().then_some((first, alias))
+    if alias.exists() {
+        (first, alias)
+    } else {
+        let dotted = dir.join(".").join("case.lock");
+        assert!(
+            dotted.exists(),
+            "the dot-segment spelling must reach the file"
+        );
+        (first, dotted)
+    }
 }
 
 fn assert_alias_cannot_downgrade_or_release(first: &Path, second: &Path) {
@@ -149,10 +159,7 @@ fn hard_link_shared_holders_keep_the_lock_until_the_last_drops() {
 #[test]
 fn a_case_alias_cannot_downgrade_or_release_an_exclusive_lock() {
     let (_g, dir) = tmp();
-    let Some((first, second)) = case_pair(&dir) else {
-        eprintln!("SKIP: this volume is case-sensitive");
-        return;
-    };
+    let (first, second) = case_pair(&dir);
     assert_alias_cannot_downgrade_or_release(&first, &second);
     assert_shared_aliases_release_only_with_the_last_holder(&first, &second);
 }

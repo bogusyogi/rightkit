@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 (unreleased)
+
+- New, additive (feature `native`, off by default): the `native` module, moved from CutRight's `cutright-compose`. It adapts an immutable evaluated timeline snapshot (`ComposeSnapshot`) to the native wgpu compositor: `mapper::compose_frame` frame descriptors and texture requirements, `audio::audio_descriptor` sample-exact mix contract, frame `identity`/`cache`/`scheduler`, `clock` A/V sync, ffmpeg frame `decode` and streamed `pcm` audio, and the offscreen `executor`. Adds optional dependencies on `rightkit-compositor`, `rightkit-timeline`, `rightkit-video-project`, `rightkit-ffmpeg` and `rightkit-fs`. The default build and the existing API are unchanged.
+
 ## 0.2.1 (unreleased)
 
 - New, additive (feature `still-finish`, off by default): `still_finish`, keyless still finishing. `still_finish::run(input, dry_run)` composites a PNG logo onto each input PNG at a corner and writes every result under a naming template (`{stem}`, `{index}`, date parts); inputs and the logo are only read, an existing output is refused, a template may not carry path separators, drive prefixes, `..` or Windows reserved names, and every output is composited before the first write. Errors are `StillFinishError { code, message }`. Donor: GenRight `genright-engine/src/still_finish.rs`. The default build and the existing API are unchanged.

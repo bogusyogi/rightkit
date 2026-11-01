@@ -41,7 +41,8 @@ export function expectedStageCommands({ kind, unit, config, manifest, platform }
   const pack = [];
   if (kind === "npm") {
     // The swap helper builds and signs a binary into its own directory of the snapshot (a declared stage output), then packs from there like any unit.
-    if (unit === SWAP_HELPER_PACKAGE) pack.push(CARGO(".", SWAP_HELPER_CARGO_ARGS), CARGO(".", SWAP_HELPER_METADATA_ARGS));
+    // A Linux direct origin builds none: the helper is built and signed hosted (publish.yml build-swap/sign-swap).
+    if (unit === SWAP_HELPER_PACKAGE && platform !== "linux") pack.push(CARGO(".", SWAP_HELPER_CARGO_ARGS), CARGO(".", SWAP_HELPER_METADATA_ARGS));
     pack.push(PNPM(npmPackArgs(dir, ANY_ABSOLUTE_PATH)));
   } else {
     compile.unshift(CARGO(crateDir, qualifyFmtArgs(unit)));

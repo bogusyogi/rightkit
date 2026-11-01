@@ -11,11 +11,12 @@ import test from "node:test";
 // spawn documents a site that hides it elsewhere (e.g. hands the Command to OwnedCommand).
 const crates = path.resolve(import.meta.dirname, "../../crates");
 const SPAWN = /(?<![A-Za-z_])Command::new\(/;
-const HIDDEN = /creation_flags|CREATE_NO_WINDOW|\bhidden\(|hide_background_process|spawn_hidden_logged|OwnedCommand::from_command|windows_hide/;
+const HIDDEN = /creation_flags|CREATE_NO_WINDOW|\bhidden\(|hide_console\(|NoWindow|no_window\(|hide_background_process|spawn_hidden_logged|OwnedCommand::from_command|windows_hide/;
 const LAUNCH = /\.(?:spawn|output|status)\(|from_command\(|spawn_hidden_logged\(|hide_background_process\(|\bfinish\(/;
 // OwnedCommand's own constructor: `from_command` starts every command hidden on Windows (windows_hidden: true).
 const OWNED_COMMAND_CONSTRUCTOR = { file: "rightkit-child-process/src/owned.rs", line: /^\s*(?:let\s+\w+\s*=\s*)?Self::from_command\(Command::new\(program\)\);?\s*$/ };
-const MACOS_ONLY_FILE = /(^|[\\/])(macos([\\/]|\.rs$)|mac\.rs$|apple_helper\.rs$)/;
+// rightkit-apple-ops drives Xcode, simctl and the Apple profilers: it has no Windows build to hide a console in.
+const MACOS_ONLY_FILE = /(^|[\\/])(macos([\\/]|\.rs$)|mac\.rs$|apple_helper\.rs$|rightkit-apple-ops[\\/])/;
 
 function rustFiles(directory) {
   const out = [];
@@ -124,10 +125,13 @@ function gatedPaths(files) {
       if (attr.inner) { gated.add(file); return; }
       let text = attr.rest;
       let at = index;
-      while (!text || /^#\[/.test(text.trim())) { at += 1; if (at >= lines.length) return; text = lines[at].trim(); }
+      let pathAttribute = null;
+      while (!text || /^#\[/.test(text.trim())) { pathAttribute = /^#\[path\s*=\s*"([^"]+)"\]/.exec(text.trim())?.[1] ?? pathAttribute; at += 1; if (at >= lines.length) return; text = lines[at].trim(); }
       const declared = text.match(/^(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z0-9_]+)\s*;/);
       if (!declared) return;
       const dir = path.dirname(file);
+      // `#[path = "x.rs"] mod m;` names its file; `mod m;` finds m.rs or m/mod.rs.
+      if (pathAttribute) { gated.add(path.join(dir, pathAttribute)); return; }
       gated.add(path.join(dir, `${declared[1]}.rs`));
       gated.add(path.join(dir, declared[1], "mod.rs"));
       gated.add(path.join(dir, declared[1]));

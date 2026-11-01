@@ -64,7 +64,7 @@ function host(t, { inputs = null, rb = null } = {}) {
   const checkout = path.join(root, "checkout"); const snapshot = path.join(dataRoot, "snapshots", "0123456789abcdef"); const wsRoot = path.join(dataRoot, "rightkit-build-control", "ws");
   writeTree(checkout, WORKSPACES); writeTree(snapshot, WORKSPACES);
   if (inputs) writeTree(snapshot, { ".rightkit/compile-inputs.json": JSON.stringify({ inputs }), "gen/in.txt": "declared input\n" });
-  const own = acquireBuildOwnership({ file: path.join(root, "build-ownership", "owner.json"), platform: "darwin", probe: probe(), lease: noLease, env: {}, exportEnv: false, stage: "compile", snapshot });
+  const own = acquireBuildOwnership({ file: path.join(root, "build-ownership", "0123456789abcdef", "owner.json"), platform: "darwin", probe: probe(), lease: noLease, env: {}, exportEnv: false, stage: "compile", snapshot });
   const marks = []; const carriers = [];
   const readCarriers = () => { const dir = path.join(controlRoot, "snapshot-requests"); try { return fs.readdirSync(dir).filter((n) => n.endsWith(".json") && !n.endsWith(".owner.json")).map((n) => JSON.parse(fs.readFileSync(path.join(dir, n), "utf8"))); } catch { return []; } };
   const client = rb?.clientPath ?? process.execPath;
@@ -353,7 +353,7 @@ test("real broker: [7.20] the gate refuses before anything compiles without an e
       if (c === "which" && a[0] === "cargo") return { status: 0, stdout: "/opt/toolchain/bin/cargo\n", stderr: "" };
       return { status: 1, stdout: "", stderr: `not in this test: ${c} ${a.join(" ")}` };
     };
-    const own = acquireBuildOwnership({ file: path.join(root, "build-ownership", "owner.json"), platform: "darwin", probe: probe(), lease: noLease, env: {}, exportEnv: false, stage: "compile", snapshot: snap });
+    const own = acquireBuildOwnership({ file: path.join(root, "build-ownership", "0123456789abcdef", "owner.json"), platform: "darwin", probe: probe(), lease: noLease, env: {}, exportEnv: false, stage: "compile", snapshot: snap });
     const seen = []; const out = [];
     const code = await main(["--all", "--commit", sha, "--snapshot", snap], { cwd: repo, platform: "darwin", env, spawn, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0, buildOwnership: own, readStdin: () => "", resolveExecutor: () => executor,
       runScans: async (plan, options) => { seen.push({ plan, options }); return { scans: [], notes: [], cacheHits: [] }; } });

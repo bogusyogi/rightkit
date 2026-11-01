@@ -52,7 +52,7 @@ function scenario(t, extra = {}) {
   write(repo, { "README.md": "commit B, ahead of A\n" });
   commitAll(repo, "B");
   write(repo, { "src/a.txt": "uncommitted edit\n", "dirty.txt": "untracked\n" });
-  const root = tmp(t, "rk-sc-snaps-");
+  const root = path.join(tmp(t, "rk-sc-snaps-"), "snapshots");   // the gate's snapshot root: --snapshot must lie directly inside it
   const snap = syncSnapshot({ checkout: repo, rev: a, root });
   return { repo, a, tree: git(repo, "rev-parse", `${a}^{tree}`), dir: snap.path, root };
 }
@@ -78,8 +78,8 @@ function io(t, s, { scans = [], onScans = null, fakeInstall = false } = {}) {
   return {
     calls, out, err, plans,
     io: {
-      // The host-wide ownership record lives beside the injected root, in a fixture directory of its own (never the host's).
-      cwd: s.repo, gatePackage, env: { ...process.env, RK_GATE_CACHE: "0" }, snapshotRoot: path.join(tmp(t, "rk-sc-own-"), "snapshots"), spawn, out: (m) => out.push(m), err: (m) => err.push(m),
+      // The snapshot root is the scenario's own, so the repository's ownership record lives beside it, in a fixture directory of its own (never the host's).
+      cwd: s.repo, gatePackage, env: { ...process.env, RK_GATE_CACHE: "0" }, snapshotRoot: s.root, spawn, out: (m) => out.push(m), err: (m) => err.push(m),
       appCheck: async () => 0, classA: undefined, selfPath: path.join(tmp(t, "rk-sc-self-"), "rightkit-gate.mjs"),
       resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }),
       runScans: async (plan) => { plans.push(plan); if (onScans) onScans(); return { scans, notes: [], cacheHits: [] }; },
@@ -608,10 +608,11 @@ test("E17 real subprocesses: npm-only dirty checkout with HEAD ahead passes on t
   // The checkout's own install recorded a store (the primary environment's existing store); this one exists and stays empty.
   const store = tmp(t, "rk-sc-real-store-");
   write(repo, { "node_modules/.modules.yaml": `{\n  "storeDir": ${JSON.stringify(store)}\n}\n` });
-  const snap = syncSnapshot({ checkout: repo, rev: a, root: tmp(t, "rk-sc-real-snaps-") });
+  const realRoot = path.join(tmp(t, "rk-sc-real-snaps-"), "snapshots");
+  const snap = syncSnapshot({ checkout: repo, rev: a, root: realRoot });
   const out = []; const err = [];
   const code = await main(["check", "--commit", a, "--full-a", "--snapshot", snap.path], {
-    cwd: repo, env: { ...process.env, RK_GATE_CACHE: "0", RIGHTKIT_SCRATCH_ROOT: tmp(t, "rk-sc-real-logs-") }, snapshotRoot: path.join(tmp(t, "rk-sc-real-own-"), "snapshots"), out: (m) => out.push(m), err: (m) => err.push(m),
+    cwd: repo, env: { ...process.env, RK_GATE_CACHE: "0", RIGHTKIT_SCRATCH_ROOT: tmp(t, "rk-sc-real-logs-") }, snapshotRoot: realRoot, out: (m) => out.push(m), err: (m) => err.push(m),
     appCheck: async () => 0, resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }),
   });
   const all = [...out, ...err].join("\n");

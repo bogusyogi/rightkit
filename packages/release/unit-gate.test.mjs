@@ -248,6 +248,11 @@ test("writeQualification binds the passed local stages and the one artifact sha2
   assert.throws(() => write({ contentExcluded: [] }, swap), /archive to hold/);
   const swapWritten = []; writeQualification({ report, artifact: { ...artifact, contentExcluded: [...helper].reverse() }, unit: swap, commit, tree: "b".repeat(40), runtime: "r", executor: { kind: "broker" }, write: (f, text) => swapWritten.push(JSON.parse(text)) });
   assert.deepEqual(swapWritten[0].contentExcluded, helper);
+  // A direct (Linux) origin builds and signs no helper: its @rightkit/release archive holds neither entry and records [] (the Mac rule above is unchanged).
+  const directWrite = (a) => { const out = []; writeQualification({ report, artifact: { ...artifact, ...a }, unit: swap, commit, tree: "b".repeat(40), runtime: "r", executor: { kind: "direct" }, directOrigin: { schema: 1 }, write: (f, text) => out.push(JSON.parse(text)) }); return out[0]; };
+  assert.deepEqual(directWrite({ contentExcluded: [] }).contentExcluded, []);
+  assert.throws(() => directWrite({}), /must hold neither/);
+  assert.throws(() => directWrite({ contentExcluded: helper }), /must hold neither/);
   // A crate carries no content digest.
   assert.doesNotThrow(() => write({ contentSha256: undefined }, { kind: "cargo", name: "rightkit-demo", version: "1.0.0" }));
   void t;
@@ -446,7 +451,7 @@ test("known red: the host table decides compile, package and qualify; a release 
   // A direct Linux origin evidences its stages with the snapshot stage guard the door always passes (GB-29).
   const withContent = (fn) => async (...a) => ({ ...(await fn(...a)), contentSha256: "c".repeat(64) });
   s.owner.packageLocalUnit = withContent(s.owner.packageLocalUnit); s.owner.qualifyLocalUnit = withContent(s.owner.qualifyLocalUnit);
-  assert.equal(await runUnitGate({ ...s.args, platform: "linux", stageCommands: () => ({}), stageGuard: { start: async () => true, end: async () => true }, env: { HOME: "/home/u" } }), 0);
+  assert.equal(await runUnitGate({ ...s.args, platform: "linux", stageCommands: () => ({}), stageGuard: { start: async () => true, end: async () => true }, env: { HOME: tempRoot("unit-gate-home-") } }), 0);
 });
 
 test("known red: --to check compiles nothing and still runs; a missing or empty table lists nothing; an unreadable one refuses", async () => {
@@ -568,13 +573,14 @@ function linuxDirect() {
   const guard = []; const stageGuard = { start: async (stage) => { guard.push(`start:${stage}`); return true; }, end: async (stage) => { guard.push(`end:${stage}`); return true; } };
   const outs = []; const errs = [];
   const stageCommands = () => ({ compile: [{ kind: "cargo", argvs: [["build"]] }], package: [{ kind: "adapter", adapter: "rightkit-pnpm", argvs: [["pack"]] }] });
-  const run = (over = {}) => runUnitGate({ ...s.args, platform: "linux", executor: { kind: "direct" }, stageGuard, stageCommands, env: { HOME: "/home/u" }, out: (l) => outs.push(l), err: (l) => errs.push(l), ...over });
+  const home = tempRoot("unit-gate-home-");
+  const run = (over = {}) => runUnitGate({ ...s.args, platform: "linux", executor: { kind: "direct" }, stageGuard, stageCommands, env: { HOME: home }, out: (l) => outs.push(l), err: (l) => errs.push(l), ...over });
   const qualification = () => JSON.parse(fs.readFileSync(path.join(path.dirname(s.artifactFile), "qualification.json"), "utf8"));
-  return { s, run, outs, errs, qualification, guard, sha };
+  return { s, run, outs, errs, qualification, guard, sha, home };
 }
 
 test("[GB-29] a direct Linux origin's --to qualify writes a direct-origin qualification (no broker receipts), verifies it as the hosted side will and dispatches nothing", async () => {
-  const { s, run, outs, errs, qualification, sha } = linuxDirect();
+  const { s, run, outs, errs, qualification, sha, home } = linuxDirect();
   const bundle = { value: null };
   s.owner.compileLocalUnit = async (_kind, args) => { bundle.value = args[args.indexOf("--bundle") + 1]; s.calls.push("compile"); return {}; };
   assert.equal(await run(), 0, errs.join("\n"));
@@ -588,7 +594,8 @@ test("[GB-29] a direct Linux origin's --to qualify writes a direct-origin qualif
   assert.match(outs.join("\n"), /direct-origin qualification .* verified locally; nothing was dispatched/);
   assert.deepEqual(s.calls, ["check:release", "compile", "package", "qualify", "close"]);
   // The Linux scratch is the gate's own state directory, never a Mac volume.
-  assert.match(bundle.value, /^\/home\/u\/\.local\/state\/rightkit\/scratch\/rk-unit-/);
+  assert.equal(path.dirname(bundle.value), path.join(home, ".local", "state", "rightkit", "scratch"));
+  assert.match(path.basename(bundle.value), /^rk-unit-/);
 });
 
 test("[GB-29] negative: a direct Linux origin without the stage guard records no evidence and so writes no qualification; a darwin or win32 direct host is still refused as before", async () => {

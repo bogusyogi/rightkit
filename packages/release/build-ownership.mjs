@@ -1,10 +1,12 @@
-// Host-wide build ownership (docs/GATE-CONTRACT.md §1 "Commit-only build", "Broker lease"; joint plan step 4, G1).
+// Per-repository build ownership (docs/GATE-CONTRACT.md §1 "Commit-only build", "Broker lease"; joint plan step 4, G1; rightkit#1367).
 //
-// The gate acquires the host's build ownership BEFORE it syncs a snapshot and holds it until the stage completes, so no other
-// request can replace a snapshot while anything reads it. One owner per host, at ONE fixed location per host (`ownershipFile`:
-// `<managed root>/build-ownership/owner.json` on Mac & Dell, `~/.local/state/rightkit/build-ownership/owner.json` on Linux), never
-// derived from the snapshot root or from an environment variable: builds are one per host, and the snapshot's own sync lock only
-// covers the sync itself. The directory is mode 0700 and refused when group- or other-accessible (`ensureOwnershipDir`).
+// The gate acquires the build ownership of the repository it is building BEFORE it syncs that repository's snapshot and holds it
+// until the stage completes, so no other request can replace that snapshot while anything reads it. One owner per repository, at
+// one fixed location per repository (`ownershipFile`: `<managed root>/build-ownership/<repository key>/owner.json` on Mac & Dell,
+// `~/.local/state/rightkit/build-ownership/<repository key>/owner.json` on Linux), where the key is the snapshot directory's own
+// key (`snapshot.repositoryOf(root).key`); never derived from the snapshot root or from an environment variable. Two repositories
+// never contend: how many builds run, and in what order, is the broker's alone. The snapshot's own sync lock only covers the sync
+// itself. `build-ownership/` and each repository directory are mode 0700 and refused when group- or other-accessible (`ensureOwnershipDir`).
 //
 // The owner record is written whole (create-exclusive) and names a fresh handle (the `ownership.handle` a broker request carries),
 // the gate's pid & start identity, the stage, snapshot & commit, how the gate's children are contained, and whether a broker
@@ -93,31 +95,36 @@ const sameStart = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs
 /** The directory beside the host's snapshots (or beside any injected root) that holds the owner record. */
 export const OWNERSHIP_DIRNAME = "build-ownership";
 
+/** A repository key is one path segment: the snapshot directory's name (a hex digest), never a path. */
+const REPOSITORY_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 /**
- * Where the host's one owner record lives (GC:24 "the host's build ownership"; GC:52 "host-wide build ownership"; item 5 row 5.17):
- * ONE fixed location per host, independent of the snapshot root and of every environment variable. Two gates whose environments
- * choose different snapshot roots (XDG_STATE_HOME, a configured root) must still contend for one record, so nothing here reads
- * `process.env`, and nothing derives from where snapshots live.
- *   Mac & Dell: `<managed root>/build-ownership/owner.json` (the host's fixed managed root, `/Volumes/D/.rightkit-managed`,
- *     `D:\.rightkit-managed`).
- *   Linux (WSL2 included): `<account home>/.local/state/rightkit/build-ownership/owner.json`, the account home taken from the
- *     passwd database (`os.userInfo()`), never from $HOME.
- * `home` replaces the Linux account home and `beside` replaces the whole location (`<dirname(beside)>/build-ownership/owner.json`);
+ * Where a repository's owner record lives (GC:24 "the repository's build ownership"; item 5 row 5.17): ONE fixed location per
+ * repository, independent of the snapshot root and of every environment variable. Two gates for the same repository whose
+ * environments choose different snapshot roots (XDG_STATE_HOME, a configured root) must still contend for one record, so nothing
+ * here reads `process.env`, and nothing derives from where snapshots live. The only input besides the platform is `repository`,
+ * the repository key the snapshot directory uses (`snapshot.repositoryOf(root).key`); it is required.
+ *   Mac & Dell: `<managed root>/build-ownership/<repository key>/owner.json` (the host's fixed managed root,
+ *     `/Volumes/D/.rightkit-managed`, `D:\.rightkit-managed`).
+ *   Linux (WSL2 included): `<account home>/.local/state/rightkit/build-ownership/<repository key>/owner.json`, the account home
+ *     taken from the passwd database (`os.userInfo()`), never from $HOME.
+ * `home` replaces the Linux account home and `beside` replaces the whole location (`<dirname(beside)>/build-ownership/<key>/owner.json`);
  * both are injection points for fixtures and tests only. A production caller passes neither: the root a caller derived from the
  * environment must never be passed as `beside`, because that is the defect this row removes.
  */
-export function ownershipFile({ platform = process.platform, home, beside } = {}) {
+export function ownershipFile({ platform = process.platform, home, beside, repository } = {}) {
+  if (typeof repository !== "string" || !REPOSITORY_KEY.test(repository)) throw new TypeError(`ownershipFile: repository must be the repository key (one path segment), not ${JSON.stringify(repository)}`);
   const paths = platform === "win32" ? path.win32 : path.posix;
   if (beside !== undefined) {
     if (typeof beside !== "string" || beside === "") throw new TypeError(`ownershipFile: beside must be a path (${JSON.stringify(beside)})`);
-    return paths.join(paths.dirname(beside), OWNERSHIP_DIRNAME, "owner.json");
+    return paths.join(paths.dirname(beside), OWNERSHIP_DIRNAME, repository, "owner.json");
   }
-  if (platform === "darwin" || platform === "win32") return paths.join(resolveManagedRoots({ env: {}, platform, home: "" }).dataRoot, OWNERSHIP_DIRNAME, "owner.json");
+  if (platform === "darwin" || platform === "win32") return paths.join(resolveManagedRoots({ env: {}, platform, home: "" }).dataRoot, OWNERSHIP_DIRNAME, repository, "owner.json");
   let base = home;
   if (base === undefined) {
-    try { base = os.userInfo().homedir; } catch (e) { throw new OwnershipBusy(`build ownership: this account's home directory cannot be read (${e.message}), so the host's owner record has no location`); }
+    try { base = os.userInfo().homedir; } catch (e) { throw new OwnershipBusy(`build ownership: this account's home directory cannot be read (${e.message}), so the repository's owner record has no location`); }
   }
-  return paths.join(base, ".local", "state", "rightkit", OWNERSHIP_DIRNAME, "owner.json");
+  return paths.join(base, ".local", "state", "rightkit", OWNERSHIP_DIRNAME, repository, "owner.json");
 }
 
 /**
@@ -140,13 +147,15 @@ function guardManagedRoot(file, { platform, managedRoot, device }) {
 }
 
 /**
- * Creates the ownership directory mode 0700 (one level on Mac & Dell) and refuses an existing POSIX one that grants group or other access (item 5 row 5.22):
+ * Creates the ownership directory mode 0700 (one level per directory on Mac & Dell) and refuses an existing POSIX one that grants group or other access (item 5 row 5.22):
  * another user's unreadable process is skipped by the nets on the premise that it cannot read this user's managed root, and a
  * directory other users could write would let them forge or remove the record. Windows has no mode bits; its directory ACL is the
  * same trust the record itself has.
  */
 export function ensureOwnershipDir(dir, { platform = process.platform } = {}) {
-  // Mac & Dell: exactly ONE level, `build-ownership/` inside a managed root that already exists (decision D4: the gate never
+  // A repository directory sits inside `build-ownership/`, which gets the same mode rules (created first, then checked).
+  if (path.basename(path.dirname(dir)) === OWNERSHIP_DIRNAME) ensureOwnershipDir(path.dirname(dir), { platform });
+  // Mac & Dell: exactly ONE level per call, `build-ownership/` (then `<key>/`) inside a managed root that already exists (decision D4: the gate never
   // creates the managed root, and a recursive creation here would). Linux: the durable state directory under the account home is
   // created whole (GC:63).
   if (platform === "linux") fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -406,7 +415,7 @@ export function classifyHiddenProcesses({ procs, own = new Set(), uid, owner, re
  * The host's process facts the ownership rules rely on. Each answer is a fact or a throw; a throw means "unknown" and the
  * caller treats it as busy.
  */
-export function processProbe({ platform = process.platform, spawn = spawnSync, spawnHolder = spawnDetachedDefault, kill = process.kill.bind(process), readFile = fs.readFileSync, readdir = fs.readdirSync, readlink = fs.readlinkSync, exists: procExists = fs.existsSync, proc = "/proc", uid = process.getuid?.() } = {}) {
+export function processProbe({ platform = process.platform, spawn = spawnSync, spawnHolder = spawnDetachedDefault, kill = process.kill.bind(process), readFile = fs.readFileSync, readdir = fs.readdirSync, readlink = fs.readlinkSync, exists: procExists = fs.existsSync, proc = "/proc", uid = process.getuid?.(), sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {
   const exists = (pid) => {
     try { kill(pid, 0); return true; } catch (e) { if (e.code === "ESRCH") return false; if (e.code === "EPERM") return true; throw e; }
   };
@@ -556,6 +565,24 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
     if (startMs + START_SLACK_MS < skipBefore) return;
     throw unknown(`it started at ${new Date(startMs).toISOString()}, not before the baseline ${new Date(skipBefore).toISOString()} (the later of the last clean release's acquisition and the snapshot root's birth, else this ownership's own acquisition)`);
   };
+  // A process in the middle of execve is briefly non-dumpable (its new address space has no dumpable flag until the exec commits), so
+  // /proc/<pid>/{environ,cwd,fd,...} answer EACCES for a few milliseconds while its comm is still the parent's (`node-MainThread`)
+  // and its start is the fork's. Under concurrent test shards or any busy host, a scan meets such a process: it is no reader and not
+  // unknown, only not yet readable. So a read that would HOLD (a young, unreadable, live process of this user) is retried, bounded
+  // (SETTLE_TRIES x SETTLE_MS), before the hold stands; a process that stays unreadable (really non-dumpable) is held exactly as
+  // before, and a process that is old, gone, a zombie or another user's is judged at once, with no wait.
+  const SETTLE_TRIES = 20; const SETTLE_MS = 25;
+  /** `{ value }` of `op`, or `{ skipped: true }` when its failure is a process no reader (`unreadable` returned); throws what `unreadable` throws once the retries are spent. */
+  const settled = (pid, skipBefore, op) => {
+    for (let attempt = 0; ; attempt++) {
+      try { return { value: op() }; }
+      catch (e) {
+        if (!GONE.has(e.code) && !["EACCES", "EPERM"].includes(e.code)) throw e;
+        try { unreadable(pid, e, skipBefore); return { skipped: true }; }
+        catch (held) { if (attempt >= SETTLE_TRIES) throw held; sleep(SETTLE_MS); }
+      }
+    }
+  };
   return {
     platform,
     /** `{ alive, startedMs, group }` from `ps` (C locale). */
@@ -600,8 +627,9 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
         const needle = Buffer.from(`${token}\0`);
         const found = [];
         for (const pid of procPids()) {
-          let environ;
-          try { environ = readFile(`${proc}/${pid}/environ`); } catch (e) { unreadable(pid, e, skipBefore); continue; }
+          const got = settled(pid, skipBefore, () => readFile(`${proc}/${pid}/environ`));
+          if (got.skipped) continue;
+          const environ = got.value;
           if (Buffer.concat([environ, Buffer.from("\0")]).includes(needle)) found.push(pid);
         }
         return found;
@@ -694,7 +722,7 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
         const targetOf = (file) => { try { return readlink(file); } catch (e) { if (GONE.has(e.code)) return null; throw e; } };
         for (const pid of procPids()) {
           if (own.has(pid)) continue;
-          try {
+          settled(pid, skipBefore, () => {
             for (const [link, how] of [["cwd", "working directory"], ["root", "root directory"], ["exe", "executable"]]) {
               const target = targetOf(`${proc}/${pid}/${link}`);
               if (target !== null && inside(target)) { add(pid, how); break; }
@@ -711,7 +739,7 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
               let cmdline = ""; try { cmdline = String(readFile(`${proc}/${pid}/cmdline`, "utf8")); } catch (e) { if (!GONE.has(e.code)) throw e; }
               if (named(cmdline)) add(pid, "argument");
             }
-          } catch (e) { unreadable(pid, e, skipBefore); }
+          });
         }
         return found;
       }
@@ -755,7 +783,10 @@ export function spawnUnderOwnership(spawn, command, args, options = {}, { env = 
   const handle = env[OWNERSHIP_ENV] ?? options?.env?.[OWNERSHIP_ENV];
   if (!options?.detached || platform === "win32" || !handle) return spawn(command, args, options);
   const merged = { ...(options.env ?? {}), ...env };
-  const dir = childrenDir(merged[OWNERSHIP_FILE_ENV] || ownershipFile({ platform }), handle);
+  // The handle names a per-repository record: its file variable is required, and there is no host-wide default to fall back to.
+  const ownedFile = merged[OWNERSHIP_FILE_ENV];
+  if (!ownedFile) throw new OwnershipBusy(`build ownership: ${OWNERSHIP_ENV} is set but ${OWNERSHIP_FILE_ENV} is not, so the repository's ownership record is unknown and the detached child is not started`);
+  const dir = childrenDir(ownedFile, handle);
   try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (e) { if (e.code !== "EEXIST") throw e; } // the ownership directory exists while this gate holds it
   const intent = path.join(dir, `intent-${process.pid}-${crypto.randomUUID()}.json`);
   // The child's start lower bound is taken BEFORE it is created, so however long this process pauses before recording the
@@ -830,13 +861,13 @@ export function readRootBirth(root, bootId) {
  * reclaim, never a nested gate), before this sync's first write, its snapshots are deleted and the root is born anew, with this
  * boot's identity. Why that is sound: after a reboot no process of the old boot is alive, so the old root has no live readers; a
  * free host proves there is no current owner; and the fresh birth makes the strict rule apply only to processes that started after
- * it. Refused (the root stays as it was, strict) when: this process does not hold the only record, or the record is not a free-host
+ * it. Only this repository's own entries are deleted (see the body). Refused (the root stays as it was, strict) when: this process does not hold the only record, or the record is not a free-host
  * acquisition; this boot's identity cannot be read; the root is missing or is a link (a missing root is born by the sync); its birth
  * record is unreadable, or names THIS boot; or anything in the root is not a snapshot artifact (`<16 hex>`, `<16 hex>.lock`,
  * `.state.json`, `.staging`, or the birth record), because a root that is some other directory is never emptied.
  * Returns `{ migrated, why }`.
  */
-export function migrateBirthlessRoot(root, { env = process.env, file = env[OWNERSHIP_FILE_ENV], bootId = hostBootId() } = {}) {
+export function migrateBirthlessRoot(root, { env = process.env, file = env[OWNERSHIP_FILE_ENV], bootId = hostBootId(), hooks = {} } = {}) {
   const no = (why) => ({ migrated: false, why });
   const handle = env[OWNERSHIP_ENV];
   if (!handle || !file) return no("this process holds no build ownership");
@@ -857,9 +888,45 @@ export function migrateBirthlessRoot(root, { env = process.env, file = env[OWNER
   const birthName = path.basename(rootBirthFile(root));
   const stranger = entries.find((n) => n !== birthName && !/^[0-9a-f]{16}(\.[A-Za-z0-9._-]+)?$/.test(n));
   if (stranger !== undefined) return no(`${JSON.stringify(stranger)} in the root is not a snapshot artifact`);
-  try { for (const n of entries) fs.rmSync(path.join(root, n), { recursive: true, force: true }); }
-  catch (e) { return no(`the root could not be emptied (${e.code ?? e.message}); it stays without a baseline`); }
-  return recordRootBirth(root, { bootId }) ? { migrated: true, why: `${reason}; its snapshots were deleted and it was born anew in this boot` } : no("the new birth could not be recorded");
+  // The root is shared by every repository, and a free host for THIS repository says nothing about another one. So this
+  // migration removes only THIS repository's own entries (`<key>` and `<key>.*`: the lock, the state file, the staging directory)
+  // and never another repository's, under any condition: a second repository can take its snapshot between any check made here
+  // and any delete, so no check can make a cross-repository delete safe. The root's birth is written only while no other
+  // repository holds or reclaims ownership (a decision, checked again right before the write); otherwise the root stays without a
+  // baseline and strict. Another repository's snapshots in the root are left to that repository's own migration.
+  const mine = path.basename(path.dirname(file));
+  const others = otherHolder(file);
+  if (others) return no(others);
+  hooks.afterHolderCheck?.();
+  const own = entries.filter((n) => n === mine || n.startsWith(`${mine}.`));
+  try { for (const n of own) fs.rmSync(path.join(root, n), { recursive: true, force: true }); }
+  catch (e) { return no(`this repository's snapshot could not be removed (${e.code ?? e.message}); the root stays without a baseline`); }
+  const late = otherHolder(file);
+  if (late) return no(`${late}; this repository's snapshot entries were removed and the root's birth was not written`);
+  if (fs.existsSync(rootBirthFile(root))) { try { fs.rmSync(rootBirthFile(root), { force: true }); } catch (e) { return no(`the old birth record could not be replaced (${e.code ?? e.message})`); } }
+  return recordRootBirth(root, { bootId }) ? { migrated: true, why: `${reason}; this repository's snapshot (${own.length} entr${own.length === 1 ? "y" : "ies"}) was deleted and the root was born anew in this boot` } : no("the new birth could not be recorded");
+}
+
+/**
+ * Whether anything other than the repository owning `file` holds build ownership or is reclaiming it: another repository's owner
+ * record or standing reclaim claim, or an older gate's host-wide `build-ownership/owner.json` (which holds EVERY repository, live or
+ * not). Returns the reason, or null. A listing or read failure is a reason (fail closed).
+ */
+function otherHolder(file) {
+  try {
+    const parent = path.dirname(path.dirname(file)); const mine = path.basename(path.dirname(file));
+    for (const d of fs.readdirSync(parent, { withFileTypes: true })) {
+      if (!d.isDirectory()) {
+        if (d.name === "owner.json" || d.name.startsWith("owner.json.")) return `an older gate's host-wide record (${path.join(parent, d.name)}) stands`;
+        if (d.name.endsWith(".reclaim")) return "a reclaim claim stands under the ownership directory";
+        continue;
+      }
+      const names = fs.readdirSync(path.join(parent, d.name));
+      if (names.some((n) => n.endsWith(".reclaim"))) return `a reclaim claim stands for repository ${d.name}`;
+      if (d.name !== mine && names.includes("owner.json")) return `another repository (${d.name}) holds build ownership`;
+    }
+  } catch (e) { return `other repositories' ownership cannot be listed (${e.code ?? e.message})`; }
+  return null;
 }
 
 /** The holder's last report, or null when absent or unreadable. */
@@ -1152,12 +1219,12 @@ export function judgeOwner(observed, { file, probe, lease, host = os.hostname() 
 }
 
 /**
- * Acquires the host's build ownership (or joins it, when RIGHTKIT_BUILD_OWNERSHIP names the current record). Returns
+ * Acquires a repository's build ownership (or joins it, when RIGHTKIT_BUILD_OWNERSHIP names the current record). Returns
  * `{ handle, file, joined, reclaimed, owner, markBrokerSubmit(callHandle), held(), release() }`. Throws OwnershipBusy while another build
- * owns the host, its liveness is unknown, or this gate cannot be contained.
+ * owns this repository, its liveness is unknown, or this gate cannot be contained.
  */
 export function acquireBuildOwnership({
-  file = ownershipFile(),
+  file,
   stage,
   snapshot,
   commit,
@@ -1172,9 +1239,19 @@ export function acquireBuildOwnership({
 } = {}) {
   // First, before the environment, the record or any write: the managed root exists (decision D4). `managedRoot` and `device` are
   // fixtures' seams; a production caller passes neither.
+  if (typeof file !== "string" || file === "") throw new TypeError("acquireBuildOwnership: file is required (the path ownershipFile returns for a repository key)");
   guardManagedRoot(file, { platform, managedRoot, device });
   ensureOwnershipDir(path.dirname(file), { platform });
   const inherited = env[OWNERSHIP_ENV];
+  // An older pinned gate on this host writes ONE host-wide record, `build-ownership/owner.json`, a plain file beside the repository
+  // directories. It holds every repository: this code never joins it, reclaims it or deletes it.
+  const olderFile = path.join(path.dirname(path.dirname(file)), "owner.json");
+  let older = null;
+  try { older = readText(olderFile); } catch (e) { throw new OwnershipBusy(`build ownership ${olderFile}: an older gate's host-wide record cannot be read (${e.code ?? e.message}); nothing runs while it may stand`); }
+  if (older !== null && inherited) {
+    let o = null; try { o = JSON.parse(older); } catch { o = null; }
+    if (o?.handle === inherited) throw new OwnershipBusy(`build ownership ${olderFile}: ${OWNERSHIP_ENV}=${inherited} names the host-wide record of an older gate; the parent is an older gate, and a nested gate never joins it`);
+  }
   if (inherited) {
     const current = readText(file);
     let owner = null; try { owner = JSON.parse(current ?? ""); } catch { owner = null; }
@@ -1193,6 +1270,12 @@ export function acquireBuildOwnership({
       return { handle: inherited, file, joined: true, reclaimed: null, owner, markBrokerSubmit: (callHandle) => markBrokerSubmit(file, inherited, callHandle), markBrokerUnsent: (callHandle, reason) => markBrokerUnsent(file, inherited, callHandle, reason), held: () => holds(file, inherited), release: () => ({ released: false, joined: true }) };
     }
     throw new OwnershipBusy(`build ownership ${file}: ${OWNERSHIP_ENV}=${inherited} is not the current owner; a nested gate never takes ownership of its own`);
+  }
+  if (older !== null) {
+    // Judged exactly as the older code judged it, to word the refusal; never reclaimed from here, whatever the verdict.
+    try { judgeOwner(older, { file: olderFile, probe, lease }); }
+    catch (e) { if (!(e instanceof OwnershipBusy)) throw e; throw new OwnershipBusy(`${e.message}; this is an older gate's host-wide record and it holds every repository: let that gate finish or clear it (an older gate or a person), this gate does not`, e.detail ?? {}); }
+    throw new OwnershipBusy(`build ownership ${olderFile}: an older gate's host-wide record stands (its owner is gone, but only an older gate or a person clears it; this gate never reclaims it), and it holds every repository; nothing ran`);
   }
   let me;
   try { me = probe.identity(process.pid); } catch (e) { throw new OwnershipBusy(`build ownership ${file}: this gate's own start identity cannot be read (${e.message})`); }

@@ -35,6 +35,14 @@
 //! ```
 
 pub mod enrichment;
+pub mod history;
+pub mod history_types;
+
+pub use history_types::{
+    HistoryPage, HistoryRow, HistorySettings, HistorySort, Kind, TranscriptDetail,
+    TranscriptImport, TranscriptVariant, TranscriptVariantInfo, TranscriptVariantKind,
+    HISTORY_PAGE_MAX, HISTORY_PAGE_SIZE,
+};
 
 use std::path::Path;
 

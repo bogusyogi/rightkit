@@ -1,4 +1,4 @@
-// Host-wide build ownership (build-ownership.mjs; GATE-CONTRACT §1, joint plan step 4 G1, E6 "a second request ... never replaces
+// Per-repository build ownership (build-ownership.mjs; GATE-CONTRACT §1, joint plan step 4 G1, E6 "a second request ... never replaces
 // the snapshot mid-stage"). Fake-probe cases pin each liveness rule; the real fixtures kill a gate whose child survives and show
 // the next gate (and the next snapshot sync) refused until the child is gone, then reclaimed with the proof.
 import "./test-support/broker-guard.mjs";
@@ -219,7 +219,7 @@ test("ownership: a reboot after the record proves its work gone; broker work nee
 });
 
 test("ownership Windows: a failure after the record is published (the containment write) removes the record and throws busy; nothing is left held", (t) => {
-  const file = path.join(tmp(t, "rk-own-"), "build-ownership", "owner.json");
+  const file = path.join(tmp(t, "rk-own-"), "build-ownership", "0123456789abcdef", "owner.json");
   // owner.json cannot be replaced (the Dell's intermittent EPERM on rename): done() must not leave the record to a gate that is not running.
   const rename = t.mock.method(fs, "renameSync", () => { throw Object.assign(new Error("EPERM: operation not permitted, rename"), { code: "EPERM" }); });
   assert.throws(() => acquire(file, "win32", fakeProbe("win32")), (e) => e instanceof OwnershipBusy && /containment could not be recorded \(EPERM/.test(e.message));
@@ -408,7 +408,43 @@ function fakeProc(procs) {
 }
 /** A reader of `fake` (`kind`: readFile, readlink or readdir) that fails with `code` on the paths `re` matches. */
 const deny = (fake, kind, re, code = "EACCES") => ({ [kind]: (f, ...rest) => { if (re.test(f)) throw eno(code, f); return fake[kind](f, ...rest); } });
-const linuxProbe = (fake, ...overs) => processProbe({ platform: "linux", spawn: scripted(), proc: PROC, uid: 1000, exists: fake.exists, readFile: fake.readFile, readlink: fake.readlink, readdir: fake.readdir, ...Object.assign({}, ...overs) });
+const linuxProbe = (fake, ...overs) => processProbe({ platform: "linux", spawn: scripted(), proc: PROC, uid: 1000, sleep: () => {}, exists: fake.exists, readFile: fake.readFile, readlink: fake.readlink, readdir: fake.readdir, ...Object.assign({}, ...overs) });
+
+test("probes [injected /proc]: a young same-user process that is unreadable only while it execs (EACCES, then readable) is no hold; one that stays unreadable is held after the bounded retries (runner case: no clean marker, no birth, anchor = acquisition)", () => {
+  const acquired = NOW - 2_000;   // the anchor with no clean marker and no root birth: this ownership's own acquisition
+  const SNAP = "/snap/k";
+  const fake = fakeProc({ 7001: { start: NOW - 1_000, state: "R (running)" }, 7002: { start: NOW - 1_000, state: "R (running)" } });
+  /** Fails with EACCES the first `times` reads that `re` matches (an exec in flight), then reads. */
+  const execWindow = (kind, re, times) => { let n = 0; return { [kind]: (f, ...rest) => { if (re.test(f) && n++ < times) throw eno("EACCES", f); return fake[kind](f, ...rest); } }; };
+  const naps = []; const sleep = (ms) => naps.push(ms);
+  // Environment net: EACCES for 5 reads, then readable and carrying nothing: not held, not skipped silently, retried.
+  assert.deepEqual(linuxProbe(fake, execWindow("readFile", /\/7001\/environ$/, 5), { sleep }).tokenHolders("h1", acquired), [], "settled: no reader");
+  assert.equal(naps.length, 5, "it waited between the retries, and only for the process that was unreadable"); assert.ok(naps.every((ms) => ms > 0 && ms <= 100));
+  // ...and once readable it is judged on what it reads: a token holder is still found.
+  fake.files.set(`${PROC}/7001/environ`, "RIGHTKIT_BUILD_OWNERSHIP=h1\0");
+  assert.deepEqual(linuxProbe(fake, execWindow("readFile", /\/7001\/environ$/, 3), { sleep }).tokenHolders("h1", acquired), [7001], "a settled process that carries the token is held");
+  fake.files.set(`${PROC}/7001/environ`, "A=1\0");
+  // Snapshot-use net: cwd unreadable for 4 reads, then readable outside the snapshot; and inside it.
+  naps.length = 0;
+  assert.deepEqual(linuxProbe(fake, execWindow("readlink", /\/7001\/cwd$/, 4), { sleep }).snapshotUsers(SNAP, acquired), [], "settled: not a snapshot user");
+  assert.equal(naps.length, 4);
+  fake.links.set(`${PROC}/7001/cwd`, `${SNAP}/src`);
+  assert.deepEqual(linuxProbe(fake, execWindow("readlink", /\/7001\/cwd$/, 2), { sleep }).snapshotUsers(SNAP, acquired).map((u) => u.pid), [7001], "a settled process inside the snapshot is still a user");
+  fake.links.set(`${PROC}/7001/cwd`, "/");
+  // A process that stays unreadable is held exactly as before, after the bounded retries only.
+  naps.length = 0;
+  assert.throws(() => linuxProbe(fake, deny(fake, "readFile", /\/7002\/environ$/), { sleep }).tokenHolders("h1", acquired), /7002 \(a process of this user: x, R\) is unreadable \(EACCES\) and it started at .* not before the baseline/);
+  assert.equal(naps.length, 20, "bounded");
+  naps.length = 0;
+  assert.throws(() => linuxProbe(fake, deny(fake, "readlink", /\/7002\/cwd$/), { sleep }).snapshotUsers(SNAP, acquired), /7002 \(a process of this user: x, R\) is unreadable \(EACCES\)/);
+  assert.equal(naps.length, 20, "bounded");
+  // An old unreadable process, and a gone one, are judged at once: no waiting.
+  const old = fakeProc({ 7003: { start: NOW - 3_600_000 } });
+  naps.length = 0;
+  assert.deepEqual(linuxProbe(old, deny(old, "readFile", /\/7003\/environ$/), { sleep }).tokenHolders("h1", acquired), [], "older than the anchor: skipped");
+  assert.deepEqual(linuxProbe(old, deny(old, "readFile", /\/7003\/environ$/, "ENOENT"), { sleep }).tokenHolders("h1", acquired), [], "gone: skipped");
+  assert.equal(naps.length, 0, "no waiting for a process that is judged at once");
+});
 
 test("probes [injected /proc]: an unreadable entry of this user's is UNKNOWN (held), never 'not a reader'; gone and other users' entries are skipped", () => {
   const SNAP = "/snap/k";
@@ -670,15 +706,15 @@ function tinyRepo(t) {
 }
 const OLD_KEY = "0123456789abcdef";
 /** A snapshot root as an older gate left it: snapshot directories, a lock and a state file, and no birth record. */
-function oldRoot(root, { birth = null } = {}) {
+function oldRoot(root, { birth = null, key = OLD_KEY } = {}) {
   fs.mkdirSync(root, { recursive: true, mode: 0o700 }); // a snapshot root is private to this user (snapshot.mjs refuses a group- or other-accessible one)
-  fs.mkdirSync(path.join(root, OLD_KEY, "src"), { recursive: true }); fs.writeFileSync(path.join(root, OLD_KEY, "src", "lib.rs"), "old\n");
-  fs.writeFileSync(path.join(root, `${OLD_KEY}.state.json`), "{}"); fs.writeFileSync(path.join(root, `${OLD_KEY}.lock`), "");
+  fs.mkdirSync(path.join(root, key, "src"), { recursive: true }); fs.writeFileSync(path.join(root, key, "src", "lib.rs"), "old\n");
+  fs.writeFileSync(path.join(root, `${key}.state.json`), "{}"); fs.writeFileSync(path.join(root, `${key}.lock`), "");
   if (birth) recordRootBirth(root, birth);
 }
 
 test("migration: a free host's birthless root is emptied and born anew under this process's own ownership; every other shape is left strict, untouched", (t) => {
-  const base = tmp(t, "rk-own-mig-"); const root = path.join(base, "snapshots"); const file = path.join(base, "build-ownership", "owner.json");
+  const base = tmp(t, "rk-own-mig-"); const root = path.join(base, "snapshots"); const file = path.join(base, "build-ownership", OLD_KEY, "owner.json");
   const probe = () => fakeProbe("linux", { bootId: () => "boot-1" });
   const exists = (n) => fs.existsSync(path.join(root, n));
   const env = (own) => ({ [OWNERSHIP_ENV]: own.handle, [OWNERSHIP_FILE_ENV]: file });
@@ -768,11 +804,118 @@ test("migration: a free host's birthless root is emptied and born anew under thi
   own.release();
 });
 
-test("migration: syncSnapshot under a free-host ownership empties a birthless root before its first write and births it; a held host's sync leaves the old snapshots", (t) => {
-  const base = tmp(t, "rk-own-mig2-"); const root = path.join(base, "snapshots"); const file = path.join(base, "build-ownership", "owner.json");
-  const repo = tinyRepo(t);
+test("migration: another repository's ownership or a standing reclaim claim keeps the shared root strict and untouched (fail closed)", (t) => {
+  const base = tmp(t, "rk-own-mig-xrepo-"); const root = path.join(base, "snapshots");
   const probe = () => fakeProbe("linux", { bootId: () => "boot-1" });
+  const fileA = path.join(base, "build-ownership", OLD_KEY, "owner.json");
+  const fileB = path.join(base, "build-ownership", "fedcba9876543210", "owner.json");
+  const env = (own) => ({ [OWNERSHIP_ENV]: own.handle, [OWNERSHIP_FILE_ENV]: fileA });
+  const exists = (n) => fs.existsSync(path.join(root, n));
+  // Repository B holds ownership (reclaimed after a reboot) with a synced snapshot and lock in a birthless root.
   oldRoot(root);
+  fs.mkdirSync(path.join(root, "fedcba9876543210")); fs.writeFileSync(path.join(root, "fedcba9876543210.lock"), "");
+  deadOwner(fileB, "linux");
+  const ownB = acquire(fileB, "linux", probe());
+  assert.equal(ownB.reclaimed !== null, true);
+  // Repository A finds a free host for itself (freeHost true) and tries to migrate: refused, B's snapshot and lock survive, no new birth.
+  const ownA = acquire(fileA, "linux", probe());
+  assert.equal(JSON.parse(fs.readFileSync(fileA, "utf8")).freeHost, true);
+  let r = migrateBirthlessRoot(root, { env: env(ownA), bootId: "boot-1" });
+  assert.equal(r.migrated, false); assert.match(r.why, /another repository \(fedcba9876543210\) holds build ownership/);
+  assert.equal(exists("fedcba9876543210"), true); assert.equal(exists("fedcba9876543210.lock"), true); assert.equal(exists(OLD_KEY), true);
+  assert.equal(fs.existsSync(rootBirthFile(root)), false, "the root was not re-born");
+  ownA.release(); ownB.release();
+  // A standing reclaim claim anywhere under the ownership parent also keeps it strict.
+  const ownA2 = acquire(fileA, "linux", probe());
+  fs.mkdirSync(path.dirname(fileB), { recursive: true }); fs.writeFileSync(`${fileB}.reclaim`, "{}");
+  r = migrateBirthlessRoot(root, { env: env(ownA2), bootId: "boot-1" });
+  assert.equal(r.migrated, false); assert.match(r.why, /reclaim claim/); assert.equal(exists(OLD_KEY), true);
+  fs.rmSync(`${fileB}.reclaim`);
+  // Alone as a holder, the same call migrates: this repository's own entries go; repository B's snapshot and lock (no record, no claim) stay.
+  r = migrateBirthlessRoot(root, { env: env(ownA2), bootId: "boot-1" });
+  assert.equal(r.migrated, true, JSON.stringify(r));
+  assert.equal(exists(OLD_KEY), false); assert.equal(exists(`${OLD_KEY}.lock`), false); assert.equal(exists(`${OLD_KEY}.state.json`), false, "A's own entries are gone");
+  assert.equal(exists("fedcba9876543210"), true); assert.equal(exists("fedcba9876543210.lock"), true, "B's entries are never deleted");
+  assert.equal(readRootBirth(root, "boot-1") !== null, true);
+  // A listing failure fails closed.
+  fs.rmSync(root, { recursive: true }); oldRoot(root);
+  const parent = path.dirname(path.dirname(fileA));
+  if (process.platform !== "win32" && process.getuid?.() !== 0) {
+    fs.chmodSync(parent, 0o300); // searchable, not listable: the record is still readable, the listing fails
+    try { r = migrateBirthlessRoot(root, { env: env(ownA2), bootId: "boot-1" }); } finally { fs.chmodSync(parent, 0o700); }
+    assert.equal(r.migrated, false); assert.match(r.why, /cannot be listed/); assert.equal(exists(OLD_KEY), true);
+  }
+  ownA2.release();
+});
+
+test("migration: repository B appears (directory, lock, state, then its owner record) after A's holder check; A deletes only A's own entries, B's survive, and B's record keeps A from writing the root's birth", (t) => {
+  const base = tmp(t, "rk-own-mig-race-"); const root = path.join(base, "snapshots");
+  const probe = () => fakeProbe("linux", { bootId: () => "boot-1" });
+  const fileA = path.join(base, "build-ownership", OLD_KEY, "owner.json"); const KB = "fedcba9876543210";
+  const exists = (n) => fs.existsSync(path.join(root, n));
+  const envA = (own) => ({ [OWNERSHIP_ENV]: own.handle, [OWNERSHIP_FILE_ENV]: fileA });
+  const appear = (withRecord) => () => {
+    fs.mkdirSync(path.join(root, KB, "src"), { recursive: true }); fs.writeFileSync(path.join(root, KB, "src", "lib.rs"), "live B\n");
+    fs.writeFileSync(path.join(root, `${KB}.lock`), "B"); fs.writeFileSync(path.join(root, `${KB}.state.json`), "{}"); fs.mkdirSync(path.join(root, `${KB}.staging`));
+    if (withRecord) acquire(path.join(base, "build-ownership", KB, "owner.json"), "linux", probe());
+  };
+  for (const withRecord of [false, true]) {
+    fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(path.join(base, "build-ownership"), { recursive: true, force: true });
+    oldRoot(root);
+    const ownA = acquire(fileA, "linux", probe());
+    const r = migrateBirthlessRoot(root, { env: envA(ownA), bootId: "boot-1", hooks: { afterHolderCheck: appear(withRecord) } });
+    for (const n of [KB, `${KB}.lock`, `${KB}.state.json`, `${KB}.staging`]) assert.equal(exists(n), true, `B's ${n} survives (record: ${withRecord})`);
+    assert.equal(fs.readFileSync(path.join(root, KB, "src", "lib.rs"), "utf8"), "live B\n");
+    for (const n of [OLD_KEY, `${OLD_KEY}.lock`, `${OLD_KEY}.state.json`]) assert.equal(exists(n), false, `A's own ${n} is deleted`);
+    if (withRecord) { assert.equal(r.migrated, false, JSON.stringify(r)); assert.match(r.why, /another repository \(fedcba9876543210\) holds build ownership/); assert.equal(fs.existsSync(rootBirthFile(root)), false, "no birth while B holds"); }
+    else { assert.equal(r.migrated, true, JSON.stringify(r)); assert.equal(readRootBirth(root, "boot-1") !== null, true); }
+    ownA.release();
+  }
+});
+
+test("an older gate's host-wide owner.json holds EVERY repository: a new gate refuses busy (live, dead or unreadable), never reclaims or deletes it; the migration counts it", (t) => {
+  const base = tmp(t, "rk-own-old-"); const dir = path.join(base, "build-ownership"); const old = path.join(dir, "owner.json");
+  const probe = () => fakeProbe("linux", { bootId: () => "boot-1" });
+  const fileA = path.join(dir, KEY_A, "owner.json"); const fileB = path.join(dir, KEY_B, "owner.json");
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // Live: this process holds it as the older gate.
+  const live = deadOwner(old, "linux", { pid: process.pid, startedMs: NOW - 60_000, handle: "old-live" });
+  for (const file of [fileA, fileB]) {
+    assert.throws(() => acquire(file, "linux", probe()), (e) => e instanceof OwnershipBusy && /held by pid/.test(e.message) && /older gate's host-wide record/.test(e.message) && e.message.includes(old), file);
+    assert.equal(fs.existsSync(file), false, "nothing was created for the repository");
+  }
+  assert.equal(JSON.parse(fs.readFileSync(old, "utf8")).handle, live.handle, "the older record is untouched");
+  // Dead and reclaimable by the old rules: still refused, and still there.
+  deadOwner(old, "linux", { handle: "old-dead" });
+  assert.throws(() => acquire(fileA, "linux", probe()), (e) => e instanceof OwnershipBusy && /older gate's host-wide record stands/.test(e.message) && /never reclaims/.test(e.message));
+  assert.equal(JSON.parse(fs.readFileSync(old, "utf8")).handle, "old-dead", "never reclaimed");
+  assert.equal(fs.existsSync(`${old}.reclaim`), false);
+  // Unreadable.
+  fs.writeFileSync(old, "not json");
+  assert.throws(() => acquire(fileB, "linux", probe()), (e) => e instanceof OwnershipBusy && /cannot be read as an owner record/.test(e.message) && /older gate/.test(e.message));
+  assert.equal(fs.readFileSync(old, "utf8"), "not json");
+  // A nested new gate whose inherited handle names the older gate's record: refused, no join.
+  deadOwner(old, "linux", { pid: process.pid, startedMs: NOW - 60_000, handle: "old-parent" });
+  assert.throws(() => acquire(fileA, "linux", probe(), { env: { [OWNERSHIP_ENV]: "old-parent" } }), (e) => e instanceof OwnershipBusy && /parent is an older gate/.test(e.message) && /never joins/.test(e.message));
+  // The migration counts it as a holder of every repository (fail closed): nothing in the root is touched.
+  const root = path.join(base, "snapshots"); oldRoot(root);
+  fs.rmSync(old); const own = acquire(fileA, "linux", probe());
+  fs.writeFileSync(old, "not json");   // an older gate's record appearing while A holds
+  const r = migrateBirthlessRoot(root, { env: { [OWNERSHIP_ENV]: own.handle, [OWNERSHIP_FILE_ENV]: fileA }, bootId: "boot-1" });
+  assert.equal(r.migrated, false); assert.match(r.why, /older gate's host-wide record/);
+  assert.equal(fs.existsSync(path.join(root, OLD_KEY)), true); assert.equal(fs.existsSync(rootBirthFile(root)), false);
+  own.release();
+  // Gone: the repositories acquire again.
+  fs.rmSync(old);
+  const a = acquire(fileA, "linux", probe()); const b = acquire(fileB, "linux", probe());
+  assert.equal(a.release().released, true); assert.equal(b.release().released, true);
+});
+
+test("migration: syncSnapshot under a free-host ownership removes only its own repository's old snapshot from a birthless root before its first write and births the root; a held host's sync leaves the old snapshots", (t) => {
+  const base = tmp(t, "rk-own-mig2-"); const root = path.join(base, "snapshots"); const repo = tinyRepo(t);
+  const file = path.join(base, "build-ownership", repoKey(keyPath(repo)), "owner.json");
+  const probe = () => fakeProbe("linux", { bootId: () => "boot-1" });
+  oldRoot(root, { key: repoKey(keyPath(repo)) }); oldRoot(root, { key: OLD_KEY });   // this repository's old snapshot and another repository's
   const own = acquire(file, "linux", probe(), { exportEnv: true });
   try {
     syncSnapshot({ checkout: repo, root });
@@ -781,7 +924,8 @@ test("migration: syncSnapshot under a free-host ownership empties a birthless ro
       // Windows has no boot id (and no unreadable-process rule): nothing is migrated, the root stays as it was.
       assert.equal(fs.existsSync(path.join(root, OLD_KEY)), true); assert.equal(fs.existsSync(rootBirthFile(root)), false);
     } else {
-      assert.equal(fs.existsSync(path.join(root, OLD_KEY)), false, "the old snapshot is gone");
+      assert.equal(fs.existsSync(path.join(root, OLD_KEY)), true, "another repository's old snapshot is never deleted by this sync");
+      assert.equal(fs.existsSync(path.join(root, `${OLD_KEY}.lock`)), true);
       assert.equal(fs.existsSync(rootBirthFile(root)), true, "and the root has its birth");
     }
   } finally { own.release(); }
@@ -1246,7 +1390,8 @@ test("[native, Linux + python3] review item5-r2 #7: a real first acquisition on 
   assert.equal(step.ok, true, JSON.stringify(step));
   assert.equal(step.released.released, true, `released with the agent alive: ${JSON.stringify(step.released)}`);
   assert.equal(fs.existsSync(file), false, "the host is free again");
-  assert.equal(fs.existsSync(path.join(root, OLD_KEY)), false, "the birthless root was emptied");
+  assert.equal(fs.existsSync(path.join(root, OLD_KEY)), true, "another repository's old snapshot is never deleted");
+    assert.equal(fs.existsSync(path.join(root, `${repoKey(keyPath(repo))}.lock`)), false, "this repository's own old lock was removed (and its sync lock released)");
   assert.equal(fs.existsSync(rootBirthFile(root)), true, "and born");
   assert.doesNotThrow(() => process.kill(agent.pid, 0), "the agent was never touched");
 });
@@ -1264,7 +1409,7 @@ test("[native] E6/G1: a snapshot sync is refused while a crashed gate's child su
   const sync = (args) => gateStep(t, "snapshot", { cwd: repo, args, snapshotRoot: snaps }, env);
   let step = sync(["--commit", first, "--json"]);
   assert.equal(step.code, 0, JSON.stringify(step));
-  const file = ownershipFile({ platform: process.platform, beside: snaps });
+  const file = ownershipFile({ platform: process.platform, beside: snaps, repository: repoKey(keyPath(repo)) });
   const g = await crashingGate(t, file);
   await g.kill(g.gate);
   fs.writeFileSync(path.join(repo, "a.txt"), "two\n"); git(repo, "commit", "-qam", "b");
@@ -1293,25 +1438,35 @@ test("[native] E6/G1: a snapshot sync is refused while a crashed gate's child su
   assert.equal(fs.existsSync(file), false, "the sync released the host");
 });
 
-test("check --snapshot: ownership comes first; busy runs nothing (RK_CHECK_ERROR, exit 2); a held ownership is released however the check ends", async (t) => {
+test("check --snapshot: repository identity, then ownership; busy runs nothing (RK_CHECK_ERROR, exit 2); a held ownership is released however the check ends", async (t) => {
   const { main } = await import("./bin/rightkit-gate.mjs");
-  const dir = tmp(t, "rk-own-check-");
+  const dir = tmp(t, "rk-own-check-"); const repo = tinyRepo(t);   // the check identifies its repository first: ownership is keyed by it
   const calls = [];
-  const io = (acquireOwnership) => ({ cwd: dir, env: process.env, snapshotRoot: path.join(dir, "snapshots"), out: (m) => calls.push(`out ${m}`), err: (m) => calls.push(`err ${m}`), appCheck: async () => { calls.push("appCheck"); return 0; }, acquireOwnership });
+  const io = (acquireOwnership) => ({ cwd: repo, env: process.env, snapshotRoot: path.join(dir, "snapshots"), out: (m) => calls.push(`out ${m}`), err: (m) => calls.push(`err ${m}`), appCheck: async () => { calls.push("appCheck"); return 0; }, acquireOwnership });
   const busy = () => { calls.push("acquire"); throw new OwnershipBusy("build ownership /x/owner.json: held by pid 4 (compile of abc) since then"); };
-  assert.equal(await main(["check", "--commit", "HEAD", "--full-a", "--snapshot", path.join(dir, "snap")], io(busy)), 2);
+  assert.equal(await main(["check", "--commit", "HEAD", "--full-a", "--snapshot", path.join(dir, "snapshots", repoKey(keyPath(repo)))], io(busy)), 2);
   assert.deepEqual(calls.slice(0, 1), ["acquire"]);
   assert.match(calls.join("\n"), /RK_CHECK_ERROR: build ownership \/x\/owner.json: held by pid 4 .*; nothing ran/);
   assert.ok(!calls.includes("appCheck"), "nothing ran");
   calls.length = 0;
   let released = 0; const seen = [];
   const held = (q) => { seen.push(q); calls.push("acquire"); return { handle: "h-1", joined: false, reclaimed: null, release: () => { released++; return { released: true }; } }; };
-  const code = await main(["check", "--commit", "HEAD", "--full-a", "--snapshot", path.join(dir, "snap")], io(held));
+  const code = await main(["check", "--commit", "HEAD", "--full-a", "--snapshot", path.join(dir, "snapshots", repoKey(keyPath(repo)))], io(held));
   assert.equal(code, 2, "the snapshot does not exist, so the check itself refuses, after the ownership was taken");
   assert.equal(calls[0], "acquire"); assert.match(calls[1], /build ownership held h-1/);
   assert.equal(released, 1, "released once");
   assert.equal(seen.length, 1, "the inner pass of the same check does not acquire again");
-  assert.equal(seen[0].stage, "check"); assert.equal(seen[0].snapshot, path.join(dir, "snap"));
+  assert.equal(seen[0].stage, "check"); assert.equal(seen[0].snapshot, path.join(dir, "snapshots", repoKey(keyPath(repo))));
+  // --snapshot must be this repository's own snapshot: another name is refused before ownership is taken, nothing ran.
+  calls.length = 0; seen.length = 0;
+  assert.equal(await main(["check", "--commit", "HEAD", "--full-a", "--snapshot", path.join(dir, "snapshots", "0000000000000000")], io(held)), 2);
+  assert.match(calls.join("\n"), /RK_CHECK_ERROR: --snapshot .* is not the snapshot of repository .*nothing ran/);
+  assert.equal(seen.length, 0, "no ownership was taken"); assert.ok(!calls.includes("appCheck"));
+  // ...and it must lie inside the snapshot root: the right key under another directory is refused too.
+  calls.length = 0; seen.length = 0;
+  assert.equal(await main(["check", "--commit", "HEAD", "--full-a", "--snapshot", path.join(dir, "elsewhere", repoKey(keyPath(repo)))], io(held)), 2);
+  assert.match(calls.join("\n"), /RK_CHECK_ERROR: --snapshot .* is not the snapshot of repository .*inside the snapshot root.*nothing ran/);
+  assert.equal(seen.length, 0, "no ownership was taken");
 });
 
 // ======================================================================================================================
@@ -1329,24 +1484,31 @@ const HOSTILE_ENV = {
   RIGHTKIT_DATA_ROOT: "/hostile/data", RIGHTKIT_MANAGED_ROOT: "/hostile/managed", RIGHTKIT_EXTERNAL_ROOT: "/hostile/ext", RIGHTKIT_CONTROL_ROOT: "/hostile/ctl", TMPDIR: "/hostile/tmp",
 };
 
-test("row 5.17: the ownership record has ONE fixed location per host, independent of the snapshot root and of every environment variable", () => {
-  const managed = { darwin: "/Volumes/D/.rightkit-managed/build-ownership/owner.json", win32: "D:\\.rightkit-managed\\build-ownership\\owner.json" };
+const KEY_A = "0123456789abcdef"; const KEY_B = "fedcba9876543210";
+
+test("row 5.17: the ownership record has ONE fixed location per repository, independent of the snapshot root and of every environment variable; two repositories never share one", () => {
+  const managed = (key) => ({ darwin: `/Volumes/D/.rightkit-managed/build-ownership/${key}/owner.json`, win32: `D:\\.rightkit-managed\\build-ownership\\${key}\\owner.json` });
   for (const platform of ["darwin", "win32"]) {
-    for (const env of [{}, HOSTILE_ENV]) assert.equal(withEnv(env, () => ownershipFile({ platform })), managed[platform], `${platform} with ${Object.keys(env).length} variables set`);
+    for (const env of [{}, HOSTILE_ENV]) assert.equal(withEnv(env, () => ownershipFile({ platform, repository: KEY_A })), managed(KEY_A)[platform], `${platform} with ${Object.keys(env).length} variables set`);
+    assert.notEqual(ownershipFile({ platform, repository: KEY_A }), ownershipFile({ platform, repository: KEY_B }), `${platform}: two repositories, two records`);
   }
   // Linux: the passwd home of the account, never $HOME, never XDG_STATE_HOME, never a configured snapshot root.
   const account = os.userInfo().homedir;
-  const linuxDefault = path.posix.join(account, ".local", "state", "rightkit", OWNERSHIP_DIRNAME, "owner.json");
+  const linuxDefault = path.posix.join(account, ".local", "state", "rightkit", OWNERSHIP_DIRNAME, KEY_A, "owner.json");
   for (const env of [{}, HOSTILE_ENV, { XDG_STATE_HOME: "/other/xdg" }, { RIGHTKIT_SNAPSHOT_ROOT: "/other/snaps" }, { HOME: "/other/home" }]) {
-    assert.equal(withEnv(env, () => ownershipFile({ platform: "linux" })), linuxDefault, JSON.stringify(env));
+    assert.equal(withEnv(env, () => ownershipFile({ platform: "linux", repository: KEY_A })), linuxDefault, JSON.stringify(env));
   }
   // Passing the arguments the old derivation read (a snapshot root, an environment) moves nothing.
-  assert.equal(ownershipFile({ platform: "linux", home: "/h", snapshotRoot: "/a/snapshots", env: { XDG_STATE_HOME: "/x", RIGHTKIT_SNAPSHOT_ROOT: "/y" } }), "/h/.local/state/rightkit/build-ownership/owner.json");
-  assert.equal(ownershipFile({ platform: "darwin", home: "/Users/a", snapshotRoot: "/a/snapshots", env: HOSTILE_ENV }), managed.darwin);
+  assert.equal(ownershipFile({ platform: "linux", repository: KEY_A, home: "/h", snapshotRoot: "/a/snapshots", env: { XDG_STATE_HOME: "/x", RIGHTKIT_SNAPSHOT_ROOT: "/y" } }), `/h/.local/state/rightkit/build-ownership/${KEY_A}/owner.json`);
+  assert.equal(ownershipFile({ platform: "darwin", repository: KEY_A, home: "/Users/a", snapshotRoot: "/a/snapshots", env: HOSTILE_ENV }), managed(KEY_A).darwin);
   // The two injection points fixtures use are explicit and never a variable.
-  assert.equal(ownershipFile({ platform: "linux", home: "/fixture/home" }), "/fixture/home/.local/state/rightkit/build-ownership/owner.json");
-  assert.equal(ownershipFile({ platform: "linux", beside: "/fixture/snaps" }), "/fixture/build-ownership/owner.json");
-  assert.throws(() => ownershipFile({ platform: "linux", beside: "" }), TypeError);
+  assert.equal(ownershipFile({ platform: "linux", repository: KEY_A, home: "/fixture/home" }), `/fixture/home/.local/state/rightkit/build-ownership/${KEY_A}/owner.json`);
+  assert.equal(ownershipFile({ platform: "linux", repository: KEY_A, beside: "/fixture/snaps" }), `/fixture/build-ownership/${KEY_A}/owner.json`);
+  assert.throws(() => ownershipFile({ platform: "linux", repository: KEY_A, beside: "" }), TypeError);
+  // The repository key is required and is one path segment: no host-wide default, no traversal.
+  for (const bad of [undefined, null, "", ".", "..", "a/b", "a\\b", "../x", 7]) assert.throws(() => ownershipFile({ platform: "linux", home: "/h", repository: bad }), TypeError, String(bad));
+  assert.throws(() => ownershipFile({ platform: "darwin" }), TypeError);
+  assert.throws(() => acquireBuildOwnership({ platform: "linux", env: {}, exportEnv: false }), TypeError, "acquire needs the record's file; it has no host-wide default");
 });
 
 /** The calls of `ownershipFile(...)` in `text` that derive the location from a snapshot root or the environment (the removed behaviour). */
@@ -1356,6 +1518,7 @@ function ownershipCallViolations(text) {
     calls++;
     const args = m[1] ?? "";
     if (/\bsnapshotRoot\s*:/.test(args) || /\benv\s*:/.test(args) || /\bhome\s*:/.test(args)) bad.push(m[0]);
+    if (!/\brepository\s*:\s*\S/.test(args)) bad.push(m[0]);   // every call names the repository whose record it is
     for (const b of args.matchAll(/\bbeside\s*:\s*([^,}]+)/g)) if (b[1].trim() !== "o.snapshotRoot") bad.push(m[0]);
   }
   return { bad, calls };
@@ -1369,24 +1532,25 @@ test("row 5.17: no production caller derives the ownership location from the sna
   assert.deepEqual(bad, [], "a production call passes a derived root or an environment");
   assert.ok(calls >= 5, `the scan saw the production calls (${calls})`);
   // The scan sees the defect: the old call shapes are violations.
-  assert.equal(ownershipCallViolations("ownershipFile({ platform: o.platform, env: o.env, snapshotRoot: root })").bad.length, 1);
-  assert.equal(ownershipCallViolations("ownershipFile({ platform: o.platform, snapshotRoot: snapshotsAt })").bad.length, 1);
-  assert.equal(ownershipCallViolations("ownershipFile({ platform: o.platform, beside: snapshotsAt })").bad.length, 1);
-  assert.equal(ownershipCallViolations("ownershipFile({ platform: o.platform, beside: o.snapshotRoot })").bad.length, 0);
+  assert.equal(ownershipCallViolations("ownershipFile({ platform: o.platform, env: o.env, snapshotRoot: root })").bad.length, 2);
+  assert.equal(ownershipCallViolations("ownershipFile({ platform: o.platform, snapshotRoot: snapshotsAt })").bad.length, 2);
+  assert.equal(ownershipCallViolations("ownershipFile({ platform: o.platform, beside: snapshotsAt })").bad.length, 2);
+  assert.equal(ownershipCallViolations("ownershipFile({ platform: o.platform, beside: o.snapshotRoot })").bad.length, 1, "a call with no repository key is a violation");
+  assert.equal(ownershipCallViolations("ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: key })").bad.length, 0);
 });
 
-test("row 5.17 [native]: two gates whose environments differ only in XDG_STATE_HOME (or a configured snapshot root) contend for ONE record; the old derivation (a test double) holds two", { timeout: 180_000 }, async (t) => {
+test("row 5.17 [native]: two gates for one repository whose environments differ only in XDG_STATE_HOME (or a configured snapshot root) contend for ONE record; the old derivation (a test double) holds two", { timeout: 180_000 }, async (t) => {
   const home = path.join(tmp(t, "rk-own-fixed-"), "home"); fs.mkdirSync(home, { mode: 0o700 });
   const pairs = [
     ["XDG_STATE_HOME", { XDG_STATE_HOME: path.join(home, "xdg-a") }, { XDG_STATE_HOME: path.join(home, "xdg-b") }],
     ["RIGHTKIT_SNAPSHOT_ROOT", { RIGHTKIT_SNAPSHOT_ROOT: path.join(home, "root-a", "snaps") }, { RIGHTKIT_SNAPSHOT_ROOT: path.join(home, "root-b", "snaps") }],
   ];
   // The production derivation: the environment is not an input.
-  const fixed = (env) => withEnv(env, () => ownershipFile({ platform: "linux", home }));
+  const fixed = (env) => withEnv(env, () => ownershipFile({ platform: "linux", home, repository: KEY_A }));
   // The removed derivation, as a test double: the record sits beside the snapshot root, which the environment chooses.
   const old = (env) => withEnv(env, () => {
     const root = env.RIGHTKIT_SNAPSHOT_ROOT ?? path.join(env.XDG_STATE_HOME ?? path.join(home, ".local", "state"), "rightkit", "snapshots");
-    return path.join(path.dirname(root), "build-ownership", "owner.json");
+    return path.join(path.dirname(root), "build-ownership", KEY_A, "owner.json");
   });
   for (const [variable, envA, envB] of pairs) {
     for (const [name, locate, expectBusy] of [["fixed location", fixed, true], ["old derivation (test double)", old, false]]) {
@@ -1437,32 +1601,93 @@ test("row 5.20: a nested gate joins only the LIVE owner's exact handle and a mat
   assert.equal(join(alive, { [OWNERSHIP_ENV]: second.handle }).joined, true, "restored: it joins again");
 });
 
-test("row 5.20 [native]: a gate for another repository started mid-stage is busy and never syncs; a nested gate under the live owner's handle joins", { timeout: 180_000 }, async (t) => {
+test("row 5.20 [native]: a gate for another repository started mid-stage is NOT busy (its own record); a gate for the SAME repository is busy and never syncs; a nested gate under the live owner's handle joins its own repository only", { timeout: 180_000 }, async (t) => {
   const repoA = tinyRepo(t); const repoB = tinyRepo(t);
   const snaps = path.join(tmp(t, "rk-own-xrepo-"), "snapshots");
-  const file = ownershipFile({ platform: process.platform, beside: snaps });
-  const keyB = repoKey(keyPath(repoB));
-  assert.notEqual(repoKey(keyPath(repoA)), keyB, "two repositories, two keys");
+  const keyA = repoKey(keyPath(repoA)); const keyB = repoKey(keyPath(repoB));
+  assert.notEqual(keyA, keyB, "two repositories, two keys");
+  const file = ownershipFile({ platform: process.platform, beside: snaps, repository: keyA });
+  const fileB = ownershipFile({ platform: process.platform, beside: snaps, repository: keyB });
+  assert.notEqual(file, fileB);
   fs.mkdirSync(snaps, { recursive: true, mode: 0o700 }); fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  // A gate on repository A holds the host (the stage is running; the gate is alive).
-  const g = await crashingGate(t, file, { snapshot: path.join(snaps, repoKey(keyPath(repoA))) });
-  // A gate on repository B, started mid-stage, is busy and writes nothing.
-  const before = fs.readdirSync(snaps).sort();
+  // A gate on repository A holds A (the stage is running; the gate is alive).
+  const g = await crashingGate(t, file, { snapshot: path.join(snaps, keyA) });
+  // (a) A gate on repository B, started mid-stage, takes B's own record and syncs: two repositories hold at the same time.
+  // A's snapshot (a 16-hex directory and its lock) is in the root, birthless: B's sync must not empty it.
+  fs.mkdirSync(path.join(snaps, keyA), { recursive: true }); fs.writeFileSync(path.join(snaps, keyA, "marker"), "live");
+  const readBirthText = () => { try { return fs.readFileSync(rootBirthFile(snaps), "utf8"); } catch { return null; } }; const birthBefore = readBirthText();
   const b = gateStep(t, "snapshot", { cwd: repoB, args: ["--commit", "HEAD", "--json"], snapshotRoot: snaps }, process.env);
-  assert.equal(b.code, 1, JSON.stringify(b));
-  assert.match(b.lines.join("\n"), new RegExp(`snapshot busy: build ownership .*held by pid ${g.gate}`));
+  assert.equal(b.code, 0, JSON.stringify(b));
+  assert.equal(fs.readFileSync(path.join(snaps, keyA, "marker"), "utf8"), "live", "repository A's snapshot survived B's sync");
+  assert.equal(readBirthText(), birthBefore, "the root was not re-born under A's live record");
+  assert.equal(fs.existsSync(path.join(snaps, keyB)), true, "repository B was synced while A was held");
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).handle, g.handle, "A's record is untouched by B's gate");
+  assert.equal(fs.existsSync(fileB), false, "B released its own record");
+  // (b) A second gate for the SAME repository is busy, names the holder, and never syncs.
+  const before = fs.readdirSync(snaps).sort(); const stateA = fs.existsSync(path.join(snaps, keyA));
+  const a2 = gateStep(t, "snapshot", { cwd: repoA, args: ["--commit", "HEAD", "--json"], snapshotRoot: snaps }, process.env);
+  assert.equal(a2.code, 1, JSON.stringify(a2));
+  assert.match(a2.lines.join("\n"), new RegExp(`snapshot busy: build ownership .*held by pid ${g.gate}`));
   assert.deepEqual(fs.readdirSync(snaps).sort(), before, "the busy gate wrote nothing into the root");
-  assert.equal(fs.existsSync(path.join(snaps, keyB)), false, "repository B was never synced");
-  // A nested gate under A's live handle joins (it is A's own work).
-  const nested = gateStep(t, "snapshot", { cwd: repoB, args: ["--commit", "HEAD", "--json"], snapshotRoot: snaps }, process.env, { nested: g.handle });
+  assert.equal(fs.existsSync(path.join(snaps, keyA)), stateA, "repository A was not synced by the busy gate");
+  // (c) A nested gate whose inherited handle belongs to repository A, running for repository B, neither joins A's record nor
+  // blocks on itself: it refuses at once ("not the current owner") and leaves both records as they were.
+  const cross = gateStep(t, "snapshot", { cwd: repoB, args: ["--commit", "HEAD", "--json"], snapshotRoot: snaps }, process.env, { nested: g.handle });
+  assert.equal(cross.code, 1, JSON.stringify(cross)); assert.match(cross.lines.join("\n"), /is not the current owner/);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).handle, g.handle, "A's record is still the live owner's");
+  assert.equal(fs.existsSync(fileB), false, "the cross-repository nested gate took no record for B");
+  // A nested gate under A's live handle for repository A joins (it is A's own work), and never releases.
+  const nested = gateStep(t, "snapshot", { cwd: repoA, args: ["--commit", "HEAD", "--json"], snapshotRoot: snaps }, process.env, { nested: g.handle });
   assert.equal(nested.code, 0, JSON.stringify(nested));
   const r = JSON.parse(nested.lines.find((l) => l.startsWith("{")));
   assert.equal(r.ownership.joined, true); assert.equal(r.ownership.handle, g.handle);
-  assert.equal(fs.existsSync(path.join(snaps, keyB)), true, "the nested gate synced");
   assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).handle, g.handle, "and the record is still the live owner's: a joined gate never releases");
-  // A handle that is not the live owner's cannot join: the gate is busy, not joined.
-  const stale = gateStep(t, "snapshot", { cwd: repoB, args: ["--commit", "HEAD", "--json"], snapshotRoot: snaps }, process.env, { nested: "11111111-2222-3333-4444-555555555555" });
+  // A handle that is not the live owner's cannot join: the gate is refused, not joined.
+  const stale = gateStep(t, "snapshot", { cwd: repoA, args: ["--commit", "HEAD", "--json"], snapshotRoot: snaps }, process.env, { nested: "11111111-2222-3333-4444-555555555555" });
   assert.equal(stale.code, 1, JSON.stringify(stale)); assert.match(stale.lines.join("\n"), /is not the current owner/);
+});
+
+test("per repository: two repositories hold ownership at once; the same repository is refused busy naming the holder; a handle of repository A never joins or blocks repository B", (t) => {
+  const base = tmp(t, "rk-own-perrepo-");
+  const at = (key) => ownershipFile({ platform: "darwin", beside: path.join(base, "snapshots"), repository: key });
+  const fileA = at(KEY_A); const fileB = at(KEY_B);
+  const alive = fakeProbe("darwin", { identity: () => ({ alive: true, startedMs: NOW - 60_000, group: 4242 }) });
+  const take = (file, extra = {}) => acquireBuildOwnership({ file, platform: "darwin", probe: fakeProbe("darwin"), lease: noLease, env: {}, exportEnv: false, stage: "per-repo", ...extra });
+  // (a) both at once
+  const a = take(fileA); const b = take(fileB);
+  assert.equal(a.held(), true); assert.equal(b.held(), true);
+  assert.notEqual(a.handle, b.handle); assert.notEqual(path.dirname(fileA), path.dirname(fileB));
+  assert.equal(JSON.parse(fs.readFileSync(fileA, "utf8")).handle, a.handle); assert.equal(JSON.parse(fs.readFileSync(fileB, "utf8")).handle, b.handle);
+  // directory rules hold for the parent and each repository directory
+  if (process.platform !== "win32") for (const d of [path.dirname(path.dirname(fileA)), path.dirname(fileA), path.dirname(fileB)]) assert.equal(fs.statSync(d).mode & 0o777, 0o700, d);
+  // (b) the same repository is refused busy, naming the holder
+  assert.throws(() => take(fileA), (e) => e instanceof OwnershipBusy && e.code === "busy" && new RegExp(`held by pid ${process.pid}`).test(e.message));
+  assert.equal(JSON.parse(fs.readFileSync(fileA, "utf8")).handle, a.handle, "the refused gate left the holder's record");
+  // (c) A's handle, inherited by a gate running for repository B: it does not join A's record and does not block; it refuses on B
+  // naming the mismatch (B has its own live owner), and a handle of B joins B.
+  const nestedFor = (file, handle) => acquireBuildOwnership({ file, platform: "darwin", probe: alive, lease: noLease, env: { [OWNERSHIP_ENV]: handle }, exportEnv: false, stage: "nested" });
+  assert.throws(() => nestedFor(fileB, a.handle), (e) => e instanceof OwnershipBusy && /is not the current owner/.test(e.message));
+  assert.throws(() => nestedFor(path.join(path.dirname(path.dirname(fileA)), "0000000000000000", "owner.json"), a.handle), /is not the current owner/, "a repository nobody holds: A's handle names no record there");
+  assert.equal(nestedFor(fileA, a.handle).joined, true); assert.equal(nestedFor(fileB, b.handle).joined, true);
+  assert.equal(a.held(), true); assert.equal(b.held(), true, "neither record was disturbed");
+  assert.equal(a.release().released, true); assert.equal(fs.existsSync(fileA), false); assert.equal(b.held(), true, "releasing A leaves B held");
+  assert.equal(b.release().released, true);
+});
+
+test("spawnUnderOwnership: a handle without the ownership file variable refuses (no host-wide default), starting nothing", (t) => {
+  const started = [];
+  const spawn = (...a) => { started.push(a); return { pid: 1 }; };
+  const options = { detached: true };
+  assert.throws(() => spawnUnderOwnership(spawn, "cmd", [], options, { env: { [OWNERSHIP_ENV]: "h-1" }, platform: "darwin" }), (e) => e instanceof OwnershipBusy && new RegExp(OWNERSHIP_FILE_ENV).test(e.message));
+  assert.throws(() => spawnUnderOwnership(spawn, "cmd", [], { detached: true, env: { [OWNERSHIP_ENV]: "h-1" } }, { env: {}, platform: "linux" }), (e) => e instanceof OwnershipBusy && new RegExp(OWNERSHIP_FILE_ENV).test(e.message), "a handle only in the options' environment refuses too");
+  assert.deepEqual(started, [], "no child was started");
+  // With the file variable, the child's record is made beside that per-repository file; with no handle, nothing is recorded.
+  const dir = tmp(t, "rk-own-spawn-"); const file = path.join(dir, OWNERSHIP_DIRNAME, KEY_A, "owner.json");
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  spawnUnderOwnership(spawn, "cmd", [], options, { env: { [OWNERSHIP_ENV]: "h-1", [OWNERSHIP_FILE_ENV]: file }, platform: "darwin" });
+  assert.equal(started.length, 1); assert.equal(fs.existsSync(childrenDir(file, "h-1")), true);
+  spawnUnderOwnership(spawn, "cmd", [], options, { env: {}, platform: "darwin" });
+  assert.equal(started.length, 2, "no handle: the ordinary spawn");
 });
 
 test("row 5.22: the ownership directory is created mode 0700, and an existing one that grants group or other access is refused with nothing taken", { skip: process.platform === "win32" && "POSIX mode bits: Windows has no group/other bits" }, (t) => {
@@ -1485,8 +1710,9 @@ test("row 5.22: the ownership directory is created mode 0700, and an existing on
 });
 
 test("row 5.23 [native macOS, Windows]: a real first acquisition on a pre-existing birthless root releases (macOS: emptied and born anew; Windows: job-based, the birth unused)", { skip: process.platform === "linux" && "Linux: the python3 native above", timeout: 180_000 }, (t) => {
-  const base = tmp(t, "rk-own-first-"); const root = path.join(base, "snapshots"); const file = path.join(base, OWNERSHIP_DIRNAME, "owner.json");
-  const repo = tinyRepo(t); oldRoot(root);
+  const base = tmp(t, "rk-own-first-"); const root = path.join(base, "snapshots");
+  const repo = tinyRepo(t); const file = path.join(base, OWNERSHIP_DIRNAME, repoKey(keyPath(repo)), "owner.json");
+  oldRoot(root); oldRoot(root, { key: repoKey(keyPath(repo)) });   // another repository's old snapshot, and this repository's own
   assert.equal(fs.existsSync(rootBirthFile(root)), false, "a root an older gate made: no birth");
   const step = gateStep(t, "sync", { file, checkout: repo, root, snapshot: path.join(root, repoKey(keyPath(repo))) }, process.env);
   assert.equal(step.ok, true, JSON.stringify(step));
@@ -1497,7 +1723,8 @@ test("row 5.23 [native macOS, Windows]: a real first acquisition on a pre-existi
     assert.equal(fs.existsSync(rootBirthFile(root)), false, "Windows ownership is job-based: no birth is written or read");
     assert.equal(fs.existsSync(path.join(root, OLD_KEY)), true, "and nothing was emptied (no boot identity to migrate on)");
   } else {
-    assert.equal(fs.existsSync(path.join(root, OLD_KEY)), false, "the birthless root was emptied");
+    assert.equal(fs.existsSync(path.join(root, OLD_KEY)), true, "another repository's old snapshot is never deleted");
+    assert.equal(fs.existsSync(path.join(root, `${repoKey(keyPath(repo))}.lock`)), false, "this repository's own old lock was removed (and its sync lock released)");
     assert.notEqual(readRootBirth(root, hostBootId()), null, "and born anew in this boot");
   }
   assert.ok(fs.existsSync(path.join(root, repoKey(keyPath(repo)))), "the sync itself landed");
@@ -1602,10 +1829,10 @@ test("row 5.24 [native Linux, real cargo and rustc]: the gate holds while a real
 });
 
 test("row 5.24 [native Linux, real cargo and rustc]: the gate SIGKILLed mid-compile: a second SYNC is refused while cargo or rustc lives, and succeeds once they exit", { skip: (!REAL_TOOLS && "needs Linux with real cargo and rustc") || (!HAS_FIFO && "needs mkfifo"), timeout: 300_000 }, async (t) => {
-  const base = tmp(t, "rk-own-real-kill-"); const file = path.join(base, OWNERSHIP_DIRNAME, "owner.json"); const snapshot = path.join(base, "snapshots", "k"); const target = path.join(base, "target");
-  fs.mkdirSync(path.dirname(file), { mode: 0o700 }); fs.mkdirSync(path.dirname(snapshot), { mode: 0o700 }); recordRootBirth(path.dirname(snapshot), { bootId: hostBootId() }); realCrate(snapshot);
-  const repo = tinyRepo(t); const root = path.dirname(snapshot);
-  assert.equal(ownershipFile({ platform: "linux", beside: root }), file, "the sync below contends for this very record");
+  const base = tmp(t, "rk-own-real-kill-"); const repoForKey = tinyRepo(t); const file = path.join(base, OWNERSHIP_DIRNAME, repoKey(keyPath(repoForKey)), "owner.json"); const snapshot = path.join(base, "snapshots", "k"); const target = path.join(base, "target");
+  fs.mkdirSync(path.dirname(path.dirname(file)), { mode: 0o700 }); fs.mkdirSync(path.dirname(file), { mode: 0o700 }); fs.mkdirSync(path.dirname(snapshot), { mode: 0o700 }); recordRootBirth(path.dirname(snapshot), { bootId: hostBootId() }); realCrate(snapshot);
+  const repo = repoForKey; const root = path.dirname(snapshot);
+  assert.equal(ownershipFile({ platform: "linux", beside: root, repository: repoKey(keyPath(repo)) }), file, "the sync below contends for this very record");
   const sync = () => gateStep(t, "snapshot", { cwd: repo, args: ["--commit", "HEAD", "--json"], snapshotRoot: root }, process.env);
   const g = await realBuildGate(t, file, snapshot, target);
   await until(() => buildScriptPids().length > 0, 120_000);
@@ -2079,8 +2306,8 @@ fs.writeFileSync(${JSON.stringify(result)}, JSON.stringify({ release: own.releas
 const isRefusal = (reason) => (e) => e?.code === "refused" && e.reason === reason && /managed root/.test(e.message);
 const splitDevice = (p) => (p === "/" ? 1n : 2n);   // the managed root on another device than /
 const bootDevice = () => 1n;                         // the managed root on the boot volume
-/** Takes ownership at the host's own location inside the injected managed root `managedRoot`. */
-const acquireIn = (managedRoot, platform, device, extra = {}) => acquireBuildOwnership({ file: path.join(managedRoot, OWNERSHIP_DIRNAME, "owner.json"), platform, probe: fakeProbe(platform), lease: noLease, env: {}, exportEnv: false, stage: "d4", managedRoot, device, ...extra });
+/** Takes ownership at a repository's own location inside the injected managed root `managedRoot`. */
+const acquireIn = (managedRoot, platform, device, extra = {}) => acquireBuildOwnership({ file: path.join(managedRoot, OWNERSHIP_DIRNAME, KEY_A, "owner.json"), platform, probe: fakeProbe(platform), lease: noLease, env: {}, exportEnv: false, stage: "d4", managedRoot, device, ...extra });
 
 test("D4 rule 1: the guard and its error class live in managed-root-guard.mjs, which build-ownership.mjs imports; snapshot.mjs re-exports the same two, and build-ownership.mjs never imports snapshot.mjs", async () => {
   const guard = await import("./managed-root-guard.mjs");
@@ -2121,12 +2348,14 @@ test("D4: the managed-root guard is FIRST in acquireBuildOwnership: an absent ro
   assert.equal(fs.existsSync(path.join(base, "absent-linux")), false);
 });
 
-test("D4: an existing managed root gets exactly `build-ownership/` (mode 0700) and nothing else; the directory is one level, and the children directory too", { skip: process.platform === "win32" && "POSIX mode bits" }, (t) => {
+test("D4: an existing managed root gets exactly `build-ownership/<repository key>/` (both mode 0700) and nothing else; each directory is one level, and the children directory too", { skip: process.platform === "win32" && "POSIX mode bits" }, (t) => {
   const base = tmp(t, "rk-own-d4-ok-"); const managed = path.join(base, "managed"); fs.mkdirSync(managed, { mode: 0o700 });
   const own = acquireIn(managed, "darwin", splitDevice);
   assert.deepEqual(fs.readdirSync(managed), [OWNERSHIP_DIRNAME], "the managed root holds only build-ownership/");
   assert.equal(fs.statSync(path.join(managed, OWNERSHIP_DIRNAME)).mode & 0o777, 0o700);
-  assert.deepEqual(fs.readdirSync(path.join(managed, OWNERSHIP_DIRNAME)), ["owner.json"]);
+  assert.deepEqual(fs.readdirSync(path.join(managed, OWNERSHIP_DIRNAME)), [KEY_A], "build-ownership/ holds only the repository's directory");
+  assert.equal(fs.statSync(path.join(managed, OWNERSHIP_DIRNAME, KEY_A)).mode & 0o777, 0o700);
+  assert.deepEqual(fs.readdirSync(path.join(managed, OWNERSHIP_DIRNAME, KEY_A)), ["owner.json"]);
   assert.equal(own.release().released, true);
   assert.deepEqual(fs.readdirSync(managed), [OWNERSHIP_DIRNAME]);
   // One level only on Mac & Dell: a missing parent is an error and creates nothing; on Linux the state directory is created whole.
@@ -2136,10 +2365,10 @@ test("D4: an existing managed root gets exactly `build-ownership/` (mode 0700) a
   ensureOwnershipDir(deep, { platform: "linux" }); assert.equal(fs.existsSync(deep), true);
   ensureOwnershipDir(path.join(managed, OWNERSHIP_DIRNAME), { platform: "darwin" });   // an existing directory is accepted (EEXIST)
   // The detached-children directory is one level inside an existing ownership directory, never a recursive creation.
-  const file = path.join(managed, OWNERSHIP_DIRNAME, "owner.json");
+  const file = path.join(managed, OWNERSHIP_DIRNAME, KEY_A, "owner.json");
   spawnUnderOwnership(() => ({ pid: 4321 }), "x", [], { detached: true }, { env: { [OWNERSHIP_ENV]: "h-d4", RIGHTKIT_BUILD_OWNERSHIP_FILE: file }, platform: "darwin" });
   assert.equal(fs.existsSync(childrenDir(file, "h-d4")), true);
-  const gone = path.join(base, "gone", OWNERSHIP_DIRNAME, "owner.json");
+  const gone = path.join(base, "gone", OWNERSHIP_DIRNAME, KEY_A, "owner.json");
   assert.throws(() => spawnUnderOwnership(() => ({ pid: 1 }), "x", [], { detached: true }, { env: { [OWNERSHIP_ENV]: "h-d4", RIGHTKIT_BUILD_OWNERSHIP_FILE: gone }, platform: "darwin" }), (e) => e.code === "ENOENT");
   assert.equal(fs.existsSync(path.join(base, "gone")), false);
 });
@@ -2153,10 +2382,11 @@ test("D4: each entry point maps the refusal by name and creates nothing: the doo
   const snapshotRoot = path.join(dir, "snapshots");
   // check --snapshot
   let out = [];
-  let code = await main(["check", "--commit", "HEAD", "--full-a", "--snapshot", path.join(dir, "snap")], { cwd: dir, env: process.env, snapshotRoot, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => { out.push("appCheck ran"); return 0; }, acquireOwnership: guarded });
+  const repo = tinyRepo(t);
+  let code = await main(["check", "--commit", "HEAD", "--full-a", "--snapshot", path.join(snapshotRoot, repoKey(keyPath(repo)))], { cwd: repo, env: process.env, snapshotRoot, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => { out.push("appCheck ran"); return 0; }, acquireOwnership: guarded });
   assert.equal(code, 2, out.join("\n")); assert.match(out.join("\n"), /RK_CHECK_ERROR: .*managed root .* does not exist.*nothing ran, nothing created/); assert.doesNotMatch(out.join("\n"), /appCheck ran/); untouched("check --snapshot");
   // the door
-  const repo = tinyRepo(t); const sha = String(spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout).trim();
+  const sha = String(spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout).trim();
   fs.writeFileSync(path.join(repo, "package.json"), '{"name":"x","private":true}\n'); spawnSync("git", ["add", "-A"], { cwd: repo }); spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "p"], { cwd: repo });
   const sha2 = String(spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout).trim(); assert.notEqual(sha, sha2);
   const env = { ...process.env }; delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;

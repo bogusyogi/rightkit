@@ -508,7 +508,7 @@ test("[behavior] item 7 row 7.12 real cargo: a cargo that bypasses the wrapper a
     const res = runDoor(dir, { repo, sha, extra: [scan], onlyExtra: true });
     assert.equal(res.code, 2, `${label}: the stage fails the after-compile verify\n${res.out.slice(-3000)}`);
     assert.match(res.out, /RK_CHECK_ERROR/, label);
-    assert.match(res.out, /the compile covers no known bytes/, label);
+    assert.match(res.out, /covers no known bytes/, label);
     assert.equal(res.receipt, null, `${label}: no receipt for a compile that covers no known bytes`);
   }
 });

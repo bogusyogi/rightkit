@@ -1,6 +1,10 @@
 {
   "schema": 1,
   "heldResource": {
+    "rightkit-agent-demo": {
+      "ceilings": null,
+      "requiredScale": null
+    },
     "rightkit-agent-tools": {
       "ceilings": null,
       "requiredScale": null

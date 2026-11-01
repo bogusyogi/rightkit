@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { tempRoot } from "./test-support/temp-roots.mjs";
 const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: "utf8" }); if (r.status !== 0) throw new Error(`${cmd} failed: ${r.stderr}`); };
 import { CACHEDIR_SIGNATURE, KEEP_MARKER, MAX_LEASE_DAYS, RUN_LEASE_FILE, createRunRoot, ensureScratchRoots, leasedByRunRoot, readRunLease, readRustrightBudget, releaseRunRoot, findStrayTargets, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
 import { collectDependencies, evaluateBinding, installStableRoot, isUnderStable, readScheduleBinding, selfCheck, stableCliPath, stableRootPath } from "./disk-stable-root.mjs";
@@ -2228,7 +2229,7 @@ test("committed policy: per-owner scratch caps, and readDiskPolicy rejects a mal
 });
 
 test("right-release --help loads and lists the hourly run modes, run-root and the 26 h status rule", () => {
-  const r = spawnSync(process.execPath, [fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url)), "--help"], { encoding: "utf8" });
+  const r = spawnSync(process.execPath, [fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url)), "--help"], { encoding: "utf8", cwd: tempRoot("rk-help-cwd-") });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /disk run \[--auto\|--light\]/);
   assert.match(r.stdout, /disk run-root <name> \[--days N\]/);

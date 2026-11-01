@@ -822,7 +822,7 @@ test('npm qualification bundles exact gated bytes without upload or feed mutatio
   assert.ok(!h.calls.some(({ command }) => command === 'cargo'));
 });
 
-test('a Linux direct origin qualifies npm packages (no upload, no Keychain), except the signed @rightkit/release (#1341)', async () => {
+test('a Linux direct origin qualifies npm packages (no upload, no Keychain), @rightkit/release included', async () => {
   const root = workspace();
   const feed = path.join(root, 'packages/release/rightkit-versions.json');
   fs.mkdirSync(path.dirname(feed), { recursive: true });
@@ -833,7 +833,33 @@ test('a Linux direct origin qualifies npm packages (no upload, no Keychain), exc
   assert.equal(result.qualifiedOnly, true);
   assert.equal(JSON.parse(fs.readFileSync(result.evidencePath, 'utf8')).hostPolicy, 'linux-direct');
   assert.deepEqual(h.published, []);
-  await refused(runLocalPublish('npm', ['--local', '--package', '@rightkit/release', '--workspace', root, '--qualify-only', '--bundle', path.join(root, 'q2')], harness(root, 'npm', { platform: 'linux' }).deps), /Mac only.*this host is linux/);
+  // Only --qualify-only reaches Linux: an upload (no --qualify-only) is still the Mac's.
+  await refused(harness(root, 'npm', { platform: 'linux' }).run(), /Mac only.*this host is linux/);
+});
+
+test('a Linux direct origin qualifies @rightkit/release without building or signing the swap helper', async () => {
+  const root = workspace();
+  const unitDir = path.join(root, 'packages/release');
+  fs.mkdirSync(unitDir, { recursive: true });
+  fs.writeFileSync(path.join(unitDir, 'package.json'), JSON.stringify({ name: '@rightkit/release', version: '0.6.9', scripts: { test: 'node --test' } }));
+  const feedText = JSON.stringify({ stagedNpm: { '@rightkit/release': '0.6.9' } });
+  fs.writeFileSync(path.join(unitDir, 'rightkit-versions.json'), feedText);
+  const bare = tgzOf([{ path: 'package/package.json', data: '{}' }, { path: 'package/index.mjs', data: 'export {};\n' }]);
+  const h = harness(root, 'npm', {
+    platform: 'linux',
+    git: (args) => args[0] === 'rev-parse' ? HEAD : args[0] === 'show' ? feedText : '',
+    prepareSwapHelper: () => { throw new Error('a Linux origin must not build the helper'); },
+    run: (command, args) => {
+      if (args.includes('--pack-destination')) fs.writeFileSync(path.join(args[args.indexOf('--pack-destination') + 1], 'rightkit-release-0.6.9.tgz'), bare);
+      return { status: 0, stdout: args.includes('test') ? LIBTEST : '', stderr: '' };
+    },
+  });
+  const result = await runLocalPublish('npm', ['--local', '--package', '@rightkit/release', '--workspace', root, '--qualify-only', '--bundle', path.join(root, 'qualified')], h.deps);
+  assert.equal(result.qualifiedOnly, true);
+  assert.deepEqual(result.contentExcluded, [], 'the archive held neither the helper nor its receipt, and says so');
+  assert.equal(result.contentSha256, npmContentDigest(bare, { exclude: ['package/bin/darwin/rightkit-swap', 'package/bin/darwin/rightkit-swap.sign.json'] }).contentSha256);
+  assert.equal(JSON.parse(fs.readFileSync(result.evidencePath, 'utf8')).hostPolicy, 'linux-direct');
+  assert.deepEqual(h.published, []);
 });
 
 test('npm qualification refuses an uncommitted or unstaged feed before packing', async () => {

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-web-extract"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Article extraction without transport: readable-text parsing, title and redirect resolution, blocked-page detection, BM25 fit filtering, and extraction-ladder decisions."
@@ -17,6 +17,8 @@ path = "src/lib.rs"
 regex = { version = "1.13.1" }
 scraper = { version = "0.27" }
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154" }
+libloading = { version = "0.9" }
 
 
 [workspace]

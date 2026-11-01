@@ -1,4 +1,4 @@
-//! Registry consumer for rightkit-media-fetch 0.1.0: builds against the published API only.
+//! Registry consumer for rightkit-media-fetch 0.1.1: builds against the published API only.
 //! It never runs yt-dlp or ffmpeg.
 use rightkit_media_fetch::detect::{classify, is_media_ext, JobKind};
 use rightkit_media_fetch::{ytdlp_cmd_from_env_parts, FetchPlan};
@@ -28,6 +28,20 @@ fn main() {
     check(
         FetchPlan::transcribe().needs_wav,
         "a transcribe plan needs a WAV",
+    );
+    check(
+        rightkit_media_fetch::x_post::x_status_id("https://x.com/u/status/12345?s=1").as_deref()
+            == Some("12345"),
+        "an X status id is read from the URL",
+    );
+    check(
+        rightkit_media_fetch::source_auth::is_tiktok_host("https://vm.tiktok.com/abc"),
+        "TikTok short-link hosts are recognized",
+    );
+    check(
+        rightkit_media_fetch::extraction::classify_error_kind("operation timed out")
+            == rightkit_media_fetch::protocol::ErrorKind::Timeout,
+        "error text classifies to a kind",
     );
     println!("rightkit-media-fetch consumer: all checks passed");
 }

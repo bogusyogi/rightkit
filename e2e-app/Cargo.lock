@@ -6274,7 +6274,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-compose"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -6560,7 +6560,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-motion"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-transcript",
  "serde",
@@ -6628,7 +6628,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ownership"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "base64 0.23.1",
  "fancy-regex 0.20.0",

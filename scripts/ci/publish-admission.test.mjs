@@ -12,7 +12,7 @@ import { carriedCallNonce, qualificationNonce } from "../../packages/release/pro
 import { expectedStageCommands } from "../../packages/release/stage-commands.mjs";
 import { makeSigner } from "../../packages/release/test-support/provenance-signer.mjs";
 import { tgzOf } from "../../packages/release/test-support/tgz.mjs";
-import { ADMISSION_SCHEMA, QUALIFICATION_SCHEMA, admissionArtifactName, admit, bindPackedToQualification, dispatchHosted, gateVerdict, readQualificationInput, verifyAdmissionReceipt, verifyQualificationReceipts } from "./publish-admission.mjs";
+import { ADMISSION_SCHEMA, QUALIFICATION_SCHEMA, admissionArtifactName, admit, bindPackedToQualification, dispatchHosted, gateVerdict, readQualificationInput, verifyAdmissionReceipt, verifyQualificationReceipts , unitScopeDirs } from "./publish-admission.mjs";
 import { main as rightkitDispatch } from "./rightkit-dispatch.mjs";
 
 const SHA = "a".repeat(40);
@@ -75,12 +75,13 @@ const git = (packages = PACKAGES) => (...args) => {
   throw new Error(`unexpected git ${args.join(" ")}`);
 };
 const greenGate = (sha = SHA) => () => ({ status: 0, stdout: `check: ${sha.slice(0, 12)} passed 58 rules (release tier) in 7.1s\nrightkit-gate: class A content pass: 12 deterministic scan(s) over 900 file(s) of ${sha}\n` });
-const GATE = { command: `rightkit-gate check --commit ${SHA} --rule-tier release`, exit: 0, rules: 58, classAScans: 12, classAFiles: 900 };
+const GATE_NPM = { command: `rightkit-gate check --commit ${SHA} --rule-tier release --scope packages/release`, exit: 0, rules: 58, classAScans: 12, classAFiles: 900 };
+const GATE = { command: `rightkit-gate check --commit ${SHA} --rule-tier release --scope crates/rightkit-qa`, exit: 0, rules: 58, classAScans: 12, classAFiles: 900 };
 const npm = (versions, name) => async (url) => (versions === null ? { status: 404, ok: false } : { status: 200, ok: true, json: async () => ({ name: name ?? decodeURIComponent(url.split("/").pop()), versions: Object.fromEntries(versions.map((v) => [v, {}])) }) });
 
 test("broker admission: one unpublished @rightkit/* package at the run's commit, with the gate's qualification receipt and exactly the committed policy, is admitted", async () => {
   const receipt = await admit({ env: brokerEnv(), git: git(), runGate: greenGate(), fetchImpl: npm(["0.6.6"]), policy: policy() });
-  assert.deepEqual(receipt, { schema: ADMISSION_SCHEMA, repository: "bogusyogi/rightkit", sourceSha: SHA, runId: "77", runAttempt: "1", registry: "npm", units: ["@rightkit/release"], allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] }, mode: "broker", requestId: "req-1", versions: { "@rightkit/release": "0.6.7" }, gate: GATE, qualification: QUAL });
+  assert.deepEqual(receipt, { schema: ADMISSION_SCHEMA, repository: "bogusyogi/rightkit", sourceSha: SHA, runId: "77", runAttempt: "1", registry: "npm", units: ["@rightkit/release"], allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] }, mode: "broker", requestId: "req-1", versions: { "@rightkit/release": "0.6.7" }, gate: GATE_NPM, qualification: QUAL });
   // A package npm has never seen is admitted too (only a 404 counts as absent).
   assert.equal((await admit({ runGate: greenGate(), env: hostedEnv({ UNITS: "@rightkit/ci" }), git: git(), fetchImpl: npm(null), policy: policy() })).versions["@rightkit/ci"], "0.3.2");
   // The committed policy's allowsets are the only ones admitted, in any order.
@@ -177,7 +178,7 @@ test("broker mode grants nothing: an invented request id gets the same gate, ver
 });
 
 test("the gate verdict needs exit 0, this commit's app-check pass line and the class A pass line", () => {
-  assert.deepEqual(gateVerdict(greenGate()(), SHA), GATE);
+  assert.deepEqual(gateVerdict(greenGate()(), SHA, ["packages/release"]), GATE_NPM);
   const good = greenGate()();
   for (const [name, result] of [
     ["red", { status: 1, stdout: "rightkit-gate: BLOCKED (1)\n" }],
@@ -209,7 +210,7 @@ const gateEnv = () => (HOSTED_WITHOUT_MANAGED_ROOT ? { ...process.env } : { ...p
 function committedTree(t, extra = {}) {
   const root = fs.mkdtempSync(path.join(process.env.RIGHTKIT_TEST_SCRATCH ?? os.tmpdir(), "rk-admission-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const files = { "packages/foo/package.json": JSON.stringify({ name: "@rightkit/foo", version: "1.0.0", license: "MIT", scripts: { test: "x" } }), ...extra };
+  const files = { "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\n", "pnpm-lock.yaml": "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  packages/foo: {}\n", "packages/foo/package.json": JSON.stringify({ name: "@rightkit/foo", version: "1.0.0", license: "MIT", scripts: { test: "x" } }), ...extra };
   for (const [file, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true }); fs.writeFileSync(path.join(root, file), text); }
   const run = (...args) => { const r = spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: root, encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); return r.stdout; };
   run("init", "-q"); run("add", "-A"); run("commit", "-q", "-m", "fixture");
@@ -219,7 +220,7 @@ function committedTree(t, extra = {}) {
   // The enrolled pins are committed at the dispatched commit in the real repository; this fixture keeps ci/ out of the tree the real gate
   // scans and serves the one file from the test's key, everything else (including the tree id) from real git.
   const gitRead = (...args) => (args[0] === "show" && args[1] === `${sha}:ci/rk-pipeline.json` ? PIPELINE : args[0] === "show" && args[1] === `${sha}:ci/gate.config.json` ? "{}" : realGit(...args));
-  const runGate = (commit) => spawnSync(process.execPath, [GATE_BIN, "check", "--repo", root, "--commit", commit, "--rule-tier", "release"], { cwd: root, encoding: "utf8", env: gateEnv() });
+  const runGate = (commit, scope = []) => spawnSync(process.execPath, [GATE_BIN, "check", "--repo", root, "--commit", commit, "--rule-tier", "release", ...scope.flatMap((dir) => ["--scope", dir])], { cwd: root, encoding: "utf8", env: gateEnv() });
   return { root, sha, tree, git: gitRead, runGate };
 }
 const boundaryEnv = (sha, tree, extra = {}) => ({ ...ACTIONS, GITHUB_SHA: sha, EXPECTED_SHA: sha, ADMISSION: "broker", REQUEST_ID: "req-boundary", QUALIFICATION: JSON.stringify(qual({ name: "@rightkit/foo", version: "1.0.0", commit: sha, tree })), REGISTRY: "npm", UNITS: "@rightkit/foo", ALLOW_HOST_EXCLUSION: "", ALLOW_NO_TEST: "", ALLOW_IGNORED: "", ALLOW_MISSING_ASSETS: "", ...extra });
@@ -236,7 +237,7 @@ test("through the real gate: a red class A tree (broken committed JSON, the orig
 test("through the real gate: the same tree with valid JSON is admitted, gate bound to its commit", async (t) => {
   const green = committedTree(t, { "packages/foo/ok.json": '{"name":"ok"}' });
   const receipt = await admit({ env: boundaryEnv(green.sha, green.tree), git: green.git, runGate: green.runGate, fetchImpl: npm(null), policy: policy() });
-  assert.equal(receipt.gate.command, `rightkit-gate check --commit ${green.sha} --rule-tier release`);
+  assert.equal(receipt.gate.command, `rightkit-gate check --commit ${green.sha} --rule-tier release --scope packages/foo`);
   assert.equal(receipt.gate.exit, 0); assert.ok(receipt.gate.rules > 0 && receipt.gate.classAScans > 0);
   assert.deepEqual(receipt.versions, { "@rightkit/foo": "1.0.0" });
 });
@@ -337,6 +338,15 @@ test("bind (B2): the sealed helper must be the sign-swap job's, carry no .sign.j
   assert.throws(noHelper([]), /does not record/);
   assert.throws(noHelper(undefined), /does not record/);
   assert.doesNotThrow(noHelper([SWAP_HELPER_ARCHIVE_RECEIPT, SWAP_HELPER_ARCHIVE_BIN]));
+  // A direct (Linux) origin neither builds nor signs the helper: @rightkit/release is accepted with empty/absent exclusions, but not claiming any.
+  const direct = (contentExcluded) => () => readQualificationInput(JSON.stringify({ ...qual({ contentExcluded }), executor: "direct" }), { sha: SHA, registry: "npm", units: ["@rightkit/release"] });
+  assert.equal(direct([])().contentExcluded.length, 0);
+  assert.equal(direct(undefined)().contentExcluded.length, 0);
+  assert.throws(direct(HELPER_PATHS), /direct-origin qualification for @rightkit\/release claims excluded/);
+  const dq = bindFixture({ local, hosted: [...PKG, ...helperEntries("signed-by-ci")], over: { contentExcluded: [], executor: "direct" } });
+  assert.equal(bindPackedToQualification(dq.args).swapHelperSha256, sha256("signed-by-ci"), "the hosted sign-swap binding still applies to a direct origin");
+  assert.throws(() => bindPackedToQualification({ ...dq.args, swapSha256: `${sha256("other")}  rightkit-swap\n` }), /not the sign-swap job's/);
+  assert.throws(() => bindPackedToQualification({ ...dq.args, swapSha256: undefined }), /needs the sign-swap job's/);
   // An exclusion claimed for another unit is refused at the qualification, and a differing helper there is any other differing entry.
   assert.throws(() => readQualificationInput(JSON.stringify(qual({ name: "@rightkit/ci", version: "0.3.2", contentExcluded: HELPER_PATHS })), { sha: SHA, registry: "npm", units: ["@rightkit/ci"] }), /claims excluded archive entries for @rightkit\/ci/);
   const other = bindFixture({ name: "@rightkit/ci", local, hosted, swap: false, over: { version: "0.3.2" } });
@@ -636,7 +646,7 @@ test("direct admission (#1341): a Linux origin's re-derived direct-origin record
   const record = (over = {}) => buildDirectOrigin({ repository: RIGHTKIT_REPOSITORY, commit: SHA, tree: TREE, unit, registry: "npm", platform: "linux", artifact,
     stages: { compile: directStageEvidence({ stage: "compile", commit: SHA, tree: TREE, command: "cargo build" }), package: directStageEvidence({ stage: "package", commit: SHA, tree: TREE, command: "pnpm pack", outputSha256: artifact.artifactSha256 }) }, ...over });
   const directQual = (directOrigin = record(), over = {}) => ({ schema: QUALIFICATION_SCHEMA, commit: SHA, tree: TREE, runtime: "r".repeat(64), executor: "direct", unit, stages: { check: { ok: true }, compile: { ok: true }, package: { ok: true }, qualify: { ok: true } },
-    artifactSha256: artifact.artifactSha256, contentSha256: CONTENT, contentExcluded: HELPER_PATHS, directOrigin, ...over });
+    artifactSha256: artifact.artifactSha256, contentSha256: CONTENT, contentExcluded: [], directOrigin, ...over });
   const directEnv = (q = directQual(), extra = {}) => ({ ...brokerEnv({ ADMISSION: "direct", REQUEST_ID: "" }), QUALIFICATION: JSON.stringify(q), ...extra });
   const receipt = await admit({ env: directEnv(), git: git(), runGate: greenGate(), fetchImpl: npm(["0.6.6"]), policy: policy() });
   assert.equal(receipt.mode, "direct");
@@ -653,4 +663,31 @@ test("direct admission (#1341): a Linux origin's re-derived direct-origin record
     ["another tree", directEnv(directQual(buildDirectOrigin({ repository: RIGHTKIT_REPOSITORY, commit: SHA, tree: "e".repeat(40), unit, registry: "npm", platform: "linux", artifact, stages: { compile: directStageEvidence({ stage: "compile", commit: SHA, tree: "e".repeat(40), command: "x" }), package: directStageEvidence({ stage: "package", commit: SHA, tree: "e".repeat(40), command: "y", outputSha256: artifact.artifactSha256 }) } }))), /RK_DIRECT_ORIGIN_REFUSED/],
     ["a broker-shaped record", directEnv(directQual({ ...record(), signature: "s" })), /RK_DIRECT_ORIGIN_REFUSED/],
   ]) await assert.rejects(admit({ env, git: git(), runGate: greenGate(), fetchImpl: npm(["0.6.6"]), policy: policy() }), pattern, label);
+});
+
+// ---- GC-A03 (Adrian, 2026-10-29): admission gates a unit only on what that unit reads ----------------------------------------------
+test("admission runs the gate over the requested unit's directory only, and the receipt records exactly that scope", async () => {
+  const seen = [];
+  const recording = (sha = SHA) => (got, scope) => { seen.push([got, scope]); return greenGate(sha)(); };
+  const npmReceipt = await admit({ env: brokerEnv(), git: git(), runGate: recording(), fetchImpl: npm(["0.6.6"]), policy: policy() });
+  assert.deepEqual(seen.at(-1), [SHA, ["packages/release"]], "an npm unit is gated on packages/<name>, not on the whole commit");
+  assert.equal(npmReceipt.gate.command, `rightkit-gate check --commit ${SHA} --rule-tier release --scope packages/release`);
+  assert.deepEqual(unitScopeDirs("npm", ["@rightkit/release", "@rightkit/ci"]), ["packages/ci", "packages/release"]);
+  assert.deepEqual(unitScopeDirs("crates", ["rightkit-qa"]), ["crates/rightkit-qa"]);
+  // The uploader accepts that receipt for its unit, and refuses a whole-commit gate and a gate scoped to another unit (an e2e-app or another crate's pass admits nothing here).
+  const expected = { repository: "bogusyogi/rightkit", sourceSha: SHA, runId: "77", runAttempt: "1", registry: "npm", units: [{ name: "@rightkit/release", version: "0.6.7" }], allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] } };
+  assert.equal(verifyAdmissionReceipt(npmReceipt, expected), npmReceipt);
+  for (const command of [`rightkit-gate check --commit ${SHA} --rule-tier release`, `rightkit-gate check --commit ${SHA} --rule-tier release --scope packages/ci`, `rightkit-gate check --commit ${SHA} --rule-tier release --scope packages/release --scope e2e-app`]) {
+    assert.throws(() => verifyAdmissionReceipt({ ...npmReceipt, gate: { ...npmReceipt.gate, command } }, expected), /no passed gate for this commit/, command);
+  }
+});
+
+test("admission: a red scan of a workspace outside the unit's closure does not refuse it; a red scan of the unit's own does", async () => {
+  // The gate the admission runs reports per scope: it fails only when the scope contains the red directory (the real gate's closure rule is proven in packages/release/rightkit-gate.test.mjs and app-closure.test.mjs).
+  const redGate = (redDir) => (sha, scope) => (scope.includes(redDir)
+    ? { status: 1, stdout: `rightkit-gate: [1/5] fail    pnpm-audit:${redDir} (0s) :: katex advisory\nrightkit-gate: BLOCKED (2)\n` }
+    : greenGate(sha)());
+  const run = (redDir) => admit({ env: brokerEnv(), git: git(), runGate: redGate(redDir), fetchImpl: npm(["0.6.6"]), policy: policy() });
+  assert.equal((await run("e2e-app")).units[0], "@rightkit/release", "a red e2e-app does not block @rightkit/release");
+  await assert.rejects(run("packages/release"), /rightkit-gate check did not pass/, "the unit's own red scan still refuses it");
 });

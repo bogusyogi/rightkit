@@ -16,6 +16,7 @@ Plan item 2.10 (gaps C4-16, C4-17). `@rightkit/release` had no `exports` map, so
 |---|---|---|
 | `./bin/rightkit-agent-hook.mjs` | bin | target of the `rightkit-agent-hook` bin; the agent PreToolUse hook install-hook registers |
 | `./bin/rightkit-gate.mjs` | bin | target of the `rightkit-gate` bin; hooks and docs name the installed path |
+| `./bin/rightkit-linux-setup.mjs` | bin | target of the `rightkit-linux-setup` bin; provisions a Linux host (Node, pnpm, Rust, pnpm store) for the gate |
 | `./cargo-contract.mjs` | app-import | imported by heardright |
 | `./cargo-target.mjs` | app-import | imported by coderight, cutright, heardright, postright, pulse, scraperight, viewright |
 | `./cli/right-release.mjs` | bin | target of the `right-release` bin; `@rightkit/legal` resolves it with `createRequire().resolve`, scripts in four apps and Legion spawn it by path |
@@ -27,6 +28,7 @@ Plan item 2.10 (gaps C4-16, C4-17). `@rightkit/release` had no `exports` map, so
 | `./engine-locator.mjs` | sdk | README (Commands, Engine locator): `locateEngine` is importable from it |
 | `./github-release.mjs` | app-import | imported by legion |
 | `./legal-contract.mjs` | app-import | imported by coderight, heardright, mailright, viewright |
+| `./linux-setup.mjs` | sdk | README (The gate on a host without the broker): `setup` and `readPins` are the SDK behind `rightkit-linux-setup`; no app imports it |
 | `./macos-file-evidence.mjs` | app-import | imported by legion |
 | `./macos-notarization.mjs` | app-import | imported by heardright |
 | `./macos-signing-identity.mjs` | app-import | imported by cutright |

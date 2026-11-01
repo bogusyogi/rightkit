@@ -7,8 +7,11 @@
 
 pub mod app_store;
 pub mod build_analysis;
+pub mod cli;
+pub mod command;
 pub mod diagnostics;
 pub mod docs;
+pub mod gate;
 pub mod mobile;
 pub mod preflight;
 pub mod profiling;

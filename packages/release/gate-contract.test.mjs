@@ -21,6 +21,7 @@ import { readSourceSplit } from "./source-split.mjs";
 import { RULES as APP_RULES, COMPILE_TIER_IDS } from "./app-check.mjs";
 import { RULES as PREFLIGHT_RULES } from "../../scripts/preflight.mjs";
 import { main } from "./bin/rightkit-gate.mjs";
+import { repositoryOf } from "./snapshot.mjs";
 import { directPlatform, managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
 import { brokerManagedHost, managedCargoShimOnPath } from "./cargo-contract.mjs";
 import { developmentEnvironment } from "./development.mjs";
@@ -146,7 +147,7 @@ const out = [];
 const code = await main(["check", "--commit", ${JSON.stringify(sha)}, "--full-a", "--snapshot", snap.path], { cwd: ${JSON.stringify(repo)}, platform: "linux", snapshotRoot: ${JSON.stringify(snapRoot)}, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0,
   ${executorStub ? `resolveExecutor: () => (${executorStub}),` : ""}
   spawn: undefined, runScans: async () => ({ scans: [], notes: [], cacheHits: [] }) });
-console.log(JSON.stringify({ code, out: out.join("\\n").slice(-1500) }));\n`.replace("spawn: undefined, ", ""));
+console.log(JSON.stringify({ code, out: out.join("\\n").slice(-8000) }));\n`.replace("spawn: undefined, ", ""));
     // The host ownership record and snapshots stay in this fixture, never in the real state or data root.
     const env = { ...process.env, NODE_OPTIONS: "", RK_GATE_CACHE: "0", PATH: `${shimDir}:${directDir}:${process.env.PATH}`, RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
     const r = spawnSync(process.execPath, [driver], { env, encoding: "utf8", cwd: repo });
@@ -472,7 +473,7 @@ console.log(JSON.stringify({ code, out: out.join("\\n").slice(-40000), plans }))
   // The only cargo the gate ran in the checkout is the read-only metadata that resolved its target directory.
   const ran = fs.readFileSync(path.join(dir, "cargo-ran"), "utf8").trim().split("\n");
   for (const line of ran.filter((l) => l.startsWith(`${repo} `))) assert.match(line, /^\S+ metadata --offline --format-version 1 --no-deps --manifest-path /, line);
-  assert.equal(fs.existsSync(path.join(dir, "build-ownership", "owner.json")), false, "the door released the host");
+  assert.equal(fs.existsSync(path.join(dir, "build-ownership", repositoryOf(repo).key, "owner.json")), false, "the door released the repository");
   // The direct host's own receipt (step 4d): broker field names, the commit, trees at start and exit, the ownership and the outputs.
   const line = res.out.split("\n").find((l) => l.startsWith("rightkit-gate: direct receipt "));
   assert.ok(line, "the compile printed its direct receipt");

@@ -62,14 +62,16 @@ let instanceRoot;
 function instance() {
   if (instanceRoot) return instanceRoot;
   const dest = path.join(SCRATCH, "playright");
-  const listed = git(TEMPLATE, "ls-files", "-z");
-  assert.equal(listed.status, 0, listed.stderr);
-  const tracked = new Set(listed.stdout.split("\0").filter(Boolean));
+  // In a checkout the tracked files are the template; in the gate's snapshot of a commit (no .git: the tree is exactly the commit's) every file is.
+  const inCheckout = git(TEMPLATE, "rev-parse", "--is-inside-work-tree").status === 0;
+  const listed = inCheckout ? git(TEMPLATE, "ls-files", "-z") : null;
+  if (listed) assert.equal(listed.status, 0, listed.stderr);
+  const tracked = listed ? new Set(listed.stdout.split("\0").filter(Boolean)) : null;
   cpSync(TEMPLATE, dest, { recursive: true, filter: (src) => {
     const relative = path.relative(TEMPLATE, src).split(path.sep).join("/");
     if (!relative) return true;
     if (/(^|\/)(node_modules|target|dist|\.right-release)(\/|$)/.test(relative)) return false;
-    if (tracked.has(relative)) return true;
+    if (!tracked || tracked.has(relative)) return true;
     return statSync(src).isDirectory() && [...tracked].some((file) => file.startsWith(`${relative}/`));
   } });
   initTemplate(dest, { name: "PlayRight", id: "app.orthiclabs.playright" });

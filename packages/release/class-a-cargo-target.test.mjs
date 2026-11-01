@@ -201,7 +201,7 @@ test("the gate hands a direct host's scans its scratch root as their output root
   const gatePackage = path.join(f.base, "gate-package"); fs.mkdirSync(gatePackage); fs.writeFileSync(path.join(gatePackage, "stub.mjs"), "// stand-in gate package for the environment binding\n");
   const code = await main(["check", "--commit", f.commit, "--full-a", "--snapshot", f.snap], {
     out: (m) => out.push(m), err: (m) => err.push(m), cwd: f.repo, gatePackage, env: { ...process.env, RK_GATE_CACHE: "0", RK_GATE_TMPDIR: f.scratch }, platform: process.platform,
-    snapshotRoot: path.join(f.base, "ownership"), classA: undefined, selfPath: path.join(f.base, "elsewhere", "rightkit-gate.mjs"), appCheck: async () => 0, spawn, resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }), runScans: fakeRun,
+    snapshotRoot: path.join(f.base, "snapshots"), classA: undefined, selfPath: path.join(f.base, "elsewhere", "rightkit-gate.mjs"), appCheck: async () => 0, spawn, resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }), runScans: fakeRun,
   });
   assert.equal(code, 0, `${out.join("\n")}\n${err.join("\n")}`);
   assert.equal(seen[0].options.cargoReadTargetRoot, f.scratch);
@@ -232,7 +232,7 @@ test("rightkit#1328: the door's compile pass (--all on the snapshot, classAEarli
     const fakeRun = async (plan, options) => { seen.push(options); return { scans: plan.scans.map((s) => ({ id: s.id, class: s.class, status: "pass" })), notes: plan.notes, cacheHits: [], deferred: [] }; };
     const code = await main(["--all", "--commit", f.commit, "--snapshot", f.snap], {
       out: (m) => out.push(m), err: (m) => err.push(m), cwd: f.repo, gatePackage, env: { ...process.env, RK_GATE_CACHE: "0", RK_GATE_TMPDIR: f.scratch }, platform: process.platform,
-      snapshotRoot: path.join(f.base, `ownership-${seen.length}-${Math.random()}`), selfPath: path.join(f.base, "elsewhere", "rightkit-gate.mjs"), appCheck: async () => 0, spawn, resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }), runScans: fakeRun,
+      snapshotRoot: path.join(f.base, "snapshots"), selfPath: path.join(f.base, "elsewhere", "rightkit-gate.mjs"), appCheck: async () => 0, spawn, resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }), runScans: fakeRun,
       readStdin: () => "", buildOwnership: { handle: "h", joined: false, release: () => ({ released: true }) }, ...extra,
     });
     return { code, seen, out: out.join("\n"), err: err.join("\n") };

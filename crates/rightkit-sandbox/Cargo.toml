@@ -16,7 +16,7 @@ rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto", optional = tr
 async-trait = {version = "0.1", optional = true}
 serde = {version = "1", features = ["derive"], optional = true}
 serde_json = {version = "1", optional = true}
-tokio = {version = "1", features = ["io-util", "macros", "process", "sync", "time"], optional = true}
+tokio = {version = "1", features = ["io-util", "macros", "process", "sync", "time", "rt"], optional = true}
 tokio-util = {version = "0.7", optional = true}
 
 [features]

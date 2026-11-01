@@ -487,6 +487,28 @@ jobs:
           SCAN_CRATES: ${{ needs.plan.outputs.scan_crates }}
           SCAN_PACKAGES: ${{ needs.plan.outputs.scan_packages }}
         run: node scripts/ci/secret-scan.mjs --crates "$SCAN_CRATES" --dirs "$SCAN_PACKAGES"
+      # GATE-CONTRACT GC-A03 (Adrian, 2026-10-29): publication admission and the per-unit gate run the workspace scans (cargo-deny, cargo-audit and
+      # its `cargo fetch --locked`, pnpm lockfile install and audit) for the unit's closure only. THIS step is where every workspace is held, on
+      # every push to main and pull request: the gate's whole-commit class A pass covers every Cargo workspace and pnpm root the commit holds
+      # (the crates, e2e-app, desktop-app-template, ...), which the token-selected scans above do not. A red lock or advisory in any of them
+      # fails the push here, never the publication of an unrelated unit.
+      - name: Class A over the whole commit (every Cargo workspace and pnpm root, not a unit's closure)
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          npm_config_ignore_scripts: "true"
+          npm_config_ignore_pnpmfile: "true"
+          pnpm_config_ignore_scripts: "true"
+          pnpm_config_ignore_pnpmfile: "true"
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          # The gate's import-effects check installs each exported tree offline from the store: fill it for every committed lockroot first
+          # (the install above is filtered to @rightkit/release...).
+          for lockroot in $(git ls-files -- 'pnpm-lock.yaml' '*/pnpm-lock.yaml' | xargs -n1 dirname); do
+            pnpm --dir "$lockroot" fetch
+          done
+          pnpm exec rightkit-gate check --repo . --commit "${{ github.sha }}" --rule-tier release
       # Importing an export executes candidate code: this runs only after every file-only class A step (scans, Cargo.lock/rustfmt, secret scan) passed. Hygiene gates every
       # native shard, so a module that runs at import stops the run before any runner starts.
       - name: Fetch every package of the lockfile into the store (the import check installs the exported tree offline from it)
@@ -540,6 +562,25 @@ jobs:
         run: |
           bash scripts/ci/owner-dep-graphs.sh || echo "owner-dep-graphs: warning: skipped"
 
+  # The publish route's own contract (scripts/ci/publish-preflight.mjs), exactly as publish.yml's plan job runs it: a merge that
+  # would leave every publication red is red here first.
+  publish-route:
+    needs: [plan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/rk-setup
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          rust: "false"
+          install-filter: --filter rightkit-shared --filter @rightkit/release...
+          ignore-install-scripts: "true"
+      - name: Publish route contract
+        run: node scripts/ci/publish-preflight.mjs
+
   # Compile baselines prove this OS's exact shard/closure reports plus shared admission.
   # Known-red failures & missing reports block markers. Ownership still blocks overall summary.
   mark-green-windows:
@@ -567,7 +608,7 @@ jobs:
       windows_green: ${{ steps.verdict.outputs.windows_green }}
       macos_green: ${{ steps.verdict.outputs.macos_green }}
     if: ${{ always() }}
-    needs: [private-repo-guard, plan, hygiene, ownership, shards-windows, closure-windows, shards-macos, closure-macos]
+    needs: [private-repo-guard, plan, hygiene, ownership, publish-route, shards-windows, closure-windows, shards-macos, closure-macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
