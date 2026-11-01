@@ -86,7 +86,8 @@ pub struct LspMcpBridge {
     initialized: bool,
     /// Spawned LSP server subprocess.
     child: Option<Child>,
-    managed_child: Option<Arc<tokio::sync::Mutex<Box<dyn rightkit_sandbox::execution::ManagedChild>>>>,
+    managed_child:
+        Option<Arc<tokio::sync::Mutex<Box<dyn rightkit_sandbox::execution::ManagedChild>>>>,
     /// Stdin handle to the server.
     stdin: Option<std::pin::Pin<Box<dyn tokio::io::AsyncWrite + Send>>>,
     /// Buffered stdout reader from the server.

@@ -205,9 +205,7 @@ pub trait RightKitMcpBackend: Send + Sync {
 
     fn tools(&self) -> Vec<ToolDescriptor>;
 
-    fn list_tools<'a>(
-        &'a self,
-    ) -> Pin<Box<dyn Future<Output = crate::Result<Value>> + Send + 'a>> {
+    fn list_tools<'a>(&'a self) -> Pin<Box<dyn Future<Output = crate::Result<Value>> + Send + 'a>> {
         Box::pin(async { Ok(json!({"tools": self.tools()})) })
     }
 

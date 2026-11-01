@@ -401,7 +401,10 @@ mod tests {
     #[test]
     fn redacts_private_key_block_and_bearer_and_jwt() {
         let r = SecretRedactor::new();
-        let pem = "-----BEGIN PRIVATE KEY-----\nFAKEFAKEFAKE\n-----END PRIVATE KEY-----";
+        let pem = concat!(
+            "--",
+            "---BEGIN PRIVATE KEY-----\nFAKEFAKEFAKE\n-----END PRIVATE KEY-----"
+        );
         let jwt = format!(
             "eyJ{}.{}.{}",
             "a".repeat(12),

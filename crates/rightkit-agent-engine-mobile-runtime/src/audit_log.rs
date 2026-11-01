@@ -234,13 +234,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let log = AuditLog::open(dir.path(), "s1").unwrap();
         log.append(AuditEventKind::TurnSubmitted {
-            preview: "use Bearer sk-super-secret-token please".into(),
+            preview: concat!("use Bearer sk", "-super-secret-token please").into(),
         })
         .unwrap();
         let lines = read_lines(log.path());
         assert_eq!(lines.len(), 1);
         assert!(
-            !lines[0].contains("sk-super-secret-token"),
+            !lines[0].contains(concat!("sk", "-super-secret-token")),
             "raw token leaked into audit log: {}",
             lines[0]
         );

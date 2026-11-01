@@ -23,6 +23,8 @@ mod transport;
 pub mod trust_gate;
 mod types;
 
+pub use crate::{parse_qualified_name, sanitize_tool_name};
+pub use crate::{McpError as RightKitMcpError, RequestContext, ToolDescriptor};
 pub use config::{
     attach_stored_oauth_tokens, expand_config_env, expand_server_env, load_for_session,
     load_with_config_path_pool_and_process_launcher, load_with_pool, load_with_trust_gate,
@@ -43,8 +45,6 @@ pub use oauth::{
 #[cfg(feature = "agent_mcp-os-keyring")]
 pub use oauth::{login_oauth, refresh_oauth_tokens, revoke_oauth_tokens, McpOAuthCredentialStore};
 pub use pool::{pool_key, McpTransportPool, DEFAULT_MAX_POOLED_INSTANCES};
-pub use crate::{parse_qualified_name, sanitize_tool_name};
-pub use crate::{McpError as RightKitMcpError, RequestContext, ToolDescriptor};
 pub use server_mode::{
     McpServedInvocationAudit, McpServerModeGuard, McpServerModePolicy, McpServerToolSummary,
     RightKitMcpBackend, RightKitMcpServer,

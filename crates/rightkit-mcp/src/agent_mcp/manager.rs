@@ -18,7 +18,9 @@ fn canonical_read_tool(tool: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-use crate::agent_mcp::server_mode::{McpServedInvocationAudit, McpServerModePolicy, McpServerToolSummary};
+use crate::agent_mcp::server_mode::{
+    McpServedInvocationAudit, McpServerModePolicy, McpServerToolSummary,
+};
 use crate::agent_mcp::transport::McpTransport;
 use crate::agent_mcp::types::{
     McpChannelPermissions, McpResourceContent, McpResourceDef, McpToolDef, McpToolResult,
@@ -68,7 +70,8 @@ pub struct McpManager {
     /// held for the manager's lifetime so the pooled instance cannot be
     /// evicted while any session still uses it; dropping the manager drops
     /// the lease and makes the instance idle-evictable.
-    pool_leases: HashMap<String, rightkit_agent_engine_runtime_resources::Lease<Arc<dyn McpTransport>>>,
+    pool_leases:
+        HashMap<String, rightkit_agent_engine_runtime_resources::Lease<Arc<dyn McpTransport>>>,
     scope_servers: HashMap<String, HashSet<String>>,
     generation: u64,
     canonical_membrane_binding: Option<CanonicalMembraneBinding>,

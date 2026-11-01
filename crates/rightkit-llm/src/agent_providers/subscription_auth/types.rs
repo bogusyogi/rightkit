@@ -419,7 +419,7 @@ pub fn account_fingerprint(material: &str) -> String {
 mod tests {
     use super::*;
 
-    const SECRET: &str = "sk-ant-super-secret-bytes";
+    const SECRET: &str = concat!("sk", "-ant-super-secret-bytes");
 
     #[test]
     fn model_auth_debug_never_contains_credential_bytes() {

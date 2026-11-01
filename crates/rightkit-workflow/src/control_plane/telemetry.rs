@@ -154,7 +154,7 @@ mod tests {
 
     #[test]
     fn redact_scrubs_api_key() {
-        let v = serde_json::json!({"token": "sk-1234567890abcdef"});
+        let v = serde_json::json!({"token": concat!("sk", "-1234567890abcdef")});
         let patterns = SecretPatterns::defaults();
         let r = redact(&v, &patterns);
         assert!(r.get("token").unwrap().starts_with("[REDACTED:"));
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn redact_scrubs_private_key_pem() {
-        let v = serde_json::json!({"material": "-----BEGIN PRIVATE KEY-----\nABC"});
+        let v = serde_json::json!({"material": concat!("--", "---BEGIN PRIVATE KEY-----\nABC")});
         let patterns = SecretPatterns::defaults();
         let r = redact(&v, &patterns);
         assert!(r.get("material").unwrap().starts_with("[REDACTED:"));

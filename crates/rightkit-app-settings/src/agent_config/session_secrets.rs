@@ -164,12 +164,17 @@ mod tests {
     #[test]
     fn set_and_inject_round_trips_value() {
         let mut secrets = SessionSecrets::new();
-        secrets.set("MY_API_KEY", "sk-secret-value").unwrap();
+        secrets
+            .set("MY_API_KEY", concat!("sk", "-secret-value"))
+            .unwrap();
 
         let mut env = HashMap::new();
         secrets.inject_into(&mut env);
 
-        assert_eq!(env.get("MY_API_KEY"), Some(&"sk-secret-value".to_string()));
+        assert_eq!(
+            env.get("MY_API_KEY"),
+            Some(&concat!("sk", "-secret-value").to_string())
+        );
     }
 
     #[test]

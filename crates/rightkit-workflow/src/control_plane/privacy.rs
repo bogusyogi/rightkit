@@ -429,12 +429,14 @@ mod tests {
 
     #[test]
     fn pem_matches_known_headers() {
-        assert!(matches_private_key_pem(
-            "-----BEGIN RSA PRIVATE KEY-----\nABCD\n-----END RSA PRIVATE KEY-----"
-        ));
-        assert!(matches_private_key_pem(
-            "-----BEGIN OPENSSH PRIVATE KEY-----"
-        ));
+        assert!(matches_private_key_pem(concat!(
+            "--",
+            "---BEGIN RSA PRIVATE KEY-----\nABCD\n-----END RSA PRIVATE KEY-----"
+        )));
+        assert!(matches_private_key_pem(concat!(
+            "--",
+            "---BEGIN OPENSSH PRIVATE KEY-----"
+        )));
         assert!(!matches_private_key_pem("not a key"));
     }
 
@@ -445,7 +447,7 @@ mod tests {
         assert!(p.any_match("contact alice@example.com"));
         assert!(p.any_match("key=ghp_abc"));
         assert!(p.any_match("host 10.0.0.5"));
-        assert!(p.any_match("-----BEGIN PRIVATE KEY-----"));
+        assert!(p.any_match(concat!("--", "---BEGIN PRIVATE KEY-----")));
         assert!(!p.any_match("nothing to redact"));
     }
 

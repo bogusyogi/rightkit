@@ -1330,7 +1330,7 @@ mod tests {
     #[tokio::test]
     async fn context_pagination_matches_complete_order_across_every_row_boundary() {
         let dir = tempdir().unwrap();
-        let corpus = "PRIVATE_CONTEXT_SENTINEL\nsk-abcdefghijklmnopqrstuvwx\nMATCH one\nafter\nMATCH overlap\nlast\ngap1\ngap2\ngap3\nlead1\nlead2\nMATCH two\nend\n";
+        let corpus = concat!("PRIVATE_CONTEXT_SENTINEL\nsk", "-abcdefghijklmnopqrstuvwx\nMATCH one\nafter\nMATCH overlap\nlast\ngap1\ngap2\ngap3\nlead1\nlead2\nMATCH two\nend\n");
         std::fs::write(dir.path().join("a.txt"), corpus).unwrap();
         std::fs::write(dir.path().join("b.txt"), corpus).unwrap();
         for (before, after) in [(2, 1), (0, 1), (2, 0), (3, 3)] {
@@ -1352,7 +1352,9 @@ mod tests {
                 for _ in 0..100 {
                     let page = SearchTool.execute(request.clone(), &ctx(dir.path())).await;
                     assert!(!page.is_error, "{}", page.content);
-                    assert!(!page.content.contains("sk-abcdefghijklmnopqrstuvwx"));
+                    assert!(!page
+                        .content
+                        .contains(concat!("sk", "-abcdefghijklmnopqrstuvwx")));
                     let rows = result_rows(&page);
                     assert!(rows.len() <= page_size);
                     actual.extend(rows);

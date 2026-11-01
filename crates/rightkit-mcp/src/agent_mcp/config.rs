@@ -25,9 +25,15 @@ use std::sync::Arc;
 
 use crate::agent_mcp::manager::McpManager;
 #[cfg(feature = "agent_mcp-os-keyring")]
-use crate::agent_mcp::oauth::{load_stored_oauth_tokens, refresh_oauth_tokens, McpOAuthCredentialStore};
-use crate::agent_mcp::transport::{HttpTransport, McpTransport, SseTransport, StdioTransport, StubTransport};
-use crate::agent_mcp::trust_gate::{default_trust_store_path, gate_workspace_stdio_servers, load_trust_store};
+use crate::agent_mcp::oauth::{
+    load_stored_oauth_tokens, refresh_oauth_tokens, McpOAuthCredentialStore,
+};
+use crate::agent_mcp::transport::{
+    HttpTransport, McpTransport, SseTransport, StdioTransport, StubTransport,
+};
+use crate::agent_mcp::trust_gate::{
+    default_trust_store_path, gate_workspace_stdio_servers, load_trust_store,
+};
 use crate::agent_mcp::types::{McpConfigFile, McpServerConfig, StdioConfig};
 
 /// Whether project-scoped MCP declarations (`.mcp.json`,
@@ -53,7 +59,8 @@ impl ProjectTrust {
         match self {
             Self::Trusted => true,
             Self::Untrusted => false,
-            Self::Resolve => workspace_root.is_some_and(rightkit_app_settings::agent_config::is_workspace_trusted),
+            Self::Resolve => workspace_root
+                .is_some_and(rightkit_app_settings::agent_config::is_workspace_trusted),
         }
     }
 }
@@ -614,7 +621,9 @@ async fn build_manager_pooled(
     // same resolved environment pool together, and different resolved
     // environments never alias.
     let scope = workspace_root.map(|root| {
-        rightkit_agent_engine_runtime_resources::ServiceScope::Workspace(root.to_string_lossy().to_string())
+        rightkit_agent_engine_runtime_resources::ServiceScope::Workspace(
+            root.to_string_lossy().to_string(),
+        )
     });
 
     for (name, cfg) in &config.mcp_servers {
@@ -643,7 +652,14 @@ async fn build_manager_pooled(
         // the host app's existing leasing layer (`McpTransportPool`).
         let transport: Arc<dyn McpTransport> = match (pool, scope.as_ref()) {
             (Some(pool), Some(scope)) => {
-                let key = crate::agent_mcp::pool::pool_key(scope.clone(), kind, &endpoint, &args, &env, &[]);
+                let key = crate::agent_mcp::pool::pool_key(
+                    scope.clone(),
+                    kind,
+                    &endpoint,
+                    &args,
+                    &env,
+                    &[],
+                );
                 let sf_key = format!("{key:?}");
                 let shared_pool = crate::agent_mcp::shared_pool::get_or_init_shared_pool().await;
                 let built = shared_pool

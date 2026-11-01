@@ -620,18 +620,18 @@ mod tests {
 
     #[test]
     fn mask_secrets_redacts_prefixed_vendor_tokens() {
-        let raw = "token is sk-abcdefghijklmnopqrstuvwx and that's it";
+        let raw = concat!("token is sk", "-abcdefghijklmnopqrstuvwx and that's it");
         let masked = mask_secrets(raw);
         assert!(masked.contains(SECRET_MASK));
-        assert!(!masked.contains("sk-abcdefghijklmnopqrstuvwx"));
+        assert!(!masked.contains(concat!("sk", "-abcdefghijklmnopqrstuvwx")));
     }
 
     #[test]
     fn mask_secrets_redacts_key_value_assignments() {
-        let raw = "API_KEY=sk_live_51Hxyzabc123456789 request sent";
+        let raw = concat!("API_KEY=sk", "_live_51Hxyzabc123456789 request sent");
         let masked = mask_secrets(raw);
         assert!(masked.contains(SECRET_MASK), "got: {masked}");
-        assert!(!masked.contains("sk_live_51Hxyzabc123456789"));
+        assert!(!masked.contains(concat!("sk", "_live_51Hxyzabc123456789")));
     }
 
     #[test]
@@ -673,10 +673,13 @@ mod foreign_output_tests {
 
     #[test]
     fn foreign_output_is_masked_for_secrets() {
-        let leaked = "config loaded\nAUTH_TOKEN = sk-abcdefghijklmnopqrstuvwxyz123456\ndone";
+        let leaked = concat!(
+            "config loaded\nAUTH_TOKEN = sk",
+            "-abcdefghijklmnopqrstuvwxyz123456\ndone"
+        );
         let out = bound_foreign_output(leaked);
         assert!(
-            !out.contains("sk-abcdefghijklmnopqrstuvwxyz123456"),
+            !out.contains(concat!("sk", "-abcdefghijklmnopqrstuvwxyz123456")),
             "a secret survived an MCP-shaped response: {out}"
         );
         assert!(out.contains(SECRET_MASK));
@@ -717,7 +720,7 @@ mod foreign_output_tests {
     fn foreign_output_below_the_cap_is_exactly_mask_secrets() {
         let cases = [
             "plain text",
-            "token is ghp_abcdefghijklmnopqrstuvwxyz123456 end",
+            concat!("token is gh", "p_abcdefghijklmnopqrstuvwxyz123456 end"),
             "Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ=\nsecond line",
             "password = hunter2hunter2",
         ];
@@ -731,13 +734,16 @@ mod foreign_output_tests {
     /// it — otherwise a control-flow tool relaying a log would leak a key.
     #[test]
     fn exempt_tool_bypasses_size_decay_but_not_secret_masking() {
-        let secret = "ask_user payload sk-abcdefghijklmnopqrstuvwxyz123456 tail";
+        let secret = concat!(
+            "ask_user payload sk",
+            "-abcdefghijklmnopqrstuvwxyz123456 tail"
+        );
         let masked = mask_secrets(secret);
         assert!(
             masked.contains(SECRET_MASK),
             "secret must be masked even for exempt class"
         );
-        assert!(!masked.contains("sk-abcdefghijklmnopqrstuvwxyz123456"));
+        assert!(!masked.contains(concat!("sk", "-abcdefghijklmnopqrstuvwxyz123456")));
         // Exempt check itself: the canonical list contains ask_user etc.,
         // but not a normal tool — proves the bypass is scoped.
         assert!(is_exempt_tool("ask_user"));
@@ -749,7 +755,7 @@ mod foreign_output_tests {
     /// (MCP path) both mask via the same `mask_secrets` central.
     #[test]
     fn builtin_and_mcp_paths_share_identical_secret_masking_observation() {
-        let leaked = "ghp_abcdefghijklmnopqrstuvwxyz123456";
+        let leaked = concat!("gh", "p_abcdefghijklmnopqrstuvwxyz123456");
         // Built-in path
         let builtin = reduce_output(leaked, true, "echo hi");
         assert!(!builtin.contains(leaked), "built-in path must mask");

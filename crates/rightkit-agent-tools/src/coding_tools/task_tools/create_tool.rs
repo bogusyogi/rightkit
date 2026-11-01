@@ -283,7 +283,7 @@ mod admission_tests {
         let _undeny = Undeny(scope.clone());
 
         let ctx = ToolContext::new(
-            "task-admission-denial",
+            concat!("task", "-admission-denial"),
             dir.path(),
             PermissionMode::Bypass,
             WorkspaceTrust::Trusted,

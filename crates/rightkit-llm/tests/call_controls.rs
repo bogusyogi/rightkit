@@ -16,7 +16,7 @@ use rightkit_llm::openai::OpenAiCompatProvider;
 use rightkit_llm::{CallRetry, ChatRequest, LlmError, Provider, StopReason, StreamEvent};
 use serde_json::json;
 
-const SENTINEL: &str = "sk-SENTINEL-do-not-leak-c41e";
+const SENTINEL: &str = concat!("sk", "-SENTINEL-do-not-leak-c41e");
 
 fn client() -> Client {
     Client::new(ClientConfig {

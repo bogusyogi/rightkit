@@ -85,7 +85,8 @@ mod tests {
 
     #[test]
     fn load_missing_file_yields_empty_store_and_corrupt_file_stays_gated() {
-        let dir = std::env::temp_dir().join(format!("rightkit-agent-mcp-trust-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("rightkit-agent-mcp-trust-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let cfg = stdio("npx", &["x"]);
         let missing = dir.join("missing.json");

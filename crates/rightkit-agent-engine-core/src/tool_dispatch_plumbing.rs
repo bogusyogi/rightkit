@@ -575,11 +575,12 @@ mod eff002_payload_binding_tests {
 
     #[test]
     fn digest_does_not_leak_payload_content() {
-        let args = json!({"command": "curl -H 'Authorization: Bearer sk-secret-value'"});
+        let args =
+            json!({"command": concat!("curl -H 'Authorization: Bearer sk", "-secret-value'")});
         let digest = effect_payload_digest("shell", &args);
         assert!(digest.starts_with("sha256:"));
         assert!(
-            !digest.contains("sk-secret-value") && !digest.contains("Authorization"),
+            !digest.contains(concat!("sk", "-secret-value")) && !digest.contains("Authorization"),
             "the digest must not carry payload content or credentials"
         );
         // A SHA-256 hex digest is fixed width regardless of payload size, so

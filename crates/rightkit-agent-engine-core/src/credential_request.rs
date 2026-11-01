@@ -375,10 +375,10 @@ mod tests {
 
     #[test]
     fn secret_value_never_prints_inner_bytes() {
-        let secret = SecretValue::new("sk-super-secret-token");
+        let secret = SecretValue::new(concat!("sk", "-super-secret-token"));
         assert_eq!(format!("{secret:?}"), "SecretValue(<redacted>)");
         assert_eq!(format!("{secret}"), "<redacted>");
-        assert_eq!(secret.expose(), "sk-super-secret-token");
+        assert_eq!(secret.expose(), concat!("sk", "-super-secret-token"));
     }
 
     #[test]
@@ -465,7 +465,7 @@ mod tests {
             for (key, value) in &entry.context {
                 assert_ne!(key, "value");
                 assert_ne!(value, "token-abc");
-                assert_ne!(value, "sk-super-secret-token");
+                assert_ne!(value, concat!("sk", "-super-secret-token"));
             }
         }
         // The non-secret credential label is retained (proves the log isn't

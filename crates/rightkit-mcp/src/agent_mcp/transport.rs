@@ -9,7 +9,9 @@ use std::sync::Arc;
 
 pub type ElicitationFuture = Pin<Box<dyn Future<Output = Result<Value, String>> + Send>>;
 pub type ElicitationHandler = Arc<
-    dyn Fn(String, rightkit_agent_engine_protocol::ElicitationRequestEvent) -> ElicitationFuture + Send + Sync,
+    dyn Fn(String, rightkit_agent_engine_protocol::ElicitationRequestEvent) -> ElicitationFuture
+        + Send
+        + Sync,
 >;
 
 use crate::agent_mcp::error::McpError;
@@ -93,8 +95,7 @@ impl ClientAdapter {
                 request_timeout: Duration::from_secs(if stdio { 60 } else { 120 }),
                 connect_timeout: None,
                 auth: access_token.map(|token| {
-                    Arc::new(BearerToken(crate::Secret::new(token)))
-                        as Arc<dyn crate::AuthProvider>
+                    Arc::new(BearerToken(crate::Secret::new(token))) as Arc<dyn crate::AuthProvider>
                 }),
                 client_name: "rightkit-agent".into(),
                 client_version: env!("CARGO_PKG_VERSION").into(),

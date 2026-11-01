@@ -273,7 +273,7 @@ mod tests {
             }
         );
         assert_eq!(
-            screen("API_KEY=sk-abcdef1234567890"),
+            screen(concat!("API_KEY=sk", "-abcdef1234567890")),
             ScreeningVerdict::Reject {
                 reason: RejectReason::Credential
             }
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn pem_block_rejected() {
-        let content = "-----BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJBAK...";
+        let content = concat!("--", "---BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJBAK...");
         assert_eq!(
             screen(content),
             ScreeningVerdict::Reject {

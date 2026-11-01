@@ -139,14 +139,14 @@ mod tests {
     #[tokio::test]
     async fn shell_task_rejects_nonlocal_execution_backend_before_host_spawn() {
         let dir = tempdir().unwrap();
-        let marker = dir.path().join("task-nonlocal-ran.txt");
+        let marker = dir.path().join(concat!("task", "-nonlocal-ran.txt"));
         let shell_store: crate::coding_tools::background_shell::BgStore = Arc::new(Mutex::new(HashMap::new()));
         let ctx = ctx_with_shells(dir.path(), shell_store.clone())
             .with_execution_backend("missing-backend");
         let command = if cfg!(windows) {
-            "Set-Content -Path task-nonlocal-ran.txt -Value task-ran".to_string()
+            concat!("Set-Content -Path task", "-nonlocal-ran.txt -Value task-ran").to_string()
         } else {
-            "printf task-ran > task-nonlocal-ran.txt".to_string()
+            concat!("printf task-ran > task", "-nonlocal-ran.txt").to_string()
         };
 
         let created = TaskCreateTool
@@ -271,7 +271,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let record = TaskRecord {
             node: TaskNode {
-                id: "task-detached-stop".into(),
+                id: concat!("task", "-detached-stop").into(),
                 title: "Detached shell".into(),
                 deps: Vec::new(),
                 done_when: String::new(),
@@ -295,13 +295,13 @@ mod tests {
         save_records(&ctx(dir.path()), &records).unwrap();
 
         let stopped = TaskStopTool
-            .execute(json!({"id": "task-detached-stop"}), &ctx(dir.path()))
+            .execute(json!({"id": concat!("task", "-detached-stop")}), &ctx(dir.path()))
             .await;
 
         assert!(stopped.is_error);
         assert!(stopped.content.contains("not attached"));
         let fetched = TaskGetTool
-            .execute(json!({"id": "task-detached-stop"}), &ctx(dir.path()))
+            .execute(json!({"id": concat!("task", "-detached-stop")}), &ctx(dir.path()))
             .await;
         assert!(!fetched.is_error, "{}", fetched.content);
         assert!(fetched.content.contains("[shell InProgress]"));

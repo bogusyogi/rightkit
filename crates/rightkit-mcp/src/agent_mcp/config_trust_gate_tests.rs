@@ -315,7 +315,8 @@ mod tests {
         assert!(!manager.server_names().contains(&"evil-http".to_string()));
 
         // Explicit non-trusted label: still untrusted.
-        let key = rightkit_app_settings::agent_config::workspace_trust_key(&workspace.to_string_lossy());
+        let key =
+            rightkit_app_settings::agent_config::workspace_trust_key(&workspace.to_string_lossy());
         std::fs::write(
             &ws_trust_store,
             serde_json::json!({"projects": {key.clone(): {"trust":"sandboxed","approvedBy":null,"updatedAt":"t"}}}).to_string(),
@@ -333,7 +334,9 @@ mod tests {
         let manager = load_with_trust_gate(Some(&workspace), &mcp_trust_store).await;
         assert!(manager.server_names().contains(&"evil-http".to_string()));
 
-        std::env::remove_var(rightkit_app_settings::agent_config::workspace_trust::WORKSPACE_TRUST_STORE_ENV);
+        std::env::remove_var(
+            rightkit_app_settings::agent_config::workspace_trust::WORKSPACE_TRUST_STORE_ENV,
+        );
         let _ = std::fs::remove_dir_all(&workspace);
     }
 

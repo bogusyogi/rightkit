@@ -12,6 +12,8 @@ mod advanced_http;
 #[cfg(not(feature = "advanced-http"))]
 #[path = "advanced_http_off.rs"]
 mod advanced_http;
+#[cfg(feature = "agent_mcp")]
+pub mod agent_mcp;
 pub mod auth;
 pub mod client;
 pub mod client_features;
@@ -25,8 +27,6 @@ mod sanitize;
 pub mod server;
 pub mod trust;
 mod types;
-#[cfg(feature = "agent_mcp")]
-pub mod agent_mcp;
 
 pub use auth::{AuthProvider, Secret};
 pub use client::{ClientOptions, McpClient, ServerSpec};

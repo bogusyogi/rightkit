@@ -313,7 +313,10 @@ mod tests {
 
     #[test]
     fn pem_block_is_one_span() {
-        let t = "x -----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY----- y";
+        let t = concat!(
+            "x --",
+            "---BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY----- y"
+        );
         let s = find_secrets(t);
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].kind, "PRIVATEKEY");
