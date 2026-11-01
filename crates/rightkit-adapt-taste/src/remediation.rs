@@ -988,6 +988,7 @@ pub fn consumable_for_variant_generation(
 
 /// Convenience production boundary that seals, then atomically joins, a
 /// current-surface attribution. No approval or host execution is implied.
+#[allow(clippy::too_many_arguments)] // established public constructor; a params struct would break callers
 pub fn seal_with_attribution(
     proposal: &RemediationProposalV1,
     attribution: crate::attribution::InterventionAttributionV1,
