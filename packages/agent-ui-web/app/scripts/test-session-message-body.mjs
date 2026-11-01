@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import vm from 'node:vm'
-import ts from 'typescript'
+import ts from '@typescript/typescript6'
 
 const sourceUrl = new URL('../../src/contexts/messagePayload.ts', import.meta.url)
 const source = fs.readFileSync(sourceUrl, 'utf8')

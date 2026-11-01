@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import ts from 'typescript'
+import ts from '@typescript/typescript6'
 
 const source = await readFile(new URL('../../src/markdownSecurity.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, {
