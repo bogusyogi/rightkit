@@ -2,7 +2,7 @@
 // Upstream sources: `codex-worker-ios/Sources/CodexWorker/Dependencies/FileSystemStore.swift`
 // and `codex-worker-ios/Sources/CodexWorker/Models/FileSystem.swift`.
 //
-// OpenCodex's viewer is remote-worker backed. CodeRight keeps its reducer and
+// OpenCodex's viewer is remote-worker backed. the app keeps its reducer and
 // revision semantics, but routes every file operation through this seam so a
 // local workspace, a remote workspace, and deterministic tests can provide
 // their own implementation without leaking transport types into the view.
@@ -193,7 +193,7 @@ extension DependencyValues {
     }
 }
 
-/// Foundation-backed implementation for CodeRight's app-owned workspaces.
+/// Foundation-backed implementation for the app's app-owned workspaces.
 /// The actor serializes cache/revision mutations; each write also re-reads the
 /// file and verifies its etag immediately before replacing it.
 public actor LocalFilePreviewFileSystem: FilePreviewFileSystem {
@@ -423,7 +423,7 @@ public actor LocalFilePreviewFileSystem: FilePreviewFileSystem {
         let data = Data(request.content.utf8)
         guard data.count <= 2_000_000 else { throw FilePreviewError.fileTooLarge(limit: 2_000_000) }
         do {
-            // CodeRight-owned: atomic write to an arbitrary URL with a protection class (no shared consumer; RightKit issue withdrawn 2026-10-18)
+            // the app-owned: atomic write to an arbitrary URL with a protection class (no shared consumer; RightKit issue withdrawn 2026-10-18)
             try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         } catch {
             throw FilePreviewError.io("Could not save file: \(error.localizedDescription)")
@@ -533,7 +533,7 @@ public actor LocalFilePreviewFileSystem: FilePreviewFileSystem {
         let parent = persistenceURL.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-            // CodeRight-owned: atomic write to an arbitrary URL with a protection class (no shared consumer; RightKit issue withdrawn 2026-10-18)
+            // the app-owned: atomic write to an arbitrary URL with a protection class (no shared consumer; RightKit issue withdrawn 2026-10-18)
             try data.write(
                 to: persistenceURL,
                 options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]

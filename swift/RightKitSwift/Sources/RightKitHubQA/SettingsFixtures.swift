@@ -97,7 +97,7 @@ extension HubFixtures {
             [
                 "id": "claude", "name": "Claude", "connected": true, "usesKeychain": true, "refusedAccess": false,
                 "needsRenewal": false, "summary": "demo@example.com · Max 5x · via Claude Code",
-                "signInExplanation": "Pulse reads the Claude Code sign-in on this Mac.",
+                "signInExplanation": "the app reads the Claude Code sign-in on this Mac.",
                 "lastReadAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(-1500)),
                 // The limit windows the real notch publishes per account (HubBridge.swift) and the Overview's
                 // AI usage card reads.
@@ -110,7 +110,7 @@ extension HubFixtures {
             [
                 "id": "codex", "name": "Codex", "connected": true, "usesKeychain": false, "refusedAccess": false,
                 "needsRenewal": false, "summary": "demo@example.com · Plus",
-                "signInExplanation": "Pulse reads the Codex sign-in on this Mac.",
+                "signInExplanation": "the app reads the Codex sign-in on this Mac.",
                 "lastReadAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(-90)),
                 "limits": [
                     ["label": "5-hour", "usedFraction": 0.18, "seconds": 18000],
@@ -120,7 +120,7 @@ extension HubFixtures {
             [
                 "id": "grok", "name": "Grok", "connected": false, "usesKeychain": true, "refusedAccess": true,
                 "needsRenewal": true, "signInTitle": "Sign in to Grok",
-                "signInExplanation": "Sign in to Grok in its own app; Pulse only reads the result.",
+                "signInExplanation": "Sign in to Grok in its own app; the app only reads the result.",
             ],
         ]
         let gauges: [[String: Any]] = [
@@ -133,13 +133,13 @@ extension HubFixtures {
             ["id": "tools", "name": "Tools", "glyph": "tools", "connected": false, "order": 6],
         ]
         let permissions: [[String: Any]] = [
-            ["id": "helper", "title": "Background helper", "why": "Lets Pulse move apps owned by root to the Trash without asking for an administrator password each time.", "status": "granted", "required": true, "needs": ["Uninstalling root-owned apps without a password"]],
-            ["id": "accessibility", "title": "Accessibility", "why": "Lets Pulse watch the keyboard, mouse and Dock, and press keys and move windows for you, in the features listed below.", "status": "needsApproval", "required": true, "needs": ["Window management shortcuts", "Middle-click wheel"]],
-            ["id": "screenRecording", "title": "Screen Recording", "why": "Lets the Snip, Screen and Window tools capture what is on your screen. Pulse keeps nothing it captures unless you save it.", "status": "granted", "required": false, "needs": ["Snip, Screen and Window tools"]],
+            ["id": "helper", "title": "Background helper", "why": "Lets the app move apps owned by root to the Trash without asking for an administrator password each time.", "status": "granted", "required": true, "needs": ["Uninstalling root-owned apps without a password"]],
+            ["id": "accessibility", "title": "Accessibility", "why": "Lets the app watch the keyboard, mouse and Dock, and press keys and move windows for you, in the features listed below.", "status": "needsApproval", "required": true, "needs": ["Window management shortcuts", "Middle-click wheel"]],
+            ["id": "screenRecording", "title": "Screen Recording", "why": "Lets the Snip, Screen and Window tools capture what is on your screen. the app keeps nothing it captures unless you save it.", "status": "granted", "required": false, "needs": ["Snip, Screen and Window tools"]],
             ["id": "fullDiskAccess", "title": "Full Disk Access", "why": "Lets the Storage scan open folders macOS protects, which would otherwise show as empty or unreadable.", "status": "granted", "required": false, "needs": ["Storage scans of protected folders (Mail, Messages, Safari, Photos)"]],
             ["id": "finderMenu", "title": "Finder menu", "why": "Adds Cut, Copy Path and Open in Terminal to Finder's right-click menu. Optional.", "status": "off", "required": false, "needs": ["Cut, Copy Path, Open in Terminal in Finder's menu"]],
-            ["id": "localNetwork", "title": "Local network", "why": "Lets Pulse find computers on your network and send files to them. macOS asks the first time a device connects.", "status": "granted", "required": true, "needs": ["Nearby sharing"]],
-            ["id": "login", "title": "Launch at login", "why": "Starts Pulse automatically each time you sign in to your Mac.", "status": "granted", "required": false, "needs": [String]()],
+            ["id": "localNetwork", "title": "Local network", "why": "Lets the app find computers on your network and send files to them. macOS asks the first time a device connects.", "status": "granted", "required": true, "needs": ["Nearby sharing"]],
+            ["id": "login", "title": "Launch at login", "why": "Starts the app automatically each time you sign in to your Mac.", "status": "granted", "required": false, "needs": [String]()],
         ]
         func action(_ id: String, _ title: String, _ group: String, _ groupTitle: String, _ shortcut: String, _ display: String) -> [String: Any] {
             ["id": id, "title": title, "group": group, "groupTitle": groupTitle, "shortcut": shortcut,

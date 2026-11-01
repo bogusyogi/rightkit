@@ -6,7 +6,7 @@ import SwiftUI
 // line. Ported from `DriveHealth.tsx` and `ChromeSnapshots.tsx`.
 
 enum StorageHealth {
-    static let needsAdmin = "Temperature and wear need Pulse to run as administrator on Windows"
+    static let needsAdmin = "Temperature and wear need the app to run as administrator on Windows"
 
     static func celsius(_ value: Double?) -> String? {
         value.map { "\(Int($0.rounded())) °C" }
@@ -115,7 +115,7 @@ struct StorageDriveHealthPanel: View {
                         Spacer()
                         muted(card.mount)
                     }
-                    if card.disk == nil { muted("Pulse could not match this volume to a physical drive.") }
+                    if card.disk == nil { muted("the app could not match this volume to a physical drive.") }
                     if card.disk != nil && !toolAvailable { muted("Install smartmontools for drive health.") }
                     if card.status == "unavailable" {
                         StorageNotice(

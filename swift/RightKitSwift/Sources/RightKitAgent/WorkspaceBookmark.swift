@@ -1,6 +1,6 @@
 import Foundation
 
-/// A desktop workspace path remembered by CodeRight. Paths are opaque strings: the phone
+/// A desktop workspace path remembered by the app. Paths are opaque strings: the phone
 /// never attempts to inspect or browse the desktop filesystem.
 public struct WorkspaceBookmark: Codable, Equatable, Identifiable, Sendable {
     public let root: String

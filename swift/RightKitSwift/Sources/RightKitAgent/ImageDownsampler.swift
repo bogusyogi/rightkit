@@ -2,7 +2,7 @@
 // Provenance: direct port from baryhuang/claude-code-by-agents at
 // 7655042eb986bf146079032726a7347ac4547c0e,
 // OpenAgents/Helpers/ImageDownsampler.swift. Kept under Porting/Attachments
-// until attachment ingestion is wired into CodeRight's composer.
+// until attachment ingestion is wired into the app's composer.
 
 import Foundation
 import ImageIO

@@ -10,14 +10,14 @@ struct NewSessionControl: ControlWidget {
                 Label("New Session", systemImage: "plus.bubble")
             }
         }
-        .displayName("New CodeRight Session")
-        .description("Open CodeRight's new-session form.")
+        .displayName("New the app Session")
+        .description("Open the app's new-session form.")
     }
 }
 
 @available(iOS 18.0, *)
 struct NewSessionIntent: AppIntent {
-    static let title: LocalizedStringResource = "New CodeRight Session"
+    static let title: LocalizedStringResource = "New the app Session"
     static let openAppWhenRun = true
     static let isDiscoverable = true
 

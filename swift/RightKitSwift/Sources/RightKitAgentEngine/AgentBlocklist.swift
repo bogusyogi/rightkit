@@ -8,7 +8,7 @@ import Foundation
 enum AgentBlocklist {
     static let storageKey = "phoneAgentBlocked"
 
-    /// Never actionable, whatever the owner has typed: Pulse's own approval and settings surfaces, System
+    /// Never actionable, whatever the owner has typed: the app's own approval and settings surfaces, System
     /// Settings, and security prompts (passwords, keychain, administrator or sudo requests).
     static let hardFloor: [String] = [
         "pulse approval", "pulse settings", "system settings", "system preferences", "security",

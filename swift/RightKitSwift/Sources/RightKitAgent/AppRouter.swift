@@ -13,7 +13,7 @@ import UniformTypeIdentifiers
  state into those existing target-owned seams.
  */
 
-/// Donor AppRouter route state with CodeRight-only type names.
+/// Donor AppRouter route state with the app-only type names.
 @MainActor
 @Observable
 public final class AppRouter {

@@ -8,7 +8,7 @@ import Foundation
 @available(iOS 26.0, watchOS 26.0, *)
 struct WatchControlIntent: AppIntent {
     static var title: LocalizedStringResource { "HeardRight" }
-    static var description = IntentDescription("Start or stop HeardRight recording on your watch.")
+    static var description = IntentDescription("Start or stop the app recording on your watch.")
     static var openAppWhenRun = true
     @available(watchOS 26.0, *)
     static var supportedModes: IntentModes { [.foreground(.immediate)] }

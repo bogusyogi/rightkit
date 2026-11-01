@@ -1,7 +1,7 @@
 #if os(iOS)
 // Provenance: direct behavioral transplant from Bot commit
 // 6951c40156ba0916a10b6e49e5051b7785198b93, ios/App/LiveActivities.swift.
-// CodeRight-specific event/state adapters are isolated in this file.
+// the app-specific event/state adapters are isolated in this file.
 
 @preconcurrency import ActivityKit
 import Combine
@@ -16,7 +16,7 @@ public enum LiveActivityUpdateKind: String, Equatable, Sendable {
     case toReview
 }
 
-/// Minimal bot identity needed by ActivityKit. A CodeRight event adapter supplies `face` and
+/// Minimal bot identity needed by ActivityKit. A the app event adapter supplies `face` and
 /// `color`; this keeps the coordinator independent from daemon/session model types.
 public struct LiveActivityBot: Equatable, Sendable {
     public let id: String
@@ -93,7 +93,7 @@ public struct LiveActivityState: Equatable, Sendable {
     }
 }
 
-/// Event adapter seam: map CodeRight `ProtocolEvent` / local runtime events into this
+/// Event adapter seam: map the app `ProtocolEvent` / local runtime events into this
 /// donor-shaped state publisher, then let the coordinator own all ActivityKit lifecycle.
 /// The adapter also handles the app-side answer route; the widget process only invokes intent.
 @MainActor
@@ -120,7 +120,7 @@ public final class LiveActivityCoordinator {
     /// When each bot's current kind began, so an update does not reset its clock.
     private var since: [String: (kind: String, at: Date)] = [:]
 
-    /// Attach once to a CodeRight event adapter. Replacing an existing subscription is safe.
+    /// Attach once to a the app event adapter. Replacing an existing subscription is safe.
     public func attach(to adapter: any LiveActivityEventAdapter) {
         // Answer from the island: the intent runs in this app process.
         AnswerApprovalIntent.handler = { [weak adapter] threadId, requestId, choice, isPermission in

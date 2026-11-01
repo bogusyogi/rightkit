@@ -8,7 +8,7 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
-/// ActivityKit configuration for CodeRight's existing widget extension.
+/// ActivityKit configuration for the app's existing widget extension.
 /// Layout mirrors donor expanded, compact, minimal, and lock-screen surfaces.
 struct LiveActivityWidget: Widget {
     var body: some WidgetConfiguration {

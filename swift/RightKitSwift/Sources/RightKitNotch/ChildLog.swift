@@ -5,10 +5,10 @@ import RightKitDiagnostics
 /// Durable output for the children the notch supervises (the hub and Membrane).
 ///
 /// Their stderr used to go to `/dev/null`, so a crash left nothing to read. It now
-/// goes to `<Pulse state>/logs/<name>-stderr.log`, appended, with size-based
+/// goes to `<the app state>/logs/<name>-stderr.log`, appended, with size-based
 /// rotation done here before each spawn (live file plus two older generations,
 /// 5 MB each). Lifecycle records (a respawn, a latch) are one JSON object per line
-/// in `<Pulse state>/logs/<name>-respawns.jsonl`, appended on a utility queue.
+/// in `<the app state>/logs/<name>-respawns.jsonl`, appended on a utility queue.
 ///
 /// Everything here is blocking file I/O and is nonisolated: call it from a
 /// background task, never the main actor. It carries no message bodies or paths,

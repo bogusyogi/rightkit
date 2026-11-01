@@ -3,13 +3,13 @@ import RightKitNotchCore
 import Foundation
 import RightKitFS
 
-/// The one place the macOS notch names Pulse's state folder, RightKit's per-app data root
-/// `~/Library/Application Support/Orthic Labs/Pulse` (`RightKitAppRoot`, RightKitSwift 0.8.1; the same
+/// The one place the macOS notch names the app's state folder, RightKit's per-app data root
+/// `~/Library/Application Support/Orthic Labs/the app` (`RightKitAppRoot`, RightKitSwift 0.8.1; the same
 /// folder `pulse_core::store::state_root` resolves). Every reader of it goes through here. Each caller
 /// keeps its own rule for tests: the launcher uses `Runtime.testScratch`, the others refuse a real
 /// folder under test through `Runtime.realApplicationSupport`, and an injected directory is used as given.
 public enum StateRoot {
-    /// The name of Pulse's app root under `Orthic Labs`.
+    /// The name of the app's app root under `Orthic Labs`.
     public nonisolated static let appName = "Pulse"
 
     /// The installed state folder, refused under test (`what` names the caller in the refusal).

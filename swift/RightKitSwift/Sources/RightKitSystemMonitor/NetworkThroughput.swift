@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import SystemConfiguration
 
-/// Pulse fork: download and upload rate of the active network interface for
+/// the app fork: download and upload rate of the active network interface for
 /// the System cell. Byte counters come from `getifaddrs` (the link-level
 /// entry's `if_data`, as Stats reads them), the active interface is the
 /// primary one SystemConfiguration names for IPv4, and its kind (Wi-Fi or

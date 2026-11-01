@@ -10,7 +10,7 @@ import RightKitHub
 
 // MARK: - Engine results
 
-/// Any JSON value the engine reports whose shape Pulse does not assume (`model`, `watcherState`, ...).
+/// Any JSON value the engine reports whose shape the app does not assume (`model`, `watcherState`, ...).
 enum MembraneJSON: Decodable, Sendable {
     case null
     case bool(Bool)

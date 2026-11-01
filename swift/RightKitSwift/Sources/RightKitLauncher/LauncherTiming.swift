@@ -6,7 +6,7 @@ import os
 /// list that the CI bench reads and a slow-event log line.
 ///
 /// - `hotkeyToVisible`: the chord is seen (the event tap's thread, or Carbon's handler) until
-///   the panel has been ordered in (`makeKeyAndOrderFront` returned): Pulse's own share of
+///   the panel has been ordered in (`makeKeyAndOrderFront` returned): the app's own share of
 ///   getting the panel on screen. WindowServer's compositing after that is not in it.
 /// - `keystrokeToRows`: the query text changes until the model holds the new rows. Synchronous
 ///   work only: apps, answers, commands and every other in-memory source.

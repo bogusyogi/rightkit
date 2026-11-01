@@ -8,9 +8,9 @@ import RightKitOverlay
 
 /// **An optional path field above the front Finder window** (Orthic-Labs/pulse#186,
 /// `finderPathField`, off by default). Finder has no address bar to extend, so
-/// Pulse draws its own small field flush against the window's top edge. It
+/// the app draws its own small field flush against the window's top edge. It
 /// shows the front window's folder (read through the Accessibility permission
-/// Pulse already holds, as `FinderWindowCloser` does) and lets you type or paste
+/// the app already holds, as `FinderWindowCloser` does) and lets you type or paste
 /// a path and press Return to send that window there (Finder Automation, the
 /// same permission the Finder window targets need; macOS asks the first time).
 /// A path that does not exist, or a refusal from Finder, is said in the field
@@ -235,7 +235,7 @@ final class FinderPathField: NSObject, NSTextFieldDelegate {
         script.executeAndReturnError(&error)
         guard let error else { return nil }
         let number = error[NSAppleScript.errorNumber] as? Int ?? 0
-        if number == -1743 { return "Allow Pulse to control Finder in System Settings > Privacy > Automation" }
+        if number == -1743 { return "Allow the app to control Finder in System Settings > Privacy > Automation" }
         return (error[NSAppleScript.errorMessage] as? String) ?? "Finder refused"
     }
 
@@ -275,7 +275,7 @@ final class FinderPathField: NSObject, NSTextFieldDelegate {
     }
 }
 
-/// A panel that can take typing without making Pulse the active app.
+/// A panel that can take typing without making the app the active app.
 private final class PathPanel: RightKitOverlayPanel {
     init(contentRect: NSRect) {
         super.init(contentRect: contentRect, configuration: RightKitOverlayPanelConfiguration(

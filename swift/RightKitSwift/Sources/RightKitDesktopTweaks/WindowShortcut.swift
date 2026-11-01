@@ -3,11 +3,11 @@ import Carbon.HIToolbox
 import Foundation
 import RightKitHotkeys
 
-/// Pulse: one global shortcut, stored as text such as `ctrl+opt+left` so the
+/// the app: one global shortcut, stored as text such as `ctrl+opt+left` so the
 /// hub and the preferences file can read it. Modifiers come in the order
 /// ctrl, opt, shift, cmd; at least one is required, so a bare key never
 /// becomes a global hotkey. The hub's recorder writes the same names. RightKit has no text
-/// parser for combos yet (rightkit#189), so Pulse keeps this one over `RightKitHotkeyCombo`.
+/// parser for combos yet (rightkit#189), so the app keeps this one over `RightKitHotkeyCombo`.
 struct WindowShortcut: Equatable {
     let combo: RightKitHotkeyCombo
     /// Canonical text, e.g. `ctrl+opt+left`.

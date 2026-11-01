@@ -1,4 +1,4 @@
-// Does AVFoundation cover the media formats HeardRight accepts today?
+// Does AVFoundation cover the media formats the app accepts today?
 //
 // The ffmpeg -> AVFoundation swap (see docs/APPLE_NATIVE_API_AUDIT_2026-07-18.md)
 // is a COVERAGE question, not an accuracy one: decoding to PCM is exact either
@@ -9,7 +9,7 @@
 import AVFoundation
 import UniformTypeIdentifiers
 let types = AVURLAsset.audiovisualTypes().map { $0.rawValue }
-// Formats HeardRight's picker can receive today (no extension filter; ffmpeg decodes all).
+// Formats the app's picker can receive today (no extension filter; ffmpeg decodes all).
 let probe = ["mp3","m4a","wav","flac","mp4","mov","aiff","caf","aac",
              "opus","ogg","webm","mkv","wma","amr","wv","ape"]
 print("AVFoundation audiovisualTypes: \(types.count)")

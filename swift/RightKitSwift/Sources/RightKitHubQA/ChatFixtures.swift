@@ -20,7 +20,7 @@ extension HubFixtures {
             return Data(
                 """
                 [
-                  {"id":"7f3a9c10","name":"Pulse hub port","display":"Pulse hub port on Demo Mac","device":"Demo Mac","local":true,"kind":"claude","state":"busy","liveness":"live","updatedMs":\(now - 12_000),"folder":"pulse"},
+                  {"id":"7f3a9c10","name":"the app hub port","display":"the app hub port on Demo Mac","device":"Demo Mac","local":true,"kind":"claude","state":"busy","liveness":"live","updatedMs":\(now - 12_000),"folder":"pulse"},
                   {"id":"b41d2e77","name":"RightKit release notes","display":"RightKit release notes on Demo Mac","device":"Demo Mac","local":true,"kind":"claude","state":"idle","liveness":"live","updatedMs":\(now - 240_000),"folder":"rightkit"},
                   {"id":"c90e5a02","name":"Engine contract review","display":"Engine contract review on Demo Mac","device":"Demo Mac","local":true,"kind":"codex","state":"idle","liveness":"stale","updatedMs":\(now - 7_200_000),"folder":"engine"},
                   {"id":"Studio Mac:5d21f8aa","name":"Windows notch QA","display":"Windows notch QA on Studio Mac","device":"Studio Mac","local":false,"kind":"claude","state":"idle","liveness":"live","updatedMs":\(now - 90_000),"folder":"windows"},
@@ -33,7 +33,7 @@ extension HubFixtures {
             return Data(
                 """
                 {"messages":[
-                  {"id":"m-1042","chat":"Pulse hub port","from":"Windows notch QA","body":"The Windows notch passes the hover journey on the Dell. One note: the hub did not reopen after the second quit. Details are in the QA receipt.","receivedMs":\(now - 180_000)},
+                  {"id":"m-1042","chat":"the app hub port","from":"Windows notch QA","body":"The Windows notch passes the hover journey on the Dell. One note: the hub did not reopen after the second quit. Details are in the QA receipt.","receivedMs":\(now - 180_000)},
                   {"id":"m-1041","chat":"RightKit release notes","from":"Installer signing","body":"Signing finished for build 412. Notarisation ticket attached to the release record.","receivedMs":\(now - 3_600_000)}
                 ],"evicted":0}
                 """.utf8)

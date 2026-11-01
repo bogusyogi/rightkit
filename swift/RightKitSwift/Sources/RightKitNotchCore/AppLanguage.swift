@@ -1,6 +1,6 @@
 import Foundation
 
-/// Which language Codenotch's own copy uses.
+/// Which language the app's own copy uses.
 ///
 /// Follow System is the default. A forced choice exists because the Mac's
 /// language is not always the one the person wants this app in — bilingual
@@ -78,7 +78,7 @@ public enum AppLanguage: String, CaseIterable, Identifiable {
         case .english, .french, .german, .indonesian, .japanese, .korean,
              .brazilianPortuguese, .russian, .simplifiedChinese, .traditionalChinese,
              .ukrainian, .uzbek, .turkish:
-            return L10n.t("Pulse uses this language even if the Mac does not.")
+            return L10n.t("the app uses this language even if the Mac does not.")
         }
     }
 }

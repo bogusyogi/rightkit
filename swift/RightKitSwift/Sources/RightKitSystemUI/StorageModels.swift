@@ -270,7 +270,7 @@ struct StoragePathParams: Encodable, Sendable {
     let path: String
 }
 
-/// The answer of `media_compress` (Pulse #202): measured from the written copy, never estimated.
+/// The answer of `media_compress` (the app #202): measured from the written copy, never estimated.
 struct StorageCompressOutcome: Decodable, Sendable {
     let output: String
     let source_bytes: Int64

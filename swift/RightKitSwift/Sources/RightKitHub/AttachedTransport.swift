@@ -35,7 +35,7 @@ enum AttachedWire {
 enum AttachedFailure {
     /// No engine is listening yet (or it answers "starting"): retry, never start one.
     static func starting(_ detail: String) -> EngineError {
-        EngineError(code: "engine_starting", message: "Pulse is starting (\(detail))", retryable: true)
+        EngineError(code: "engine_starting", message: "the app is starting (\(detail))", retryable: true)
     }
 
     /// The connection ended before the answer arrived: whether the engine ran the request is unknown.
@@ -214,7 +214,7 @@ final class AttachedConnection: Sendable {
             throw AttachedFailure.hostIdentity("the engine process changed while it was checked")
         }
         guard expectedExecutables.contains(where: { Self.sameFile(path, $0) }) else {
-            throw AttachedFailure.hostIdentity("the listener is not the Pulse engine")
+            throw AttachedFailure.hostIdentity("the listener is not the the app engine")
         }
     }
 

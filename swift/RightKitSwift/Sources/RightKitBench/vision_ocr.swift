@@ -1,5 +1,5 @@
 #if os(macOS)
-// Apple Vision OCR runner — the counterpart to ScrapeRight's PP-OCRv6 `ocr_test`
+// Apple Vision OCR runner — the counterpart to the app's PP-OCRv6 `ocr_test`
 // binary, for the bundled-vs-native comparison.
 //
 // Emits JSON per image: recognized text, wall time, and peak resident memory, so

@@ -5,7 +5,7 @@ import Foundation
 
 /// A command-line tool's login runs in the user's terminal, because that is
 /// where the tool expects to be: it prints a URL, opens the browser and waits
-/// for the callback on its own port. Codenotch only has to type the command
+/// for the callback on its own port. the app only has to type the command
 /// into a fresh window of whichever terminal is installed.
 enum TerminalCommand {
     /// Ghostty and iTerm2 before Terminal, because whoever has installed one

@@ -95,7 +95,7 @@ enum SettingsAccountText {
     }
 }
 
-/// Accounts: the logins Pulse reads, in the notch's order, with Claude's accounts under the Claude row.
+/// Accounts: the logins the app reads, in the notch's order, with Claude's accounts under the Claude row.
 struct SettingsAccountsPage: View {
     let model: SettingsPageModel
     @Environment(\.hubTheme) private var theme
@@ -124,7 +124,7 @@ struct SettingsAccountsPage: View {
         let hasGauges = model.state?.gauges != nil
         var cards = SettingsCardList()
         cards.add(
-            "Logins Pulse reads (it never signs in itself)",
+            "Logins the app reads (it never signs in itself)",
             list.enumerated().map { entry in
                 SettingsRowSpec(
                     id: entry.element.id, text: searchText(entry.element, now: now),
@@ -244,7 +244,7 @@ struct SettingsAccountItem: View {
             if hasSummary {
                 SettingsButton(
                     "Forget reading", kind: .ghost,
-                    hint: "Clears what Pulse read. You stay signed in to \(account.name.split(separator: " ").first.map(String.init) ?? account.name) itself."
+                    hint: "Clears what the app read. You stay signed in to \(account.name.split(separator: " ").first.map(String.init) ?? account.name) itself."
                 ) {
                     let current = model
                     let id = account.id

@@ -1,6 +1,6 @@
 // Ported from `repos/apps/opencodex` commit `1d34372bb51372b7cd61b716021654c9019dfb94`.
 // Upstream source: `codex-worker-ios/Sources/CodexWorker/Models/FileSystem.swift`.
-// Kept inside CodeRight's file-preview port so model transport types stay behind
+// Kept inside the app's file-preview port so model transport types stay behind
 // the local filesystem protocol declared in FilePreviewFileSystem.swift.
 //
 //  FileSystem.swift

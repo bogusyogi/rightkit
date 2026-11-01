@@ -10,7 +10,7 @@ import SwiftUI
 // or a card. The engine methods are `remote.secure.put|list|remove` (core/src/remote/agent_secrets.rs).
 //
 // A secret is typed only into a `SecureField` of this process and goes straight into
-// `remote.secure.put` with the Pulse PIN; it is never put in an observable property, a log line,
+// `remote.secure.put` with the the app PIN; it is never put in an observable property, a log line,
 // an error text or a search string, and the field is cleared as soon as the call is sent. The
 // Tauri hub's twin is hub/src/views/SecureBoxSettings.tsx, which has no secret field at all (the
 // system dialog opens from its command).
@@ -32,7 +32,7 @@ final class SecureBoxModel {
         let monthCents: Int?
         /// What this card used this month, when the engine lists it per card.
         let spentCents: Int?
-        /// Purchases with this card that ended without Pulse knowing whether they went through.
+        /// Purchases with this card that ended without the app knowing whether they went through.
         let held: Int?
     }
 
@@ -47,7 +47,7 @@ final class SecureBoxModel {
         let unknownCents: [String: Int]?
     }
 
-    /// A protected switch waiting for the Pulse PIN (the engine asked for it).
+    /// A protected switch waiting for the the app PIN (the engine asked for it).
     struct PinAsk: Equatable {
         let key: String
         let value: SettingsJSON
@@ -188,7 +188,7 @@ final class SecureBoxModel {
             return false
         }
         guard !pin.isEmpty else {
-            problem = "Type your Pulse PIN to save."
+            problem = "Type your the app PIN to save."
             return false
         }
         var body = LoginBody(
@@ -206,7 +206,7 @@ final class SecureBoxModel {
             return false
         }
         guard !pin.isEmpty else {
-            problem = "Type your Pulse PIN to save."
+            problem = "Type your the app PIN to save."
             return false
         }
         return await put(TotpBody(id: id, totp: code, pin: pin), saved: "One-time code saved.")
@@ -246,7 +246,7 @@ final class SecureBoxModel {
             return false
         }
         guard !pin.isEmpty else {
-            problem = "Type your Pulse PIN to save."
+            problem = "Type your the app PIN to save."
             return false
         }
         let body = CardBody(
@@ -308,7 +308,7 @@ final class SecureBoxModel {
         return pinAsk == nil && problem == nil
     }
 
-    /// An earlier purchase with this card ended without Pulse knowing the outcome.
+    /// An earlier purchase with this card ended without the app knowing the outcome.
     func isHeld(_ item: Item) -> Bool {
         (item.held ?? 0) > 0 || (unknown[item.id] ?? 0) > 0
     }
@@ -374,17 +374,17 @@ enum SettingsSecureBox {
         return list.rows
     }
 
-    static let loginsTitle = "Let agents sign in with logins saved in Pulse"
+    static let loginsTitle = "Let agents sign in with logins saved in the app"
     static let loginsNote =
-        "Lets an agent ask Pulse to type one saved field (username or password) into the page open in your browser. Pulse reads the page's real address, requires it to match the site you saved, and asks you with Touch ID or your PIN each time. The agent never sees the value. Needs Remote tools on. Off by default."
-    static let managersTitle = "Password managers Pulse may start for a login"
+        "Lets an agent ask the app to type one saved field (username or password) into the page open in your browser. the app reads the page's real address, requires it to match the site you saved, and asks you with Touch ID or your PIN each time. The agent never sees the value. Needs Remote tools on. Off by default."
+    static let managersTitle = "Password managers the app may start for a login"
     static let managersNote =
-        "One per line as name=chord, for example 1Password=cmd+shift+\\ . Pulse sends that manager's own autofill shortcut to your browser and sees nothing of what it fills; the manager's own Touch ID runs in the browser. Pulse never reads a manager's vault. Empty by default: no manager is used."
-    static let paymentsTitle = "Let agents pay with a virtual card saved in Pulse"
+        "One per line as name=chord, for example 1Password=cmd+shift+\\ . the app sends that manager's own autofill shortcut to your browser and sees nothing of what it fills; the manager's own Touch ID runs in the browser. the app never reads a manager's vault. Empty by default: no manager is used."
+    static let paymentsTitle = "Let agents pay with a virtual card saved in the app"
     static let paymentsNote =
-        "Lets an agent ask Pulse to type one field of a saved virtual or tokenized US card into a verified checkout page, inside the limits you set on the card. Up to the no-question amount (never above the cap below) it pays without asking; above it you confirm each purchase with Touch ID or your PIN, every time. Pressing the pay button still asks. The amount and the shop's name come from the agent and Pulse cannot check them, so the caps are the real limit. The agent never sees the card. Needs Remote tools on. Off by default."
+        "Lets an agent ask the app to type one field of a saved virtual or tokenized US card into a verified checkout page, inside the limits you set on the card. Up to the no-question amount (never above the cap below) it pays without asking; above it you confirm each purchase with Touch ID or your PIN, every time. Pressing the pay button still asks. The amount and the shop's name come from the agent and the app cannot check them, so the caps are the real limit. The agent never sees the card. Needs Remote tools on. Off by default."
 
-    static let autoCapTitle = "Largest purchase Pulse approves without asking"
+    static let autoCapTitle = "Largest purchase the app approves without asking"
     static let autoCapNote =
         "Across all cards, whatever a card's own no-question amount says. Above it, Touch ID or your PIN confirms each purchase. Default $25. Raising it asks for your PIN."
     static let monthCapTitle = "Most agents may spend in a calendar month"
@@ -392,7 +392,7 @@ enum SettingsSecureBox {
         "Across all cards, whatever a card's own monthly limit says. Default $100. Raising it asks for your PIN."
     static let spotTitle = "Let an agent hand you one part of the screen"
     static let spotNote =
-        "Lets an agent ask you to do one step yourself (a login, a payment confirmation, a CAPTCHA). Pulse dims everything except that region, shows what the agent is about to fill and where, and has a Stop button. The agent never sees the region. Needs Remote tools on. Off by default."
+        "Lets an agent ask you to do one step yourself (a login, a payment confirmation, a CAPTCHA). the app dims everything except that region, shows what the agent is about to fill and where, and has a Stop button. The agent never sees the region. Needs Remote tools on. Off by default."
 
     static func dollars(_ cents: Int?) -> String {
         guard let cents else { return "none" }
@@ -400,7 +400,7 @@ enum SettingsSecureBox {
     }
 }
 
-/// The Pulse PIN field a protected switch asks for when the engine says the change loosens a gate.
+/// The the app PIN field a protected switch asks for when the engine says the change loosens a gate.
 private struct SecurePinPrompt: View {
     let ask: SecureBoxModel.PinAsk
     let box: SecureBoxModel
@@ -409,15 +409,15 @@ private struct SecurePinPrompt: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(verbatim: ask.problem ?? "This change makes a gate less safe, so Pulse asks for your PIN. Set a PIN under Remote access first if you have none.")
+            Text(verbatim: ask.problem ?? "This change makes a gate less safe, so the app asks for your PIN. Set a PIN under Remote access first if you have none.")
                 .font(theme.type.caption.font)
             HStack(spacing: theme.spacing.sm) {
                 // Secure entry is an AppKit-backed control that SwiftRight does not prove. It stays in the
                 // macOS-only branch, which the controls lint skips. The other branch never shows a plain field.
                 #if os(macOS)
-                SecureField("Pulse PIN", text: $pin)
+                SecureField("the app PIN", text: $pin)
                     .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Pulse PIN")
+                    .accessibilityLabel("the app PIN")
                     .onSubmit { confirm() }
                 #else
                 Text(verbatim: "PIN entry is available on the Mac only.")
@@ -609,7 +609,7 @@ struct SecureBoxItemsRow: View {
             title: "Saved logins and cards",
             note: box.items.isEmpty
                 ? "Nothing saved yet. Only labels, sites and limits are ever listed here, never a username, password or card number."
-                : "Only labels, sites and limits are listed, never a value. Saving needs your Pulse PIN."
+                : "Only labels, sites and limits are listed, never a value. Saving needs your the app PIN."
         ) {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(box.items) { item in
@@ -618,7 +618,7 @@ struct SecureBoxItemsRow: View {
                         removeLabel: "Remove \(item.kind) \(item.label)"
                     ) { Task { await box.remove(item) } }
                     if item.kind == "card", box.isHeld(item) {
-                        Text(verbatim: "A purchase with this card ended without Pulse knowing whether it went through. Its amount stays counted, and Pulse asks you before it pays on that site again. Check the card's own statement.")
+                        Text(verbatim: "A purchase with this card ended without the app knowing whether it went through. Its amount stays counted, and the app asks you before it pays on that site again. Check the card's own statement.")
                             .font(.caption).foregroundStyle(.orange)
                     }
                     if item.kind == "login" {
@@ -654,7 +654,7 @@ struct SecureBoxItemsRow: View {
             field("Username", $username)
             secret("Password", $password)
             secret("One-time code secret (optional): setup key or otpauth:// address", $totp)
-            secret("Pulse PIN", $pin)
+            secret("the app PIN", $pin)
             HStack(spacing: theme.spacing.sm) {
                 SettingsButton("Save login", enabled: !box.busy) {
                     let (l, h, u, p, t, n) = (label, host, username, password, totp, pin)
@@ -673,7 +673,7 @@ struct SecureBoxItemsRow: View {
             Text(verbatim: "One-time code for \(target.label): type the setup key or the otpauth:// address. The saved username and password are kept.")
                 .font(.caption).foregroundStyle(.secondary)
             secret("One-time code secret", $totp)
-            secret("Pulse PIN", $pin)
+            secret("the app PIN", $pin)
             HStack(spacing: theme.spacing.sm) {
                 SettingsButton("Save one-time code", enabled: !box.busy) {
                     let (id, t, n) = (target.id, totp, pin)
@@ -687,7 +687,7 @@ struct SecureBoxItemsRow: View {
 
     private func capsLine(_ box: SecureBoxModel) -> String {
         guard let auto = box.capAuto, let month = box.capMonth else {
-            return "Pulse also holds every card to two global caps, set above."
+            return "the app also holds every card to two global caps, set above."
         }
         return "Global caps: \(SettingsSecureBox.dollars(auto)) a purchase without asking and \(SettingsSecureBox.dollars(month)) a month across all cards. A higher limit here is held to them."
     }
@@ -720,7 +720,7 @@ struct SecureBoxItemsRow: View {
             Toggle("This is a virtual or tokenized card from my issuer, limited to these shops", isOn: $card.virtual)
                 .accessibilityLabel("This is a virtual or tokenized card")
             if !card.virtual {
-                Text(verbatim: "Pulse refuses a card that is not virtual or tokenized: a real card number is never saved. Make a virtual card at your issuer first.")
+                Text(verbatim: "the app refuses a card that is not virtual or tokenized: a real card number is never saved. Make a virtual card at your issuer first.")
                     .font(.caption).foregroundStyle(.red)
             }
             if let note = limitNote(box) {
@@ -730,7 +730,7 @@ struct SecureBoxItemsRow: View {
             secret("Card number", $card.number)
             field("Expiry, MM/YY", $card.expiry)
             secret("Security code", $card.cvv)
-            secret("Pulse PIN", $pin)
+            secret("the app PIN", $pin)
             HStack(spacing: theme.spacing.sm) {
                 SettingsButton("Save card", enabled: !box.busy) {
                     let sent = card

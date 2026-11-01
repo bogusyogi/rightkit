@@ -173,7 +173,7 @@ enum CleanupAPI {
         let items: [ActivityItem]
         let skipped: Int?
         let unknown: Int?
-        /// True when Pulse was interrupted during this cleanup and settled it afterwards.
+        /// True when the app was interrupted during this cleanup and settled it afterwards.
         let recovered: Bool?
         let freeSpace: [VolumeFree]?
 

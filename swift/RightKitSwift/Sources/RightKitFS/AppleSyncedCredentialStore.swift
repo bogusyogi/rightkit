@@ -3,7 +3,7 @@ import CryptoKit
 import Foundation
 import RightKitAppleCredentials
 
-/// The only credentials CodeRight may place in the *synchronizable* iCloud
+/// The only credentials the app may place in the *synchronizable* iCloud
 /// Keychain.
 ///
 /// **May sync**:
@@ -73,7 +73,7 @@ struct AppleSyncedCredentialStore: @unchecked Sendable {
 
     /// `$(AppIdentifierPrefix)` in the entitlement resolves to the team id at
     /// build time; the Security APIs need the literal prefix. Resolved exactly
-    /// as HeardRight does (same team, hard-coded prefix).
+    /// as the app does (same team, hard-coded prefix).
     static let accessGroup = "6KLGD3LLKF.app.coderight.shared"
     static let service = "app.coderight.shared.credentials"
 
@@ -96,7 +96,7 @@ struct AppleSyncedCredentialStore: @unchecked Sendable {
         defaults.object(forKey: Self.syncEnabledDefaultsKey) as? Bool ?? false
     }
 
-    /// Ported from HeardRight `adoptAccountConsentIfNeeded`, which is deliberately NOT an auto-enable:
+    /// Ported from the app `adoptAccountConsentIfNeeded`, which is deliberately NOT an auto-enable:
     /// the synchronized `sync.consent` marker is historical account state that may be stale, so it
     /// never turns sync on for a fresh or reprovisioned device, and a locally stored `false` is an
     /// explicit per-device disable. Returns the current local choice.

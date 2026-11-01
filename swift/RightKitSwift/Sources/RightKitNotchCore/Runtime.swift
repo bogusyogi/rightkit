@@ -1,11 +1,11 @@
 #if os(macOS)
 import Foundation
 
-/// Whether this process is an `xcodebuild test` host rather than a Codenotch
+/// Whether this process is an `xcodebuild test` host rather than a the app
 /// somebody launched.
 ///
 /// The unit bundle is hosted by the app itself, so a test run *is* a running
-/// Codenotch — and anything that would reach outside the process has to ask
+/// the app — and anything that would reach outside the process has to ask
 /// first. Without the check every test run put a live request on the usage
 /// endpoint, and every `NotchWindowController` a test constructed ordered a
 /// real panel onto the developer's screen: a single `make test` put forty of
@@ -25,7 +25,7 @@ import Foundation
 /// `realApplicationSupport`, so a run that reaches one stops with a message
 /// naming it instead of reading the folder. Inject a temporary directory.
 public enum Runtime {
-    /// The one path Pulse is installed at. macOS keys login items, background items and privacy
+    /// The one path the app is installed at. macOS keys login items, background items and privacy
     /// grants (Removable Volumes, Files and Folders, Full Disk Access, screen) to path and
     /// identity, so a copy running from anywhere else (a build folder, a QA temp install, a
     /// mounted dmg) never registers a login item, the engine agent or the privileged helper:

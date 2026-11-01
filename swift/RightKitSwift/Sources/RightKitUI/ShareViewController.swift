@@ -4,7 +4,7 @@ import RightKitImportQueue
 import UIKit
 
 /// Inbound Share Sheet bridge. RightKit performs bounded text extraction,
-/// file staging, durable queueing, & legacy migration; HeardRight owns only
+/// file staging, durable queueing, & legacy migration; the app owns only
 /// product group binding & completion policy.
 final class ShareViewController: UIViewController {
     private var didStart = false
@@ -33,7 +33,7 @@ final class ShareViewController: UIViewController {
             guard let payload else {
                 extensionContext?.cancelRequest(
                     withError: NSError(domain: "HeardRightShare", code: 2, userInfo: [
-                        NSLocalizedDescriptionKey: "HeardRight could not import this item."
+                        NSLocalizedDescriptionKey: "the app could not import this item."
                     ])
                 )
                 return
@@ -44,7 +44,7 @@ final class ShareViewController: UIViewController {
             } catch {
                 extensionContext?.cancelRequest(
                     withError: NSError(domain: "HeardRightShare", code: 1, userInfo: [
-                        NSLocalizedDescriptionKey: "HeardRight could not queue this import.",
+                        NSLocalizedDescriptionKey: "the app could not queue this import.",
                         NSUnderlyingErrorKey: error,
                     ])
                 )

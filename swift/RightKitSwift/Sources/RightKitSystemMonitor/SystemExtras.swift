@@ -1,7 +1,7 @@
 #if os(macOS)
 import Foundation
 
-/// Pulse fork: the readings the System cells show beyond CPU and memory, each
+/// the app fork: the readings the System cells show beyond CPU and memory, each
 /// on its own cadence so the two-second sampler stays light. Network and fans
 /// are read on every sample (network needs the previous counters; fans are a
 /// few SMC calls). Battery is re-read every thirty seconds, the HID

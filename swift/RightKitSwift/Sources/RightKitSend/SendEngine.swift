@@ -3,11 +3,11 @@ import Foundation
 import UIKit
 
 // The seam between the app and the Send transport. The real engine will be the
-// RightKit Swift product `RightKitSend` (LocalSend v2.2 over TLS with Pulse's
+// RightKit Swift product `RightKitSend` (LocalSend v2.2 over TLS with the app's
 // additions); it will conform to `SendEngine`. Until it exists, `StubSendEngine`
 // stands in. No networking, Keychain or Bonjour code lives behind this pass.
 
-/// A Pulse computer (or other device) discovered on the local network.
+/// A the app computer (or other device) discovered on the local network.
 struct SendPeer: Identifiable, Hashable, Sendable {
     /// SHA-256 of the device certificate, 64 lowercase hex characters.
     let fingerprint: String

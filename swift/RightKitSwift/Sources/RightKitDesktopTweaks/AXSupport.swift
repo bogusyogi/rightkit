@@ -3,7 +3,7 @@ import ApplicationServices
 import AppKit
 import RightKitAccessibility
 
-/// Pulse: Accessibility helpers for the conveniences that still hold a raw `AXUIElement`
+/// the app: Accessibility helpers for the conveniences that still hold a raw `AXUIElement`
 /// (the event-tap callers). Everything is `RightKitAXElement` underneath; only the hit test
 /// and the settable check stay on raw AX, because RightKit has neither (rightkit#189, #424).
 /// Every read has a short messaging timeout so a hung app cannot stall the

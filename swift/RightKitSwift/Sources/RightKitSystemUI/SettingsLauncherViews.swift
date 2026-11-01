@@ -374,7 +374,7 @@ struct SettingsLauncherLists: View {
                 title: "Folders for file search",
                 note: windows
                     ? "The launcher searches file names only inside these folders. Empty turns file search off."
-                    : "Pulse searches file names itself, with no Spotlight index, only inside these folders. Empty turns file search off. Command space stays taken until Spotlight's shortcut is turned off in System Settings."
+                    : "the app searches file names itself, with no Spotlight index, only inside these folders. Empty turns file search off. Command space stays taken until Spotlight's shortcut is turned off in System Settings."
             ) {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(draft.fileFolders.enumerated()), id: \.offset) { entry in

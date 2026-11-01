@@ -56,7 +56,7 @@ public enum LocalTargetDisclosures {
                 "Resumable session/event history",
                 "Bound by the connected endpoint's own resource limits",
             ],
-            payer: "You, via the cloud endpoint you connected (its own billing, outside CodeRight)",
+            payer: "You, via the cloud endpoint you connected (its own billing, outside the app)",
             dataLocation: "Workspace files and run output live on the connected cloud endpoint"
         ),
         ExecutionTargetDisclosure(

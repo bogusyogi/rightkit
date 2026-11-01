@@ -54,7 +54,7 @@ enum LauncherWebSearch {
     }
 }
 
-/// Hands a question to ChatGPT, with Pulse holding no key and making no network call.
+/// Hands a question to ChatGPT, with the app holding no key and making no network call.
 ///
 /// ChatGPT: when the ChatGPT desktop app is installed, its documented `codex://` link opens a
 /// new chat with the question typed into the composer

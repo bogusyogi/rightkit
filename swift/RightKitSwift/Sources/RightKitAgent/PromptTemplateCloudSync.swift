@@ -2,7 +2,7 @@
 import Foundation
 import RightKitCloudSync
 
-/// Opt-in iCloud sync for prompt templates, modelled on HeardRight's transcript sync.
+/// Opt-in iCloud sync for prompt templates, modelled on the app's transcript sync.
 /// RightKit owns zone, subscription, change tokens, tombstone propagation, and retries;
 /// this file owns the `PromptTemplate` record mapping and the local merge. Sync is OFF
 /// until the consent flag is set, and every path no-ops while it is off.

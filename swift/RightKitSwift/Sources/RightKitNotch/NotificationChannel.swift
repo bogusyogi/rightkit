@@ -61,7 +61,7 @@ enum ChannelNotifications {
         }
     }
 
-    /// A banner; or, when banners are switched off for Codenotch in System
+    /// A banner; or, when banners are switched off for the app in System
     /// Settings, that pane, because a test that shows nothing and says
     /// nothing reads as broken.
     static func test(sound: Bool) {
@@ -70,7 +70,7 @@ enum ChannelNotifications {
             switch settings.authorizationStatus {
             case .notDetermined:
                 center.requestAuthorization(options: [.alert, .sound]) { ok, _ in
-                    if ok { post(title: L10n.t("Pulse test"), body: L10n.t("This is what one looks like."), sound: sound) }
+                    if ok { post(title: L10n.t("the app test"), body: L10n.t("This is what one looks like."), sound: sound) }
                 }
             case .denied:
                 DispatchQueue.main.async {
@@ -80,7 +80,7 @@ enum ChannelNotifications {
                     }
                 }
             default:
-                post(title: L10n.t("Pulse test"), body: L10n.t("This is what one looks like."), sound: sound)
+                post(title: L10n.t("the app test"), body: L10n.t("This is what one looks like."), sound: sound)
             }
         }
     }

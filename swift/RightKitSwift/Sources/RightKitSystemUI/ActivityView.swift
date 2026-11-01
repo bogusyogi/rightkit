@@ -68,7 +68,7 @@ struct ActivityView: View {
     /// and pressing it opens "All" and each kind present under the line.
     private var header: some View {
         HStack(spacing: 12) {
-            Text(verbatim: "What Pulse did and saw, newest first. Read only: nothing is recorded here.")
+            Text(verbatim: "What the app did and saw, newest first. Read only: nothing is recorded here.")
                 .font(theme.type.caption.font)
                 .foregroundStyle(palette.ink2.color)
                 .frame(maxWidth: .infinity, alignment: .leading)

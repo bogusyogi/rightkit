@@ -115,9 +115,9 @@ enum SettingsNearby {
             }
             list.add(
                 id: "chat.claudeHookDelivery",
-                text: "Deliver chat messages to Claude through the Pulse plugin \(text("chat.claudeHookDelivery"))",
+                text: "Deliver chat messages to Claude through the the app plugin \(text("chat.claudeHookDelivery"))",
                 SettingsValueToggleRow(
-                    title: "Deliver chat messages to Claude through the Pulse plugin",
+                    title: "Deliver chat messages to Claude through the the app plugin",
                     note: text("chat.claudeHookDelivery"), isOn: chat?.claudeHookDelivery == true
                 ) { on in
                     Task { await shareModel.setClaudeHookDelivery(on) }
@@ -196,11 +196,11 @@ enum SettingsNearby {
                 })
             list.add(
                 id: "pulseSkill",
-                text: "Pulse skill Teaches Claude and Codex chats how to message chats on other computers. Install the Pulse skill for Claude and Codex",
+                text: "the app skill Teaches Claude and Codex chats how to message chats on other computers. Install the the app skill for Claude and Codex",
                 SettingsButtonRow(
-                    title: "Pulse skill",
+                    title: "the app skill",
                     note: "Teaches Claude and Codex chats how to message chats on other computers. Restart a chat to see it.",
-                    button: "Install the Pulse skill for Claude and Codex",
+                    button: "Install the the app skill for Claude and Codex",
                     disabled: shareModel.installing
                 ) {
                     Task { await shareModel.installSkill() }
@@ -242,7 +242,7 @@ enum SettingsNearby {
             list.foot(id: "chat.outcome", SettingsFootLine(text: "Last message: \(outcome) · \(ageText(sent)) ago"))
         }
         if enabled, let chats = chat?.chats, !chats.isEmpty {
-            list.add(id: "chat.chats", text: "Chats Pulse can message", SettingsChatList(chats: chats))
+            list.add(id: "chat.chats", text: "Chats the app can message", SettingsChatList(chats: chats))
         }
     }
 
@@ -429,7 +429,7 @@ struct SettingsDeviceRow: View {
     }
 }
 
-/// Every chat Pulse can message, grouped by computer: Claude chats live; Codex threads active when
+/// Every chat the app can message, grouped by computer: Claude chats live; Codex threads active when
 /// written to in the last ten minutes.
 struct SettingsChatList: View {
     let chats: [SettingsChatRow]
@@ -449,7 +449,7 @@ struct SettingsChatList: View {
         .padding(.bottom, theme.spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Chats Pulse can message")
+        .accessibilityLabel("Chats the app can message")
     }
 
     private var orderedDevices: [String] {

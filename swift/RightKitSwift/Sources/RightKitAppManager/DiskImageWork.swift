@@ -142,8 +142,8 @@ struct DiskImageInstallResult: Sendable {
     var replaced: [DiskImageTrashedCopy] = []
     var ejected = false
     var downloadTrashed = false
-    /// Pulse replacing itself: the verified copy waiting in `workDirectory`
-    /// for the relauncher to swap in once Pulse has quit.
+    /// the app replacing itself: the verified copy waiting in `workDirectory`
+    /// for the relauncher to swap in once the app has quit.
     var stagedSelf: URL?
     var workDirectory: URL?
 }
@@ -441,10 +441,10 @@ enum DiskImageWork {
         return result
     }
 
-    /// Pulse replacing itself. Pulse cannot copy over the bundle it runs from, so
+    /// the app replacing itself. the app cannot copy over the bundle it runs from, so
     /// this only makes a verified copy in a private temp folder (checked as
     /// strictly as `install` checks its staged copy), crosses the commit point,
-    /// and ejects the image. The detached relauncher does the swap after Pulse
+    /// and ejects the image. The detached relauncher does the swap after the app
     /// exits (`PulseRelauncher`).
     static func prepareSelfReplacement(_ app: DiskImageApp, trashDownload: Bool,
                                        control: DiskImageInstallControl) -> DiskImageInstallResult {

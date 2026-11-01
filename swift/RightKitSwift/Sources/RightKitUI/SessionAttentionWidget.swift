@@ -33,8 +33,8 @@ struct SessionAttentionWidget: Widget {
         StaticConfiguration(kind: kind, provider: TimelineProvider()) { entry in
             SessionAttentionView(entry: entry)
         }
-        .configurationDisplayName("CodeRight Attention")
-        .description("See which CodeRight sessions need attention.")
+        .configurationDisplayName("the app Attention")
+        .description("See which the app sessions need attention.")
         .supportedFamilies([.systemSmall])
     }
 }

@@ -6,7 +6,7 @@ import SwiftUI
 public enum ProviderGlyph: String, Codable, Equatable {
     case claude
     case openai
-    /// Pulse fork: the machine's own readings, drawn with SF Symbols.
+    /// the app fork: the machine's own readings, drawn with SF Symbols.
     case cpu
     case memory
     case disk

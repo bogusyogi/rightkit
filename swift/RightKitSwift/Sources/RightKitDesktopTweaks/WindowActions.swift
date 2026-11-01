@@ -3,7 +3,7 @@ import AppKit
 import ApplicationServices
 import RightKitAccessibility
 
-/// Pulse: moves windows for a `WindowAction` through the Accessibility API.
+/// the app: moves windows for a `WindowAction` through the Accessibility API.
 ///
 /// This is the one engine. The hotkeys call `perform(_:)` on the focused
 /// window; the green-button maximizer calls `toggleMaximize(_:)` on the window
@@ -38,7 +38,7 @@ enum WindowActions {
     }
 
     /// Runs an action on one window. False when the window cannot be moved
-    /// (Pulse's own windows, full-screen windows, no Accessibility) or the
+    /// (the app's own windows, full-screen windows, no Accessibility) or the
     /// action has nothing to do (Restore with no memory, a single display).
     @discardableResult
     static func perform(_ action: WindowAction, on window: RightKitAXElement) -> Bool {
@@ -132,7 +132,7 @@ enum WindowActions {
         (try? window.setFrame(rect)) != nil
     }
 
-    /// Pulse's own windows and full-screen or fixed windows are left alone.
+    /// the app's own windows and full-screen or fixed windows are left alone.
     private static func isMovable(_ window: RightKitAXElement) -> Bool {
         guard (window.pid ?? 0) != ProcessInfo.processInfo.processIdentifier else { return false }
         guard window.isFullScreen != true else { return false }

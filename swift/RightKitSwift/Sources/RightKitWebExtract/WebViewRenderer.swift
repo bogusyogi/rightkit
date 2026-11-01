@@ -9,7 +9,7 @@ enum WebViewError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .loadTimedOut: return "The page took too long to load."
-        case .blocked: return "That page tried to open somewhere ScrapeRight won't go."
+        case .blocked: return "That page tried to open somewhere the app won't go."
         }
     }
 }
@@ -34,7 +34,7 @@ final class WebViewSession: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     override init() {
         let configuration = WKWebViewConfiguration()
-        // Ephemeral: no cookies or cache persist. ScrapeRight iOS never signs
+        // Ephemeral: no cookies or cache persist. the app iOS never signs
         // in to a platform and shouldn't look like it does.
         configuration.websiteDataStore = .nonPersistent()
         // Scripts run only because this view exists for one load; no pop-up

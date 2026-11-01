@@ -15,7 +15,7 @@ struct ExternalSchemeConsentPrompt: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Open outside CodeRight?")
+                Text("Open outside the app?")
                     .font(.headline)
                     .foregroundStyle(Theme.text)
                 Text(explanation)
@@ -85,7 +85,7 @@ struct ExternalSchemeConsentPrompt: View {
     }
 
     private var explanation: String {
-        "This link leaves CodeRight and hands off to another app or system prompt. It came from content the assistant cannot fully vouch for — nothing opens until you approve it."
+        "This link leaves the app and hands off to another app or system prompt. It came from content the assistant cannot fully vouch for — nothing opens until you approve it."
     }
 }
 

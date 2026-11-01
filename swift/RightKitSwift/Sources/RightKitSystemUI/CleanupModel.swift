@@ -112,7 +112,7 @@ final class CleanupModel {
         if skipped > 0 { parts.append("\(ACFormat.items(skipped)) \(skipped == 1 ? "was" : "were") skipped") }
         let detail = parts.joined(separator: " and ")
         if activity.recovered ?? false {
-            let lead = "Pulse was interrupted during this cleanup"
+            let lead = "the app was interrupted during this cleanup"
             return detail.isEmpty ? "\(lead)." : "\(lead); \(detail)."
         }
         if detail.isEmpty { return nil }

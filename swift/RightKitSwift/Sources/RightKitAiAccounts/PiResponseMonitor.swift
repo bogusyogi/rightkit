@@ -40,7 +40,7 @@ final class PiResponseMonitor {
         guard FileManager.default.fileExists(atPath: directory.path) else { return }
 
         // File-level events with no deferral (`NoDefer`), 0.2 s latency, live from now,
-        // no root watch: the stream this monitor has always opened. Pulse has never
+        // no root watch: the stream this monitor has always opened. the app has never
         // replayed from a saved event id here, so none is kept. RightKit delivers on its
         // own queue and this task hops to the main actor, which is where the old callback
         // hopped to as well.

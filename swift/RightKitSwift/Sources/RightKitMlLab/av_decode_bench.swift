@@ -1,6 +1,6 @@
 // AVFoundation decode benchmark — the ffmpeg replacement for file transcription.
 //
-// HeardRight currently shells out to ffmpeg to turn a chosen media file into
+// the app currently shells out to ffmpeg to turn a chosen media file into
 // 16 kHz mono PCM s16le (`file_transcribe.rs`). This does the same work through
 // AVAssetReader + AVAudioConverter and reports wall time and peak RSS so the
 // swap can be judged on latency and footprint, not bundle size.

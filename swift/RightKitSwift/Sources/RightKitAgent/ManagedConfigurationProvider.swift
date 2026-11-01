@@ -15,7 +15,7 @@ extension ManagedAppConfigurationProvider: @retroactive @unchecked Sendable {}
 // Channels, in merge precedence order (declarative wins on a dedup collision):
 //   1. Declarative — `ManagedAppConfigurationProvider.configurations(_:)`,
 //      Apple's live managed-app-configuration stream. DDM/MDM owns its writer;
-//      CodeRight owns subscription, validation, merge, and UI projection.
+//      the app owns subscription, validation, merge, and UI projection.
 //   2. Legacy — `com.apple.configuration.managed`, the standard key MDM
 //      vendors populate via Apple's managed-app-configuration mechanism
 //      (`NSUserDefaultsDidChangeNotification` fires when it updates). Value

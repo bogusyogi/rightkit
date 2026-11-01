@@ -8,7 +8,7 @@ import Foundation
  cleanup so native share consumers can finish reading it.
 */
 
-public struct CodeRightTranscriptShareFile: Identifiable, Sendable {
+public struct AgentTranscriptShareFileType: Identifiable, Sendable {
     public let url: URL
     public let contentType: String
 
@@ -47,7 +47,7 @@ public struct TranscriptExportWriter {
     public func write(
         input: any TranscriptExportInput,
         format: TranscriptExportFormat
-    ) throws -> CodeRightTranscriptShareFile {
+    ) throws -> AgentTranscriptShareFileType {
         let artifact = try TranscriptExportFormatter.artifact(from: input, format: format)
         // Keep donor's path-boundary guard even though formatter filenames are
         // already restricted to basename-safe characters.
@@ -61,6 +61,6 @@ public struct TranscriptExportWriter {
         }
         let url = directory.appendingPathComponent(filename, isDirectory: false)
         try artifact.data.write(to: url, options: .atomic)
-        return CodeRightTranscriptShareFile(url: url, contentType: artifact.contentType)
+        return AgentTranscriptShareFileType(url: url, contentType: artifact.contentType)
     }
 }

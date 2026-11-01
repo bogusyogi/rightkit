@@ -4,7 +4,7 @@ import RightKitNotch
 import Foundation
 import ServiceManagement
 
-/// Pulse fork: registration of the privileged helper (a launch daemon inside
+/// the app fork: registration of the privileged helper (a launch daemon inside
 /// the app, `Contents/Library/LaunchDaemons/dev.orthic.pulse.helper.plist`).
 /// The user approves it once in System Settings > Login Items. See docs/helper.md.
 enum PrivilegedHelper {
@@ -26,7 +26,7 @@ enum PrivilegedHelper {
     /// Registers the daemon. Returns an error message only when it did not end
     /// up enabled or waiting for approval.
     static func enable() -> String? {
-        // The daemon's BundleProgram resolves inside the registering app: only /Applications/Pulse.app
+        // The daemon's BundleProgram resolves inside the registering app: only /Applications/the app.app
         // registers it (Runtime.fixedInstallPath), never a build or temp copy.
         guard Runtime.isFixedInstall else { return "Pulse must run from /Applications/Pulse.app to enable the helper." }
         do {

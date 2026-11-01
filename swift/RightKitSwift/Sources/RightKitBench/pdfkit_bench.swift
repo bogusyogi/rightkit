@@ -1,7 +1,7 @@
 // PDFKit benchmark — text extraction and page rendering.
 //
 // Two consumers care about different halves of this:
-//   * ScrapeRight replaces libpdfium + the pdf-extract crate for one-way TEXT
+//   * the app replaces libpdfium + the pdf-extract crate for one-way TEXT
 //     EXTRACTION (no UI, no round-trip).
 //   * ViewRight would replace pdf.js for RENDERING, so per-page raster time and
 //     memory are what matter there.
@@ -73,7 +73,7 @@ for path in files {
         continue
     }
 
-    // --- text extraction (the ScrapeRight job) ---
+    // --- text extraction (the the app job) ---
     let t0 = Date()
     let text = doc.string ?? ""
     let extractMs = Date().timeIntervalSince(t0) * 1000

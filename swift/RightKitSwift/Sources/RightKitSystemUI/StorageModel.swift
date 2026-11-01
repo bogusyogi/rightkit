@@ -180,7 +180,7 @@ final class StorageModel {
         compressOn = envelope.settings?.mediaCompression == true
     }
 
-    /// Writes a separate, smaller copy in a "Pulse Compressed" folder beside the file (a video can take
+    /// Writes a separate, smaller copy in a "the app Compressed" folder beside the file (a video can take
     /// minutes); the original is never changed.
     func compress(_ row: StorageRow) {
         compressNote = nil

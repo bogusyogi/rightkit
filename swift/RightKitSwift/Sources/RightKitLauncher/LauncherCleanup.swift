@@ -13,11 +13,11 @@ struct LauncherCleanupSummary: Equatable, Sendable {
 
 enum LauncherCleanupFindings {
     /// The file and format the hub writes (`hub/src-tauri/src/cleanup.rs`, `cache.rs`):
-    /// `{ "version": 1, "data": <report> }` in `~/Library/Application Support/Pulse`.
+    /// `{ "version": 1, "data": <report> }` in `~/Library/Application Support/the app`.
     static let formatVersion = 1
 
     private static var url: URL {
-        // The launcher's one Pulse folder (a scratch folder under test).
+        // The launcher's one the app folder (a scratch folder under test).
         LauncherStorage.pulseDirectory.appendingPathComponent("cleanup-findings-v1.json")
     }
 

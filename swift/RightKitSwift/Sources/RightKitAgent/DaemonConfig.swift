@@ -1,6 +1,6 @@
 import Foundation
 
-/// Connection coordinates for one CodeRight desktop daemon. The desktop app prints
+/// Connection coordinates for one the app desktop daemon. The desktop app prints
 /// `{"Port":…, "Token":…}` on `serve`; the PWA takes the same values as `?base=&token=`.
 /// The iOS client pairs by receiving a base URL + bearer token (manual entry or a
 /// scanned `coderight://pair?base=…&token=…` QR payload) and persists them after confirmation.

@@ -119,9 +119,9 @@ enum SettingsCatalog {
         ToolItem(id: "snip", name: "Snip", note: "Drag a region to copy the screenshot to the clipboard.", on: true),
         ToolItem(id: "screen", name: "Screen", note: "Copy a screenshot of the whole screen to the clipboard.", on: true),
         ToolItem(id: "window", name: "Window", note: "Copy a screenshot of one window to the clipboard.", on: true),
-        ToolItem(id: "settings", name: "System Settings", note: "Open macOS System Settings (not Pulse's settings).", on: true),
-        ToolItem(id: "hub", name: "Open hub", note: "Open the Pulse hub.", on: true),
-        ToolItem(id: "launcher", name: "Launcher", note: "Open the Pulse launcher; absent from the wheel while the launcher is off.", on: true),
+        ToolItem(id: "settings", name: "System Settings", note: "Open macOS System Settings (not the app's settings).", on: true),
+        ToolItem(id: "hub", name: "Open hub", note: "Open the the app hub.", on: true),
+        ToolItem(id: "launcher", name: "Launcher", note: "Open the the app launcher; absent from the wheel while the launcher is off.", on: true),
         ToolItem(id: "clip", name: "Clipboard history", note: "Opens the clipboard strip (Clipboard history in the launcher when the strip is off).", on: true),
         ToolItem(id: "notes", name: "Notes", note: "Open the launcher on notes; absent while the launcher or its notes are off.", on: false),
         ToolItem(id: "lock", name: "Lock screen", note: "Lock the screen.", on: false),
@@ -201,7 +201,7 @@ enum SettingsCatalog {
                 choice("displayPreference", "Display", "Which display the notch follows.", "followActiveWindow", ctx, ["monitor", "screen"]),
                 choice("notchVisibility", "Show", "Always shown, a pill that opens on hover, or hidden. Hidden does not stop toasts.", "alwaysShow", ctx, ["hide", "hover", "pill"]),
                 toggle("notifications", "Notifications",
-                       "Turns off Pulse's toasts and alert sounds; cards that answer something you did, or that need an answer, still show. With Show set to Hidden, or the notch folded for a full-screen app, a toast brings the notch out and it goes again.",
+                       "Turns off the app's toasts and alert sounds; cards that answer something you did, or that need an answer, still show. With Show set to Hidden, or the notch folded for a full-screen app, a toast brings the notch out and it goes again.",
                        on: true, ["toasts", "alerts", "sounds", "banner", "mute"]),
                 toggle("foldsForFullScreen", "Fold for full-screen apps", "Folds away when a full-screen app is in front.", on: true, ["fullscreen"]),
             ]),
@@ -294,11 +294,11 @@ enum SettingsCatalog {
         let toolSwitches: [HubSetting] = toolSettings(ctx)
         var groups: [HubSettingsGroup] = [
             group("general", "startup", "Startup", [
-                toggle("launchAtLogin", "Open Pulse at login", "Registers Pulse as a login item.", on: true, ["startup", "login item", "autostart"]),
+                toggle("launchAtLogin", "Open the app at login", "Registers the app as a login item.", on: true, ["startup", "login item", "autostart"]),
             ]),
             group("general", "diagnosticsAccounts", "Diagnostics and Claude accounts", [
                 toggle("hubDiagnosticsPage", "Show the Diagnostics page in the hub",
-                       "Pulse's crash and hang reports and warnings, with only times, process names and short codes.",
+                       "the app's crash and hang reports and warnings, with only times, process names and short codes.",
                        on: true, ["crash", "hang", "reports", "warnings"]),
                 toggle("claudeAccountScan", "Look for new Claude accounts",
                        "Looks for new Claude account folders and offers to bring this computer's chats into them. Mac only: the Windows card is not built.",
@@ -306,13 +306,13 @@ enum SettingsCatalog {
             ]),
             group("general", "agent", "Agent", [
                 toggle("agentRequests", "Answer agent requests (uses your Claude subscription)",
-                       "Lets Pulse's background agent answer `pulse task ask` and voice requests with one bounded run of Claude Code, which uses your Claude subscription quota.",
+                       "Lets the app's background agent answer `pulse task ask` and voice requests with one bounded run of Claude Code, which uses your Claude subscription quota.",
                        on: false, ["agent", "claude", "task ask", "voice"]),
                 toggle("agentActions", "Let the agent act on this computer (uses your Claude subscription)",
                        "Lets Pulse's background agent act for `pulse task act` and voice requests, using only the Pulse tools you have switched on under Remote access. Every act waits for your approval in Pulse.",
                        on: false, ["agent", "claude", "task act", "voice"]),
                 toggle("membraneAutoEnroll", "Enrol repositories in Blueprint automatically",
-                       "When Pulse lists a chat's working folder that is a git repository, it asks Membrane to enrol the repository (only if it is not already enrolled) and build its map, at most once a day per repository, while the resident runs. Off: Pulse does nothing on its own.",
+                       "When the app lists a chat's working folder that is a git repository, it asks Membrane to enrol the repository (only if it is not already enrolled) and build its map, at most once a day per repository, while the resident runs. Off: the app does nothing on its own.",
                        on: true, ["membrane", "blueprint", "enrol", "repository", "map"]),
             ]),
             group("general", "deviceLinks", "Devices", [
@@ -332,10 +332,10 @@ enum SettingsCatalog {
                 text("deviceLinkRelayUrl", "Device link relay URL",
                      "The relay used when the other computer is not on this network. Empty: no relay.", .string(""), "https://", ["device", "relay", "link"]),
                 toggle("chatOverDeviceLink", "Chat with paired computers over the device link",
-                       "On: Pulse Chat uses a paired computer's device link beside ssh links, and accepts chat from paired computers you admitted or that hold a reversible grant. Off: both directions refuse and only ssh links carry chat.",
+                       "On: the app Chat uses a paired computer's device link beside ssh links, and accepts chat from paired computers you admitted or that hold a reversible grant. Off: both directions refuse and only ssh links carry chat.",
                        on: true, ["chat", "device", "link", "ssh"]),
                 toggle("devicePhoneChats", "Let paired phones read and message my chats",
-                       "Lets the Pulse iPhone app read and message your chats over the device link. Does nothing until a phone is paired.",
+                       "Lets the the app iPhone app read and message your chats over the device link. Does nothing until a phone is paired.",
                        on: true, ["phone", "iphone", "chat"]),
                 choice("devicePhoneRead", "New phones may read my chats", "What a phone paired from now on may do with your chat list.", "allow", ctx, ["phone", "read"]),
                 choice("devicePhoneSend", "New phones may send to my chats",
@@ -348,12 +348,12 @@ enum SettingsCatalog {
                        on: true, ["phone", "send", "receive"]),
                 text("devicePhoneReceiveTtlMinutes", "Minutes an item waits for a phone",
                      "An item the phone has not picked up in this time is deleted from this computer.", .number(60), "60", ["phone", "send", "minutes"]),
-                choice("chatClaudeHookDelivery", "Deliver chat messages to Claude through the Pulse plugin",
-                       "auto: on once a Pulse Claude plugin hook ran on this computer within 7 days; on or off overrides.", "auto", ctx, ["chat", "claude", "hook", "plugin"]),
+                choice("chatClaudeHookDelivery", "Deliver chat messages to Claude through the the app plugin",
+                       "auto: on once a the app Claude plugin hook ran on this computer within 7 days; on or off overrides.", "auto", ctx, ["chat", "claude", "hook", "plugin"]),
             ]),
             group("general", "nearby", "Nearby sharing", [
                 toggle("nearbyEnabled", "Send and receive files nearby",
-                       "Works with the LocalSend app on iPhone, Android, \(ctx.windows ? "Mac" : "Windows") and Linux. Pulse can be found on your network while this is on.",
+                       "Works with the LocalSend app on iPhone, Android, \(ctx.windows ? "Mac" : "Windows") and Linux. the app can be found on your network while this is on.",
                        on: true, ["localsend", "airdrop", "send", "share", "files"]),
                 text("nearbyAlias", "Device name", "How other devices list this \(pc). Empty uses the \(pc)'s name.", .string(""), "This \(pc)", ["alias", "name"]),
                 text("nearbySaveFolder", "Save received files to", "Where received files go.", .string(""), "Downloads", ["folder", "downloads"]),
@@ -367,11 +367,11 @@ enum SettingsCatalog {
                        on: true, ["chat", "agents", "ssh", "messages"]),
                 toggle("chatRingLight", "Light the Send ring on Chat activity",
                        "The Send ring pulses for a few seconds when a Chat message is sent or arrives.", on: true, ["chat", "ring"]),
-                toggle("chatPluginAutoInstall", "Install Pulse Chat into the agent apps it finds",
-                       "Finds Claude Code, Codex and Muse here and installs Pulse's Chat integration where it is missing. Muse asks once on a notch card.",
+                toggle("chatPluginAutoInstall", "Install the app Chat into the agent apps it finds",
+                       "Finds Claude Code, Codex and Muse here and installs the app's Chat integration where it is missing. Muse asks once on a notch card.",
                        on: true, ["chat", "plugin", "install", "claude", "codex", "muse"]),
-                toggle("chat.claudeHookDelivery", "Deliver chat messages to Claude through the Pulse plugin",
-                       "The message arrives as added context labelled as coming from another agent, after the chat's next tool call, at the end of its turn, or with the user's next prompt. An idle chat reads it only on its next turn. Requires the Pulse plugin installed in Claude Code.",
+                toggle("chat.claudeHookDelivery", "Deliver chat messages to Claude through the the app plugin",
+                       "The message arrives as added context labelled as coming from another agent, after the chat's next tool call, at the end of its turn, or with the user's next prompt. An idle chat reads it only on its next turn. Requires the the app plugin installed in Claude Code.",
                        on: false, ["chat", "claude", "hook", "plugin"]),
                 toggle("chat.terminalChats", "List terminal chats active in the last 6 hours",
                        "Lists interactive terminal chats (Claude Code and Codex in a terminal) alongside the app chats, but only while they have been active in the last 6 hours, so old terminal sessions do not clutter the list. Off, only app chats are listed. App chats are always listed.",
@@ -380,10 +380,10 @@ enum SettingsCatalog {
                        "Lists and messages Claude chats in other Claude profiles (~/ClaudeProfiles), labelled by profile. On by default.",
                        on: true, ["chat", "claude", "profile", "home", "folder"]),
                 toggle("chat.muse", "Muse chats",
-                       "Lists, reads and messages Muse Code chats, and lets Pulse's Muse plugin register them and hand them messages. Off, no Muse chat is listed or reached and the plugin's hooks do nothing. Install the plugin with pulse chat install --muse. On by default.",
+                       "Lists, reads and messages Muse Code chats, and lets the app's Muse plugin register them and hand them messages. Off, no Muse chat is listed or reached and the plugin's hooks do nothing. Install the plugin with pulse chat install --muse. On by default.",
                        on: true, ["chat", "muse", "plugin", "hook"]),
                 toggle("chat.stampUserWords", "Stamp my words into messages",
-                       "Each message a chat sends carries your last three typed turns, read by Pulse from that chat's transcript, so the receiving chat can check what you asked. Up to 3 KB, only to your own linked computers. On by default.",
+                       "Each message a chat sends carries your last three typed turns, read by the app from that chat's transcript, so the receiving chat can check what you asked. Up to 3 KB, only to your own linked computers. On by default.",
                        on: true, ["chat", "stamp", "words", "turns", "transcript", "said"]),
                 toggle("chat.codexWakeIdle", "Start a turn in an idle Codex chat when a message arrives",
                        "On, an idle Codex chat is started on the message without anyone pressing Steer, using Codex's own command line, with that chat's normal permissions, and it uses the account's Codex allowance. Only a chat that is positively idle is started, and never one the Codex app may hold: then the message waits for the chat's next prompt or tool call. Off, the message waits for the owner's next prompt. On by default. The app may not show the new turn until the chat is reopened.",
@@ -392,7 +392,7 @@ enum SettingsCatalog {
                        "On, a message for an idle Claude Desktop chat (default profile) opens that chat in Claude Desktop so it starts a turn, and it uses the account's Claude allowance. A chat in another profile waits for its next turn. Off, the message waits in the chat's inbox. On by default.",
                        on: true, ["chat", "claude", "wake", "idle", "desktop"]),
                 toggle("chat.museWakeIdle", "Start a turn in an idle Muse chat when a message arrives",
-                       "On, Pulse starts a turn in an idle Muse chat on the message; takes effect when Muse offers a supported entry. Until then the message waits in the chat's inbox for its next prompt. On by default.",
+                       "On, the app starts a turn in an idle Muse chat on the message; takes effect when Muse offers a supported entry. Until then the message waits in the chat's inbox for its next prompt. On by default.",
                        on: true, ["chat", "muse", "wake", "idle"]),
                 toggle("chat.receiptNotices", "Show receipts of messages you sent in chat hooks",
                        "On, a chat whose hook runs is told in a short line when a message it sent was seen by the receiving chat, picked up, released, refused or expired. At most one such notice a minute, batched. Off, the receipts are still kept and shown by pulse chat receipts.",
@@ -409,7 +409,7 @@ enum SettingsCatalog {
             group("general", "installers", "Installers", [
                 toggle("convDiskImageInstaller", ctx.windows ? "Watch Downloads for installers" : "Install apps from disk images",
                        ctx.windows
-                           ? "A new installer in Downloads brings up a card on the notch. Off, Pulse does not look at Downloads."
+                           ? "A new installer in Downloads brings up a card on the notch. Off, the app does not look at Downloads."
                            : "When a disk image holding an app mounts, the notch installs it to Applications and ejects the image, or asks first. Needs no permission.",
                        on: true, ["dmg", "disk image", "install", "msi", "msix", "downloads"]),
                 toggle("installer_auto", "Install signed installers automatically",
@@ -438,7 +438,7 @@ enum SettingsCatalog {
                 toggle("hubFileIndexWholeDisk", "Index the whole disk (default: home, Applications and chosen volumes)", "Off: the index covers your home folder, /Applications and the extra volumes below. On: every mounted volume. Applies the next time the hub starts.", on: false, ["index", "scope", "whole disk", "volumes"]),
                 text("hubFileIndexVolumes", "Extra volumes to index", "Volumes the index covers as well, one mount path per line, for example /Volumes/Archive. Empty by default.", .other, "/Volumes/Archive", ["index", "scope", "volumes"]),
                 text("hubFileIndexExcludes", "Excluded folders (names or paths; also read from .pulseignore)", "Folders the index skips: a name skips it wherever it appears; a path such as Library/Caches skips that folder. Default: target, node_modules, .git/objects, DerivedData, .build, build, dist, Library/Caches, Library/Logs, .Trash, .gradle, .cache, __pycache__, venv, .venv, .rightkit-managed, .rustright, .build-home. Windows adds AppData\\Local\\Temp, $Recycle.Bin and System Volume Information.", .other, "target", ["index", "exclude", "ignore", "folders", "whole disk"]),
-                toggle("mediaCompression", "Compress images and videos", "Adds Compress a copy to a JPEG, PNG, MP4 or MOV file in Storage. It writes a smaller copy in a Pulse Compressed folder beside the file and never changes the original.", on: false, ["storage", "image", "video", "compress"]),
+                toggle("mediaCompression", "Compress images and videos", "Adds Compress a copy to a JPEG, PNG, MP4 or MOV file in Storage. It writes a smaller copy in a the app Compressed folder beside the file and never changes the original.", on: false, ["storage", "image", "video", "compress"]),
                 toggle("hubFileIndexAutoPause", "Pause the file index when it misbehaves", "Pauses the index for a while when it stays unhealthy, and switches it off on the third trip.", on: true, ["pause", "trips", "unhealthy", "switch off"]),
                 text("hubFileIndexMaxTrips", "Trips before the index is switched off", "Trips before the file index is switched off.", .number(3), "3", ["pause", "trips"]),
                 text("hubFileIndexPauseMinutes", "First pause, in minutes", "The first pause, in minutes; each later pause doubles it.", .number(5), "5", ["pause", "minutes"]),
@@ -447,13 +447,13 @@ enum SettingsCatalog {
                 text("hubFileIndexMaxWriteMbPerHour", "Index write limit (MB per hour)", "Disk writes above which the file index counts as unhealthy.", .number(2048), "2048", ["writes", "unhealthy"]),
                 toggle("chromeSnapshotCount", "Count Chrome's signing copies", "Once a day, counts the leftover code-signing copies Chrome keeps, for Cleanup's history line.", on: true, ["cleanup", "chrome"]),
                 toggle("cleanupDeveloperItems", "Developer items in Cleanup", "Cleanup also offers developer caches, build output and old release builds (newest two kept).", on: true, ["cleanup", "developer", "caches"]),
-                toggle("engineMemoryGuard", "Restart the engine if its memory runs away", "Restarts the Pulse engine when its memory passes the cap below.", on: true, ["engine", "memory", "restart"]),
+                toggle("engineMemoryGuard", "Restart the engine if its memory runs away", "Restarts the the app engine when its memory passes the cap below.", on: true, ["engine", "memory", "restart"]),
                 text("engineMemoryCapMb", "Engine memory cap (MB)", "The memory the engine may use before the guard restarts it (512 to 65536).", .number(1024), "1024", ["engine", "memory", "cap"]),
                 toggle("hubAutoScan", "Scan when Storage or Cleanup opens", "Scans by itself when there is no saved result or it is old. Off shows what was saved until you press Rescan.", on: true, ["rescan", "storage", "cleanup"]),
             ]),
             group("general", "hubHealth", "Hub health", [
                 toggle("hubWatchdog", "Hub resource watchdog", "Checks the hub's own CPU, memory, threads and disk writes, and reports a sustained overrun. It never acts.", on: true, ["watchdog", "cpu", "memory", "threads", "writes", "health"]),
-                toggle("hubDiagReports", "Watch macOS reports about Pulse", "Lists new Pulse crash and resource reports in the macOS diagnostic folders.", on: true, ["crash", "diagnostic", "report", "ips"]),
+                toggle("hubDiagReports", "Watch macOS reports about the app", "Lists new the app crash and resource reports in the macOS diagnostic folders.", on: true, ["crash", "diagnostic", "report", "ips"]),
                 toggle("hubLog", "Keep a hub log", "Keeps the hub's lifecycle in its log. No file names or contents.", on: true, ["log", "diagnostics"]),
                 text("hubWatchdogCpuPercent", "Watchdog CPU limit (percent)", "CPU budget for the watchdog, in percent of one core.", .number(5), "5", ["cpu", "watchdog"]),
                 text("hubWatchdogMinutes", "Watchdog window (minutes)", "How long an overrun must last before the watchdog reports it.", .number(10), "10", ["minutes", "watchdog"]),
@@ -464,7 +464,7 @@ enum SettingsCatalog {
             group("general", "remoteAccess", "Remote access", [
                 toggle("remoteTools", "Remote tools", "Read-only access to this computer's files and chats by agents through the pulse CLI.", on: false, ["remote", "agents", "files", "chat", "cli"]),
                 text("remoteRoots", "Approved folders", "Folders remote file tools may read.", .other, "/path/to/folder", ["folders", "files", "roots"]),
-                text("remoteBlockedApps", "Blocked apps", "Apps Pulse's agents may never open, see or control.", .other, "com.example.app", ["blocked", "apps", "block list", "launch", "screen"]),
+                text("remoteBlockedApps", "Blocked apps", "Apps the app's agents may never open, see or control.", .other, "com.example.app", ["blocked", "apps", "block list", "launch", "screen"]),
                 text("remoteChatRead", "Chats a remote reader may read", "Chats pulse chat read may return, by chat id.", .other, "chat id", ["chat", "read", "chats"]),
                 toggle("phoneChatReadAll", "My paired phones may read every chat", "Your own paired phones read every chat on this computer; off limits them to the chats selected here. Never applies to cloud agents or the gateway.", on: true, ["phone", "chat", "read", "all chats"]),
                 text("remoteReadMaxBytes", "Largest file read", "The most bytes one file read returns.", .number(1_048_576), "1048576", ["bytes", "read", "limit"]),
@@ -497,9 +497,9 @@ enum SettingsCatalog {
                 toggle("convDiskImageAuto", "Install apps from disk images automatically", "Only signed, notarized apps that aren't installed yet; others ask in the notch.", on: true, ["dmg"]),
                 toggle("convDiskImageAutoUpdate", "Also update apps that are already installed", "Replaces an older installed version; Undo restores it from the Trash.", on: false, ["dmg"]),
                 toggle("convDiskImageTrashDownload", "Move the downloaded disk image to the Trash", "After a successful install, the .dmg you opened goes to the Trash.", on: false, ["dmg"]),
-                toggle("finderMenuCut", "Finder menu: Cut", "Cut in Finder's right-click menu, for selected items. Shown while Pulse runs.", on: true, ["finder", "context menu"]),
-                toggle("finderMenuCopyPath", "Finder menu: Copy Path", "Copy Path in Finder's right-click menu. Shown while Pulse runs.", on: true, ["finder", "context menu"]),
-                toggle("finderMenuTerminal", "Finder menu: Open in Terminal", "Open in Terminal in Finder's right-click menu. Shown while Pulse runs.", on: true, ["finder", "context menu"]),
+                toggle("finderMenuCut", "Finder menu: Cut", "Cut in Finder's right-click menu, for selected items. Shown while the app runs.", on: true, ["finder", "context menu"]),
+                toggle("finderMenuCopyPath", "Finder menu: Copy Path", "Copy Path in Finder's right-click menu. Shown while the app runs.", on: true, ["finder", "context menu"]),
+                toggle("finderMenuTerminal", "Finder menu: Open in Terminal", "Open in Terminal in Finder's right-click menu. Shown while the app runs.", on: true, ["finder", "context menu"]),
             ]),
             group("general", "windowManagement", "Window management", [
                 toggle("windowManagementEnabled", "Move windows with shortcuts",
@@ -530,14 +530,14 @@ enum SettingsCatalog {
     private static func launcher(_ ctx: SettingsCatalogContext) -> [HubSetting] {
         [
             toggle("launcherEnabled", "Enable the launcher",
-                   ctx.windows ? "Alt+Space opens a search of your apps, running programs and Pulse's pages." : "Search apps, files and Pulse commands, and calculate.",
+                   ctx.windows ? "Alt+Space opens a search of your apps, running programs and the app's pages." : "Search apps, files and the app commands, and calculate.",
                    on: false, ["spotlight", "search", "alfred", "raycast"]),
             choice("launcherHotkey", "Shortcut", "The global key that opens the launcher. Command space only works after Spotlight's shortcut is turned off in System Settings.", "optionSpace", ctx, ["hotkey", "space"]),
             choice("launcherHotkeyConflict", "Who keeps the shortcut",
-                   "When another app such as ChatGPT also uses the launcher's shortcut, Pulse asks once. Pulse takes it ahead of the other app (needs Accessibility), or the other app keeps it. Choosing a different shortcut asks again.",
+                   "When another app such as ChatGPT also uses the launcher's shortcut, the app asks once. the app takes it ahead of the other app (needs Accessibility), or the other app keeps it. Choosing a different shortcut asks again.",
                    "", ctx, ["conflict", "chatgpt", "raycast", "alfred", "spotlight", "override"]),
             choice("launcherAskTarget", "Ask row",
-                   "Where the launcher's Ask row sends your text: answered in the launcher by Pulse's assistant, opened in ChatGPT (the app, or chatgpt.com when it is not installed), or no Ask row.",
+                   "Where the launcher's Ask row sends your text: answered in the launcher by the app's assistant, opened in ChatGPT (the app, or chatgpt.com when it is not installed), or no Ask row.",
                    "inLauncher", ctx, ["ai", "assistant", "chat", "chatgpt"]),
             toggle("launcherWebSearch", "Search the web",
                    "A row under the results that searches the web with your text in your default browser.",
@@ -546,9 +546,9 @@ enum SettingsCatalog {
             toggle("launcherDictionary", "Dictionary", "“define word” looks words up in the Mac's dictionaries.", on: true, ["define"]),
             toggle("launcherShortcuts", "Apple Shortcuts", "Search and run the shortcuts in the Shortcuts app.", on: true, ["automation"]),
             toggle("launcherCalculator", "Calculator and unit conversion", "Answers sums and conversions such as “12 km in mi”.", on: true, ["math", "units"]),
-            toggle("launcherPulseCommands", "Pulse commands", "Open Storage, Cleanup, Monitor, Apps and Settings, and clear clipboard history, from the launcher.", on: true),
+            toggle("launcherPulseCommands", "the app commands", "Open Storage, Cleanup, Monitor, Apps and Settings, and clear clipboard history, from the launcher.", on: true),
             toggle("launcherSnippetExpansion", "Expand snippet keywords as you type",
-                   "Watches what you type to spot a snippet's keyword and replaces it. Nothing typed is stored or sent. Needs Accessibility. A keyword must start with a symbol (such as ;sig or /addr) and be 2 to 32 characters. It expands only in a text field, never in password fields, in Pulse's own windows, or while a password manager's item is on the clipboard. Snippets that use {argument} are skipped.",
+                   "Watches what you type to spot a snippet's keyword and replaces it. Nothing typed is stored or sent. Needs Accessibility. A keyword must start with a symbol (such as ;sig or /addr) and be 2 to 32 characters. It expands only in a text field, never in password fields, in the app's own windows, or while a password manager's item is on the clipboard. Snippets that use {argument} are skipped.",
                    on: false, ["text expander", "keyboard"]),
             toggle("launcherCurrency", "Currency and crypto rates", "Fetches exchange rates once a day from open.er-api.com and CoinGecko.", on: false, ["exchange", "bitcoin"]),
             toggle("launcherClipboard", "Clipboard history",
@@ -566,7 +566,7 @@ enum SettingsCatalog {
             choice("clipboardPasteMode", "When I choose a clip",
                    "Paste the chosen clipboard item into the app you were in, or only copy it.\(ctx.windows ? "" : " Paste needs Accessibility.")", "paste", ctx, ["clipboard"]),
             toggle("clipboardPlainDefault", "Paste as plain text by default", "In the clipboard strip, Enter pastes plain text and Shift+Enter pastes as copied (swaps the two).", on: false, ["clipboard"]),
-            toggle("clipboardWriteBackExcluded", "Keep pasted clips out of Windows history", "Windows only. When Pulse pastes a clipboard item it marks it so Windows' own Win+V history does not record it again.", on: true, ["clipboard", "win+v"]),
+            toggle("clipboardWriteBackExcluded", "Keep pasted clips out of Windows history", "Windows only. When the app pastes a clipboard item it marks it so Windows' own Win+V history does not record it again.", on: true, ["clipboard", "win+v"]),
             toggle("clipboardCaptureImages", "Keep images", "Stores copied images and screenshots in the clipboard history. Off: image copies are skipped.", on: true, ["clipboard"]),
             toggle("clipboardCaptureFiles", "Keep copied files", "Stores copied file lists (paths only) in the clipboard history. Off: file copies are skipped.", on: true, ["clipboard"]),
             toggle("clipboardCaptureRich", "Keep formatting", "Stores HTML and RTF with the text in the clipboard history. Off: rich copies are stored as plain text.", on: true, ["clipboard", "html", "rtf"]),
@@ -593,21 +593,21 @@ enum SettingsCatalog {
         case .permissions:
             return [
                 HubSearchEntry(id: "permissions", title: "Permissions", detail: "Which permission each switched-on feature needs", keywords: ["privacy", "access", "allow"]),
-                HubSearchEntry(id: "helper", title: "Background helper", detail: "Lets Pulse move apps owned by root to the Trash without a password", keywords: ["uninstall", "root", "password"]),
-                HubSearchEntry(id: "accessibility", title: "Accessibility", detail: "Lets Pulse watch the keyboard, mouse and Dock, and press keys and move windows", keywords: ["permission"]),
+                HubSearchEntry(id: "helper", title: "Background helper", detail: "Lets the app move apps owned by root to the Trash without a password", keywords: ["uninstall", "root", "password"]),
+                HubSearchEntry(id: "accessibility", title: "Accessibility", detail: "Lets the app watch the keyboard, mouse and Dock, and press keys and move windows", keywords: ["permission"]),
                 HubSearchEntry(id: "screenRecording", title: "Screen Recording", detail: "Lets the Snip, Screen and Window tools capture the screen", keywords: ["permission", "screenshot"]),
                 HubSearchEntry(id: "fullDiskAccess", title: "Full Disk Access", detail: "Lets the Storage scan open folders macOS protects", keywords: ["permission", "fda", "storage"]),
                 HubSearchEntry(id: "finderMenu", title: "Finder menu", detail: "Adds Cut, Copy Path and Open in Terminal to Finder's right-click menu", keywords: ["permission", "extension"]),
-                HubSearchEntry(id: "localNetwork", title: "Local network", detail: "Lets Pulse find computers on your network and send files to them", keywords: ["permission", "firewall", "nearby"]),
+                HubSearchEntry(id: "localNetwork", title: "Local network", detail: "Lets the app find computers on your network and send files to them", keywords: ["permission", "firewall", "nearby"]),
                 HubSearchEntry(id: "automation", title: "Automation of Finder", detail: "Reads Finder selections and destination folders for Cut and Paste", keywords: ["permission", "apple events"]),
-                HubSearchEntry(id: "login", title: "Launch at login", detail: "Starts Pulse automatically each time you sign in", keywords: ["permission", "startup"]),
+                HubSearchEntry(id: "login", title: "Launch at login", detail: "Starts the app automatically each time you sign in", keywords: ["permission", "startup"]),
                 HubSearchEntry(id: "staleGrants", title: "Clean up old apps", detail: "Finds permissions still granted to apps that are no longer installed", keywords: ["tcc", "tccutil", "reset", "old permissions", "stale"]),
             ]
         case .accounts:
             return [
-                HubSearchEntry(id: "accounts", title: "Logins Pulse reads", detail: "It never signs in itself; each login can be hidden, forgotten or reordered", keywords: ["accounts", "sign in", "claude", "codex", "providers"]),
+                HubSearchEntry(id: "accounts", title: "Logins the app reads", detail: "It never signs in itself; each login can be hidden, forgotten or reordered", keywords: ["accounts", "sign in", "claude", "codex", "providers"]),
                 HubSearchEntry(id: "order", title: "Gauge order", detail: "Order of the rings in the notch; move a login up or down", keywords: ["order", "rings", "up", "down"]),
-                HubSearchEntry(id: "forget", title: "Forget reading", detail: "Clears what Pulse read; you stay signed in to the provider itself", keywords: ["sign out", "clear"]),
+                HubSearchEntry(id: "forget", title: "Forget reading", detail: "Clears what the app read; you stay signed in to the provider itself", keywords: ["sign out", "clear"]),
                 HubSearchEntry(id: "claudeAccounts", title: "Claude accounts", detail: "Each account folder Claude Desktop has, with session and weekly use", keywords: ["rename", "forget", "session", "weekly"]),
             ]
         case .appearance:
@@ -621,11 +621,11 @@ enum SettingsCatalog {
             ]
         case .general:
             return [
-                HubSearchEntry(id: "updatesCheck", title: "Check now", detail: "Check for a new version of Pulse, and install it", keywords: ["update", "version", "release", "install"]),
+                HubSearchEntry(id: "updatesCheck", title: "Check now", detail: "Check for a new version of the app, and install it", keywords: ["update", "version", "release", "install"]),
                 HubSearchEntry(id: "nearbyDevices", title: "Devices", detail: "Allow, Ask or Deny each nearby device; rename or forget one", keywords: ["trust", "nearby", "sharing", "localsend", "fingerprint"]),
-                HubSearchEntry(id: "pulseSkill", title: "Pulse skill", detail: "Install the Pulse skill for Claude and Codex chats", keywords: ["chat", "skill", "install"]),
-                HubSearchEntry(id: "uninstallHelper", title: "Uninstall without password", detail: "Lets Pulse move root-owned apps and their files to the Trash with no administrator password", keywords: ["uninstall", "helper", "root", "login items"]),
-                HubSearchEntry(id: "launcherFolders", title: "Folders for file search", detail: "Pulse searches file names itself, with no Spotlight index, only inside these folders; empty turns file search off; Command space stays taken until Spotlight's shortcut is turned off in System Settings", keywords: ["launcher", "files", "spotlight"]),
+                HubSearchEntry(id: "pulseSkill", title: "the app skill", detail: "Install the the app skill for Claude and Codex chats", keywords: ["chat", "skill", "install"]),
+                HubSearchEntry(id: "uninstallHelper", title: "Uninstall without password", detail: "Lets the app move root-owned apps and their files to the Trash with no administrator password", keywords: ["uninstall", "helper", "root", "login items"]),
+                HubSearchEntry(id: "launcherFolders", title: "Folders for file search", detail: "the app searches file names itself, with no Spotlight index, only inside these folders; empty turns file search off; Command space stays taken until Spotlight's shortcut is turned off in System Settings", keywords: ["launcher", "files", "spotlight"]),
                 HubSearchEntry(id: "launcherPins", title: "Pinned apps", detail: "Pinned apps show first in the launcher when nothing is typed", keywords: ["launcher"]),
                 HubSearchEntry(id: "launcherAppHotkeys", title: "App hotkeys", detail: "A key that shows an app, or hides it when it is in front", keywords: ["launcher", "shortcut"]),
                 HubSearchEntry(id: "launcherQuicklinks", title: "Quicklinks", detail: "A keyword that opens a web address with your text filled in", keywords: ["launcher", "bookmarks", "url"]),
@@ -663,7 +663,7 @@ enum SettingsLabels {
     static func name(key: String, option: String, windows: Bool) -> String {
         if key == "accentColor", let name = accentNames(windows: windows)[option] { return name }
         if key == "language", let name = languageNames[option] { return name }
-        if key == "launcherHotkeyConflict" { return option == "pulse" ? "Pulse takes it" : "The other app keeps it" }
+        if key == "launcherHotkeyConflict" { return option == "pulse" ? "the app takes it" : "The other app keeps it" }
         if key == "launcherAskTarget" {
             switch option {
             case "inLauncher": return "In the launcher"

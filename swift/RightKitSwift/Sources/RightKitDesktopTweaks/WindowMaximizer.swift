@@ -3,7 +3,7 @@ import AppKit
 import ApplicationServices
 import RightKitAccessibility
 
-/// Pulse: the green zoom button fills the screen's visible frame instead of
+/// the app: the green zoom button fills the screen's visible frame instead of
 /// entering a full-screen Space. Option-click keeps macOS's own behaviour, and
 /// so do windows already full screen or that cannot be resized.
 ///

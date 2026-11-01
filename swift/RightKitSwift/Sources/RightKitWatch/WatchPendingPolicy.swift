@@ -52,7 +52,7 @@ enum WatchPendingPolicy {
     static let purgedKey = "watchPendingPurged"       // Watch -> phone: [String] ids
     static let listRequestKey = "watchPendingListRequest" // phone -> Watch: Bool
 
-    static let capMessage = "Watch storage full: open HeardRight on iPhone to send waiting recordings."
+    static let capMessage = "Watch storage full: open the app on iPhone to send waiting recordings."
 
     /// A new recording is refused once the unsent total reaches the cap.
     static func admitsNewRecording(unsentBytes: Int64) -> Bool {
@@ -74,7 +74,7 @@ enum WatchPendingPolicy {
 
     static func recoveryMessage(_ items: [WatchPendingItem], now: Date) -> String? {
         guard needsRecoveryPrompt(items, now: now) else { return nil }
-        return "\(items.count) recording\(items.count == 1 ? "" : "s") waiting: open HeardRight on your iPhone"
+        return "\(items.count) recording\(items.count == 1 ? "" : "s") waiting: open the app on your iPhone"
     }
 
     /// Watch-only destructive action, gated on the oldest unsent recording.

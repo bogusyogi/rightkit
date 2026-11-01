@@ -34,7 +34,7 @@ private struct SettingsClaudeMoveApply: Encodable, Sendable {
 }
 
 /// "Move chats" (#353): what the account scan found in another Claude folder that the signed-in one
-/// lacks. Apply sends only the id of the dry run the user confirmed; Pulse never closes Claude.
+/// lacks. Apply sends only the id of the dry run the user confirmed; the app never closes Claude.
 @MainActor
 @Observable
 final class SettingsClaudeMoveModel {

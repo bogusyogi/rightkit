@@ -17,7 +17,7 @@ struct SettingsGeneralPage: View {
         VStack(alignment: .leading, spacing: theme.spacing.lg - 2) {
             SettingsCardStack(model: model, cards: cards)
             if !model.searching, let version = state?.version {
-                SettingsAboutLine(text: windows ? "Pulse notch \(version)" : "Pulse notch \(version) · built on Codenotch (MIT)")
+                SettingsAboutLine(text: windows ? "the app notch \(version)" : "the app notch \(version) · built on the app (MIT)")
             }
         }
     }
@@ -90,7 +90,7 @@ struct SettingsGeneralPage: View {
 
     // MARK: Groups
 
-    /// "Open Pulse at login" and "Show onboarding again". The Tauri button fires a window event the hub turns into
+    /// "Open the app at login" and "Show onboarding again". The Tauri button fires a window event the hub turns into
     /// the first-run window (`onboarding_open`, which the Swift client cannot reach); the notch's own
     /// `onboardingDone` setting is what it writes first, and the notch reopens setup while it is false.
     private func startupRows() -> [SettingsRowSpec] {
@@ -129,7 +129,7 @@ struct SettingsGeneralPage: View {
         list.add(
             rows.toggle(
                 "convDiskImageInstaller", title: "Watch Downloads for installers",
-                note: "A new installer in Downloads brings up a card on the notch. Off, Pulse does not look at Downloads."))
+                note: "A new installer in Downloads brings up a card on the notch. Off, the app does not look at Downloads."))
         list.add(rows.toggle("installer_auto"))
         return list.rows
     }
@@ -237,10 +237,10 @@ struct SettingsGeneralPage: View {
                 })
             if let available = updates.available, !available.isEmpty, !["downloading", "installing"].contains(status) {
                 list.add(
-                    id: "install", text: "Install Pulse \(available) Downloads from GitHub, checks Apple's signature and notarization",
+                    id: "install", text: "Install the app \(available) Downloads from GitHub, checks Apple's signature and notarization",
                     SettingsButtonRow(
-                        title: "Install Pulse \(available)",
-                        note: "Downloads from GitHub, checks Apple's signature and notarization, then replaces Pulse in Applications and reopens it.",
+                        title: "Install the app \(available)",
+                        note: "Downloads from GitHub, checks Apple's signature and notarization, then replaces the app in Applications and reopens it.",
                         button: "Update"
                     ) {
                         let current = model
@@ -261,7 +261,7 @@ struct SettingsGeneralPage: View {
         let helper = state?.helper ?? ""
         let enabled = helper == "enabled" || helper == "requiresApproval"
         let current = model
-        let helperNote = "Lets Pulse move root-owned apps and their files to the Trash with no administrator password. Approve once in System Settings."
+        let helperNote = "Lets the app move root-owned apps and their files to the Trash with no administrator password. Approve once in System Settings."
         list.add(
             id: "helper", text: "Uninstall without password \(helperNote)",
             SettingsValueToggleRow(
@@ -281,7 +281,7 @@ struct SettingsGeneralPage: View {
             text = "Waiting for your approval in System Settings."
             tone = .warn
         case "notFound":
-            text = "This build of Pulse does not include the helper."
+            text = "This build of the app does not include the helper."
             tone = .neutral
         default:
             text = "Off. Root-owned items ask for an administrator password in Finder."
@@ -353,12 +353,12 @@ enum SettingsUpdateText {
         guard let status = update.status, !status.isEmpty else { return nil }
         switch status {
         case "checking": return "Checking for updates…"
-        case "upToDate": return update.message ?? "Pulse is up to date."
-        case "available": return "Pulse \(update.available ?? "") is available."
+        case "upToDate": return update.message ?? "the app is up to date."
+        case "available": return "the app \(update.available ?? "") is available."
         case "downloading":
             if let progress = update.progress { return "Downloading… \(Int((progress * 100).rounded()))%" }
             return "Downloading…"
-        case "installing": return "Installing. Pulse reopens when it is done."
+        case "installing": return "Installing. the app reopens when it is done."
         case "failed": return "Update failed: \(update.message ?? "unknown reason")"
         default: return update.lastChecked != nil ? "Not checked since launch." : "Not checked yet."
         }

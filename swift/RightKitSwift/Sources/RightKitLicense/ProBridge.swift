@@ -4,18 +4,18 @@ import Foundation
 import RightKitLicense
 import UIKit
 
-/// Wire contract for the Pro continuity bridge. Ported from HeardRight `Shared/ProBridge.swift`.
+/// Wire contract for the Pro continuity bridge. Ported from the app `Shared/ProBridge.swift`.
 ///
-/// NOT DOCUMENTED for CodeRight: `docs/architecture/distribution/license-api.md` lists only
+/// NOT DOCUMENTED for the app: `docs/architecture/distribution/license-api.md` lists only
 /// `/licenses/activate`, `/licenses/refresh`, `/licenses/deactivate` and `/releases/latest.json`
-/// on `coderight.cc`. The three paths below are HeardRight's paths (`/v1/licenses/bridge/...`)
-/// reused verbatim against CodeRight's host; the backend must implement them for `app: "coderight"`.
+/// on `coderight.cc`. The three paths below are the app's paths (`/v1/licenses/bridge/...`)
+/// reused verbatim against the app's host; the backend must implement them for `app: "coderight"`.
 ///
 /// A bridge token is deliberately not an entitlement: it grants nothing until the backend
 /// exchanges it for a device-bound signed lease.
 enum ProBridge {
     static let app = "coderight"
-    /// CodeRight's licence host (license-api.md "Host"). Change here only.
+    /// the app's licence host (license-api.md "Host"). Change here only.
     static let baseURL = URL(string: "https://coderight.cc")!
 
     static var fromActivationURL: URL { baseURL.appendingPathComponent("v1/licenses/bridge/from-activation") }

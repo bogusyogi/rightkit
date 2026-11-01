@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pulse: the window actions, in the order the hub lists them. Each has a
+/// the app: the window actions, in the order the hub lists them. Each has a
 /// stable id (its raw value) that stores shortcut choices, and a default
 /// shortcut in the Rectangle style (Control+Option plus a key).
 enum WindowAction: String, CaseIterable, Identifiable {

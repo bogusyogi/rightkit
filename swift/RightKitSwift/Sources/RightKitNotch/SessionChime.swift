@@ -80,7 +80,7 @@ enum SessionChime {
             // at all on an ordinary run — the app logs nothing and plays
             // nothing, and every part of it looks correct.
             let started = player.play()
-            // Every sound Pulse plays is written to the diagnostics file, so "what chimed"
+            // Every sound the app plays is written to the diagnostics file, so "what chimed"
             // can be answered from a record.
             Log.record(.usage, "sound.played")
             Log.usage.debug("chime \(name, privacy: .public): \(started, privacy: .public)")

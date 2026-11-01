@@ -10,8 +10,8 @@ enum TranscriptHistoryTools {
     }
 
     static func exportText(_ records: [SharedDisplayTranscript]) -> String {
-        guard !records.isEmpty else { return "HeardRight transcript history\n\nNo transcripts." }
-        var lines = ["HeardRight transcript history", ""]
+        guard !records.isEmpty else { return "the app transcript history\n\nNo transcripts." }
+        var lines = ["the app transcript history", ""]
         for record in records {
             lines.append(record.createdAt.formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false)))
             lines.append(record.text)

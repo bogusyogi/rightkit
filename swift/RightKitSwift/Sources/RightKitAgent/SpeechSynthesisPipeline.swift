@@ -1,4 +1,4 @@
-// CodeRight-owned: RightKitSwift 0.8.1 has no TTS target; nothing to adopt (not serious, report I-4)
+// the app-owned: RightKitSwift 0.8.1 has no TTS target; nothing to adopt (not serious, report I-4)
 import AVFoundation
 import Foundation
 

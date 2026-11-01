@@ -2,7 +2,7 @@
 import RightKitHub
 import SwiftUI
 
-/// Pulse's brand on the shared hub theme, taken from the Tauri hub (`hub/src/styles.css`).
+/// the app's brand on the shared hub theme, taken from the Tauri hub (`hub/src/styles.css`).
 ///
 /// - Accent: `--rk-brand: #0a84ff` and `--rk-brand-dark: #0a84ff`, the same blue in both appearances.
 /// - Palette: the Tauri hub overrides no suite token (`brand.json` `tokens` is empty; `styles.css` sets
@@ -16,7 +16,7 @@ import SwiftUI
 ///   the shell does not uppercase (Tanker draws capitals itself). Until it is registered, or when the
 ///   platform cannot read the file, the stand-in is the system font, heavy and condensed, in capitals.
 extension Hub {
-    /// The Pulse hub theme. Pass it as `HubContext(theme:)`. It reads whether Tanker is registered each
+    /// The the app hub theme. Pass it as `HubContext(theme:)`. It reads whether Tanker is registered each
     /// time it is asked, so call `registerFonts(services:)` before building the context.
     public static var theme: HubTheme {
         var base = HubTheme.standard
@@ -29,17 +29,17 @@ extension Hub {
 
 /// The appearance the footer button asks for. A STUB: it records the choice and nothing applies it.
 ///
-/// TODO(notch host): the notch owns the hub window, so it should observe `PulseAppearance.shared`, set the
+/// TODO(notch host): the notch owns the hub window, so it should observe `HubAppearance.shared`, set the
 /// window's appearance (and `.preferredColorScheme` on the scene), and persist the choice with the notch's
 /// settings. Until then the button changes this value only.
 @MainActor
 @Observable
-public final class PulseAppearance {
+public final class HubAppearance {
     public enum Preference: String, Sendable {
         case system, light, dark
     }
 
-    public static let shared = PulseAppearance()
+    public static let shared = HubAppearance()
 
     /// What the user last chose with the footer button; `.system` until the first press.
     public var preference: Preference = .system
@@ -70,7 +70,7 @@ public struct SidebarFooter: View {
                 .lineLimit(1)
             Spacer(minLength: 0)
             Button {
-                PulseAppearance.shared.toggle(from: scheme)
+                HubAppearance.shared.toggle(from: scheme)
             } label: {
                 Image(systemName: "circle.lefthalf.filled")
                     .foregroundStyle(palette.ink2.color)

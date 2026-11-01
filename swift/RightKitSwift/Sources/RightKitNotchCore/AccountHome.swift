@@ -2,7 +2,7 @@
 import Foundation
 
 /// The account's own home folder. `HOME` decides, except when it points into
-/// `<account>/ClaudeProfiles/`: a Pulse started from a shell inside a second Claude profile
+/// `<account>/ClaudeProfiles/`: a the app started from a shell inside a second Claude profile
 /// (Claude B) inherits that `HOME`, and it and its children must still work in the account's
 /// folders (bogusyogi/pulse#364), so the password database's home wins there. Any other `HOME`
 /// (a test fixture included) is honoured. Same rule as pulse-core's `home::account_home`.
@@ -20,7 +20,7 @@ public enum AccountHome {
     }
 
     /// The environment for a child process: `HOME` is the account home, and `CLAUDE_CONFIG_DIR` is
-    /// removed (a child gets it only when Pulse sets it deliberately, as the usage probe does).
+    /// removed (a child gets it only when the app sets it deliberately, as the usage probe does).
     public static func childEnvironment(_ inherited: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var environment = inherited
         environment["HOME"] = path

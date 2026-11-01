@@ -11,7 +11,7 @@ enum WatchRecordingDelivery {
     static let minimumDuration: TimeInterval = 1.5
     static let transcriptPreviewCharacterLimit = 80
 
-    /// Keep already-shipped HeardRight wire names while using RightKit's
+    /// Keep already-shipped the app wire names while using RightKit's
     /// transport helpers. The package defaults are neutral for new apps.
     static var bridgeKeys: WatchBridgeKeys {
         var keys = WatchBridgeKeys()

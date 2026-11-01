@@ -29,7 +29,7 @@ extension EnvironmentValues {
 
 private struct CardButtonBody: View {
     let configuration: ButtonStyleConfiguration
-    /// Pulse always animates; the system Reduce Motion setting is ignored (Adrian, 2026-10-11).
+    /// the app always animates; the system Reduce Motion setting is ignored (Adrian, 2026-10-11).
     private let reduceMotion = false
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.cardButtonForcedState) private var forced
@@ -59,7 +59,7 @@ private struct CardButtonBody: View {
 /// The notch controller owns the cursor stack, so this only sets, never pushes.
 struct CardRowHover: ViewModifier {
     var enabled = true
-    /// Pulse always animates; the system Reduce Motion setting is ignored (Adrian, 2026-10-11).
+    /// the app always animates; the system Reduce Motion setting is ignored (Adrian, 2026-10-11).
     private let reduceMotion = false
     @Environment(\.cardButtonForcedState) private var forced
     @Environment(\.pointerCursor) private var pointerCursor

@@ -6,7 +6,7 @@ import RightKitImportQueue
 /// locking, retry metadata, & legacy UserDefaults migration.
 public typealias PendingSharePayload = RightKitImportQueue.PendingSharePayload
 
-/// Product adapter retaining HeardRight's no-argument queue API.
+/// Product adapter retaining the app's no-argument queue API.
 public struct SharedImportQueue: @unchecked Sendable {
     public typealias QueueError = RightKitImportQueue.SharedImportQueue.QueueError
     private static let groupID = "group.app.heardright.ios.native"

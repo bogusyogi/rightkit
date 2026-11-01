@@ -32,7 +32,7 @@ public struct TranscriptActivityShareSheet: UIViewControllerRepresentable {
 public struct TranscriptExportMenu: View {
     private let input: any TranscriptExportInput
     private let writer: TranscriptExportWriter
-    @State private var shareFile: CodeRightTranscriptShareFile?
+    @State private var shareFile: AgentTranscriptShareFileType?
     @State private var exportFailure: ExportFailure?
     @State private var exportInProgress = false
 

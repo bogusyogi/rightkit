@@ -2,7 +2,7 @@
 import Foundation
 import IOKit
 
-/// Pulse fork: GPU utilisation and CPU/SoC temperature for the System hover
+/// the app fork: GPU utilisation and CPU/SoC temperature for the System hover
 /// card. No root and no helper. GPU is the `IOAccelerator` registry entries'
 /// `PerformanceStatistics`; temperature is the HID event system's thermal
 /// sensors (private symbols, resolved by name, as Stats does on Apple

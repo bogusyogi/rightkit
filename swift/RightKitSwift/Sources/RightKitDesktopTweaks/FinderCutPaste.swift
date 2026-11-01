@@ -2,7 +2,7 @@
 import AppKit
 import RightKitAccessibility
 
-/// Pulse: Cut and Paste for files in Finder.
+/// the app: Cut and Paste for files in Finder.
 ///
 /// Finder has no file cut; its move is Copy, then Option-Command-V ("Move Item
 /// Here"). So ⌘X posts a real ⌘C to Finder and remembers the pasteboard's

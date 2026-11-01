@@ -2,7 +2,7 @@
 import SwiftUI
 import UIKit
 
-/// Pulse hub tokens (docs: scratch redesign-astra DESIGN.md, "Tokens"), dark first with the light set.
+/// the app hub tokens (docs: scratch redesign-astra DESIGN.md, "Tokens"), dark first with the light set.
 /// Every colour is dynamic: it follows the window's appearance and Increase Contrast.
 enum Theme {
     static let page = Color.pulse(dark: 0x0C0C0C, light: 0xECECF0)
@@ -180,7 +180,7 @@ struct QuietButtonStyle: ButtonStyle {
 
 // MARK: Mark
 
-/// The Pulse mark: the icon pack's dark-tile artwork (brand/icon-pack, #514), the same mark as the app icon.
+/// The the app mark: the icon pack's dark-tile artwork (brand/icon-pack, #514), the same mark as the app icon.
 struct Mark: View {
     var size: CGFloat = 56
 

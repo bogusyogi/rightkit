@@ -93,7 +93,7 @@ private struct ChatComposerMaterial: ViewModifier {
     @Environment(\.codeRightReduceTransparency) private var reduceTransparency
 
     /// Glass vs. opaque branching (including the increased-contrast fallback) is RightKitUI's;
-    /// CodeRight supplies the radius, the user's reduce-transparency override and its own colors.
+    /// the app supplies the radius, the user's reduce-transparency override and its own colors.
     func body(content: Content) -> some View {
         content.rightKitAdaptiveGlass(
             minimumCornerRadius: ChatChrome.composerRadius,

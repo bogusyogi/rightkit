@@ -4,7 +4,7 @@ import SwiftUI
 
 /// ENG-98: the client-owned browser surface an agent drives through `browser_control.rs`'s
 /// relay tools (`browser_control_navigate`/`_read`/`_click`/`_type`/`_screenshot`). Desktop
-/// CodeRight drives a real, daemon-local Chrome over CDP (`engine/crates/tools/src/browser.rs`);
+/// the app drives a real, daemon-local Chrome over CDP (`engine/crates/tools/src/browser.rs`);
 /// there is no such process on iOS, so the "browser" here is a `WKWebView` this view owns
 /// directly — the daemon can request a step, but it can never touch this WebView's process,
 /// cookie jar, or navigation stack except through the bounded actions relayed to it.

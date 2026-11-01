@@ -19,7 +19,7 @@ struct ClipCaptureInput: Sendable {
     var source: ClipSourceApp?
     var at: Double
     var secretFilter = true
-    /// Pulse's own Snip, Screen and Window screenshots (4).
+    /// the app's own Snip, Screen and Window screenshots (4).
     var forceScreenshot = false
 }
 

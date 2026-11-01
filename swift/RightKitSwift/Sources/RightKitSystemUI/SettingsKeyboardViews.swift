@@ -262,7 +262,7 @@ enum SettingsKeyboard {
         let on = model.bool("windowManagementEnabled")
         list.add(rows.toggle("windowManagementEnabled", title: "Move windows with shortcuts", always: true))
         if on && !accessibility {
-            list.foot(id: "wm.access", SettingsFootLine(text: "Shortcuts do nothing until Pulse has Accessibility permission.", tone: .warn))
+            list.foot(id: "wm.access", SettingsFootLine(text: "Shortcuts do nothing until the app has Accessibility permission.", tone: .warn))
         }
         // The action rows show while a search is under way even with the switch off, so they can be found.
         if on || model.searching {

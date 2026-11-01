@@ -4,7 +4,7 @@ import WatchConnectivity
 import RightKitWatchBridge
 
 // Binds WatchConnectivity callbacks to RightKitWatchBridge's durable transfer
-// ledger while retaining HeardRight's recording policy, telemetry, & wire
+// ledger while retaining the app's recording policy, telemetry, & wire
 // compatibility.
 final class WatchRecordingTransfer: NSObject, WCSessionDelegate {
     static let shared = WatchRecordingTransfer()
@@ -363,7 +363,7 @@ final class WatchRecordingTransfer: NSObject, WCSessionDelegate {
             }
         )
         for id in dispatch.missingFiles {
-            lastError = "Saved audio unavailable. Open HeardRight on iPhone to check delivery."
+            lastError = "Saved audio unavailable. Open the app on iPhone to check delivery."
         }
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         for item in dispatch.dispatches {
@@ -617,7 +617,7 @@ final class WatchRecordingTransfer: NSObject, WCSessionDelegate {
     }
 
     /// Consumer for `WatchRecordingInbox.rollbackIngest` (phone side,
-    /// `HeardRight/WatchRecordingInbox.swift`). The phone sends this when
+    /// `the app/WatchRecordingInbox.swift`). The phone sends this when
     /// `WCSession` delivered a file but nothing durable exists for it yet
     /// (see the contract comment there). Without a consumer, an item stuck
     /// `.awaitingAcknowledgement` for a delivery that will never durably ack

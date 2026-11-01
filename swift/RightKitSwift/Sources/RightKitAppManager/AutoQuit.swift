@@ -3,7 +3,7 @@ import AppKit
 import ApplicationServices
 import RightKitAccessibility
 
-/// Pulse: quits apps the person opted in once their last window closes.
+/// the app: quits apps the person opted in once their last window closes.
 ///
 /// A window closing (an Accessibility notification), then a short debounce,
 /// then every check below must pass or nothing happens:

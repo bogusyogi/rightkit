@@ -183,7 +183,7 @@ private struct PendingAttachmentPreview: View {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 let safeName = attachment.filename.replacingOccurrences(of: "[^A-Za-z0-9._-]", with: "-", options: .regularExpression)
                 let target = folder.appendingPathComponent(safeName.isEmpty ? "Attachment" : safeName)
-                // CodeRight-owned: atomic write to an arbitrary URL with a protection class (no shared consumer; RightKit issue withdrawn 2026-10-18)
+                // the app-owned: atomic write to an arbitrary URL with a protection class (no shared consumer; RightKit issue withdrawn 2026-10-18)
                 try attachment.data.write(to: target, options: [.atomic, .completeFileProtection])
                 file = target
             } catch { failure = error.localizedDescription }

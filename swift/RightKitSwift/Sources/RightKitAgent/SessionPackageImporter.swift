@@ -2,7 +2,7 @@ import Foundation
 
 /// Swift mirror of `coderight_history::session_package::SessionPackage`
 /// (ENG-101). Decodes a cross-host session package produced by the engine
-/// (or another CodeRight host) and refuses anything whose `schemaVersion` is
+/// (or another the app host) and refuses anything whose `schemaVersion` is
 /// newer than [`SessionPackageImporter.maxSupportedSchemaVersion`],
 /// exactly like the Rust decoder's `SessionPackageError::UnsupportedSchemaVersion`.
 ///

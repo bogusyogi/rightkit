@@ -2,7 +2,7 @@
 import AppKit
 import QuartzCore
 
-/// Base for HeardRight's own AppKit panels that must never take key or main
+/// Base for the app's own AppKit panels that must never take key or main
 /// window status away from the application receiving dictation or focus.
 /// `HeardRightPillPanel` overrides `canBecomeKey` again on top of this to add
 /// its narrow, explicitly-opted-in editing-focus exception.

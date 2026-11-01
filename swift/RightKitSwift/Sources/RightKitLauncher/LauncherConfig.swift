@@ -2,7 +2,7 @@ import RightKitNotchCore
 import RightKitNotch
 import Foundation
 
-/// Where the launcher keeps its files, under ~/Library/Application Support/Pulse.
+/// Where the launcher keeps its files, under ~/Library/Application Support/the app.
 enum LauncherStorage {
     static var pulseDirectory: URL {
         // Under test (the picture-rendering run builds the launcher's stores) the launcher

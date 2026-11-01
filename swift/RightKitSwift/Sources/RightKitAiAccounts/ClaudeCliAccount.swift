@@ -3,7 +3,7 @@ import RightKitNotch
 import Foundation
 
 /// The Claude command-line account new terminals use (`pulse claude use <name>`).
-/// Pulse's core writes `~/Library/Application Support/Orthic Labs/Pulse/claude-cli/active` and one
+/// the app's core writes `~/Library/Application Support/Orthic Labs/the app/claude-cli/active` and one
 /// config folder per account under `accounts/`; this only reads the folder names.
 /// Nothing in them is opened.
 enum ClaudeCliAccount {

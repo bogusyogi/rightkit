@@ -785,7 +785,7 @@ private struct MonInspectPanel: View {
                         small(unknownText)
                     }
                 }
-                small("GPU: Unavailable. macOS has no public API that reports GPU use for one process, so Pulse shows no per-process GPU figure.")
+                small("GPU: Unavailable. macOS has no public API that reports GPU use for one process, so the app shows no per-process GPU figure.")
                 history
                 if let notes = state.result?.notes, !notes.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {

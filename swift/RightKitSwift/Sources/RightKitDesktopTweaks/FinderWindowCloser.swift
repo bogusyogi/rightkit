@@ -6,7 +6,7 @@ import ApplicationServices
 import RightKitAccessibility
 
 /// **Closes the Finder window Finder opens for a mounted disk image**, through
-/// the Accessibility permission Pulse already holds (no Finder Automation).
+/// the Accessibility permission the app already holds (no Finder Automation).
 /// Only a window that shows exactly that volume's root is closed: matched by its
 /// document URL, or by its title when it states no document. Finder opens the
 /// window a moment after the mount, so the look repeats for about three seconds.

@@ -2,7 +2,7 @@ import Foundation
 import RightKitImportQueue
 import UniformTypeIdentifiers
 
-/// ScrapeRight's binding of the shared RightKit share-intake queue to its
+/// the app's binding of the shared RightKit share-intake queue to its
 /// App Group. The extension enqueues; the app drains into the job queue.
 enum ShareIntake {
     static let appGroupID = "group.app.scraperight.ios.native"

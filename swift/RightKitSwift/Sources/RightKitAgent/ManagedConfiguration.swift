@@ -16,7 +16,7 @@ import Foundation
 /// a host/endpoint and, optionally, which existing secret slot to pair with
 /// it — it never stores the secret value.
 public struct ManagedConnectionPreset: Codable, Sendable, Equatable, Identifiable {
-    /// The one connection type CodeRight iOS currently renders & applies.
+    /// The one connection type the app iOS currently renders & applies.
     /// Do not declare a kind until its iOS surface has a real consumer.
     public enum Kind: String, Codable, Sendable, CaseIterable {
         /// A selected provider account's base URL override.

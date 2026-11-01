@@ -3,7 +3,7 @@ import RightKitNotch
 import Foundation
 import RightKitWatch
 
-/// Pulse fork: notices when Claude Desktop's signed-in account changes and has
+/// the app fork: notices when Claude Desktop's signed-in account changes and has
 /// the notch read the new account's usage at once.
 ///
 /// Reads only the non-secret `lastKnownAccountUuid` in Claude's `config.json`,

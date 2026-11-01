@@ -174,13 +174,13 @@ struct SettingsBlockedAppsRow: View {
                         panel.allowedContentTypes = [UTType.applicationBundle]
                         panel.directoryURL = URL(fileURLWithPath: "/Applications")
                         panel.prompt = "Block"
-                        panel.message = "Choose an app Pulse's agents may never open, see or control"
+                        panel.message = "Choose an app the app's agents may never open, see or control"
                         if panel.runModal() == .OK, let url = panel.url {
                             if let id = Self.bundleId(url) {
                                 problem = nil
                                 add([id], items: items, asText: asText)
                             } else {
-                                problem = "That app has no bundle id Pulse can read."
+                                problem = "That app has no bundle id the app can read."
                             }
                         }
                     }

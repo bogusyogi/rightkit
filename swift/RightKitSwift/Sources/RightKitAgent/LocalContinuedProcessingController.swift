@@ -3,8 +3,8 @@ import BackgroundTasks
 import Foundation
 import Observation
 
-/// Owns one user-started local agent turn that may continue after CodeRight
-/// leaves the foreground. iOS owns scheduling; CodeRight owns safe expiry.
+/// Owns one user-started local agent turn that may continue after the app
+/// leaves the foreground. iOS owns scheduling; the app owns safe expiry.
 @Observable
 @MainActor
 public final class LocalContinuedProcessingController {
@@ -42,7 +42,7 @@ public final class LocalContinuedProcessingController {
 
     /// Submit while app is foregrounded, directly from user's Send action.
     /// `.fail` keeps behavior interactive: if iOS cannot begin immediately,
-    /// UI tells user to keep CodeRight open instead of silently queueing work.
+    /// UI tells user to keep the app open instead of silently queueing work.
     @discardableResult
     public func begin(
         sessionID: String,
@@ -61,7 +61,7 @@ public final class LocalContinuedProcessingController {
         let identifier = "app.coderight.CodeRight.local-agent.\(safeSession).\(UUID().uuidString)"
         let request = BGContinuedProcessingTaskRequest(
             identifier: identifier,
-            title: "CodeRight is working",
+            title: "the app is working",
             subtitle: "\(model) is continuing your coding task"
         )
         request.strategy = .fail
@@ -70,7 +70,7 @@ public final class LocalContinuedProcessingController {
         // concrete request identifier immediately before submission.
         guard register(identifier: identifier) else {
             expirationAction = nil
-            statusMessage = "Background work registration failed. Keep CodeRight open until this turn finishes."
+            statusMessage = "Background work registration failed. Keep the app open until this turn finishes."
             return false
         }
 
@@ -82,7 +82,7 @@ public final class LocalContinuedProcessingController {
         } catch {
             expirationAction = nil
             isActive = false
-            statusMessage = "Background work is unavailable. Keep CodeRight open until this turn finishes."
+            statusMessage = "Background work is unavailable. Keep the app open until this turn finishes."
             return false
         }
     }
@@ -93,7 +93,7 @@ public final class LocalContinuedProcessingController {
             task.progress.totalUnitCount = 1_000
         }
         task.progress.completedUnitCount = min(950, task.progress.completedUnitCount + 1)
-        task.updateTitle("CodeRight is working", subtitle: subtitle)
+        task.updateTitle("the app is working", subtitle: subtitle)
     }
 
     public func complete(success: Bool) {
@@ -139,8 +139,8 @@ public final class LocalContinuedProcessingController {
         isExpiring = true
         stopHeartbeat()
         isActive = false
-        statusMessage = "Background time ended. Open CodeRight to continue from its saved checkpoint."
-        task?.updateTitle("CodeRight paused", subtitle: "Open CodeRight to continue")
+        statusMessage = "Background time ended. Open the app to continue from its saved checkpoint."
+        task?.updateTitle("the app paused", subtitle: "Open the app to continue")
         let action = expirationAction
         expirationAction = nil
         await action?()

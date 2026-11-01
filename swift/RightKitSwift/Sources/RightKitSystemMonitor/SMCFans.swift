@@ -2,7 +2,7 @@
 import Foundation
 import IOKit
 
-/// Pulse fork: fan speeds from the System Management Controller, read without
+/// the app fork: fan speeds from the System Management Controller, read without
 /// root. The AppleSMC user client answers reads (key info, then bytes) for the
 /// `FNum` count and each `F<n>Ac` actual-speed key. A key that does not read,
 /// or a machine without an SMC, yields no fans, and the rows are left out.

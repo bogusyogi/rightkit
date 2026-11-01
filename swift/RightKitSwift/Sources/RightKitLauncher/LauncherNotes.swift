@@ -8,7 +8,7 @@ import Foundation
 /// and can be restored ("notes trash").
 struct LauncherNote: Equatable, Identifiable {
     var id: String
-    /// The whole file text. Notes Pulse writes start with a "# Title" line.
+    /// The whole file text. Notes the app writes start with a "# Title" line.
     var text: String
     var createdAt: Date
     var updatedAt: Date
@@ -194,7 +194,7 @@ final class LauncherNotes {
     }
 
     /// Reads the notes from disk again. The launcher calls this when the files changed, so files
-    /// edited outside Pulse appear (there is no watcher).
+    /// edited outside the app appear (there is no watcher).
     func reload() {
         flushPending()
         loaded = true

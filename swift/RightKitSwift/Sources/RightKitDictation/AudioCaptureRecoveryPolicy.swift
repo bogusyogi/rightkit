@@ -41,7 +41,7 @@ enum AudioCaptureRecoveryPolicy {
     /// UI gets a stable recovery action rather than implementation details.
     static func userFacingFailureReason(_ error: Error) -> String {
         // `RecordingAudioPolicy.PolicyError.bluetoothInputNotSelected` lives
-        // in the HeardRight app target only (it needs the App Group
+        // in the the app app target only (it needs the App Group
         // UserDefaults switch), while this file also compiles into
         // Widgets. Matching the case name via `String(describing:)`
         // avoids importing that type here and keeps this file target-agnostic.
@@ -58,16 +58,16 @@ enum AudioCaptureRecoveryPolicy {
             return "The Bluetooth microphone could not be selected. Reconnect your headset and try again."
         }
         if String(describing: error) == "sessionNotActivated" {
-            return "The audio session could not be activated. Open HeardRight and try recording again."
+            return "The audio session could not be activated. Open the app and try recording again."
         }
         let nsError = error as NSError
         switch nsError.code {
         case sessionActivationContendedCode:
-            return "The microphone could not start. Open HeardRight and try recording again."
+            return "The microphone could not start. Open the app and try recording again."
         case failedInitializationCode, routeSettlingCode:
             return "Audio input could not start. Check your microphone connection and try again."
         case cannotInterruptOthersCode:
-            return "The microphone could not start in the background. Open HeardRight and try again."
+            return "The microphone could not start in the background. Open the app and try again."
         default:
             return "The microphone could not start. Check microphone access and the selected audio route, then try again."
         }

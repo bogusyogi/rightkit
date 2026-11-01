@@ -233,7 +233,7 @@ struct SettingsAutoQuit: Decodable, Sendable, Equatable {
     var runningApps: [SettingsAppRef]?
 }
 
-/// Pulse's updater as the notch reports it (Settings.tsx `UpdateState`).
+/// the app's updater as the notch reports it (Settings.tsx `UpdateState`).
 struct SettingsUpdateState: Decodable, Sendable, Equatable {
     var current: String?
     var build: String?

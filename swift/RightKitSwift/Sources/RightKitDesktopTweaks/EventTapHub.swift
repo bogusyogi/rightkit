@@ -11,7 +11,7 @@ typealias TapHandler = (CGEventType, CGEvent) -> TapDecision
 
 public struct EventTapToken: Hashable { fileprivate let id = UUID() }
 
-/// Pulse: the one session event tap behind the Mac conveniences. Features
+/// the app: the one session event tap behind the Mac conveniences. Features
 /// register ordered handlers (highest priority first; the first to swallow
 /// wins). The tap lives on a thread of its own so the main thread never sits
 /// in the event path, and `stop()` returns only once that thread has finished.

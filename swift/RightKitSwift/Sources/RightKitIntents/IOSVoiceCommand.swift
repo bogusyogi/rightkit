@@ -128,7 +128,7 @@ struct IOSVoiceCommandExample: Identifiable, Equatable {
             .init(id: "open-calendar", spoken: "open calendar",
                   result: "Opens Calendar.", kind: .openApp),
             .init(id: "open-settings", spoken: "open settings",
-                  result: "Opens HeardRight Settings.", kind: .openApp),
+                  result: "Opens the app Settings.", kind: .openApp),
             .init(id: "open-shortcuts", spoken: "open shortcuts",
                   result: "Opens the Shortcuts app.", kind: .openApp),
             .init(id: "open-browser", spoken: "open browser",

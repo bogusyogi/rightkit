@@ -2,7 +2,7 @@
 // Provenance: direct port from baryhuang/claude-code-by-agents at
 // 7655042eb986bf146079032726a7347ac4547c0e,
 // OpenAgents/Views/FileChipView.swift. This view retains its source
-// Original sidebar action is exposed as a callback so CodeRight can route it
+// Original sidebar action is exposed as a callback so the app can route it
 // through its existing local/remote file surfaces.
 
 import SwiftUI

@@ -11,7 +11,7 @@ import Foundation
 /// * **cmux** matches a terminal panel by its *working directory* — the
 ///   session process's own cwd. Its socket CLI would be nicer (it names tabs
 ///   by tty), but the server refuses any client that is not itself inside a
-///   cmux terminal session (manaflow-ai/cmux#3089) — and Codenotch never is.
+///   cmux terminal session (manaflow-ai/cmux#3089) — and the app never is.
 /// * **Terminal.app** and **iTerm2** match a tab by tty.
 /// * **Ghostty** (1.3+) scripts its terminals with an id, a title and a
 ///   *working directory* but no tty, so it is matched by the session's cwd

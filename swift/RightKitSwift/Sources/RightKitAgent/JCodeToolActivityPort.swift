@@ -15,7 +15,7 @@ import Foundation
 /// A point-in-time `spawn_subagent` progress/budget snapshot, mirrored from
 /// `Models/ToolActivity.SubagentProgress` for this donor-shaped port. Kept
 /// as a separate type (rather than importing the app model) so this file
-/// stays free of any dependency on CodeRight's shared transcript types, per
+/// stays free of any dependency on the app's shared transcript types, per
 /// the provenance note above.
 public struct SubagentProgressPort: Equatable, Codable, Sendable {
     public var role: String

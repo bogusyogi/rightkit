@@ -13,7 +13,7 @@ import Foundation
  validation and persistence.
  */
 
-/// Intent accepted by CodeRight's custom URL scheme.
+/// Intent accepted by the app's custom URL scheme.
 public enum DeepLinkRoute: Equatable, Sendable {
     /// Existing pairing flow; the daemon store validates its payload.
     case pairing
@@ -25,7 +25,7 @@ public enum DeepLinkRoute: Equatable, Sendable {
     case session(id: String)
 }
 
-/// Parser and validator for CodeRight's custom URL scheme.
+/// Parser and validator for the app's custom URL scheme.
 public enum DeepLinkRouteParser {
     public static func parse(_ url: URL) -> DeepLinkRoute? {
         guard url.scheme?.lowercased() == "coderight",
@@ -121,7 +121,7 @@ public enum DeepLinkRouteParser {
 // MARK: - ENG-113: external-scheme classification
 
 /// Classifies a URL encountered anywhere content is untrusted (embedded web content in
-/// `BrowserControlSurfaceView`, agent tool output, a pasted link) as one CodeRight's own
+/// `BrowserControlSurfaceView`, agent tool output, a pasted link) as one the app's own
 /// `coderight://` deep-link route can handle directly, or as an external-scheme handoff that
 /// must clear `ExternalSchemeConsentStore` before anything opens it.
 ///

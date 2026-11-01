@@ -79,7 +79,7 @@ extension HubFixtures {
             """
         }
         let findings = [
-            finding("f1", rule: "xcode-derived-data", ruleName: "Xcode build files", name: "Xcode build files · Pulse", path: "/Users/demo/Library/Developer/Xcode/DerivedData/Pulse-abc", bytes: 18_400_000_000, risk: "safe", reason: "Build products Xcode recreates on the next build"),
+            finding("f1", rule: "xcode-derived-data", ruleName: "Xcode build files", name: "Xcode build files · the app", path: "/Users/demo/Library/Developer/Xcode/DerivedData/Pulse-abc", bytes: 18_400_000_000, risk: "safe", reason: "Build products Xcode recreates on the next build"),
             finding("f2", rule: "xcode-derived-data", ruleName: "Xcode build files", name: "Xcode build files · Notes", path: "/Users/demo/Library/Developer/Xcode/DerivedData/Notes-def", bytes: 6_200_000_000, risk: "safe", reason: "Build products Xcode recreates on the next build"),
             finding("f3", rule: "npm-cache", ruleName: "npm cache", name: "npm cache", path: "/Users/demo/.npm/_cacache", bytes: 5_900_000_000, risk: "safe", reason: "Downloaded packages npm fetches again when needed"),
             finding("f4", rule: "old-installers", ruleName: "Old installers", name: "Demo-1.2.dmg", path: "/Users/demo/Downloads/Demo-1.2.dmg", bytes: 1_200_000_000, risk: "safe", reason: "Disk images and packages in Downloads older than 30 days"),

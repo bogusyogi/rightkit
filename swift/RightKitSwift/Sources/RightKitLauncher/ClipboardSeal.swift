@@ -3,7 +3,7 @@ import Foundation
 import OSLog
 import RightKitAppleCredentials
 
-// Encryption at rest for the clipboard history (docs/clipboard-spec.md section 9; Pulse #152).
+// Encryption at rest for the clipboard history (docs/clipboard-spec.md section 9; the app #152).
 //
 // Every file the store writes (index, boards, colours, payloads, thumbnails, the version 0
 // backup) is sealed with AES-256-GCM under one 256-bit key. The key is kept by RightKit's

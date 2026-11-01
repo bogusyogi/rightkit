@@ -1,13 +1,13 @@
 #if os(iOS)
 // Provenance: direct behavioral transplant from Bot commit
 // 6951c40156ba0916a10b6e49e5051b7785198b93, ios/Shared/BotActivity.swift.
-// CodeRight-specific names are isolated here; field semantics stay donor-compatible.
+// the app-specific names are isolated here; field semantics stay donor-compatible.
 
 import ActivityKit
 import AppIntents
 import Foundation
 
-/// The Live Activity contract compiled into both CodeRight app and widget targets.
+/// The Live Activity contract compiled into both the app app and widget targets.
 /// One activity represents one bot/session that is working or waiting for a response.
 public struct BotActivityAttributes: ActivityAttributes, Sendable {
     public struct ContentState: Codable, Hashable, Sendable {
@@ -52,7 +52,7 @@ public struct BotActivityAttributes: ActivityAttributes, Sendable {
     public var botId: String
     public var threadId: String
     public var name: String
-    /// Adapter-provided CodeRight palette key or hex value.
+    /// Adapter-provided the app palette key or hex value.
     public var color: String
 
     public init(botId: String, threadId: String, name: String, color: String) {

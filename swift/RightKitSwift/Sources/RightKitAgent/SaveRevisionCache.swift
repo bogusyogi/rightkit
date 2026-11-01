@@ -94,7 +94,7 @@ public actor SaveRevisionCache {
         let parent = persistenceURL.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-            // CodeRight-owned: atomic write to an arbitrary URL with a protection class (no shared consumer; RightKit issue withdrawn 2026-10-18)
+            // the app-owned: atomic write to an arbitrary URL with a protection class (no shared consumer; RightKit issue withdrawn 2026-10-18)
             try data.write(
                 to: persistenceURL,
                 options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]

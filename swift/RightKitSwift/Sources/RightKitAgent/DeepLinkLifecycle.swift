@@ -35,7 +35,7 @@ public final class DeepLinkLifecycle {
         appRouter = router
     }
 
-    /// Handles both CodeRight links and OS file URLs delivered to the app.
+    /// Handles both the app links and OS file URLs delivered to the app.
     @discardableResult
     public func receive(_ url: URL) -> DeepLinkRoute? {
         if url.isFileURL {
@@ -45,7 +45,7 @@ public final class DeepLinkLifecycle {
 
         guard let route = DeepLinkRouteParser.parse(url) else {
             pendingRoute = nil
-            errorMessage = "That isn't a valid CodeRight link."
+            errorMessage = "That isn't a valid the app link."
             return nil
         }
 

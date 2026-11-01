@@ -16,7 +16,7 @@ struct ChatLinkDTO: Decodable, Sendable, Hashable {
     let lastError: String?
 }
 
-/// `chat_status`: the switch, whether Pulse's hub runs, chats here and the links.
+/// `chat_status`: the switch, whether the app's hub runs, chats here and the links.
 struct ChatStatusDTO: Decodable, Sendable {
     let enabled: Bool
     let hubRunning: Bool
@@ -413,7 +413,7 @@ enum ChatFormat {
         }
         var line = "\(plural(status.chatsHere, "chat")) on \(status.device)."
         if !status.hubRunning {
-            line += " Pulse's hub is not reporting as running, so messages to Claude chats may be held until it is."
+            line += " the app's hub is not reporting as running, so messages to Claude chats may be held until it is."
         }
         return line
     }

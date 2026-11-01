@@ -84,7 +84,7 @@ public enum ShortcutAction: String {
 
 /// Tri-state mirror of the cross-extension App Group recording flag.
 /// MM-P2-STALE-RECORDING-FLAG: stale state (e.g. after a crash) gets a visible UI affordance
-/// instead of silently claiming "Recording in HeardRight" for the full
+/// instead of silently claiming "Recording in the app" for the full
 /// `maxRecordingActiveAge` window.
 enum RecordingActivityState: Equatable {
     case off
@@ -114,7 +114,7 @@ enum RecordingRecoveryState {
 }
 
 /// Which engine produced a transcript. `.localModel` is the only value that
-/// exists: HeardRight transcribes with its own Core ML model or it refuses to
+/// exists: the app transcribes with its own Core ML model or it refuses to
 /// record. The tag is kept so records stay self-describing if a second local
 /// model is ever added.
 public enum TranscriptEngineTag: String, Codable, Equatable {

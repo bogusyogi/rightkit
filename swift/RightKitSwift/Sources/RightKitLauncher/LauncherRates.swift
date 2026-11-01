@@ -4,7 +4,7 @@ import Foundation
 
 /// Currency and crypto rates for the launcher's conversions. Fetched at most
 /// once a day from open.er-api.com (currencies) and CoinGecko (coins), and
-/// cached in Application Support/Pulse/launcher/rates.json. A failed or
+/// cached in Application Support/the app/launcher/rates.json. A failed or
 /// offline fetch is ignored: conversions simply do not appear.
 @MainActor
 final class LauncherRates {

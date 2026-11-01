@@ -31,7 +31,7 @@ struct SettingsPermissionsPage: View {
             var list = SettingsRowList()
             list.add(
                 id: "waiting", pinned: true,
-                SettingsFootLine(text: "Waiting for permission status from Pulse notch…").padding(.top, 10))
+                SettingsFootLine(text: "Waiting for permission status from the app notch…").padding(.top, 10))
             cards.add("Permissions", list.rows)
         }
         return cards.cards
@@ -96,7 +96,7 @@ struct SettingsPermissionsPage: View {
             list.foot(id: "openError", alert: true, SettingsErrorLine(text: message))
         }
         list.add(
-            id: "firewall", text: "Windows Firewall Lets Pulse find and talk to nearby devices for sharing files",
+            id: "firewall", text: "Windows Firewall Lets the app find and talk to nearby devices for sharing files",
             SettingsLocalNetworkRow(model: model))
         if let needs = notchRows?.first(where: { $0.id == "firewall" })?.needs {
             list.foot(id: "firewall.needs", SettingsFootLine(text: SettingsPermissionText.needs(needs)))
@@ -122,7 +122,7 @@ enum SettingsPermissionText {
 
 /// One Mac permission: its title and why, its status, and the button that asks or opens System Settings.
 /// Full Disk Access is confirmed against the hub's own probe (`fda_status`): granted to the notch but not
-/// yet to the hub reads "Restart Pulse to apply".
+/// yet to the hub reads "Restart the app to apply".
 struct SettingsPermissionRow: View {
     let model: SettingsPageModel
     let permission: SettingsPermission
@@ -140,7 +140,7 @@ struct SettingsPermissionRow: View {
 
     private var statusText: String {
         if awaitingHub { return "Checking…" }
-        if restart { return "Restart Pulse to apply" }
+        if restart { return "Restart the app to apply" }
         switch status {
         case "granted": return "Granted"
         case "needsApproval": return "Needs approval"
@@ -220,8 +220,8 @@ struct SettingsLocalNetworkRow: View {
         SettingsRowFrame(
             title: model.isWindows ? "Windows Firewall" : "Local network",
             note: model.isWindows
-                ? "Lets Pulse find and talk to nearby devices for sharing files. Windows Firewall must allow Pulse on private networks."
-                : "Lets Pulse find and talk to nearby devices for sharing files. macOS asks the first time a device connects."
+                ? "Lets the app find and talk to nearby devices for sharing files. Windows Firewall must allow the app on private networks."
+                : "Lets the app find and talk to nearby devices for sharing files. macOS asks the first time a device connects."
         ) {
             HStack(spacing: 10) {
                 SettingsBadge(text: text, tone: SettingsPermissionText.tone(status))
@@ -290,7 +290,7 @@ struct SettingsStaleGrantsView: View {
             }
             if !paths.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: "These were added by file path, which macOS will not let Pulse remove. Remove each with − in the matching System Settings list:")
+                    Text(verbatim: "These were added by file path, which macOS will not let the app remove. Remove each with − in the matching System Settings list:")
                         .font(theme.type.caption.font)
                         .foregroundStyle(palette.ink2.color)
                     ForEach(paths) { app in
@@ -322,7 +322,7 @@ struct SettingsStaleGrantsView: View {
         }
         .hubConfirm(
             "Clear \(count) old permission\(count == 1 ? "" : "s")?",
-            message: "These apps are no longer installed. Pulse asks macOS to forget their grants with tccutil. Nothing else changes, and an app you reinstall will simply ask again.",
+            message: "These apps are no longer installed. the app asks macOS to forget their grants with tccutil. Nothing else changes, and an app you reinstall will simply ask again.",
             confirmLabel: "Clear",
             isPresented: $confirm
         ) {

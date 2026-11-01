@@ -48,8 +48,8 @@ struct LockScreenAttentionWidget: Widget {
         StaticConfiguration(kind: kind, provider: TimelineProvider()) { entry in
             LockScreenAttentionView(entry: entry)
         }
-        .configurationDisplayName("CodeRight Attention")
-        .description("See pending CodeRight sessions from your Lock Screen.")
+        .configurationDisplayName("the app Attention")
+        .description("See pending the app sessions from your Lock Screen.")
         .supportedFamilies([.accessoryCircular, .accessoryRectangular])
     }
 }

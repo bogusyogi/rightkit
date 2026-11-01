@@ -178,7 +178,7 @@ enum MonRules {
         "secure system", "system", "system idle process", "system interrupts", "registry", "memory compression",
     ]
 
-    /// Pulse itself. Quitting it from its own window would close the hub.
+    /// the app itself. Quitting it from its own window would close the hub.
     static let pulseNames: Set<String> = ["pulse", "pulse-hub", "pulse hub"]
 
     /// System and critical rows: refused by the engine, not quittable, or protected by name.

@@ -12,13 +12,13 @@ import Foundation
  confirmed send.
  */
 
-/// Outcome returned by a CodeRight adapter after it attempts the daemon send.
+/// Outcome returned by a the app adapter after it attempts the daemon send.
 public enum ComposerSendResult: Sendable, Equatable {
     case sent
     case failed(message: String)
 }
 
-/// Thin adapter around CodeRight's session/client send operation. The port does
+/// Thin adapter around the app's session/client send operation. The port does
 /// not know `SessionViewModel`, daemon payloads, nonce generation, or routes.
 @MainActor
 public protocol ComposerMessageSending {

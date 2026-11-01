@@ -3,7 +3,7 @@ import Foundation
 import IOKit
 import IOKit.ps
 
-/// Pulse fork: the internal battery's charge, charging state, cycle count,
+/// the app fork: the internal battery's charge, charging state, cycle count,
 /// health, temperature, power draw and time remaining, for the System sensors.
 /// Charge and state come from the power source list (IOPowerSources); the rest
 /// comes from the AppleSmartBattery registry entry. A Mac without an internal

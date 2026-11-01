@@ -17,8 +17,8 @@ final class FinderSync: FIFinderSync {
         super.init()
         // The startup disk ("/") and drive D only. Finder puts a Finder Sync extension's icon on every
         // observed volume in its sidebar, so observing each mounted volume replaced the drives' own
-        // icons with Pulse's (#402). Adrian 2026-10-19: "I need Copy Path there; put D back even if D
-        // shows the Pulse icon, but keep E and disk images on their own icons." D can mount after
+        // icons with the app's (#402). Adrian 2026-10-19: "I need Copy Path there; put D back even if D
+        // shows the the app icon, but keep E and disk images on their own icons." D can mount after
         // Finder starts the extension, so the set is refreshed on mount and unmount.
         updateObservedFolders()
         let center = NSWorkspace.shared.notificationCenter
@@ -62,8 +62,8 @@ final class FinderSync: FIFinderSync {
         return menu.items.isEmpty ? nil : menu
     }
 
-    /// Which items Pulse has switched off in Settings: bit 1 Cut, 2 Copy Path,
-    /// 4 Open in Terminal. Pulse publishes it as the state of a system
+    /// Which items the app has switched off in Settings: bit 1 Cut, 2 Copy Path,
+    /// 4 Open in Terminal. the app publishes it as the state of a system
     /// notification name (Conveniences/FinderMenuState.swift); unset reads 0,
     /// which shows all three.
     private static func hiddenItems() -> UInt64 {
@@ -91,7 +91,7 @@ final class FinderSync: FIFinderSync {
     }
 
     /// Puts the items on the pasteboard as files, as Finder's Copy does, and
-    /// tells Pulse, whose next ⌘V in Finder then moves them (Move Item Here).
+    /// tells the app, whose next ⌘V in Finder then moves them (Move Item Here).
     @objc private func cut(_ sender: AnyObject?) {
         guard let selected = FIFinderSyncController.default().selectedItemURLs(), !selected.isEmpty
         else { return }

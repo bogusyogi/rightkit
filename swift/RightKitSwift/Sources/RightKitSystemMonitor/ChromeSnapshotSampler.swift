@@ -2,11 +2,11 @@ import RightKitNotchCore
 import RightKitNotch
 import Foundation
 
-/// Pulse fork: the daily count of Chrome's leftover signing snapshots, for the
+/// the app fork: the daily count of Chrome's leftover signing snapshots, for the
 /// same history the hub's cleanup scan keeps (rule `chrome-signing-copies`).
 /// The notch counts only the clone folders in the user cache directory (no
 /// walk of the tree, no sizes) and appends a sample at most once a day to
-/// `~/Library/Application Support/Pulse/chrome-snapshots.json`, using the
+/// `~/Library/Application Support/the app/chrome-snapshots.json`, using the
 /// file format `core/src/cleanup_scan.rs` reads.
 enum ChromeSnapshotSampler {
     private static let gap: TimeInterval = 86_400

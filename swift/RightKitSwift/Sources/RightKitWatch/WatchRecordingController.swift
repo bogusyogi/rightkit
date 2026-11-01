@@ -667,7 +667,7 @@ final class WatchRecordingController: ObservableObject {
 
     private func fileName(id: UUID, date: Date) -> String {
         let formatter = ISO8601DateFormatter()
-        return "HeardRight-\(formatter.string(from: date).replacingOccurrences(of: ":", with: "-"))-\(id.uuidString.prefix(8)).m4a"
+        return "the app-\(formatter.string(from: date).replacingOccurrences(of: ":", with: "-"))-\(id.uuidString.prefix(8)).m4a"
     }
 
     private func loadManifest() {

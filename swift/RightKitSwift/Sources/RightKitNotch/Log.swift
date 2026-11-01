@@ -12,7 +12,7 @@ import RightKitDiagnostics
 /// Two sinks sit behind this one facade. The `Logger`s above are unchanged:
 /// every call site keeps its message and its privacy annotations. `record`
 /// adds a durable one, a size-capped JSON Lines file under
-/// `~/Library/Logs/Pulse`, for the things worth reading after the unified log
+/// `~/Library/Logs/the app`, for the things worth reading after the unified log
 /// has rolled over. It takes an event NAME and COUNTS and nothing else, so it
 /// cannot carry a message body, a token, clipboard contents or a path.
 enum Log {

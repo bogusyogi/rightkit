@@ -4,7 +4,7 @@ import Foundation
 // store reads. Types only: the store is `LauncherClipboard` (LauncherClipboard.swift and the
 // `Clipboard*.swift` files beside it); the strip is `ClipboardStrip*.swift`.
 
-/// A JSON value, so a row rewritten by this Pulse keeps the keys a newer one added (2.5).
+/// A JSON value, so a row rewritten by this the app keeps the keys a newer one added (2.5).
 enum ClipJSON: Equatable, Sendable {
     case null
     case bool(Bool)
@@ -153,7 +153,7 @@ enum ClipLoadState: Equatable, Sendable {
     case newer
     /// `index.json` exists and could not be read (7.9).
     case unreadable
-    /// Another Pulse holds `clipboard/.lock`: capture is refused (7.9).
+    /// Another the app holds `clipboard/.lock`: capture is refused (7.9).
     case lockedElsewhere
 }
 

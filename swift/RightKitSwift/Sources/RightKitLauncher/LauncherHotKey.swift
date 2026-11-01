@@ -4,7 +4,7 @@ import CoreGraphics
 import Foundation
 import RightKitHotkeys
 
-/// Pulse launcher: which key combination opens it.
+/// the app launcher: which key combination opens it.
 enum LauncherHotkeyChoice: String, CaseIterable {
     case optionSpace
     case commandSpace
@@ -49,7 +49,7 @@ enum LauncherHotkeyChoice: String, CaseIterable {
 
 /// A key combination typed as text, such as "cmd+opt+k" or "ctrl+shift+1".
 /// At least one modifier is required, so a binding never takes plain typing.
-/// RightKit has no text parser for combos yet (rightkit#189), so Pulse keeps this one.
+/// RightKit has no text parser for combos yet (rightkit#189), so the app keeps this one.
 typealias LauncherKeyCombo = RightKitHotkeyCombo
 
 extension RightKitHotkeyCombo {

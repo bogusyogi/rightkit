@@ -1,6 +1,6 @@
 import CoreGraphics
 
-/// Pulse: where a window goes for each action. Pure arithmetic in the
+/// the app: where a window goes for each action. Pure arithmetic in the
 /// Accessibility coordinate space (origin at the top-left of the primary
 /// display), against the visible frame of the screen the window is on, so the
 /// menu bar and the Dock are never covered. Results are whole points.
