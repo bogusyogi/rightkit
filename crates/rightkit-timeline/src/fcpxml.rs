@@ -320,19 +320,28 @@ pub fn export_fcpxml(
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "media".into());
             let dest = dir.join(format!("{}-{}", &id.as_str()[..8], leaf));
-            // Atomic and verified (temp + rename, source and copy digests compared): an interrupted
-            // export never leaves a truncated media file in the folder.
-            rightkit_fs::copy_verified(
-                file,
-                &dest,
-                rightkit_fs::AtomicWriteOptions::default(),
-                None,
-            )
-            .map_err(|e| {
-                io(format!("copying {} to {}", file.display(), dest.display()))(
-                    std::io::Error::other(e),
-                )
-            })?;
+            // An existing copy with the source's bytes is reused; one with other bytes is refused, never
+            // replaced. A new copy is atomic, verified and exclusive (temp + no-replace rename, source and
+            // copy digests compared): an interrupted export never leaves a truncated media file.
+            if dest.symlink_metadata().is_ok() {
+                if file_digest(&dest)? != file_digest(file)? {
+                    return Err(FcpxmlError::BadInput(format!(
+                        "{} already exists with different bytes than {}; refusing to replace it",
+                        dest.display(),
+                        file.display()
+                    )));
+                }
+            } else {
+                let options = rightkit_fs::AtomicWriteOptions {
+                    replace: rightkit_fs::ReplaceMode::NoReplace,
+                    ..Default::default()
+                };
+                rightkit_fs::copy_verified(file, &dest, options, None).map_err(|e| {
+                    io(format!("copying {} to {}", file.display(), dest.display()))(
+                        std::io::Error::other(e),
+                    )
+                })?;
+            }
             (dest, true)
         } else {
             (file.clone(), false)
@@ -596,6 +605,10 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), FcpxmlError> {
         context: format!("writing {}", path.display()),
         source: std::io::Error::other(e),
     })
+}
+
+fn file_digest(path: &Path) -> Result<String, FcpxmlError> {
+    rightkit_fs::digest::blake3_file(path).map_err(io(format!("reading {}", path.display())))
 }
 
 #[cfg(test)]
