@@ -158,12 +158,15 @@ fn build_pointer_computes_cutoff_and_sha256_over_complete_rows_only() {
     // Two complete rows plus a trailing partial (no newline) row that must
     // be excluded from the cutoff and the hash.
     let mut file = fs::File::create(&path).unwrap();
-    write!(
-        file,
-        "{}\n{}\n{}",
-        r#"{"id":"sess","cwd":"/work","type":"user","timestamp":"t1"}"#,
-        r#"{"type":"assistant","timestamp":"t2"}"#,
-        r#"{"type":"partial"#
+    file.write_all(
+        concat!(
+            r#"{"id":"sess","cwd":"/work","type":"user","timestamp":"t1"}"#,
+            "\n",
+            r#"{"type":"assistant","timestamp":"t2"}"#,
+            "\n",
+            r#"{"type":"partial"#
+        )
+        .as_bytes(),
     )
     .unwrap();
     drop(file);

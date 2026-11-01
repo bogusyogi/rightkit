@@ -300,6 +300,7 @@ pub(crate) fn collapse_horizontal_space(text: &str) -> String {
 /// filler in ASR output, both anchored on punctuation the model actually emits:
 ///   1. comma-bracketed:   "it was, like, huge"  -> "it was huge"
 ///   2. sentence-initial:  "Like, we should go"  -> "we should go"
+///
 /// Verb/preposition/quotative uses ("I like it", "something like that",
 /// "I was like, no") never match: none of them carry a comma on BOTH sides /
 /// start the sentence with a trailing comma. Un-punctuated fillers are the
