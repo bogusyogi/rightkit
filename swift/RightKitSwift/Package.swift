@@ -41,6 +41,12 @@ let package = Package(
         .library(name: "RightKitEngine", targets: ["RightKitEngine"]),
         .library(name: "RightKitHub", targets: ["RightKitHub"]),
         .library(name: "RightKitHubQA", targets: ["RightKitHubQA"]),
+        .library(name: "RightKitMedia", targets: ["RightKitMedia"]),
+        .library(name: "RightKitDictation", targets: ["RightKitDictation"]),
+        .library(name: "RightKitLibrary", targets: ["RightKitLibrary"]),
+        .library(name: "RightKitAgent", targets: ["RightKitAgent"]),
+        .library(name: "RightKitNotch", targets: ["RightKitNotch"]),
+        .library(name: "RightKitSystemUI", targets: ["RightKitSystemUI"]),
         // macOS CloudKit helper for rightkit-sync (rightkit#1302). Apps build it with
         // `swift build --product rightkit-cloudkit-helper`; the body is compiled on macOS only.
         .executable(name: "rightkit-cloudkit-helper", targets: ["rightkit-cloudkit-helper"]),
@@ -130,6 +136,20 @@ let package = Package(
         .target(name: "RightKitHubQA", dependencies: ["RightKitHub"]),
         .testTarget(name: "RightKitEngineClientTests", dependencies: ["RightKitEngineClient"]),
         .testTarget(name: "RightKitHubTests", dependencies: ["RightKitHub", "RightKitHubQA"]),
+        // Extracted from the Right Suite apps (agent client UI, notch, system UI, dictation, library, media worker).
+        // Platform-specific bodies are guarded by `#if os(...)`, so the other platforms build an empty module.
+        .target(name: "RightKitMedia"),
+        .testTarget(name: "RightKitMediaTests", dependencies: ["RightKitMedia"]),
+        .target(name: "RightKitDictation", dependencies: ["RightKitImportQueue"]),
+        .testTarget(name: "RightKitDictationTests", dependencies: ["RightKitDictation"]),
+        .target(name: "RightKitLibrary"),
+        .testTarget(name: "RightKitLibraryTests", dependencies: ["RightKitLibrary"]),
+        .target(name: "RightKitAgent", dependencies: ["RightKitCloudSync", "RightKitLiveActivity"]),
+        .testTarget(name: "RightKitAgentTests", dependencies: ["RightKitAgent"]),
+        .target(name: "RightKitNotch", dependencies: ["RightKitDiagnostics", "RightKitFS", "RightKitOverlay"]),
+        .testTarget(name: "RightKitNotchTests", dependencies: ["RightKitNotch"]),
+        .target(name: "RightKitSystemUI"),
+        .testTarget(name: "RightKitSystemUITests", dependencies: ["RightKitSystemUI"]),
         // Line-JSON `rightkit-sync-helper/1` CloudKit helper over RightKitCloudSync (macOS only; empty elsewhere).
         .executableTarget(name: "rightkit-cloudkit-helper", dependencies: ["RightKitCloudSync"]),
         .testTarget(name: "RightKitCloudKitHelperTests", dependencies: ["rightkit-cloudkit-helper"]),
