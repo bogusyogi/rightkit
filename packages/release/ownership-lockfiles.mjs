@@ -299,7 +299,7 @@ function pnpmGraph(text, manifests, lockDir, workspaceBytes) {
     return g.nodes.get(normalized) ?? g.nodes.get(`/${normalized}`);
   };
   for (const node of g.nodes.values()) {
-    const isImporter = node.id.startsWith("importer:"), pkg = isImporter ? lock.importers[node.id.slice(9)] : snapshots[node.id];
+    const isImporter = node.id.startsWith("importer:"), pkg = isImporter ? lock.importers[node.id.slice(9)] ?? {} : snapshots[node.id];
     for (const section of isImporter ? sections : ["dependencies", "optionalDependencies"]) {
       if (pkg[section] !== undefined && !object(pkg[section])) fail("invalid pnpm dependency map");
       for (const [name, raw] of Object.entries(pkg[section] ?? {})) connect(node, resolve(node, name, raw), name, section === "optionalDependencies");
