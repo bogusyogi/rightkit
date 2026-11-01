@@ -97,7 +97,7 @@ let package = Package(
         // FSEvents file watcher (macOS only; the target is empty on iOS). CoreServices from the SDK.
         .target(name: "RightKitWatch"),
         .testTarget(name: "RightKitWatchTests", dependencies: ["RightKitWatch"]),
-        .target(name: "RightKitUI"),
+        .target(name: "RightKitUI", dependencies: ["RightKitLicense", "RightKitPurchases"]),
         .testTarget(name: "RightKitUITests", dependencies: ["RightKitUI"]),
         // Pulse facade over the proposed rightkit-job-queue C ABI seam (design selection, not a qualified adoption).
         // Read-only reader for rightkit-db databases (Rust is the only writer); system SQLite3.
