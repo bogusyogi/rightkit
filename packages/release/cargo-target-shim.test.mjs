@@ -682,7 +682,7 @@ test("[rightkit#1350] a Windows broker host's wrapper is a copy of the RustRight
   assert.equal(installed.mode, "broker");
   assert.equal(path.basename(installed.shim), "cargo.exe");
   assert.deepEqual(copied, [[client, installed.shim]], "the live client is copied, never linked");
-  assert.deepEqual(probed, [installed.shim], "the copy is probed for gate-trampoline mode before the sidecar exists");
+  assert.deepEqual(probed, [client], "the client is probed under its own name (a copy named cargo.exe is a managed cargo shim to RustRight)");
   const sidecar = JSON.parse(fs.readFileSync(path.join(installed.bin, "gate-trampoline.json"), "utf8"));
   assert.deepEqual(Object.keys(sidecar), ["schema", "node", "module", "map"]);
   assert.equal(sidecar.schema, TRAMPOLINE_SCHEMA);

@@ -2874,14 +2874,15 @@ test("data: scoped scans keep every file-only row, keep only the closure's execu
   assert.throws(() => scopeScans([{ id: "check:stranger", class: "A" }], closure, { rustUnits: CLOSURE_RUST }), /RK_SCOPE_CLOSURE: scan check:stranger has no known Rust owner/);
 });
 
-test("[rustright#209 item 5] a Rust unit carries the bin targets `cargo build -p` builds: required-features bins and libs are not counted", (t) => {
-  const root = mkRepo({ "Cargo.toml": "[workspace]\n", "crates/a/Cargo.toml": pkg("a") }, t);
+test("[rustright#209 item 5] a Rust unit carries its bin targets and whether `cargo test -p` links them: required-features bins and libs are not counted", (t) => {
+  const root = mkRepo({ "Cargo.toml": "[workspace]\n", "crates/a/Cargo.toml": pkg("a"), "crates/b/Cargo.toml": pkg("b") }, t);
   const body = JSON.stringify({
     workspace_root: root, target_directory: path.join(root, "target"),
     packages: [{ name: "a", manifest_path: path.join(root, "crates", "a", "Cargo.toml"), publish: null, targets: [
       { name: "a", kind: ["lib"] }, { name: "a-cli", kind: ["bin"] }, { name: "a-tool", kind: ["bin"], "required-features": ["tool"] }, { name: "a-broker", kind: ["bin"] },
-    ] }],
+      { name: "cli_flow", kind: ["test"] },
+    ] }, { name: "b", manifest_path: path.join(root, "crates", "b", "Cargo.toml"), publish: null, targets: [{ name: "b", kind: ["bin"] }] }],
   });
-  const found = discoverRustWorkspaces({ root, spawn: () => ok(body), cargoCommand: ["cargo"], tracked: (name) => (name === "Cargo.lock" ? ["Cargo.lock"] : ["Cargo.toml", "crates/a/Cargo.toml"]) });
-  assert.deepEqual(found.units.map((u) => [u.name, u.bins]), [["a", ["a-broker", "a-cli"]]]);
+  const found = discoverRustWorkspaces({ root, spawn: () => ok(body), cargoCommand: ["cargo"], tracked: (name) => (name === "Cargo.lock" ? ["Cargo.lock"] : ["Cargo.toml", "crates/a/Cargo.toml", "crates/b/Cargo.toml"]) });
+  assert.deepEqual(found.units.map((u) => [u.name, u.bins, u.testLinksBins]), [["a", ["a-broker", "a-cli"], true], ["b", ["b"], false]], "only a package with an integration test or bench has its bins linked by `cargo test -p`");
 });

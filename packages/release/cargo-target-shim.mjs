@@ -162,8 +162,9 @@ export function decideCargoInvocation({ args, cwd, env, map, locate, realpath = 
  * Windows, broker mode only (rightkit#1350, rustright#215): a child started without a shell finds only an .exe, so `bin/cargo.exe` is a
  * byte copy of the live RustRight client (`broker.section.client`) and `bin/gate-trampoline.json` beside it pins node, this module and the
  * map by path and sha256. The client finds that sidecar beside its own executable and runs `node <module> --map <map> -- <args>` and
- * nothing else (gate-trampoline mode). The copy must hash to the client and answer `trampoline-capability` with the schema before the
- * sidecar is written; the client's digest is part of the identity. A direct Windows host still has no wrapper.
+ * nothing else (gate-trampoline mode). The client must answer `trampoline-capability` with the schema and the copy must hash to it before
+ * the sidecar is written; the client's digest is part of the identity, and so is the run's ownership handle (broker section), so two live
+ * runs never share a wrapper directory. A direct Windows host still has no wrapper.
  */
 export const TRAMPOLINE_SCHEMA = "rustright.gate-trampoline/1";
 const sha256File = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
@@ -207,11 +208,13 @@ export function installCargoShim({ base, snapshotRoot, targetDirs, broker = null
     const section = broker ? { ...broker.section, sentinel } : null;
     put(mapFile, `${JSON.stringify({ schema: SHIM_MAP_SCHEMA, mode, identity, realCargo: realCargo ?? null, shim, ledgerDir, workspaces: sorted, ...(section ? { broker: section } : {}) }, null, 2)}\n`, 0o644);
     if (trampoline) {
+      // The probe asks the client under its own name: a copy named cargo.exe is a managed cargo shim to RustRight (shims.rs), which would send the
+      // probe to the broker as a cargo request instead of answering it.
+      const answer = probe(broker.section.client);
+      if (answer !== TRAMPOLINE_SCHEMA) throw Object.assign(new Error(`the RustRight client ${broker.section.client} has no gate-trampoline mode (trampoline-capability answered ${JSON.stringify(answer)}, not ${TRAMPOLINE_SCHEMA}); install a RustRight runtime with rustright#215`), { code: "RK_CARGO_SHIM_UNSUPPORTED" });
       copyFile(broker.section.client, shim);
       const copied = hashFile(shim);
       if (copied !== clientSha256) throw Object.assign(new Error(`the copy ${shim} hashes to ${copied}, not the client's ${clientSha256}`), { code: "RK_CARGO_SHIM_UNSUPPORTED" });
-      const answer = probe(shim);
-      if (answer !== TRAMPOLINE_SCHEMA) throw Object.assign(new Error(`the RustRight client ${broker.section.client} has no gate-trampoline mode (trampoline-capability answered ${JSON.stringify(answer)}, not ${TRAMPOLINE_SCHEMA}); install a RustRight runtime with rustright#215`), { code: "RK_CARGO_SHIM_UNSUPPORTED" });
       const pin = (file) => ({ path: file, sha256: hashFile(file) });
       put(path.join(bin, "gate-trampoline.json"), `${JSON.stringify({ schema: TRAMPOLINE_SCHEMA, node: pin(node), module: pin(self), map: pin(mapFile) }, null, 2)}\n`, 0o644);
     } else put(shim, `#!/bin/sh\nexec ${quote(node)} ${quote(self)} --map ${quote(mapFile)} -- "$@"\n`, 0o755);

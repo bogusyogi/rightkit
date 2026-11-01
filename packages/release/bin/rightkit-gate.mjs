@@ -240,9 +240,12 @@ function workspaceMetadata({ root, spawn, cargoCommand, dir, realpath }) {
   const members = (meta.packages ?? []).map((p) => {
     const pkgDir = rel(path.dirname(p.manifest_path));
     if (pkgDir === ".." || pkgDir.startsWith("../")) throw new Error(`workspace member ${p.name} lives outside the repository (${pkgDir})`);
-    // Bin targets a plain `cargo build -p <name>` builds (rustright#209 item 5): one with required-features is skipped unless they are on, so it is not counted.
-    const bins = (p.targets ?? []).filter((t) => Array.isArray(t.kind) && t.kind.includes("bin") && !(t["required-features"] ?? t.required_features ?? []).length).map((t) => t.name).sort();
-    return { name: p.name, dir: pkgDir, manifest: pkgDir === "." ? "Cargo.toml" : `${pkgDir}/Cargo.toml`, publish: !(Array.isArray(p.publish) && p.publish.length === 0), bins };
+    // Bin targets (rustright#209 item 5) and whether `cargo test -p <name>` links them: Cargo builds a package's bins for its integration tests and
+    // benches only, so a package with neither leaves `debug/<bin>` to whatever an earlier build wrote. A bin with required-features is not counted.
+    const kinds = (t) => (Array.isArray(t.kind) ? t.kind : []);
+    const bins = (p.targets ?? []).filter((t) => kinds(t).includes("bin") && !(t["required-features"] ?? t.required_features ?? []).length).map((t) => t.name).sort();
+    const testLinksBins = (p.targets ?? []).some((t) => kinds(t).includes("test") || kinds(t).includes("bench"));
+    return { name: p.name, dir: pkgDir, manifest: pkgDir === "." ? "Cargo.toml" : `${pkgDir}/Cargo.toml`, publish: !(Array.isArray(p.publish) && p.publish.length === 0), bins, testLinksBins };
   }).sort((a, b) => (a.name < b.name ? -1 : 1));
   return { cargoDir, members };
 }
@@ -674,7 +677,7 @@ export function discoverRustWorkspaces({ root, spawn, cargoCommand, tracked, unt
     for (const member of found.members) {
       covered.add(member.manifest);
       if (!trackedSet.has(member.manifest)) { skipped.push({ manifest: member.manifest, why: "a workspace member that is untracked or ignored, so it is not part of the gated commit" }); continue; }
-      units.push({ name: rustUnitName(found.cargoDir, member.name), crate: member.name, dir: member.dir, publish: member.publish, cargoDir: found.cargoDir, bins: member.bins ?? [] });
+      units.push({ name: rustUnitName(found.cargoDir, member.name), crate: member.name, dir: member.dir, publish: member.publish, cargoDir: found.cargoDir, bins: member.bins ?? [], testLinksBins: member.testLinksBins === true });
     }
     workspaces.push({ cargoDir: found.cargoDir, units });
   }
@@ -4032,15 +4035,19 @@ export async function main(argv, io = {}) {
       // A broker host's evidence is the broker's own signed receipts (each carried scan's row.snapshotEvidence, verified above); the
       // gate writes no receipt that says `executor: direct` for it.
       // The output directories this compile's evidence names (GB-13): the broker's signed receipts' `outputDir`, or the direct host's resolved targets.
-      // With them, per output directory, the bin targets of the units this compile built there (rustright#209 item 5): each unit's scans run
-      // `cargo build -p <crate>` in its workspace, so these binaries are this compile's, rebuilt or proven fresh. Nothing else in that directory is.
-      const builtUnits = rust.units.filter((u) => !closure || closure.rust.has(u.name));
-      const binsOfWorkspace = (cargoDir) => [...new Set(builtUnits.filter((u) => (u.cargoDir ?? ".") === cargoDir).flatMap((u) => u.bins ?? []))].sort();
-      const outputWorkspaces = snapshotBroker
-        ? scanResult.scans.filter((r) => r.snapshotEvidence?.outputDir).map((r) => [r.snapshotEvidence.outputDir, r.snapshotEvidence.cargoDir ?? "."])
-        : Object.entries(targetDirs ?? {}).filter(([, dir]) => dir).map(([cargoDir, dir]) => [dir, cargoDir]);
+      // With them, per output directory, the binaries this compile linked there (rustright#209 item 5). The plan has no `cargo build`: a bin is
+      // linked only by a PASSED `cargo test -p <crate>` scan (test:rust:<unit>...) of a package with an integration test or bench, which Cargo
+      // rebuilds or proves fresh for this commit. A unit only checked, linted, documented, deferred to CI or without such a target counts for nothing.
+      const unitByName = new Map(rust.units.map((u) => [u.name, u]));
+      const known = new Set(unitByName.keys());
       const builtBins = {};
-      for (const [dir, cargoDir] of outputWorkspaces) builtBins[dir] = [...new Set([...(builtBins[dir] ?? []), ...binsOfWorkspace(cargoDir)])].sort();
+      const addBins = (dir, unit) => { if (dir && unit?.testLinksBins && unit.bins?.length) builtBins[dir] = [...new Set([...(builtBins[dir] ?? []), ...unit.bins])].sort(); };
+      for (const r of scanResult.scans) {
+        if (r.status !== "pass" || !/^test:rust(?:-serial)?:/.test(String(r.id))) continue;
+        const unit = unitByName.get(rustUnitOfScanId(r.id, known));
+        addBins(snapshotBroker ? r.snapshotEvidence?.outputDir : targetDirs?.[unit?.cargoDir ?? "."], unit);
+      }
+      const outputWorkspaces = (snapshotBroker ? scanResult.scans.map((r) => r.snapshotEvidence?.outputDir) : Object.values(targetDirs ?? {})).filter(Boolean).map((dir) => [dir]);
       o.onCompileOutputs?.(outputWorkspaces.map(([dir]) => dir), builtBins);
       if (snapshotBroker) o.out(`${tag} broker compile: ${scanResult.scans.filter((r) => r.snapshotEvidence).length} carried request(s) with verified signed receipts; no direct receipt on a broker host`);
       else {
