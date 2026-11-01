@@ -12,7 +12,7 @@ FAM=[('Agent platform',['rightkit-agent-engine','rightkit-agent-server','rightki
  ('Documents',['@rightkit/document-workspace','rightkit-document-workspace','@rightkit/markdown-editor','@rightkit/html-editor','@rightkit/docx-editor']),
  ('Mail & workspace',['rightkit-mail','rightkit-google-apis','@rightkit/mail-ui','@rightkit/workspace-ui']),
  ('System utilities',['rightkit-mesh','rightkit-system-monitor','rightkit-disk-cleanup','rightkit-app-manager','rightkit-launcher','rightkit-clipboard-history','rightkit-desktop-tweaks','rightkit-privileged-helper','rightkit-app-lock','RightKitNotch','RightKitSystemUI','@rightkit/system-ui']),
- ('Foundation & tooling',['rightkit-apple-ops','rightkit-doctor','rightkit-bench','rightkit-ml-lab','@rightkit/config','@rightkit/waitlist-worker']),
+ ('Foundation & tooling',['rightkit-engine-host','rightkit-apple-ops','rightkit-doctor','rightkit-bench','rightkit-ml-lab','@rightkit/config','@rightkit/waitlist-worker']),
 ]
 fn=lambda n:f'{n:,}'
 def caps(a,k=6):
@@ -32,13 +32,13 @@ for r in N:
     d=json.load(open(f'{S}/md/{r}-rightkit-files.json'))['files']; c=collections.Counter()
     for f in d: c[f['action']]+=f['loc']
     tot[r]=c
-L+=["## Coverage by app","","| App | Code lines | NEW | EXTEND | ADOPT | To Legion | Vendor | DROP | App tests (stay) | Shell+config (stay) | Shell % |","|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+L+=["## Coverage by app","","| App | Code lines | NEW | EXTEND | ADOPT | To Legion | Vendor | DROP | App recipes (stay) | App tests (stay) | Shell+config (stay) | Shell % |","|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
 G=collections.Counter()
 for r,c in tot.items():
     code=sum(c.values())-c['NOTCODE']; st=c['SHELL']+c['CONFIG']; G.update(c)
-    L.append(f"| {N[r]} | {fn(code)} | {fn(c['NEW'])} | {fn(c['EXTEND'])} | {fn(c['ADOPT'])} | {fn(c['LEGION'])} | {fn(c['VENDOR-OWN']+c['VENDOR-KEEP'])} | {fn(c['DROP'])} | {fn(c['APPTEST'])} | {fn(st)} | {100*st//code}% |")
+    L.append(f"| {N[r]} | {fn(code)} | {fn(c['NEW'])} | {fn(c['EXTEND'])} | {fn(c['ADOPT'])} | {fn(c['LEGION'])} | {fn(c['VENDOR-OWN']+c['VENDOR-KEEP'])} | {fn(c['DROP'])} | {fn(c['RECIPE'])} | {fn(c['APPTEST'])} | {fn(st)} | {100*st/code:.1f}% |")
 code=sum(G.values())-G['NOTCODE']; st=G['SHELL']+G['CONFIG']
-L.append(f"| **All** | **{fn(code)}** | **{fn(G['NEW'])}** | **{fn(G['EXTEND'])}** | **{fn(G['ADOPT'])}** | **{fn(G['LEGION'])}** | **{fn(G['VENDOR-OWN']+G['VENDOR-KEEP'])}** | **{fn(G['DROP'])}** | **{fn(G['APPTEST'])}** | **{fn(st)}** | **{100*st//code}%** |")
+L.append(f"| **All** | **{fn(code)}** | **{fn(G['NEW'])}** | **{fn(G['EXTEND'])}** | **{fn(G['ADOPT'])}** | **{fn(G['LEGION'])}** | **{fn(G['VENDOR-OWN']+G['VENDOR-KEEP'])}** | **{fn(G['DROP'])}** | **{fn(G['RECIPE'])}** | **{fn(G['APPTEST'])}** | **{fn(st)}** | **{100*st/code:.1f}%** |")
 L+=["","Every capability goes to RightKit, single-app ones included. The app keeps only its look and composition of the shared shell (shell/config), declared per-app exceptions, and its journey tests. Unit tests move with their code; app journey/e2e tests stay with the app. Generated third-party notices, docs and data are not counted.",""]
 def wave(t):
     a=m[t]['actions']

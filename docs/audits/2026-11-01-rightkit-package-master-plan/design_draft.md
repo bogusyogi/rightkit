@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Draft v5. Revised after the EGM Goldfish review (v3), then by Adrian's 2026-11-01 rulings (v4, v5) (`consolidated_review_report.md`) |
+| Status | Draft v6. Revised after the EGM Goldfish review (v3), by Adrian's 2026-11-01 rulings (v4, v5), and by a file-level shell pass (v6: at most 2% stays per app) (`consolidated_review_report.md`) |
 | Date | 2026-11-01 |
 | Author | Claude, for Adrian |
 | Decision owner | Adrian |
@@ -62,17 +62,18 @@ The suite has ten app repositories: `postright`, `scraperight`, `mailright`, `vi
 
 | Measure | Lines |
 |---|---:|
-| Authored code in apps | 3,874,805 |
-| NEW (85 new packages) | 1,975,724 |
-| EXTEND (73 existing packages) | 772,649 |
-| ADOPT (delete app copy) | 103,126 |
-| LEGION (CutRight skills 43k, already in Legion 62k, Pulse 2k) | 106,600 |
+| Authored code in apps | 3,873,978 |
+| NEW (86 new packages) | 2,039,500 |
+| EXTEND (74 existing packages) | 834,005 |
+| ADOPT (delete app copy) | 104,351 |
+| LEGION (Legion's own skills, already in Legion) | 71,060 |
 | VENDOR-OWN + VENDOR-KEEP | 364,653 |
-| DROP (includes CodeRight's skills crates: it uses the installed Legion) | 93,975 |
-| APPTEST (stays in app) | 276,901 |
-| SHELL + CONFIG (stays in app) | 181,177 (4.7%) |
+| DROP | 93,975 |
+| RECIPE (CutRight recipes & app-specific agent skills, stay in app) | 42,787 |
+| APPTEST (stays in app) | 314,794 |
+| SHELL + CONFIG (stays in app) | 8,853 (0.2%; max 0.6% per app) |
 
-New packages: 85 in total (63 crates, 16 npm packages, 6 Swift packages), all public. 26 have two or more consumers today; the rest have one.
+New packages: 86 (64 crates, 16 npm packages, 6 Swift packages), all public. Shells that every app re-implements become shared packages: `rightkit-engine-host` (engine binary framework: sidecar and CLI modes, command registration, contract export), `rightkit-tauri-shell` (Tauri bootstrap and command bridge), `RightKitUI` (iOS app scaffold), `rightkit-android` (Android app scaffold), `@rightkit/react-shell` (app frame), `rightkit-daemon` (resident hosts and supervisors), `@rightkit/release` (release-config logic; apps keep a JSON data config).
 
 ## Proposed architecture
 
@@ -125,7 +126,8 @@ RightKit's existing fast route is `right-release publish npm|cargo … --local` 
 - GenRight Node server: drop.
 - Tree-sitter, WasmKit, ONNX Runtime binary, tauri-runtime-wry: use upstream dependencies; upstream the Tauri patch.
 - Publication hold: lifted. Publishing starts on Adrian's go-ahead.
-- Skills: owned by Legion. CodeRight uses the installed Legion, so its skill crates are deleted.
+- Skills: Legion owns its own skills. App-specific recipes and agent skills stay in their app (CutRight and GenRight recipes, Pulse's chat skill). CodeRight uses the installed Legion, so its skill crates are deleted.
+- Publishing: compile locally, qualify on GitHub, publish. `publish.yml` requires signed broker receipts (`rustright.provenance.v1`) from `rightkit-gate --to release` on a managed host (Mac or Dell), so the broker step runs there.
 
 ### Procedure per action
 
@@ -139,7 +141,7 @@ RightKit's existing fast route is `right-release publish npm|cargo … --local` 
   7. Delete the app copy, and its ownership exception if one exists.
   8. Pass that app's `rightkit-gate check` and journeys.
 - **ADOPT**: add a parity check: the app's tests pass against the owner. Then rewire the call sites, delete the copy, and pass the gate.
-- **LEGION**: move skill packs to Legion. Apps use the installed Legion.
+- **LEGION**: Legion's own skills stay in Legion. App recipes (RECIPE) stay in their app.
 - **VENDOR / DROP**: follow the decisions above. Delete the copy, and add the dependency or the fork.
 
 ### Waves
@@ -160,6 +162,6 @@ Every package has a wave in the master plan's tables.
 
 For each app:
 
-1. Regenerating the mapping against `main` shows only SHELL, CONFIG, APPTEST, NOTCODE and LEGION rows. LEGION rows are allowed in `legion` only.
+1. Regenerating the mapping against `main` shows only SHELL, CONFIG, RECIPE, APPTEST, NOTCODE and LEGION rows (LEGION only in `legion`), and SHELL + CONFIG is at most 2% of the app's code.
 2. Every ownership exception that named moved code is deleted. Exceptions on shell files are reviewed separately.
 3. The app passes `rightkit-gate check` and its journeys against published pins.

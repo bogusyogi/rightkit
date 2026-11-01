@@ -1,0 +1,41 @@
+# applied to SHELL/CONFIG files after mapping; key = "<repo>:<path>"
+:.*(/(tests?|examples|UITests|conformance)/|_tests?(_\d+)?\.rs$|tests_[a-z_0-9]+\.rs$|_tests_[a-z_0-9]+\.rs$|\.test\.(ts|mjs)$|/test_support\.rs$|/fake_|bin/ops004)	app-shell	APPTEST	app journey/e2e/unit tests of the app binary
+:(.*/)?how-to\.html$|:.*design/prototype/	none	NOTCODE	doc/prototype page
+:(.*/)?right-release\.config\.mjs$	@rightkit/release	EXTEND	release config logic moves into @rightkit/release; app keeps a JSON data config (P8)
+:(.*/)?build\.rs$	rightkit-tauri-shell	EXTEND	build identity, icon embedding, tauri config restore
+:.*(icons/.*\.py|installer/generate\.mjs|gen_tray_icons\.py)$	@rightkit/theme	EXTEND	icon, tray & installer art generation from the brand file
+:.*src/(styles|index|interaction|windows)\.css$|:apps/cutright/src/styles\.css	@rightkit/theme	EXTEND	app stylesheet: brand tokens & shell css from @rightkit/theme / react-shell
+:.*src-tauri/src/hello\.rs	rightkit-app-lock	NEW	Windows Hello owner check
+:.*src-tauri/crates/auth/	rightkit-oauth	ADOPT	token store & native OAuth
+:.*(src-tauri/(src|tests)/|hub/src-tauri/src/)	rightkit-tauri-shell	EXTEND	Tauri app bootstrap, lifecycle router, command surface & engine bridge (app keeps a short builder call)
+:.*(main_doctor|commands/doctor)\.rs	rightkit-doctor	NEW	doctor command
+:pulse:engine/src/(resident|engine_supervisor|instance|hub_holder|hublog|events|watchdog)\.rs	rightkit-daemon	EXTEND	resident service host, supervisor, single instance, watchdog, event log
+:legion:engine/bins/legion/src/commands/research	rightkit-research	NEW	research command
+:legion:engine/bins/legion/src/(apple_mcp|commands/apple)	rightkit-apple-ops	NEW	Apple ops CLI/MCP gate
+:legion:engine/bins/legion/src/commands/(rules|coverage|engineering|fix|minimize|report|review)	rightkit-code-audit	NEW	audit CLI commands
+:legion:engine/bins/legion/src/commands/(freeze|contract|completion|decision|governance|keys|state)	rightkit-evidence	NEW	evidence, freeze, contract & decision commands
+:legion:engine/bins/legion/src/commands/(run|budget|schedule|explain|init)	rightkit-agent-orchestration	NEW	run, budget & schedule commands
+:legion:engine/bins/legion/src/commands/github_observer	rightkit-github	NEW	GitHub delivery observation
+:legion:engine/bins/legion/src/commands/(hooks|harness|host_runtime|mcp_config|skills|nim_seat)	legion	LEGION	Legion's own skill/host projection commands
+:legion:engine/bins/legion-dev/src/(checks/(skill|authority|canonical|retire|route|dependency_closure|blueprint)|apple_skill|shared/(skill|route|capab))	legion	LEGION	Legion's own skill-corpus checks
+:legion:engine/bins/legion-dev/src/	@rightkit/release	EXTEND	repo gates: version parity, distribution/publication contract, portability, lint qualification
+:coderight:engine/bins/coderight/src/dogfood	rightkit-qa	EXTEND	dogfood inventory
+:coderight:apps/coderight-tauri/macos-native/	RightKitAppleCredentials	ADOPT	Apple credentials helper
+:coderight:engine/bins/coderight/src/	rightkit-agent-server	NEW	agent CLI & daemon runtime: CLI definitions, run/exec input/output/exit codes, config, presence, recovery, remote setup, project binding, skill/plugin/recipe routes over the installed Legion
+:.*(engine/src/(main|main_stdio|main_cli|serve|commands|caller_tag|cli_media|contract|lib)\.rs|engine/src/bin/|crates/engine/src/(main|serve|commands|cli)|core/src/(main|lib|presentation|engine_client|worker|model|contract_cmd|hub_cmd|ipc/)|protocol/src/|src/contract\.(ts|rs)|engine/src/main\.rs|bins/legion/src/(cli|main|commands/mod)\.rs|crates/cutright-engine/src/)	rightkit-engine-host	NEW	engine binary framework: sidecar + headless CLI modes, command registration, contract export & TS codegen, human/JSON presentation, engine client
+:pulse:core/src/(settings_cmd)	rightkit-app-settings	EXTEND	settings CLI
+:pulse:core/src/(control_cmd)	rightkit-app-manager	NEW	process control CLI
+:pulse:core/src/(task_cmd)	rightkit-agent-engine	NEW	task CLI
+:pulse:core/src/(device_cmd)	rightkit-mesh	NEW	device CLI
+:pulse:windows/src/desktop\.rs	rightkit-ai-accounts	NEW	Claude Desktop state on Windows
+:pulse:windows/src/	rightkit-overlay-win	EXTEND	native Win32 notch app host: message loop, hub bridge & launch, lifecycle, placement, RAII, engine client
+:pulse:mac/Notch/Sources/App/Updater	RightKitUpdate	ADOPT	own updater duplicates RightKitUpdate
+:pulse:mac/Notch/FinderExtension/	rightkit-desktop-tweaks	NEW	Finder sync extension
+:pulse:mac/Sources/PulseProbe/	rightkit-system-monitor	NEW	process probe
+:pulse:mac/	RightKitNotch	NEW	macOS notch app host: delegate, hub bridge & launcher, engine service, terminal command, l10n
+:pulse:ios/Sources/App/(Computers|ComputerPath)	rightkit-mesh	NEW	paired computers (Swift)
+:.*(ios-native|ios|apps/coderight-ios)/.*\.swift$	RightKitUI	EXTEND	iOS app scaffold: app entry, content/tab views, sheets, menus, settings & account, update, haptics, shortcuts, widgets, file provider
+:.*android/.*\.kt$|:.*heardright-android/	rightkit-android	EXTEND	Android app scaffold: activity, permissions, screens, QR scanner, mesh client
+:heardright:cloudflare-workers/	rightkit-models	EXTEND	model-serve worker
+:heardright:tauri-app-next/heardright_core/src/lib\.rs	rightkit-dictation	NEW	dictation core facade
+:.*src/(App|main|AppMainContent|Splash|mountApp|api)\.tsx?$	@rightkit/react-shell	EXTEND	app frame composition, splash, engine API client (app keeps a short composition)

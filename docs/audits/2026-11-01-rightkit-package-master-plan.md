@@ -6,44 +6,44 @@ Goal: no app code outside RightKit except a thin app shell (entry points, comman
 
 ## Coverage by app
 
-| App | Code lines | NEW | EXTEND | ADOPT | To Legion | Vendor | DROP | App tests (stay) | Shell+config (stay) | Shell % |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| PostRight | 147,942 | 57,007 | 14,823 | 1,372 | 0 | 0 | 468 | 71,997 | 2,275 | 1% |
-| ScrapeRight | 103,419 | 41,676 | 30,085 | 11,537 | 0 | 0 | 2,573 | 7,847 | 9,701 | 9% |
-| MailRight | 113,155 | 80,211 | 23,636 | 3,664 | 0 | 0 | 164 | 1,198 | 4,282 | 3% |
-| ViewRight | 363,273 | 83,202 | 17,643 | 1,823 | 0 | 208,933 | 13,663 | 34,125 | 3,884 | 1% |
-| GenRight | 174,925 | 105,787 | 24,828 | 4,118 | 0 | 0 | 8,627 | 26,319 | 5,246 | 2% |
-| CutRight | 211,021 | 94,317 | 22,856 | 1,332 | 42,787 | 6,675 | 513 | 40,062 | 2,479 | 1% |
-| Pulse | 673,096 | 429,109 | 59,627 | 34,354 | 1,758 | 71,409 | 23,187 | 6,539 | 47,113 | 6% |
-| HeardRight | 460,166 | 174,423 | 136,497 | 17,457 | 0 | 50,957 | 31,365 | 28,886 | 20,581 | 4% |
-| CodeRight | 964,275 | 552,568 | 252,076 | 26,112 | 0 | 26,679 | 13,415 | 56,262 | 37,163 | 3% |
-| Legion | 663,533 | 357,424 | 190,578 | 1,357 | 62,055 | 0 | 0 | 3,666 | 48,453 | 7% |
-| **All** | **3,874,805** | **1,975,724** | **772,649** | **103,126** | **106,600** | **364,653** | **93,975** | **276,901** | **181,177** | **4%** |
+| App | Code lines | NEW | EXTEND | ADOPT | To Legion | Vendor | DROP | App recipes (stay) | App tests (stay) | Shell+config (stay) | Shell % |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| PostRight | 147,942 | 57,710 | 15,658 | 1,372 | 0 | 0 | 468 | 0 | 72,363 | 371 | 0.3% |
+| ScrapeRight | 103,419 | 46,095 | 34,291 | 11,537 | 0 | 0 | 2,573 | 0 | 8,510 | 413 | 0.4% |
+| MailRight | 113,155 | 80,218 | 26,927 | 3,664 | 0 | 0 | 164 | 0 | 1,868 | 314 | 0.3% |
+| ViewRight | 363,273 | 83,202 | 19,440 | 1,823 | 0 | 208,933 | 13,663 | 0 | 34,140 | 2,072 | 0.6% |
+| GenRight | 174,925 | 108,784 | 25,482 | 4,118 | 0 | 0 | 8,627 | 0 | 27,033 | 881 | 0.5% |
+| CutRight | 210,742 | 94,577 | 23,802 | 1,332 | 0 | 6,675 | 513 | 42,787 | 40,422 | 634 | 0.3% |
+| Pulse | 673,096 | 447,784 | 83,563 | 34,679 | 0 | 71,409 | 23,187 | 0 | 11,480 | 994 | 0.1% |
+| HeardRight | 460,166 | 174,797 | 148,766 | 17,457 | 0 | 50,957 | 31,365 | 0 | 35,811 | 1,013 | 0.2% |
+| CodeRight | 963,727 | 571,755 | 257,545 | 27,012 | 0 | 26,679 | 13,415 | 0 | 66,200 | 1,121 | 0.1% |
+| Legion | 663,533 | 374,578 | 198,531 | 1,357 | 71,060 | 0 | 0 | 0 | 16,967 | 1,040 | 0.2% |
+| **All** | **3,873,978** | **2,039,500** | **834,005** | **104,351** | **71,060** | **364,653** | **93,975** | **42,787** | **314,794** | **8,853** | **0.2%** |
 
 Every capability goes to RightKit, single-app ones included. The app keeps only its look and composition of the shared shell (shell/config), declared per-app exceptions, and its journey tests. Unit tests move with their code; app journey/e2e tests stay with the app. Generated third-party notices, docs and data are not counted.
 
 ## Final list: new RightKit packages to create & publish
 
-**85 new packages**: 63 crates, 16 npm packages, 6 Swift packages, all public like the rest of RightKit. Wave 2 = used by two or more apps, wave 3 = one app today (still RightKit, so the next app can find it). Grouped by family; within a family, ordered by size.
+**86 new packages**: 64 crates, 16 npm packages, 6 Swift packages, all public like the rest of RightKit. Wave 2 = used by two or more apps, wave 3 = one app today (still RightKit, so the next app can find it). Grouped by family; within a family, ordered by size.
 
 ### Agent platform
 
 | Package | Kind | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
 |---|---|---|---|---:|---|---|---|
-| `rightkit-agent-engine` | crate | 2 | Pulse, CodeRight | 129,186 | Swift | `rightkit-agent-runtime` | always-on agent: task envelope & transitions, principals, intents, effects, device/approval binding, voice handoff; agent loop, providers, budget (Swift: RightKitAgent); Swift agent UI/bridge; windows agent glue; agent loop, edit history & diffs, task graph, runtime middleware & bounded resources, attention, session storage, context folds/rehydrate, trajectory journal, wire protocol; interactive & headless session host; embedded agent runtime for fork-less hosts (iOS) |
+| `rightkit-agent-engine` | crate | 2 | Pulse, CodeRight | 129,815 | Swift | `app-shell`, `rightkit-agent-runtime` | always-on agent: task envelope & transitions, principals, intents, effects, device/approval binding, voice handoff; agent loop, providers, budget (Swift: RightKitAgent); task CLI; Swift agent UI/bridge; windows agent glue; agent loop, edit history & diffs, task graph, runtime middleware & bounded resources, attention, session storage, context folds/rehydrate, trajectory journal, wire protocol; interactive & headless session host (+1 more) |
 | `@rightkit/agent-ui` | npm | 2 | MailRight, Pulse, CodeRight | 121,233 |  |  | agent approval cards, pairing & audit views; approval IPC client; remote approvals & owner settings; agent workbench UI: chat timeline, composer, sessions, runtime/goals/memory/review panels, approvals, plugins/skills, orchestration, bots, environments, state stores; computer-use & browser panels; remote web client |
 | `rightkit-terminal-ui` | crate | 3 | CodeRight | 94,376 |  |  | terminal UI toolkit: composer, transcript, wrapping, panes, markdown render, image input, render metrics |
-| `rightkit-agent-orchestration` | crate | 2 | CodeRight, Legion | 87,895 |  | `rightkit-work-router` | agent room; multi-agent coordination: subagents, teams, delegation, roster; handoff packets, continuity gate, live state; capability routing runtime: plan, route, task, budget, grant, escalation, delivery, inventories, platform layers, skills/designer checks |
-| `rightkit-agent-server` | crate | 3 | CodeRight | 72,352 |  |  | OpenAPI client codegen & contract checks; agent daemon HTTP API: sessions, runtime, contract/OpenAPI, tool invocations, run changes, health, workspace, teams, coordination; server & daemon client runtime |
+| `rightkit-agent-server` | crate | 3 | CodeRight | 91,539 |  | `app-shell` | OpenAPI client codegen & contract checks; agent CLI & daemon runtime: CLI definitions, run/exec input/output/exit codes, config, presence, recovery, remote setup, project binding, skill/plugin/recipe routes over the installed Legion; agent daemon HTTP API: sessions, runtime, contract/OpenAPI, tool invocations, run changes, health, workspace, teams, coordination; server & daemon client runtime |
+| `rightkit-agent-orchestration` | crate | 2 | CodeRight, Legion | 89,148 |  | `app-shell`, `rightkit-work-router` | agent room; multi-agent coordination: subagents, teams, delegation, roster; run, budget & schedule commands; handoff packets, continuity gate, live state; capability routing runtime: plan, route, task, budget, grant, escalation, delivery, inventories, platform layers, skills/designer checks |
+| `rightkit-evidence` | crate | 2 | CodeRight, Legion | 39,158 |  | `app-shell`, `rightkit-specs` | spec-governed artifacts & coverage; evidence, freeze, contract & decision commands; contracts, effect execution & receipts, decision store, evidence/SARIF/HTML reports, certification & governance lifecycle |
 | `rightkit-agent-gateway` | crate | 2 | MailRight, Pulse | 35,378 |  | `rightkit-remote-control` | paired external agents over local daemon: method registry, gate, approval cards (send/forward/delete/attach), audit log, untrusted-content contract, redaction; remote tools for agents (files, app launch, clipboard, chat read/start/term, browser address), local approvals, audit trail; agent gateway: LLM provider & tool routing |
 | `RightKitAgent` | Swift | 2 | Pulse, CodeRight | 34,981 | Swift | `RightKitRemoteUI` | phone remote-control screens; Swift agent client: local runtime bridge, chat library, code editor, diff walkthrough, plan review, markdown rendering, approvals |
-| `rightkit-evidence` | crate | 2 | CodeRight, Legion | 32,933 |  | `rightkit-specs` | spec-governed artifacts & coverage; contracts, effect execution & receipts, decision store, evidence/SARIF/HTML reports, certification & governance lifecycle |
-| `rightkit-chat-bridge` | crate | 3 | Pulse | 26,856 | Swift |  | deliver messages into running Claude/Codex chats (hooks, UIA/AX typing), envelopes, hub heartbeat, chat skill install, cross-user boundary |
+| `rightkit-chat-bridge` | crate | 3 | Pulse | 28,614 | Swift |  | deliver messages into running Claude/Codex chats (hooks, UIA/AX typing), envelopes, hub heartbeat, chat skill install, cross-user boundary |
 | `rightkit-agent-policy` | crate | 2 | CodeRight, Legion | 25,061 |  |  | pure permission decision engine, destructive-action guard, policy packs, audit; policy model, rules & enforcement |
-| `rightkit-ai-accounts` | crate | 3 | Pulse | 17,592 | Swift | `rightkit-ai-usage`, `rightkit-claude-accounts` | Claude Desktop/CLI account switching & Code-session sync across accounts; Claude/Codex plan usage, credentials, resets & credits (Swift providers); Claude sessions (Swift) |
+| `rightkit-ai-accounts` | crate | 3 | Pulse | 18,113 | Swift | `app-shell`, `rightkit-ai-usage`, `rightkit-claude-accounts` | Claude Desktop/CLI account switching & Code-session sync across accounts; Claude/Codex plan usage, credentials, resets & credits (Swift providers); Claude sessions (Swift); Claude Desktop state on Windows |
 | `rightkit-approvals` | crate | 2 | MailRight, GenRight, Pulse | 16,672 | Swift |  | user approval cards for agent send/forward/delete/attach; approval tokens & cards for paid drafts/deliveries (minted by shell, verified by engine); signed phone/owner approvals for privileged & reserved actions; Windows admin service; Swift approvals |
 | `rightkit-scheduler` | crate | 3 | CodeRight | 9,315 |  |  | cron schedules & triggers for agent runs |
-| `rightkit-github` | crate | 3 | CodeRight | 8,586 | Swift |  | Swift forge connectors: GitHub, Cloudflare, Fly.io, git, PRs; GitHub App: auth, webhooks, PR/issue ops |
+| `rightkit-github` | crate | 2 | CodeRight, Legion | 9,182 | Swift | `app-shell` | Swift forge connectors: GitHub, Cloudflare, Fly.io, git, PRs; GitHub App: auth, webhooks, PR/issue ops; GitHub delivery observation |
 | `rightkit-bot-messaging` | crate | 3 | CodeRight | 6,489 |  |  | remote access: Telegram bot, web auth, remote gateway |
 | `rightkit-agent-demo` | crate | 3 | CutRight | 4,434 | Swift |  | consented agent demo mode: agent drives a catalog app via rightkit-automation, recorded via rightkit-record, badge, kill hotkey, bundles |
 | `@rightkit/terminal-ui` | npm | 3 | CodeRight | 1,370 |  |  | xterm terminal pane |
@@ -52,12 +52,12 @@ Every capability goes to RightKit, single-app ones included. The app keeps only 
 
 | Package | Kind | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
 |---|---|---|---|---:|---|---|---|
-| `rightkit-code-audit` | crate | 3 | Legion | 251,964 | Swift, Gradle |  | audit/verify commands & audit bench; repository audit engine: native providers (security, architecture, data, frontend, platform), DAG & scheduler, evidence issuers, findings history, review runtime, provider SDK, rule registry & qualification corpora |
+| `rightkit-code-audit` | crate | 3 | Legion | 254,890 | Swift, Gradle | `app-shell` | audit/verify commands & audit bench; audit CLI commands; repository audit engine: native providers (security, architecture, data, frontend, platform), DAG & scheduler, evidence issuers, findings history, review runtime, provider SDK, rule registry & qualification corpora |
 | `rightkit-context` | crate | 3 | Pulse | 98,511 | Swift, Python |  | host side of context engine; context engine: protocol, client, provider SDK, federation, budget/lanes, runtime, schemas, hooks |
 | `rightkit-repo-graph` | crate | 2 | Pulse, CodeRight | 37,879 |  |  | repository graph: structure, evidence, drift; tree-sitter skeletonization |
 | `rightkit-memory` | crate | 2 | Pulse, CodeRight | 24,602 |  |  | durable memory store (Cortex): scopes, identity, telemetry; adaptive memory retrieval & backend (over context engine) |
 | `rightkit-adapt` | crate | 2 | Pulse, CodeRight | 23,896 |  |  | governed behavioural learning (taste + insights); post-session learning pipeline |
-| `rightkit-research` | crate | 2 | PostRight, Legion | 10,619 |  |  | dated research digests & source readers (Reddit); research pipeline (sources, claims, evidence) |
+| `rightkit-research` | crate | 2 | PostRight, Legion | 11,662 |  | `app-shell` | dated research digests & source readers (Reddit); research command; research pipeline (sources, claims, evidence) |
 
 ### Dictation & voice
 
@@ -142,17 +142,17 @@ Every capability goes to RightKit, single-app ones included. The app keeps only 
 
 | Package | Kind | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
 |---|---|---|---|---:|---|---|---|
-| `rightkit-mesh` | crate | 2 | Pulse, HeardRight, CodeRight | 34,952 | Swift, Gradle |  | device mesh (iroh): link, device circle, join tokens, relay & mailbox/admission, FFI for iOS/Android (already named rightkit-mesh but lives in app repo: move & publish); device link module glue; Swift mesh client; Swift devices; devices UI; device pairing (Swift) (+1 more) |
+| `rightkit-mesh` | crate | 2 | Pulse, HeardRight, CodeRight | 35,883 | Swift, Gradle | `app-shell` | device mesh (iroh): link, device circle, join tokens, relay & mailbox/admission, FFI for iOS/Android (already named rightkit-mesh but lives in app repo: move & publish); device CLI; device link module glue; paired computers (Swift); Swift mesh client; Swift devices (+3 more) |
 | `rightkit-disk-cleanup` | crate | 3 | Pulse | 25,046 |  |  | bounded metadata scans, cleanup plans/rules w/ undo journal, duplicates, folder growth, snapshots, storage browser, media compression |
+| `RightKitNotch` | Swift | 3 | Pulse | 22,385 | Swift | `app-shell` | macOS notch surface: notch window, design system, rings & cards, model; macOS notch app host: delegate, hub bridge & launcher, engine service, terminal command, l10n |
 | `rightkit-launcher` | crate | 3 | Pulse | 22,237 | Swift |  | command launcher: calculator, dictionary, files, notes, rates, snippets, commands (Win32 + Swift) |
 | `RightKitSystemUI` | Swift | 3 | Pulse | 21,612 | Swift |  | SwiftUI system hub sections: overview, storage, cleanup, monitor, apps, chat, activity, membrane |
-| `RightKitNotch` | Swift | 3 | Pulse | 17,668 | Swift |  | macOS notch surface: notch window, design system, rings & cards, model |
-| `rightkit-app-manager` | crate | 3 | Pulse | 13,783 | Swift |  | installed-app inventory, leftovers, uninstall plans, updates, usage, startup items, quit/auto-quit, disk-image install |
-| `rightkit-system-monitor` | crate | 3 | Pulse | 13,212 | Swift |  | CPU/memory/GPU/disk gauges, process inspection, SMART drive health, metrics history, volumes & eject |
+| `rightkit-app-manager` | crate | 3 | Pulse | 14,470 | Swift | `app-shell` | installed-app inventory, leftovers, uninstall plans, updates, usage, startup items, quit/auto-quit, disk-image install; process control CLI |
+| `rightkit-system-monitor` | crate | 3 | Pulse | 13,332 | Swift | `app-shell` | CPU/memory/GPU/disk gauges, process inspection, SMART drive health, metrics history, volumes & eject; process probe |
 | `rightkit-clipboard-history` | crate | 3 | Pulse | 12,760 | Swift |  | clipboard history: capture, detect, images, paste, seal, search, strip, shelf, snippet expansion |
 | `@rightkit/system-ui` | npm | 3 | Pulse | 7,889 |  |  | React system hub: overview, storage, cleanup, monitor, apps, chat, activity, membrane, drive health, charts |
-| `rightkit-desktop-tweaks` | crate | 3 | Pulse | 2,032 | Swift |  | Finder cut/paste, path field, window closer, dock-click minimize, window maximizer, event tap hub (Swift + Win) |
-| `rightkit-app-lock` | crate | 2 | MailRight, Pulse | 1,746 | Swift |  | app lock: OS-auth verification, serialized lock/unlock transitions, DB gate; owner unlock auth / app lock |
+| `rightkit-desktop-tweaks` | crate | 3 | Pulse | 2,168 | Swift | `app-shell` | Finder sync extension; Finder cut/paste, path field, window closer, dock-click minimize, window maximizer, event tap hub (Swift + Win) |
+| `rightkit-app-lock` | crate | 2 | MailRight, Pulse | 2,013 | Swift | `app-shell` | app lock: OS-auth verification, serialized lock/unlock transitions, DB gate; Windows Hello owner check; owner unlock auth / app lock |
 | `rightkit-privileged-helper` | crate | 3 | Pulse | 673 | Swift |  | privileged helper & elevation broker (macOS SMAppService helper, Windows elevation), trash policy |
 
 ### Foundation & tooling
@@ -161,14 +161,15 @@ Every capability goes to RightKit, single-app ones included. The app keeps only 
 |---|---|---|---|---:|---|---|---|
 | `rightkit-ml-lab` | crate | 3 | HeardRight | 53,827 | Swift, Python |  | model training & evaluation tooling: KWS/wake corpora & conditioning, ASR bakeoffs, polish-model training/eval, CoreML export |
 | `rightkit-bench` | crate | 2 | ScrapeRight, MailRight, ViewRight, CodeRight | 27,521 | Swift, Python |  | benchmark corpora runner, scoring, receipts & claim gate; SQLite perf proof & probes, load driver; association & PDF bench matrices; PDF perf bench; agent benchmarks |
-| `rightkit-apple-ops` | crate | 3 | Legion | 10,150 |  |  | Apple ops: App Store Connect API & upload, build analysis, preflight, profiling, SwiftUI traces |
-| `rightkit-doctor` | crate | 2 | PostRight, MailRight, CutRight, CodeRight | 2,262 |  |  | capability health probes behind doctor command; doctor report; doctor dimensions & probes |
+| `rightkit-engine-host` | crate | 2 | PostRight, ScrapeRight, MailRight, GenRight, CutRight, Pulse, HeardRight, Legion | 19,720 |  | `app-shell` | engine binary framework: sidecar + headless CLI modes, command registration, contract export & TS codegen, human/JSON presentation, engine client |
+| `rightkit-apple-ops` | crate | 3 | Legion | 11,306 |  | `app-shell` | Apple ops CLI/MCP gate; Apple ops: App Store Connect API & upload, build analysis, preflight, profiling, SwiftUI traces |
+| `rightkit-doctor` | crate | 2 | PostRight, MailRight, GenRight, CutRight, CodeRight, Legion | 4,166 |  | `app-shell` | capability health probes behind doctor command; doctor report; doctor command; doctor dimensions & probes |
 | `@rightkit/config` | npm | 2 | PostRight, ScrapeRight, MailRight, ViewRight, GenRight, CutRight, Pulse, HeardRight, CodeRight | 1,057 |  |  | shared toolchain/lint/vite presets; shared presets |
 | `@rightkit/waitlist-worker` | npm | 2 | MailRight, ViewRight | 529 |  |  | Cloudflare waitlist worker |
 
 ## Existing RightKit packages to extend
 
-**73 existing packages** gain capability now living in apps.
+**74 existing packages** gain capability now living in apps.
 
 `single` = only one app adds code here today; `shared` = several apps.
 
@@ -177,32 +178,32 @@ Every capability goes to RightKit, single-app ones included. The app keeps only 
 | `rightkit-workflow` | 1 | shared | CodeRight, Legion | 158,335 | autonomous workflow control plane: runs, leases, fences, node executors; workflow port (scenario/state machine runtime) |
 | `rightkit-agent-tools` | 1 | shared | GenRight, CodeRight | 86,283 | agent tool profile; LSP API; coding tool suite: fs read/edit, shell, search, git, LSP, web, browser, MCP bridge, media |
 | `@rightkit/qa` | 1 | shared | ScrapeRight, MailRight, ViewRight, GenRight, Pulse, HeardRight, CodeRight, Legion | 55,827 | QA capture, visual diff, evidence, test inventory, isolation; mock IPC for UI QA; mock IPC data for UI QA; QA browser helpers & tooling; browser mock API for UI QA (+5 more) |
+| `@rightkit/release` | 1 | shared | PostRight, ScrapeRight, MailRight, ViewRight, GenRight, CutRight, Pulse, HeardRight, CodeRight, Legion | 54,202 | manifest-consistency gate checks; release config logic moves into @rightkit/release; app keeps a JSON data config (P8); release pin check; bundled runtime staging & artifact verification; gates & sample validation (+7 more) |
 | `rightkit-agents` | 1 | shared | PostRight, Pulse, CodeRight | 47,632 | headless drafting via installed Claude/Codex CLI; Claude Code/Codex transcript discovery & normalisation; vendor coding drivers (Claude Code, Codex, Cursor, Cline, Grok, ACP), resumable NDJSON & JSON-RPC transports, login routes; vendor turn |
-| `@rightkit/release` | 1 | shared | PostRight, ScrapeRight, CutRight, Pulse, HeardRight, CodeRight, Legion | 44,071 | manifest-consistency gate checks; release pin check; bundled runtime staging & artifact verification; gates & sample validation; server deploy scripts (+5 more) |
 | `rightkit-asr` | 1 | shared | ScrapeRight, GenRight, HeardRight | 34,995 | Parakeet/Whisper routing & engines (use rightkit-asr + rightkit-speech-client); API gap first: api-gap: rightkit-transcript 0.4.0 export::stamp is private; see docs/rightkit-exceptions/outside-M-rows.md#it; API gap first: api-gap: rightkit-speech-client 0.4.0 transcribe_via_service_policy lacks running-host, capability, window-fit; whisper ASR; prebuilt core xcframework: build from RightKit crates (+4 more) |
 | `rightkit-llm` | 1 | shared | MailRight, CodeRight | 34,931 | BYOK AI actions & translation providers; provider clients, replay, heuristic model routing, provider setup presets, local inference runtime |
+| `rightkit-overlay-win` | 1 | single | Pulse | 31,227 | Win32 notch surface toolkit: render, text layout, motion, cards, alerts, tool wheel; native Win32 notch app host: message loop, hub bridge & launch, lifecycle, placement, RAII, engine client |
+| `rightkit-daemon` | 1 | shared | PostRight, MailRight, GenRight, CutRight, Pulse, CodeRight | 25,685 | headless server role (scheduler, public listener, remote host); heartbeat record already owned by rightkit-daemon; generic app CLI client over running app: arg parsing, error envelope & exit codes, pairing key, link; runtime service lifecycle, health snapshot, event hub w/ debounce bridge, lock budgets, repo bundle; installed suite-app discovery (+4 more) |
+| `rightkit-tauri-shell` | 1 | shared | PostRight, ScrapeRight, MailRight, ViewRight, GenRight, CutRight, Pulse, HeardRight, CodeRight | 24,512 | build identity, icon embedding, tauri config restore; Tauri app bootstrap, lifecycle router, command surface & engine bridge (app keeps a short builder call); asset-protocol scope grants; API gap first: api-gap: rightkit-job-queue 0.5.1 cannot hold the first spawn until a first snapshot exists; see docs/rightkit; engine sidecar host (+18 more) |
 | `@rightkit/settings-ui` | 1 | shared | PostRight, ScrapeRight, MailRight, ViewRight, GenRight, Pulse, HeardRight | 22,923 | settings panel; spend allowances panel; store health/diagnostics panel; models section client; runtime/doctor sections & prefs (+6 more) |
-| `rightkit-daemon` | 1 | shared | PostRight, MailRight, GenRight, CutRight, CodeRight | 22,118 | headless server role (scheduler, public listener, remote host); heartbeat record already owned by rightkit-daemon; generic app CLI client over running app: arg parsing, error envelope & exit codes, pairing key, link; runtime service lifecycle, health snapshot, event hub w/ debounce bridge, lock budgets, repo bundle; installed suite-app discovery (+3 more) |
 | `rightkit-automation` | 1 | shared | Pulse, HeardRight | 21,483 | OS permission status & prompts; text delivery into focused app: paste, streaming insertion & reconcile, UIA/AX, terminal targets, TSF tip, focus continuity; system media playback pause/resume while dictating (Mac/Win) |
-| `rightkit-overlay-win` | 1 | single | Pulse | 20,798 | Win32 notch surface toolkit: render, text layout, motion, cards, alerts, tool wheel |
-| `rightkit-app-settings` | 1 | shared | PostRight, ScrapeRight, MailRight, GenRight, Pulse, HeardRight, CodeRight | 19,669 | settings get/patch for settings-ui; persisted settings reader; API gap first: MOVE @rightkit/settings-ui and the shell log host (multi-file log tail preview with reveal, bogusyogi/rightkit; UI preference store; settings get/patch (+3 more) |
+| `rightkit-app-settings` | 1 | shared | PostRight, ScrapeRight, MailRight, GenRight, Pulse, HeardRight, CodeRight | 20,320 | settings get/patch for settings-ui; persisted settings reader; API gap first: MOVE @rightkit/settings-ui and the shell log host (multi-file log tail preview with reveal, bogusyogi/rightkit; UI preference store; settings get/patch (+4 more) |
 | `rightkit-overlay` | 1 | single | HeardRight | 17,672 | recording pill overlay (native Win/Mac, dispatch queue) |
+| `@rightkit/react-shell` | 1 | shared | PostRight, ScrapeRight, MailRight, ViewRight, GenRight, CutRight, Pulse, HeardRight, CodeRight | 15,669 | app frame composition, splash, engine API client (app keeps a short composition); useAsync, state router, operator layout css; desktop chrome css, flash/toast, idle task, request gate, formatting; shell/theme/platform/update tests; app lock overlay (+3 more) |
 | `rightkit-review` | 1 | shared | PostRight, GenRight, CutRight, Legion | 12,623 | deterministic text quality/approval gate with policy revisions; phone review & pause surface over daemon; human-eyes review gate; final-render QA gate & social packaging checks; independent review & minimal-diff review |
 | `rightkit-hooks` | 1 | shared | CodeRight, Legion | 12,490 | lifecycle hook bus & runner; hook binary |
 | `rightkit-spend` | 1 | shared | PostRight, GenRight, CutRight, Pulse | 11,027 | app spend layer over rightkit-spend ledger; gen spend ledger GUI+CLI; productivity/command ledger & preference policy; per-project spend budgets |
-| `@rightkit/react-shell` | 1 | shared | PostRight, ScrapeRight, MailRight, GenRight, CodeRight | 10,496 | useAsync, state router, operator layout css; desktop chrome css, flash/toast, idle task, request gate, formatting; shell/theme/platform/update tests; app lock overlay; error boundary, find bar, shortcut registry & help overlay, dialogs, perf monitor (+2 more) |
+| `RightKitUI` | 1 | shared | ScrapeRight, Pulse, HeardRight, CodeRight | 10,601 | iOS app scaffold: app entry, content/tab views, sheets, menus, settings & account, update, haptics, shortcuts, widgets, file provider; SwiftUI settings sections; SwiftUI settings; onboarding |
 | `@rightkit/pdf-ui` | 1 | shared | MailRight, ViewRight | 10,411 | pdf preview; PDF editor UI: annotate, text edit, OCR overlay, page ops |
 | `rightkit-sync` | 1 | shared | ScrapeRight, HeardRight | 8,935 | CloudKit transport, phone-to-Mac queue relay, sync settings & runtime; CloudKit transcript sync scheduler |
-| `rightkit-qa` | 1 | shared | PostRight, MailRight, HeardRight, CodeRight | 8,682 | fake editor engine & fake Claude/Codex CLI; mock server already rightkit-qa MockServer; test sandbox; process-wide test sandbox; test-only env switches (+2 more) |
+| `rightkit-qa` | 1 | shared | PostRight, MailRight, HeardRight, CodeRight | 8,821 | fake editor engine & fake Claude/Codex CLI; mock server already rightkit-qa MockServer; test sandbox; process-wide test sandbox; test-only env switches (+3 more) |
+| `@rightkit/theme` | 1 | shared | PostRight, ScrapeRight, MailRight, ViewRight, GenRight, CutRight, Pulse, HeardRight, CodeRight | 7,434 | generated; app stylesheet: brand tokens & shell css from @rightkit/theme / react-shell; Swift brand tokens generated from brand.json; generated brand css; contrast check (+8 more) |
 | `rightkit-sandbox` | 1 | single | CodeRight | 7,177 | execution backends, environments, worktree pool |
 | `rightkit-compose` | 1 | shared | GenRight, CutRight | 6,293 | keyless still finishing composite; evaluated timeline -> compositor frame descriptors |
 | `rightkit-job-queue` | 1 | shared | PostRight, ScrapeRight, GenRight, Pulse | 5,882 | per-command request/response schema validation; durable queue w/ fetch pool + single compute lane, quarantine, event sink; caller leases & detached job runners; activity leases |
 | `rightkit-license` | 1 | shared | ScrapeRight, MailRight, ViewRight, GenRight, CutRight, HeardRight, CodeRight | 5,185 | licence config & headless lookup; API gap first: api-gap: scraperight is not in contracts/right-suite-api.v1.json, so right_suite(app) update auth refuses it; ; Apple-device Pro continuity bridge; licence gate & device identity; API gap first: MOVE rightkit-license. See docs/rightkit-exceptions/M12.md#b1-revocation-denylist-src-taurisrcpro_gaters-revok (+17 more) |
 | `rightkit-record` | 1 | shared | Pulse, HeardRight | 5,095 | screenshots via WGC; screenshot capture for context |
-| `@rightkit/theme` | 1 | shared | PostRight, ScrapeRight, MailRight, ViewRight, GenRight, Pulse, HeardRight, CodeRight | 4,982 | generated; Swift brand tokens generated from brand.json; generated brand css; contrast check; brand contract check (+6 more) |
-| `RightKitUI` | 1 | shared | ScrapeRight, Pulse, HeardRight | 4,730 | SwiftUI settings sections; SwiftUI settings; onboarding |
-| `rightkit-models` | 1 | shared | ScrapeRight, MailRight, GenRight, CutRight, HeardRight, CodeRight | 4,662 | shared model store ops, migration between suite apps, seeding; API gap first: api-gap: rightkit-models 0.5.1 has no bundled-model seed or staging/replaced sweep; see docs/rightkit-exceptio; API gap first: MOVE @rightkit/release. See docs/rightkit-exceptions/M19.md#b1-embedding-model-bundle-provisioning-script-and-; model store glue; memory-aware governor for heavy local models, hardware fit, install, Blender/Wan2GP/sd.cpp doctor (+6 more) |
-| `rightkit-tauri-shell` | 1 | shared | ScrapeRight, MailRight, ViewRight, GenRight, CutRight, Pulse, HeardRight, CodeRight | 4,490 | asset-protocol scope grants; API gap first: api-gap: rightkit-job-queue 0.5.1 cannot hold the first spawn until a first snapshot exists; see docs/rightkit; engine sidecar host; build identity, tray, shell plugin, startup error window; API gap first: MOVE rightkit-tauri-shell. See docs/rightkit-exceptions/M5.md#b1-start-up-failure-message-box-src-taurisrcstar (+16 more) |
+| `rightkit-models` | 1 | shared | ScrapeRight, MailRight, GenRight, CutRight, HeardRight, CodeRight | 4,953 | shared model store ops, migration between suite apps, seeding; API gap first: api-gap: rightkit-models 0.5.1 has no bundled-model seed or staging/replaced sweep; see docs/rightkit-exceptio; API gap first: MOVE @rightkit/release. See docs/rightkit-exceptions/M19.md#b1-embedding-model-bundle-provisioning-script-and-; model store glue; memory-aware governor for heavy local models, hardware fit, install, Blender/Wan2GP/sd.cpp doctor (+7 more) |
 | `@rightkit/onboarding` | 1 | shared | ScrapeRight, GenRight, Pulse, HeardRight, CodeRight | 4,328 | models intro & setup gate; onboarding, legal, licence plan, device allowance; onboarding/legal/licence; mic & calibration onboarding steps; onboarding pages (+1 more) |
 | `rightkit-browser` | 1 | shared | ScrapeRight, CodeRight | 4,114 | API gap first: api-gap: rightkit-browser 0.3.6 BrowserPage has no user-agent or extra-headers setter; see docs/rightkit-excep; CDP browser backend & address pin; browser workspace for agents |
 | `rightkit-db` | 1 | shared | PostRight, MailRight | 3,763 | SQLite store backup, verify & restore; compaction w/ rowid verify, background WAL checkpoints, verified pre-migration backup, migration gate, lock-order gate |
@@ -213,6 +214,7 @@ Every capability goes to RightKit, single-app ones included. The app keeps only 
 | `rightkit-ffmpeg` | 1 | shared | GenRight, CutRight, CodeRight | 3,213 | pure-Rust media probe (dims, duration, codec); ffmpeg discovery; single H.264 encoder rule; ffmpeg editing build staging & qualification; media tool adapters (+1 more) |
 | `rightkit-sidecar` | 1 | shared | MailRight, CodeRight | 3,112 | process engine split: core child owning DB, IPC transport, event pump, supervision, trust boundary; stream transport |
 | `rightkit-crash` | 1 | shared | ScrapeRight, MailRight, CutRight, Pulse, HeardRight | 3,019 | renderer crash capture; panic capture; crash; out-of-process minidump writer, user feedback, diagnostics transport |
+| `rightkit-android` | 1 | shared | Pulse, HeardRight | 2,630 | Android app scaffold: activity, permissions, screens, QR scanner, mesh client |
 | `rightkit-align` | 1 | single | CutRight | 2,477 | word timings + VAD for talking-head (on rightkit-asr/vad/align) |
 | `rightkit-fs` | 1 | shared | PostRight, ScrapeRight, MailRight, GenRight, CutRight, Pulse | 2,444 | API gap first: api-gap, rightkit-logs 0.3.5 redacts structured JSON by key (redact.rs:51) and text by shape or name=value (sc; engine paths; API gap first: api-gap: rightkit-fs 0.4.7 AppDirs has no user Downloads folder; see docs/rightkit-exceptions/M8.md#item-1; downloads folder, blocking helper, Windows ACL hardening; roots & path policy (+2 more) |
 | `rightkit-vault` | 1 | single | Pulse | 1,984 | agent logins & payment secrets |
@@ -254,10 +256,10 @@ Skills, doctrine, agent personas, skill manifests/loaders and host projection (C
 
 | From app | Lines | What |
 |---|---:|---|
-| CutRight | 42,787 | agent skill packs (designer engine incl. vendored huashu, content specialists, cutaway editing scripts) |
-| Pulse | 1,758 | chat skill install into Claude/Codex (host projection) |
+| Legion | 6,549 | Legion's own skill-corpus checks |
 | Legion | 5,119 | catalog & inventory generators |
 | Legion | 12,837 | host setup, binding & script projection |
+| Legion | 2,456 | Legion's own skill/host projection commands |
 | Legion | 18,364 | capability catalog & frontmatter, host detection/projection into Claude Code/Codex/AGENTS.md, plugin marketplace install |
 | Legion | 6,445 | skill & designer checks |
 | Legion | 19,290 | agent skill packs & doctrine (architect, audit, council, designer, iOS/macOS/Android dev, marketing, SEO, research, writing, etc.) |
@@ -267,7 +269,7 @@ Skills, doctrine, agent personas, skill manifests/loaders and host projection (C
 | Package | Apps still carrying own copy | Lines to delete |
 |---|---|---:|
 | `rightkit-mcp` | CodeRight, Legion | 11,995 |
-| `rightkit-tauri-shell` | ScrapeRight, MailRight, ViewRight, GenRight, CutRight, Pulse, HeardRight, CodeRight | 10,008 |
+| `rightkit-tauri-shell` | PostRight, ScrapeRight, MailRight, ViewRight, GenRight, CutRight, Pulse, HeardRight, CodeRight | 10,008 |
 | `rightkit-models` | ScrapeRight, MailRight, GenRight, CutRight, HeardRight, CodeRight | 9,467 |
 | `rightkit-send` | ScrapeRight, Pulse | 9,261 |
 | `RightKitHub` | Pulse | 7,680 |
@@ -282,17 +284,18 @@ Skills, doctrine, agent personas, skill manifests/loaders and host projection (C
 | `rightkit-asr` | ScrapeRight, GenRight, HeardRight | 1,624 |
 | `RightKitDiagnostics` | ScrapeRight, HeardRight, CodeRight | 1,367 |
 | `@rightkit/legal` | ScrapeRight, MailRight, ViewRight, CutRight, CodeRight | 1,256 |
+| `RightKitAppleCredentials` | ScrapeRight, HeardRight, CodeRight | 1,236 |
 | `RightKitCloudSync` | ScrapeRight | 1,212 |
 | `rightkit-app-settings` | PostRight, ScrapeRight, MailRight, GenRight, Pulse, HeardRight, CodeRight | 1,176 |
+| `RightKitUpdate` | Pulse, CodeRight | 1,155 |
 | `rightkit-credentials` | MailRight, GenRight, Pulse, HeardRight | 1,131 |
 | `rightkit-tts` | GenRight | 1,054 |
 | `rightkit-fs` | PostRight, ScrapeRight, MailRight, GenRight, CutRight, Pulse | 1,019 |
 | `rightkit-file-watch` | ViewRight, Pulse, CodeRight | 993 |
 | `rightkit-ocr` | ScrapeRight, ViewRight | 987 |
 | `rightkit-http` | PostRight, ScrapeRight, GenRight, CodeRight | 959 |
-| `RightKitAppleCredentials` | ScrapeRight, HeardRight | 915 |
 | `@rightkit/tauri` | PostRight, ScrapeRight, MailRight, GenRight | 839 |
-| `RightKitUpdate` | Pulse, CodeRight | 830 |
+| `rightkit-oauth` | CodeRight | 809 |
 | `@rightkit/media-ui` | ScrapeRight, GenRight | 698 |
 | `RightKitFS` | CodeRight | 643 |
 | `RightKitHTTP` | CodeRight | 577 |
@@ -300,22 +303,21 @@ Skills, doctrine, agent personas, skill manifests/loaders and host projection (C
 | `rightkit-pdf` | ScrapeRight, ViewRight | 503 |
 | `@rightkit/legal-ui` | ScrapeRight, MailRight | 438 |
 | `rightkit-child-process` | ScrapeRight, Pulse | 402 |
-| `@rightkit/release` | PostRight, ScrapeRight, CutRight, Pulse, HeardRight, CodeRight, Legion | 367 |
+| `@rightkit/release` | PostRight, ScrapeRight, MailRight, ViewRight, GenRight, CutRight, Pulse, HeardRight, CodeRight, Legion | 367 |
 | `rightkit-crash` | ScrapeRight, MailRight, CutRight, Pulse, HeardRight | 351 |
 | `rightkit-agent-tools` | GenRight, CodeRight | 302 |
 | `@rightkit/settings-ui` | PostRight, ScrapeRight, MailRight, ViewRight, GenRight, Pulse, HeardRight | 278 |
 | `rightkit-browser` | ScrapeRight, CodeRight | 278 |
 | `rightkit-playback` | ScrapeRight, CutRight | 276 |
-| `rightkit-oauth` | CodeRight | 230 |
 | `@rightkit/app-update` | ScrapeRight | 218 |
-| `rightkit-daemon` | PostRight, MailRight, GenRight, CutRight, CodeRight | 192 |
+| `rightkit-daemon` | PostRight, MailRight, GenRight, CutRight, Pulse, CodeRight | 192 |
 | `@rightkit/license` | ScrapeRight | 192 |
 | `rightkit-qa` | PostRight, MailRight, HeardRight, CodeRight | 181 |
 | `@rightkit/issues-tracker` | PostRight, MailRight | 176 |
 | `RightKitHotkeys` | Pulse | 151 |
 | `@rightkit/pdf-ui` | MailRight, ViewRight | 144 |
 | `@rightkit/platform-ui` | ViewRight | 118 |
-| `@rightkit/theme` | PostRight, ScrapeRight, MailRight, ViewRight, GenRight, Pulse, HeardRight, CodeRight | 112 |
+| `@rightkit/theme` | PostRight, ScrapeRight, MailRight, ViewRight, GenRight, CutRight, Pulse, HeardRight, CodeRight | 112 |
 | `rightkit-ffmpeg` | GenRight, CutRight, CodeRight | 93 |
 | `rightkit-cache` | Pulse | 89 |
 | `RightKitImportQueue` | ScrapeRight | 57 |
@@ -392,6 +394,7 @@ Each app keeps only entry points (Tauri `main`/`lib`, iOS/Android app entry, eng
 3. **sherpa-onnx.** It is already rewritten in `rightkit-asr`, and Mac & Windows are tested. Delete the iOS xcframework once the iOS build of `rightkit-asr` is tested.
 4. **GenRight Node server.** Drop it; the suite runs no Node services.
 5. **Tree-sitter grammars, WasmKit, ONNX Runtime, tauri-runtime-wry.** Recommendation: do not own them. Use the upstream crates, SwiftPM package and binary as plain dependencies, and upstream the Tauri patch. Owning them would add maintenance for no product gain, unless one of them needs changes we make.
-6. **Publication.** The hold is lifted. Each package is its own unit with its own `Cargo.lock`, and it is published separately: compile locally, qualify on GitHub, then publish automatically. **Waiting for Adrian's go-ahead before publishing.**
-7. **Skills.** Legion owns them. CodeRight's `skills`, `plugins` and `recipes` crates are deleted, because CodeRight uses the installed Legion. CutRight's skill packs move to Legion.
+6. **Publication.** The hold is lifted. Each package is its own unit with its own `Cargo.lock`, and it is published separately: compile locally, qualify on GitHub, then publish automatically. The go-ahead is given. `publish.yml` needs the local broker's signed receipts, so each unit's broker step runs on the Mac or Dell.
+7. **Skills.** Legion owns its own skills. App-specific recipes and agent skills stay in their apps (CutRight and GenRight recipes, Pulse's chat skill). CodeRight's `skills`, `plugins` and `recipes` crates are deleted, because CodeRight uses the installed Legion.
+8. **Shell.** At most 2% per app. Shell code that every app re-implements becomes shared packages (`rightkit-engine-host`, `rightkit-tauri-shell`, `RightKitUI`, `rightkit-android`, `@rightkit/react-shell`, `rightkit-daemon`).
 
