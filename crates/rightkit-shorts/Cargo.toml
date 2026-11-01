@@ -28,7 +28,7 @@ rightkit-search = { version = "0.4.1", path = "../rightkit-search", optional = t
 rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
 rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, optional = true }
 rightkit-captions = { version = "0.1.0", path = "../rightkit-captions" }
-rightkit-autoedit = { version = "0.1.0", path = "../rightkit-autoedit" }
+rightkit-autoedit = { version = "0.1.1", path = "../rightkit-autoedit" }
 rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline" }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 serde = { version = "1.0", features = ["derive"] }

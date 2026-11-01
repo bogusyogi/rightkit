@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-document-workspace"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Document workspace store: recent files, pinned files and folders, per-document view state and tab session in one SQLite file, with corruption quarantine and path purge."
@@ -13,12 +13,23 @@ include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENS
 name = "rightkit_document_workspace"
 path = "src/lib.rs"
 
+[features]
+# `commands` module: asynchronous command bodies for a Tauri viewer, generic over `WorkspaceHost`.
+tauri = ["dep:tauri"]
+# `app_paths` module: the app root, migration and test-mode isolation through rightkit-daemon.
+app-paths = ["dep:rightkit-daemon", "dep:dirs"]
+# Isolated QA home resolution for `app_paths` in test runs.
+qa-home = ["app-paths", "rightkit-fs/app-dirs"]
+
 [dependencies]
+tauri = { version = "2", default-features = false, optional = true }
+dirs = { version = "7.0.0", optional = true }
+rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon", default-features = false, optional = true }
 serde = { version = "1", features = ["derive"] }
 walkdir = { version = "2.5.0" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
-rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
-rightkit-app-settings = { version = "0.3.0", path = "../rightkit-app-settings" }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
+rightkit-app-settings = { version = "0.3.1", path = "../rightkit-app-settings" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 serde_json = "1.0.154"

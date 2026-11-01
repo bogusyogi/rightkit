@@ -23,7 +23,7 @@ agent_router-os-keyring = ["agent_router", "agent_providers-os-keyring"]
 agent_router = ["agent_providers", "dep:thiserror", "dep:toml", "agent_router-os-keyring"]
 
 [dependencies]
-rightkit-http = { version = "0.3.9", path = "../rightkit-http", features = ["gzip"] }
+rightkit-http = { version = "0.3.10", path = "../rightkit-http", features = ["gzip"] }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -47,7 +47,7 @@ dirs = {version = "7", optional = true}
 tiktoken-rs = {version = "0.12", optional = true}
 
 [dev-dependencies]
-rightkit-http = { version = "0.3.9", path = "../rightkit-http", features = ["gzip", "testing"] }
+rightkit-http = { version = "0.3.10", path = "../rightkit-http", features = ["gzip", "testing"] }
 rightkit-app-settings = {version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config", "agent_config-host-env", "agent_config-test-mode"]}
 tempfile = {version = "3"}
 

@@ -22,7 +22,7 @@ rightkit-logs = { version = "0.3.7", path = "../rightkit-logs" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-rightkit-http = { version = "0.3.9", default-features = false, features = ["gzip"], path = "../rightkit-http" }
+rightkit-http = { version = "0.3.10", default-features = false, features = ["gzip"], path = "../rightkit-http" }
 dirs = { version = "7" }
 
 [dev-dependencies]

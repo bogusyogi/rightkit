@@ -40,7 +40,7 @@ name = "system_sources"
 required-features = ["system-sources"]
 
 [dependencies]
-rightkit-http = { path = "../rightkit-http", version = "0.3.9", features = ["gzip"] }
+rightkit-http = { path = "../rightkit-http", version = "0.3.10", features = ["gzip"] }
 rightkit-credentials = { path = "../rightkit-credentials", version = "0.4.3", optional = true }
 rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.7", optional = true }
 getrandom = "0.4"
@@ -61,7 +61,7 @@ libc = { version = "0.2", optional = true }
 [dev-dependencies]
 # Independent reference for the in-crate base64 encoders.
 base64 = "0.23"
-rightkit-http = { path = "../rightkit-http", version = "0.3.9", features = ["gzip", "testing"] }
+rightkit-http = { path = "../rightkit-http", version = "0.3.10", features = ["gzip", "testing"] }
 tempfile = "3"
 
 [package.metadata.rightkit]

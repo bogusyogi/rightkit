@@ -14,7 +14,7 @@ name = "rightkit_local_gen"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-http = { version = "0.3.9", default-features = false, features = ["gzip"], path = "../rightkit-http" }
+rightkit-http = { version = "0.3.10", default-features = false, features = ["gzip"], path = "../rightkit-http" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }

@@ -34,7 +34,7 @@ libloading = { version = "0.9" }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 rightkit-ffmpeg = { version = "0.2.13", default-features = false, path = "../rightkit-ffmpeg" }
 rightkit-vad = { version = "0.1.2", path = "../rightkit-vad" }
-rightkit-asr = { version = "0.3.4", default-features = false, path = "../rightkit-asr" }
+rightkit-asr = { version = "0.3.5", default-features = false, path = "../rightkit-asr" }
 
 [dev-dependencies]
 rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core", features = ["test-mode"] }
@@ -42,7 +42,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["digest"], path = "../rightkit-fs" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-rightkit-asr = { version = "0.3.4", default-features = false, path = "../rightkit-asr", features = ["onnx-tdt", "directml"] }
+rightkit-asr = { version = "0.3.5", default-features = false, path = "../rightkit-asr", features = ["onnx-tdt", "directml"] }
 ndarray = { version = "0.17" }
 rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session", "ndarray", "directml"], path = "../rightkit-onnx" }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_Memory", "Win32_System_Threading"] }
@@ -64,7 +64,7 @@ ndarray = { version = "0.17" }
 cc = { version = "1" }
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
-rightkit-asr = { version = "0.3.4", default-features = false, path = "../rightkit-asr", features = ["onnx-tdt"] }
+rightkit-asr = { version = "0.3.5", default-features = false, path = "../rightkit-asr", features = ["onnx-tdt"] }
 ndarray = { version = "0.17" }
 rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session", "ndarray"], path = "../rightkit-onnx" }
 

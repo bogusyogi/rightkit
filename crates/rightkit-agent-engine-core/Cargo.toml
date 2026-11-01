@@ -24,7 +24,7 @@ rightkit-mcp = {version = "0.7.2", features = ["advanced-http", "agent_mcp"], pa
 rightkit-agent-tools = {version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"]}
 rightkit-sandbox = {version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"]}
 rightkit-hooks = {version = "0.2.1", path = "../rightkit-hooks", features = ["agent_hooks"]}
-rightkit-agent-host-traits = {version = "0.1.0", path = "../rightkit-agent-host-traits"}
+rightkit-agent-host-traits = {version = "0.1.1", path = "../rightkit-agent-host-traits"}
 rightkit-agent-engine-runtime-middleware = {version = "0.1.0", path = "../rightkit-agent-engine-runtime-middleware"}
 rightkit-logs = {version = "0.3.7", path = "../rightkit-logs", features = ["agent_telemetry"]}
 serde = {version = "1", features = ["derive"]}

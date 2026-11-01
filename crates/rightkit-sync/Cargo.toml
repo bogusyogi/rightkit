@@ -37,7 +37,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", optional = true }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
-rightkit-http = { version = "0.3.9", path = "../rightkit-http", default-features = false, optional = true }
+rightkit-http = { version = "0.3.10", path = "../rightkit-http", default-features = false, optional = true }
 ring = { version = "0.17", optional = true }
 zeroize = { version = "1.9", optional = true }
 
