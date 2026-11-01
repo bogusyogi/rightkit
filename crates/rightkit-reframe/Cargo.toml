@@ -18,18 +18,18 @@ test-mode = ["rightkit-ffmpeg/dev-overrides"]
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde", "clock"] }
-rightkit-models = { version = "0.5.2", path = "../rightkit-models" }
+rightkit-models = { version = "0.5.1", path = "../rightkit-models" }
 rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline" }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
-rightkit-ffmpeg = { version = "0.2.11", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
-rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "blake3"], path = "../rightkit-fs" }
+rightkit-ffmpeg = { version = "0.2.10", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
+rightkit-fs = { version = "0.4.7", default-features = false, features = ["fs", "blake3"], path = "../rightkit-fs" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = { version = "2.0" }
-rightkit-onnx = { version = "0.2.8", path = "../rightkit-onnx" }
+rightkit-onnx = { version = "0.2.7", path = "../rightkit-onnx" }
 
 [dev-dependencies]
-rightkit-ffmpeg = { version = "0.2.11", default-features = false, features = ["dev-overrides"], path = "../rightkit-ffmpeg" }
+rightkit-ffmpeg = { version = "0.2.10", default-features = false, features = ["dev-overrides"], path = "../rightkit-ffmpeg" }
 sha2 = { version = "0.10" }
 tempfile = { version = "3" }
 

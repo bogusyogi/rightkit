@@ -20,11 +20,11 @@ test-mode = ["rightkit-ffmpeg/dev-overrides"]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = { version = "2.0" }
-rightkit-ffmpeg = { version = "0.2.11", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
-rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs"], path = "../rightkit-fs" }
+rightkit-ffmpeg = { version = "0.2.10", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
+rightkit-fs = { version = "0.4.7", default-features = false, features = ["fs"], path = "../rightkit-fs" }
 
 [dev-dependencies]
-rightkit-ffmpeg = { version = "0.2.11", default-features = false, features = ["native", "dev-overrides"], path = "../rightkit-ffmpeg" }
+rightkit-ffmpeg = { version = "0.2.10", default-features = false, features = ["native", "dev-overrides"], path = "../rightkit-ffmpeg" }
 
 [workspace]
 
