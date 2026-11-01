@@ -12,11 +12,11 @@
 //!   only: a process of the same user can make a keychain of its own, give its item that partition
 //!   list (it knows its own password) and move the file onto the login keychain's path. So the blob
 //!   is also sealed with an HMAC (the same seal as Windows), whose key sits in
-//!   `protected-settings.seal` and, once a the host app PIN is set, is wrapped with a key derived from the
+//!   `protected-settings.seal` and, once a PIN is set, is wrapped with a key derived from the
 //!   PIN. A blob without a valid seal is read as closed defaults.
 //! * **Windows** (`win.rs`): the Credential Manager item is writable by any process of the user, so
 //!   the stored blob is sealed with an HMAC. The key is held in a second place (a DPAPI-protected
-//!   file beside owner app's data) and, once a the host app PIN is set, DPAPI also takes entropy derived
+//!   file beside owner app's data) and, once a PIN is set, DPAPI also takes entropy derived
 //!   from the PIN. A blob without a valid seal is read as closed defaults (`protected_store.rs`).
 //! * Both seals are not versioned: an older valid blob can be put back (rollback), and without a PIN
 //!   code that runs as the user can read the key (see docs/settings.md).

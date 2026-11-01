@@ -14,7 +14,7 @@
 //! * AWS access key ids: `AKIA` or `ASIA` and 16 upper-case letters or digits;
 //! * Google API keys: `AIza` and 35 key characters;
 //! * `Bearer ` and 20 or more token characters;
-//! * PEM blocks, from `-----BEGIN ` to the end of the matching `-----END …-----`, or to the end of
+//! * PEM blocks, from the five-dash BEGIN marker to the end of the matching END marker, or to the end of
 //!   the text when it has none;
 //! * the value after `password`, `passwd`, `pwd`, `secret`, `token`, `api_key`, `apikey` or
 //!   `access_key` followed by `=` (or `:` for the first three words), up to a space, quote,
