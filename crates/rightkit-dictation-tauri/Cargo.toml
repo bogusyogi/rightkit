@@ -1,0 +1,63 @@
+[package]
+name = "rightkit-dictation-tauri"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Dictation runtime for a desktop shell: recording state machine over the engine sidecar, history sequencing, transcribe watchdog and start-sequence liveness, behind a host trait."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_dictation_tauri"
+path = "src/lib.rs"
+
+[features]
+# Compiles the test-only switches (`dev_var!`) and the runtime-lock depth assertions. Never in a release build.
+test-mode = ["rightkit-dictation-core/test-mode", "rightkit-dictation-app-runtime/test-mode", "rightkit-dictation-command-host/test-mode"]
+
+[dependencies]
+serde_json = "1"
+rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
+rightkit-dictation-app-runtime = { version = "0.1.0", path = "../rightkit-dictation-app-runtime" }
+rightkit-dictation-telemetry = { version = "0.1.0", path = "../rightkit-dictation-telemetry" }
+rightkit-dictation-models = { version = "0.1.0", path = "../rightkit-dictation-models" }
+rightkit-dictation-command-host = { version = "0.1.0", path = "../rightkit-dictation-command-host" }
+rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
+rightkit-text-polish = { version = "0.1.0", path = "../rightkit-text-polish" }
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

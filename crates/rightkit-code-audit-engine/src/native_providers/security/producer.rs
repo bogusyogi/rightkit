@@ -1,0 +1,2522 @@
+//! Self-sourcing artifact producer for the security-family providers.
+//!
+//! The adapter in [`super::adapter`] only analyses artifacts; without a producer
+//! every provider in the family reports `unavailable:artifact-not-produced`.
+//! This module builds those artifacts when the host injected none.
+//!
+//! Evidence comes from exactly one of two sources, and the producer metadata
+//! (`details.producer`) says which:
+//!
+//! * `tool` — a scanner found on `PATH` ran through the same authorized process
+//!   route the legacy checks use (`AuditExternalProjectTool` over
+//!   `EffectExecutor`): argv-only, sealed executable digest, scrubbed
+//!   environment allowlist, timeout and output caps, authenticated network
+//!   sandbox. Scratch output lives in a directory outside the audited tree.
+//! * `native-fallback` — a cheap, conservative Rust implementation (lockfile
+//!   observations for selected providers & a known-prefix/high-entropy scan for
+//!   secrets). It never claims more than it examined.
+//!
+//! The producer makes no network request. Tools run offline (`--offline`,
+//! `--skip-check-update`, metrics off) inside a network-denying sandbox, and the
+//! receipt records `offline: true`. A provider whose input cannot be produced
+//! yields a typed reason (`tool-missing:<tool>`, `ruleset-missing:<id>`,
+//! `offline-database-missing:<tool>`, `sandbox-missing:<tool>`,
+//! `sarif-not-present:<id>`, ...) which the adapter turns into
+//! `unavailable:<reason>` for that provider only.
+//!
+//! Conventional inputs (all relative to the audited root unless stated):
+//!
+//! * SARIF import (`imported.sarif`): `*.sarif` / `*.sarif.json` directly in the
+//!   root, in `.sarif/`, `sarif/`, `reports/`, and in the run directory (the
+//!   `--out` directory) or its `sarif/` subdirectory.
+//! * OpenGrep/Semgrep rules: `.opengrep/`, `.semgrep/`, `opengrep-rules/`,
+//!   `.opengrep.yml|yaml`, `.semgrep.yml|yaml`, `opengrep.yml`, `semgrep.yml`.
+//! * ast-grep rules: `sgconfig.yml|yaml`.
+//! * OSV offline database: `OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY` (or
+//!   `OSV_SCANNER_OFFLINE_DB`) in the environment, or `with_osv_database`.
+
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use regex::Regex;
+use rightkit_code_audit_provider_sdk::{
+    ExecutionReceipt, ExecutionState, ExternalProjectTool, ExternalToolRequest,
+};
+use serde_json::{json, Value};
+use tokio_util::sync::CancellationToken;
+use walkdir::WalkDir;
+
+use super::{
+    ast_grep,
+    common::{digest, digest_json},
+    container_iac, dependency_osv, opengrep,
+};
+use crate::{
+    inventory::{InventoryEntry, InventoryEnvelope},
+    native_providers::legacy_checks::AuditExternalProjectTool,
+    plan::AuditProvider,
+};
+
+#[path = "scanner_tools.rs"]
+mod scanner_tools;
+
+const POLICY_ID: &str = crate::execution_policy::POLICY_ID;
+const SARIF_FILE_LIMIT: usize = 16;
+const SARIF_BYTE_LIMIT: u64 = 8 * 1024 * 1024;
+const SECRET_FILE_LIMIT: u64 = 2 * 1024 * 1024;
+const ENVIRONMENT_NAMES: &[&str] = &[
+    "PATH",
+    "PATHEXT",
+    "SystemRoot",
+    "COMSPEC",
+    "HOME",
+    "USERPROFILE",
+    "TEMP",
+    "TMP",
+];
+
+static SCRATCH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+/// Whether scanners must run inside an authenticated OS sandbox.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SandboxPolicy {
+    /// Default. A tool on a host with no sandbox authenticator is refused and
+    /// reported as `sandbox-missing:<tool>`, exactly as the legacy checks are.
+    Required,
+    /// Relax sandboxing after separate admission. This never grants admission.
+    Disabled,
+}
+
+/// What the producer could make for a provider.
+#[derive(Clone, Debug)]
+pub enum Production {
+    /// The per-provider input object the adapter analyses.
+    Artifact(Value),
+    /// Typed reason; the adapter reports `unavailable:<reason>`.
+    Unavailable(String),
+    /// Actual effect-layer denials; retain receipts even without an artifact.
+    AdmissionUnavailable {
+        reason: String,
+        receipts: Vec<Value>,
+    },
+}
+
+#[derive(Clone)]
+pub struct ArtifactProducer {
+    root: PathBuf,
+    run_dir: Option<PathBuf>,
+    search_path: Option<Vec<PathBuf>>,
+    sandbox: SandboxPolicy,
+    osv_database: Option<PathBuf>,
+    snapshot_manifest: Option<PathBuf>,
+    timeout_ms: u64,
+    output_limit: usize,
+    authorizer: Option<Arc<dyn rightkit_evidence_effects::PolicyAuthorizer>>,
+    // Private ownership survives Scratch::drop; raw streams never enter public findings.
+    retained_secret_runs: Arc<std::sync::Mutex<Vec<ToolRun>>>,
+}
+
+impl std::fmt::Debug for ArtifactProducer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArtifactProducer")
+            .field("root", &self.root)
+            .finish_non_exhaustive()
+    }
+}
+
+struct ProducerAuthorizer<'a>(&'a ArtifactProducer);
+impl rightkit_evidence_effects::PolicyAuthorizer for ProducerAuthorizer<'_> {
+    fn authorize(
+        &self,
+        request: &ExternalToolRequest,
+    ) -> rightkit_evidence_effects::PolicyDecision {
+        match &self.0.authorizer {
+            Some(authorizer) => authorizer.authorize(request),
+            None => rightkit_evidence_effects::PolicyAuthorizer::authorize(
+                &crate::execution_policy::OwnerAdmissionRequired,
+                request,
+            ),
+        }
+    }
+}
+
+impl ArtifactProducer {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        let osv_database = [
+            "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY",
+            "OSV_SCANNER_OFFLINE_DB",
+        ]
+        .iter()
+        .filter_map(|name| std::env::var_os(name))
+        .map(PathBuf::from)
+        .find(|path| !path.as_os_str().is_empty());
+        Self {
+            root: root.into(),
+            run_dir: None,
+            search_path: None,
+            sandbox: SandboxPolicy::Required,
+            osv_database,
+            snapshot_manifest: None,
+            timeout_ms: 120_000,
+            output_limit: 8 * 1024 * 1024,
+            authorizer: None,
+            retained_secret_runs: Arc::new(std::sync::Mutex::new(Vec::new())),
+        }
+    }
+
+    /// The run's `--out` directory: scratch parent and an extra SARIF location.
+    pub fn with_run_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.run_dir = Some(dir.into());
+        self
+    }
+
+    /// Directories searched for scanners instead of the process `PATH`.
+    pub fn with_search_path(mut self, dirs: Vec<PathBuf>) -> Self {
+        self.search_path = Some(dirs);
+        self
+    }
+
+    pub fn with_sandbox(mut self, policy: SandboxPolicy) -> Self {
+        self.sandbox = policy;
+        self
+    }
+
+    /// In-process SDK seam for explicit authorizers (e.g. scanner fixtures).
+    /// Public CLI/MCP composition never accepts a caller-supplied authorizer.
+    pub fn with_policy_authorizer(
+        mut self,
+        authorizer: Arc<dyn rightkit_evidence_effects::PolicyAuthorizer>,
+    ) -> Self {
+        self.authorizer = Some(authorizer);
+        self
+    }
+
+    pub fn with_osv_database(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.osv_database = Some(dir.into());
+        self
+    }
+
+    /// Immutable scope snapshot used for exact diff-bound policy checks.
+    pub fn with_snapshot_manifest(mut self, path: impl Into<PathBuf>) -> Self {
+        self.snapshot_manifest = Some(path.into());
+        self
+    }
+
+    pub fn with_bounds(mut self, timeout_ms: u64, output_limit: usize) -> Self {
+        self.timeout_ms = timeout_ms;
+        self.output_limit = output_limit;
+        self
+    }
+
+    pub fn produce(&self, provider: &AuditProvider, inventory: &InventoryEnvelope) -> Production {
+        let scratch = match Scratch::create(self.run_dir.as_deref()) {
+            Ok(scratch) => scratch,
+            Err(_) => return Production::Unavailable("scratch-unavailable".into()),
+        };
+        let run = Run {
+            producer: self,
+            provider,
+            inventory,
+            scratch,
+            denied_receipts: RefCell::new(Vec::new()),
+        };
+        let production = match provider.id.as_str() {
+            id if super::scanners::tool_for(id).is_some() => run.named_scanner(),
+            "security.suppression-changes" => run.suppression_changes(),
+            "security.opengrep" => run.opengrep(),
+            "structural.ast-grep" => run.ast_grep(),
+            "container.iac" => run.container_iac(),
+            "dependency.osv" => run.dependency_osv(),
+            "secrets.current-history" => run.secrets(),
+            "supply-chain.license-sbom-provenance" => run.supply_chain(),
+            "imported.sarif" => run.imported_sarif(),
+            other => Production::Unavailable(format!("unsupported-provider:{other}")),
+        };
+        let receipts = run.denied_receipts.into_inner();
+        if receipts.is_empty() {
+            return production;
+        }
+        match production {
+            Production::Artifact(mut value) => {
+                value["executionReceipt"] = receipts[0].clone();
+                value["executionReceipts"] = json!(receipts);
+                value["executionAdmissionUnavailable"] =
+                    json!(crate::execution_policy::ADMISSION_UNAVAILABLE);
+                Production::Artifact(value)
+            }
+            Production::Unavailable(_) | Production::AdmissionUnavailable { .. } => {
+                Production::AdmissionUnavailable {
+                    reason: crate::execution_policy::ADMISSION_UNAVAILABLE.into(),
+                    receipts,
+                }
+            }
+        }
+    }
+
+    fn find_tool(&self, names: &[&str]) -> Option<(String, PathBuf)> {
+        let dirs: Vec<PathBuf> = match &self.search_path {
+            Some(dirs) => dirs.clone(),
+            None => std::env::var_os("PATH")
+                .map(|path| std::env::split_paths(&path).collect())
+                .unwrap_or_default(),
+        };
+        for name in names {
+            for dir in &dirs {
+                let mut candidates = vec![dir.join(name)];
+                if cfg!(windows) {
+                    for extension in ["exe", "cmd", "bat", "com"] {
+                        candidates.push(dir.join(format!("{name}.{extension}")));
+                    }
+                }
+                if let Some(found) = candidates.into_iter().find(|path| is_executable(path)) {
+                    return Some(((*name).to_owned(), found));
+                }
+            }
+        }
+        None
+    }
+}
+
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    fs::metadata(path)
+        .map(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    path.is_file()
+}
+
+/// Probe through authenticated wrapper's existing `-f profile -- tool` prefix,
+/// or directly when sandboxing was explicitly disabled. Every producer tool
+/// reports its version through the `--version` flag.
+fn tool_version_args(wrapped_args: Option<&[String]>) -> Vec<String> {
+    let mut args: Vec<String> = wrapped_args
+        .into_iter()
+        .flat_map(|args| args.iter().take(4).cloned())
+        .collect();
+    args.push("--version".into());
+    args
+}
+
+/// Scratch directory outside the audited tree, removed on drop.
+struct Scratch {
+    path: PathBuf,
+}
+
+impl Scratch {
+    fn create(parent: Option<&Path>) -> std::io::Result<Self> {
+        let sequence = SCRATCH_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let base = parent
+            .map(Path::to_path_buf)
+            .unwrap_or_else(std::env::temp_dir);
+        let path = base.join(format!(
+            "legion-audit-security-{}-{nanos}-{sequence}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&path)?;
+        Ok(Self { path })
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+#[derive(Clone)]
+struct ToolRun {
+    tool: String,
+    version: String,
+    executable_digest: String,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    actual_receipt: ExecutionReceipt,
+    receipt: Value,
+}
+
+impl ToolRun {
+    fn tool_identity(&self) -> Value {
+        json!({"name":self.tool,"version":self.version,"executableDigest":self.executable_digest})
+    }
+
+    fn producer(&self) -> Value {
+        let mut value = self.receipt.clone();
+        value["mode"] = json!("tool");
+        value
+    }
+}
+
+struct Run<'a> {
+    producer: &'a ArtifactProducer,
+    provider: &'a AuditProvider,
+    inventory: &'a InventoryEnvelope,
+    scratch: Scratch,
+    denied_receipts: RefCell<Vec<Value>>,
+}
+
+fn unavailable(reason: impl Into<String>) -> Production {
+    Production::Unavailable(reason.into())
+}
+
+fn relative_path(root: &Path, raw: &str) -> String {
+    let path = Path::new(raw);
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    let text = relative.to_string_lossy().replace('\\', "/");
+    text.strip_prefix("./").unwrap_or(&text).to_owned()
+}
+
+impl<'a> Run<'a> {
+    fn root(&self) -> &Path {
+        &self.producer.root
+    }
+
+    fn binding(&self) -> Value {
+        json!({"repositoryRevision":self.inventory.generation,"digest":self.inventory.digest})
+    }
+
+    fn entries(&self) -> impl Iterator<Item = &InventoryEntry> {
+        self.inventory.entries.iter()
+    }
+
+    fn source_paths(&self) -> Vec<String> {
+        self.entries()
+            .filter(|entry| entry.source_file)
+            .map(|entry| entry.path.clone())
+            .collect()
+    }
+
+    fn input(&self, files: &[String], artifacts: Value, producer: Value) -> Value {
+        json!({
+            "plan": {
+                "binding": self.binding(),
+                "repositoryBinding": {"revision": self.inventory.generation, "root": self.root().to_string_lossy()},
+                "denominator": {"pathCount": files.len()},
+            },
+            "projection": {"files": files.iter().map(|path| json!({"path": path})).collect::<Vec<_>>()},
+            "artifacts": artifacts,
+            "producer": producer,
+        })
+    }
+
+    fn execution_receipt(&self, run: &ToolRun) -> Value {
+        let mut receipt = run.receipt.clone();
+        receipt["tool"] = run.tool_identity();
+        receipt["stdoutArtifact"] =
+            json!({"digest": digest(&run.stdout), "bytes": run.stdout.len()});
+        receipt
+    }
+
+    /// Runs one scanner through the authorized process route.
+    fn run_tool(
+        &self,
+        names: &[&str],
+        args: Vec<String>,
+        accepted: &[i32],
+        extra_env: &[(&str, String)],
+    ) -> Result<ToolRun, String> {
+        self.run_tool_at(
+            names,
+            args,
+            accepted,
+            extra_env,
+            self.root(),
+            self.producer.timeout_ms,
+        )
+    }
+
+    fn run_tool_at(
+        &self,
+        names: &[&str],
+        args: Vec<String>,
+        accepted: &[i32],
+        extra_env: &[(&str, String)],
+        cwd: &Path,
+        timeout_ms: u64,
+    ) -> Result<ToolRun, String> {
+        let primary = names.first().copied().unwrap_or("tool");
+        if self.producer.authorizer.is_none() {
+            // Admission runs before executable resolution, sandbox wrapping,
+            // version probes or target launch. This is an actual executor
+            // receipt, never a synthesized empty scanner result.
+            let receipt = self.execute(ExternalToolRequest {
+                request_id: format!(
+                    "security-producer:{}:{}",
+                    self.provider.id, self.inventory.digest
+                ),
+                provider_id: self.provider.id.clone(),
+                plan_id: self.inventory.digest.clone(),
+                policy_id: POLICY_ID.into(),
+                task_id: Some(primary.into()),
+                executable: primary.into(),
+                args,
+                cwd: cwd.to_string_lossy().into_owned(),
+                accepted_exit_codes: accepted.iter().copied().collect(),
+                timeout_ms,
+                stdout_limit: self.producer.output_limit,
+                stderr_limit: self.producer.output_limit,
+                ..ExternalToolRequest::default()
+            })?;
+            if receipt.state == ExecutionState::UnauthorizedEffect
+                && !receipt.process_tree.started
+                && receipt
+                    .policy
+                    .as_ref()
+                    .is_some_and(|p| p.id == POLICY_ID && !p.allowed)
+            {
+                let mut value = json!({
+                    "schemaVersion": receipt.schema_version, "receiptId": receipt.receipt_id,
+                    "requestId": receipt.request_id, "providerId": receipt.provider_id,
+                    "planId": receipt.plan_id, "policyId": receipt.policy_id,
+                    "policy": receipt.policy.as_ref().map(|p| json!({"id":p.id,"version":p.version,"digest":p.digest,"allowed":p.allowed,"reason":p.reason})),
+                    "state": receipt.state.as_str(), "complete": receipt.complete,
+                    "taskId": receipt.task_id,
+                    "executable": null,
+                    "command": receipt.command.as_ref().map(|c| json!({"executable":c.executable,"args":c.args,"environmentNames":c.environment_names,"redactedArgumentIndexes":c.redacted_argument_indexes,"redactedEnvironmentNames":c.redacted_environment_names})),
+                    "cwd": receipt.cwd, "environmentNames": receipt.environment_names,
+                    "sandbox": {"required":receipt.sandbox.required,"receiptId":receipt.sandbox.receipt_id,"networkEnabled":receipt.sandbox.network_enabled},
+                    "processTree": {"started":receipt.process_tree.started,"terminated":receipt.process_tree.terminated,"hardKilled":receipt.process_tree.hard_killed,"reaped":receipt.process_tree.reaped,"detail":receipt.process_tree.detail},
+                    "timing": {"startedAtMs":receipt.timing.started_at_ms,"completedAtMs":receipt.timing.completed_at_ms,"durationMs":receipt.timing.duration_ms},
+                    "exitCode": receipt.exit_code, "signal": receipt.signal,
+                    "stdout": null, "stderr": null,
+                    "parser": {"attempted":receipt.parser.attempted,"succeeded":receipt.parser.succeeded,"error":receipt.parser.error},
+                    "gaps": receipt.gaps,
+                });
+                crate::execution_policy::project_binding(&mut value);
+                self.denied_receipts.borrow_mut().push(value);
+                return Err(crate::execution_policy::ADMISSION_UNAVAILABLE.into());
+            }
+            return Err(format!("tool-failed:{primary}:{}", receipt.state.as_str()));
+        }
+        let Some((tool, executable)) = self.producer.find_tool(names) else {
+            return Err(format!("tool-missing:{primary}"));
+        };
+        let canonical = fs::canonicalize(&executable).unwrap_or(executable);
+        let executable_text = canonical.to_string_lossy().into_owned();
+        let executable_bytes =
+            fs::read(&canonical).map_err(|_| format!("tool-missing:{primary}"))?;
+        let executable_digest = digest(&executable_bytes);
+        let root_text = cwd.to_string_lossy().into_owned();
+
+        let mut environment: BTreeMap<String, String> = ENVIRONMENT_NAMES
+            .iter()
+            .filter_map(|name| std::env::var(name).ok().map(|v| ((*name).to_owned(), v)))
+            .collect();
+        for (name, value) in [
+            ("NO_COLOR", "1".to_owned()),
+            ("SEMGREP_SEND_METRICS", "off".to_owned()),
+            ("SEMGREP_ENABLE_VERSION_CHECK", "0".to_owned()),
+            ("SYFT_CHECK_FOR_APP_UPDATE", "false".to_owned()),
+        ] {
+            environment.insert(name.to_owned(), value);
+        }
+        for (name, value) in extra_env {
+            environment.insert((*name).to_owned(), value.clone());
+        }
+        let allowlist: BTreeSet<String> = environment.keys().cloned().collect();
+
+        let (launch_executable, launch_args, sandbox, version_args, requires_sandbox) = match self
+            .producer
+            .sandbox
+        {
+            SandboxPolicy::Disabled => (executable_text.clone(), args.clone(), None, None, false),
+            SandboxPolicy::Required => {
+                let authenticated = rightkit_evidence_effects::authenticate_sandbox(
+                    &executable_text,
+                    &args,
+                    &root_text,
+                    // Source scanners never need to write into their project.
+                    rightkit_evidence_effects::SandboxMode::DenyNetworkDenyProjectWrite,
+                    &self.scratch.path.join("sandbox"),
+                );
+                match authenticated {
+                    Ok(auth) => {
+                        // Probe the real tool's version through the same
+                        // wrapper prefix (`-f profile -- tool`).
+                        let probe = tool_version_args(Some(&auth.wrapped_args));
+                        (
+                            auth.wrapped_executable,
+                            auth.wrapped_args,
+                            Some(rightkit_evidence_effects::SandboxReceipt {
+                                id: auth.id,
+                                network: auth.network,
+                                filesystem_scope: auth.filesystem_scope,
+                            }),
+                            Some(probe),
+                            true,
+                        )
+                    }
+                    // No authenticator: leave the receipt absent so the
+                    // executor refuses (typed degradation, never unsandboxed).
+                    Err(_) => (executable_text.clone(), args.clone(), None, None, true),
+                }
+            }
+        };
+
+        // Pin the actual launch executable before the adapter resolves it again.
+        // Sandboxed requests launch the authenticated wrapper, not the scanner.
+        let launch_digest = if launch_executable == executable_text {
+            executable_digest.clone()
+        } else {
+            digest(
+                &fs::read(&launch_executable)
+                    .map_err(|_| format!("sandbox-missing:{primary}:wrapper-unreadable"))?,
+            )
+        };
+        let request = ExternalToolRequest {
+            request_id: if matches!(
+                self.provider.id.as_str(),
+                "secrets.current-history" | "supply-chain.license-sbom-provenance"
+            ) {
+                format!(
+                    "security-producer:{}:{}:{}",
+                    self.provider.id,
+                    self.inventory.digest,
+                    digest_json(&json!({"args":args,"cwd":root_text}))
+                        .trim_start_matches("sha256:")
+                )
+            } else {
+                format!(
+                    "security-producer:{}:{}",
+                    self.provider.id, self.inventory.digest
+                )
+            },
+            provider_id: self.provider.id.clone(),
+            plan_id: self.inventory.digest.clone(),
+            policy_id: POLICY_ID.into(),
+            task_id: Some(tool.clone()),
+            executable: launch_executable,
+            args: launch_args,
+            cwd: root_text.clone(),
+            origin: rightkit_evidence_effects::ToolOrigin::System,
+            shell: false,
+            expected_digest: Some(launch_digest),
+            accepted_exit_codes: accepted.iter().copied().collect(),
+            environment,
+            environment_allowlist: allowlist,
+            requires_network_sandbox: requires_sandbox,
+            sandbox,
+            timeout_ms,
+            stdout_limit: self.producer.output_limit,
+            stderr_limit: self.producer.output_limit,
+            version_args: version_args.unwrap_or_else(|| tool_version_args(None)),
+            ..ExternalToolRequest::default()
+        };
+        let receipt = self.execute(request)?;
+        if tool == "trivy"
+            || self.provider.id == "security.opengrep"
+            || self.provider.id == "supply-chain.license-sbom-provenance"
+        {
+            self.retain_scanner_diagnostic(&receipt)?;
+        }
+        if self.provider.id != "secrets.current-history" {
+            match receipt.state {
+                ExecutionState::Completed => {}
+                ExecutionState::MissingExecutable => return Err(format!("tool-missing:{primary}")),
+                ExecutionState::SandboxMissing => return Err(format!("sandbox-missing:{primary}")),
+                ExecutionState::Timeout => return Err(format!("tool-timeout:{primary}")),
+                ExecutionState::OutputLimited => return Err(format!("output-limited:{primary}")),
+                other => return Err(format!("tool-failed:{primary}:{}", other.as_str())),
+            }
+        }
+        let stdout = receipt
+            .stdout
+            .as_ref()
+            .and_then(|artifact| read_artifact(&self.scratch.path, artifact))
+            .or_else(|| (receipt.state != ExecutionState::Completed).then(Vec::new))
+            .ok_or_else(|| format!("tool-output-unreadable:{primary}"))?;
+        let stderr = receipt
+            .stderr
+            .as_ref()
+            .and_then(|artifact| read_artifact(&self.scratch.path, artifact))
+            .or_else(|| (receipt.state != ExecutionState::Completed).then(Vec::new))
+            .ok_or_else(|| format!("tool-stderr-unreadable:{primary}"))?;
+        let version = receipt
+            .executable
+            .as_ref()
+            .and_then(|identity| identity.version.output.as_deref())
+            .and_then(|output| output.lines().find(|line| !line.trim().is_empty()))
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        let argv: Vec<String> = std::iter::once(tool.clone())
+            .chain(args.iter().cloned())
+            .collect();
+        let mut receipt_value = json!({
+            "tool": tool,
+            "version": version,
+            "executableDigest": executable_digest,
+            "argv": argv,
+            "exitCode": receipt.exit_code,
+            "offline": true,
+            "complete": receipt.complete,
+            "state": receipt.state.as_str(),
+            "receiptId": receipt.receipt_id,
+            "policyId": receipt.policy_id,
+            "stdoutDigest": digest(&stdout),
+            "stdoutBytes": stdout.len(),
+            "sandbox": {
+                "required": receipt.sandbox.required,
+                "receiptId": receipt.sandbox.receipt_id,
+                "networkEnabled": receipt.sandbox.network_enabled,
+            },
+            "environmentNames": receipt.environment_names,
+            "evidence": "tool",
+        });
+        if self.provider.id == "secrets.current-history" {
+            receipt_value["stderrDigest"] = json!(digest(&stderr));
+            receipt_value["stderrBytes"] = json!(stderr.len());
+        }
+        let run = ToolRun {
+            tool,
+            version,
+            executable_digest,
+            stdout,
+            stderr,
+            actual_receipt: receipt,
+            receipt: receipt_value,
+        };
+        if self.provider.id == "secrets.current-history" {
+            self.retain_secret_run(&run)?;
+        }
+        match run.actual_receipt.state {
+            ExecutionState::Completed => {}
+            ExecutionState::MissingExecutable => return Err(format!("tool-missing:{primary}")),
+            ExecutionState::SandboxMissing => return Err(format!("sandbox-missing:{primary}")),
+            ExecutionState::Timeout => return Err(format!("tool-timeout:{primary}")),
+            ExecutionState::OutputLimited => return Err(format!("output-limited:{primary}")),
+            other => return Err(format!("tool-failed:{primary}:{}", other.as_str())),
+        }
+        Ok(run)
+    }
+
+    /// Retain actual SDK evidence before scanner state/JSON rejection, only
+    /// inside an explicitly supplied run root. This never changes execution
+    /// state, parser outcome, admission or accepted exits.
+    fn retain_scanner_diagnostic(&self, receipt: &ExecutionReceipt) -> Result<(), String> {
+        let Some(parent) = self.producer.run_dir.as_ref() else {
+            return Ok(());
+        };
+        let invalid = || "scanner-diagnostic-retention-invalid".to_owned();
+        let parent = fs::canonicalize(parent).map_err(|_| invalid())?;
+        let scratch = fs::canonicalize(&self.scratch.path).map_err(|_| invalid())?;
+        let project = fs::canonicalize(self.root()).map_err(|_| invalid())?;
+        if scratch.parent() != Some(parent.as_path()) || parent.starts_with(&project) {
+            return Err(invalid());
+        }
+        let stream =
+            |record: Option<&rightkit_evidence_effects::ArtifactRecord>| -> Result<Value, String> {
+                let Some(record) = record else {
+                    return Ok(Value::Null);
+                };
+                let original = Path::new(&record.path);
+                let original = if original.is_absolute() {
+                    original.to_path_buf()
+                } else {
+                    scratch.join(original)
+                };
+                let metadata = fs::symlink_metadata(&original).map_err(|_| invalid())?;
+                let canonical = fs::canonicalize(&original).map_err(|_| invalid())?;
+                if !record.immutable
+                    || !metadata.is_file()
+                    || metadata.file_type().is_symlink()
+                    || !canonical.starts_with(&scratch)
+                    || metadata.len() != record.bytes as u64
+                    || record.bytes > self.producer.output_limit
+                {
+                    return Err(invalid());
+                }
+                let bytes = fs::read(&canonical).map_err(|_| invalid())?;
+                if bytes.len() != record.bytes || digest(&bytes) != record.digest {
+                    return Err(invalid());
+                }
+                Ok(
+                    json!({"originalPath":record.path,"originalAbsolutePath":original,
+                "digest":record.digest,"bytes":record.bytes,"immutable":record.immutable,
+                "raw":std::str::from_utf8(&bytes).ok(),"rawBytes":bytes}),
+                )
+            };
+        let mut diagnostic = json!({"schema":"legion-native-scanner-diagnostic/1",
+            "provider":self.provider.id,"inventoryDigest":self.inventory.digest,
+            "originalArtifactRoot":scratch,"receipt":crate::execution_policy::receipt_json(receipt),
+            "stdout":stream(receipt.stdout.as_ref())?,"stderr":stream(receipt.stderr.as_ref())?});
+        if self.provider.id == "supply-chain.license-sbom-provenance" {
+            if let Some(command) = receipt.command.as_ref() {
+                if command.args.first().is_some_and(|arg| arg == "-f") {
+                    let profile = Path::new(command.args.get(1).ok_or_else(invalid)?);
+                    let bytes = fs::read(profile).map_err(|_| invalid())?;
+                    diagnostic["sandboxProfile"] = json!({"path":profile,"raw":std::str::from_utf8(&bytes).ok(),"digest":digest(&bytes)});
+                }
+            }
+        }
+        let directory = parent.join("native-diagnostics");
+        match fs::create_dir(&directory) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(_) => return Err(invalid()),
+        }
+        let metadata = fs::symlink_metadata(&directory).map_err(|_| invalid())?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(invalid());
+        }
+        let bytes = serde_json::to_vec(&diagnostic).map_err(|_| invalid())?;
+        let filename = format!(
+            "{}-{}.json",
+            self.provider.id,
+            digest(&bytes).trim_start_matches("sha256:")
+        );
+        rightkit_evidence_effects::ArtifactWriter::new(&directory)
+            .write_immutable(&filename, &bytes)
+            .map_err(|_| invalid())?;
+        Ok(())
+    }
+
+    /// Bridges the async effect executor from the sync provider interface on a
+    /// dedicated thread so it never nests inside a caller's runtime.
+    fn execute(&self, request: ExternalToolRequest) -> Result<ExecutionReceipt, String> {
+        #[cfg(unix)]
+        let process = rightkit_evidence_effects::platform::unix::UnixProcess::new();
+        #[cfg(windows)]
+        let process = rightkit_evidence_effects::platform::windows::WindowsProcess::default();
+        let effects = rightkit_evidence_effects::EffectExecutor::new(
+            process,
+            rightkit_evidence_effects::ArtifactWriter::new(&self.scratch.path),
+            ProducerAuthorizer(self.producer),
+        );
+        let explicit_authorizer = self.producer.authorizer.is_some();
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let runtime = tokio::runtime::Runtime::new().ok()?;
+                    Some(if explicit_authorizer {
+                        let tool = AuditExternalProjectTool::new(effects);
+                        runtime.block_on(tool.execute(request, CancellationToken::new()))
+                    } else {
+                        runtime.block_on(
+                            effects.execute_with_cancellation(&request, CancellationToken::new()),
+                        )
+                    })
+                })
+                .join()
+                .ok()
+                .flatten()
+        })
+        .ok_or_else(|| "executor-unavailable".to_owned())
+    }
+
+    // ---------------------------------------------------------------- opengrep
+
+    fn opengrep(&self) -> Production {
+        let rules = ruleset_paths(
+            self.root(),
+            &[
+                ".opengrep",
+                ".semgrep",
+                "opengrep-rules",
+                ".opengrep.yml",
+                ".opengrep.yaml",
+                ".semgrep.yml",
+                ".semgrep.yaml",
+                "opengrep.yml",
+                "semgrep.yml",
+            ],
+        );
+        if self.producer.find_tool(&["opengrep", "semgrep"]).is_none() {
+            return unavailable("tool-missing:opengrep");
+        }
+        if rules.is_empty() {
+            return unavailable("ruleset-missing:security.opengrep");
+        }
+        let mut args: Vec<String> = ["scan", "--json", "--quiet", "--disable-version-check"]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        for rule in &rules {
+            args.push("--config".into());
+            args.push(rule.clone());
+        }
+        args.push(".".into());
+        let run = match self.run_tool(&["opengrep", "semgrep"], args, &[0, 1], &[]) {
+            Ok(run) => run,
+            Err(reason) => return unavailable(reason),
+        };
+        let Ok(output) = serde_json::from_slice::<Value>(&run.stdout) else {
+            return unavailable(format!("tool-output-invalid:{}", run.tool));
+        };
+        let sources = self.source_paths();
+        let scanned: BTreeSet<String> = output
+            .get("paths")
+            .and_then(|p| p.get("scanned"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(|p| relative_path(self.root(), p))
+            .collect();
+        let examined = sources.iter().filter(|p| scanned.contains(*p)).count();
+        let denominator_digest = digest_json(&json!(sources));
+        let ruleset = opengrep::ruleset_identity(
+            Some(rules.join(",").as_str()),
+            Some(ruleset_digest(self.root(), &rules).as_str()),
+            None,
+            Some("repository-local"),
+            None,
+        );
+        let candidates: Vec<Value> = output
+            .get("results")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|result| {
+                let mut result = result.clone();
+                if let Some(path) = result.get("path").and_then(Value::as_str) {
+                    result["path"] = json!(relative_path(self.root(), path));
+                }
+                let finding = opengrep::normalize_finding(
+                    &result,
+                    Some("security.opengrep"),
+                    Some(run.version.as_str()),
+                    Some(&ruleset),
+                );
+                opengrep::to_candidate(
+                    &finding,
+                    Some("security.opengrep"),
+                    Some(run.version.as_str()),
+                    Some(denominator_digest.as_str()),
+                )
+            })
+            .collect();
+        let evidence = json!({
+            "binding": self.binding(),
+            "denominator": {"digest": denominator_digest, "expected": sources.len(), "examined": examined},
+            "ruleset": ruleset,
+            "tool": run.tool_identity(),
+            "executionReceipt": self.execution_receipt(&run),
+            "candidates": candidates,
+        });
+        Production::Artifact(self.input(&sources, json!({"opengrep": evidence}), run.producer()))
+    }
+
+    // ---------------------------------------------------------------- ast-grep
+
+    fn ast_grep(&self) -> Production {
+        if self.producer.find_tool(&["ast-grep"]).is_none() {
+            return unavailable("tool-missing:ast-grep");
+        }
+        if !["sgconfig.yml", "sgconfig.yaml"]
+            .iter()
+            .any(|name| self.root().join(name).is_file())
+        {
+            return unavailable("ruleset-missing:structural.ast-grep");
+        }
+        let run = match self.run_tool(
+            &["ast-grep"],
+            vec!["scan".into(), "--json=stream".into()],
+            &[0, 1],
+            &[],
+        ) {
+            Ok(run) => run,
+            Err(reason) => return unavailable(reason),
+        };
+        let sources = self.source_paths();
+        let mut supported = Vec::new();
+        let mut unsupported = BTreeSet::new();
+        for path in &sources {
+            let extension = Path::new(path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if AST_GREP_EXTENSIONS.contains(&extension.as_str()) {
+                supported.push(path.clone());
+            } else {
+                unsupported.insert(if extension.is_empty() {
+                    "unknown".to_owned()
+                } else {
+                    extension
+                });
+            }
+        }
+        // ast-grep reports 0-based lines; the shared match shape is 1-based.
+        let lines: Vec<Value> = String::from_utf8_lossy(&run.stdout)
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .map(|mut line| {
+                if let Some(file) = line.get("file").and_then(Value::as_str) {
+                    line["file"] = json!(relative_path(self.root(), file));
+                }
+                for edge in ["start", "end"] {
+                    if let Some(value) = line.pointer_mut(&format!("/range/{edge}/line")) {
+                        if let Some(n) = value.as_u64() {
+                            *value = json!(n + 1);
+                        }
+                    }
+                }
+                line
+            })
+            .collect();
+        let matches = ast_grep::normalize_stream(&lines, "ast-grep.rule");
+        let artifacts = json!({
+            "astGrepTool": run.tool_identity(),
+            "examinedPaths": supported,
+            "unsupportedGrammars": unsupported.into_iter().collect::<Vec<_>>(),
+            "structuralMatches": matches,
+        });
+        Production::Artifact(self.input(&sources, artifacts, run.producer()))
+    }
+
+    // ------------------------------------------------------------ container.iac
+
+    fn container_iac(&self) -> Production {
+        let Some(selector) = self.provider.configuration.get("selector") else {
+            return unavailable("iac-frozen-selection-missing");
+        };
+        let selected = match self.inventory.denominator_entries(selector) {
+            Ok(selected) => selected,
+            Err(_) => return unavailable("iac-frozen-selection-invalid"),
+        };
+        let files: Vec<String> = selected
+            .entries
+            .iter()
+            .map(|entry| entry.path.clone())
+            .collect();
+        let scope = json!({
+            "digest": self.provider.configuration.get("denominatorDigest"),
+            "count": self.provider.configuration.get("denominatorCount"),
+            "computedDigest": selected.digest, "computedCount": files.len(),
+            "entries": selected.entries.iter().map(|entry| json!({"path": entry.path, "digest": entry.digest})).collect::<Vec<_>>(),
+        });
+        let mut dispositions = iac_source_dispositions(self.root(), &selected.entries);
+        let run = match self.run_tool(
+            &["trivy"],
+            [
+                "config",
+                "--format",
+                "json",
+                "--quiet",
+                "--skip-check-update",
+                "--skip-version-check",
+                ".",
+            ]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect(),
+            &[0],
+            &[],
+        ) {
+            Ok(run) => run,
+            Err(reason) => return unavailable(reason),
+        };
+        let Ok(output) = serde_json::from_slice::<Value>(&run.stdout) else {
+            return unavailable(format!("tool-output-invalid:{}", run.tool));
+        };
+        let post = iac_source_dispositions(self.root(), &selected.entries);
+        for (row, after) in dispositions.iter_mut().zip(&post) {
+            row["postScanDigest"] = after["observedDigest"].clone();
+            if row["state"] == "validated" && after["state"] != "validated" {
+                row["state"] = json!("unproven");
+                row["reason"] = after["reason"].clone();
+            }
+        }
+        let valid_sources: BTreeSet<&str> = dispositions
+            .iter()
+            .filter(|row| {
+                row["disposition"] == "applicable-iac"
+                    && row["state"] == "validated"
+                    && row["frozenDigest"] == row["postScanDigest"]
+            })
+            .filter_map(|row| row["path"].as_str())
+            .collect();
+        let mut observations = Vec::new();
+        let mut covered_sources = BTreeSet::new();
+        let mut record_ids = BTreeSet::new();
+        let mut examined_records = 0usize;
+        let mut findings = Vec::new();
+        for result in output
+            .get("Results")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if result.get("Class").and_then(Value::as_str) != Some("config") {
+                continue;
+            }
+            let id = digest_json(result);
+            if !record_ids.insert(id.clone()) {
+                continue;
+            }
+            let target = result
+                .get("Target")
+                .and_then(Value::as_str)
+                .and_then(|raw| container_iac::config_target(self.root(), raw));
+            let target_valid = target
+                .as_deref()
+                .is_some_and(|path| valid_sources.contains(path));
+            if target_valid {
+                covered_sources.insert(target.clone().unwrap());
+                examined_records += 1;
+            }
+            // Compatibility field name; these are Trivy config observations,
+            // not rendered deployments or evidence that a resource executed.
+            observations.push(json!({"target": target, "type": result.get("Type"),
+                "reportedTarget": result.get("Target"), "rawResultDigest": id}));
+            for misconfiguration in result
+                .get("Misconfigurations")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                findings.push(container_iac::normalize_iac_finding(
+                    &json!({
+                        "ID": misconfiguration.get("ID"), "Severity": misconfiguration.get("Severity"),
+                        "Target": target,
+                        "resource": misconfiguration.get("CauseMetadata").and_then(|c| c.get("Resource")),
+                        "message": misconfiguration.get("Message"),
+                    }),
+                    Some("container-iac.trivy"), Some(run.version.as_str()),
+                ));
+            }
+        }
+        let mut receipt = self.execution_receipt(&run);
+        receipt["binding"] = self.binding();
+        receipt["selectedDenominator"] = scope.clone();
+        let evidence = json!({
+            "binding": self.binding(), "executionReceipt": receipt,
+            "databaseDigest": digest(format!("trivy-builtin-checks\0{}", run.version).as_bytes()),
+            "databaseIdentityKind": "embedded-checks-version-derived",
+            "sourceDispositions": dispositions, "rawResults": output.get("Results"),
+            "examined": covered_sources.len() + examined_records, "findings": findings,
+        });
+        let artifacts = json!({"renderedInfrastructure": observations, "iacEvidence": evidence});
+        let mut input = self.input(&files, artifacts, run.producer());
+        input["plan"]["selectedDenominator"] = scope;
+        Production::Artifact(input)
+    }
+
+    // ----------------------------------------------------------- dependency.osv
+
+    fn dependency_osv(&self) -> Production {
+        if self.producer.find_tool(&["osv-scanner"]).is_none() {
+            return unavailable("tool-missing:osv-scanner");
+        }
+        // osv-scanner queries api.osv.dev unless it has a local database.
+        let Some(database) = self
+            .producer
+            .osv_database
+            .clone()
+            .filter(|dir| dir.is_dir())
+        else {
+            return unavailable("offline-database-missing:osv-scanner");
+        };
+        let database_text = database.to_string_lossy().into_owned();
+        let run = match self.run_tool(
+            &["osv-scanner"],
+            [
+                "scan",
+                "source",
+                "--offline",
+                "--format",
+                "json",
+                "--all-packages",
+                "-r",
+                ".",
+            ]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect(),
+            &[0, 1],
+            &[("OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY", database_text)],
+        ) {
+            Ok(run) => run,
+            Err(reason) => return unavailable(reason),
+        };
+        let Ok(output) = serde_json::from_slice::<Value>(&run.stdout) else {
+            return unavailable(format!("tool-output-invalid:{}", run.tool));
+        };
+        let (database_digest, database_files) = directory_identity(&database);
+        let database = json!({
+            "digest": database_digest,
+            "version": format!("local-cache:{database_files}-files"),
+            "status": "offline",
+        });
+        let execution_receipt = self.execution_receipt(&run);
+        let mut receipts = Vec::new();
+        for result in output
+            .get("results")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let manifest = relative_path(
+                self.root(),
+                result
+                    .get("source")
+                    .and_then(|s| s.get("path"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+            );
+            let mut paths = Vec::new();
+            let mut findings = Vec::new();
+            for source in result
+                .get("packages")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let package = source.get("package").cloned().unwrap_or(Value::Null);
+                // No call analysis here: presence in the resolved dependency
+                // graph is reported as reachable (conservative upper bound).
+                paths.push(json!({
+                    "package": format!(
+                        "{}@{}",
+                        package.get("name").and_then(Value::as_str).unwrap_or_default(),
+                        package.get("version").and_then(Value::as_str).unwrap_or_default()
+                    ),
+                    "reachability": "reachable",
+                    "basis": "dependency-graph",
+                }));
+                for vulnerability in source
+                    .get("vulnerabilities")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
+                    let mut vulnerability = vulnerability.clone();
+                    vulnerability["package"] = package.clone();
+                    findings.push(dependency_osv::normalize_vulnerability(
+                        &vulnerability,
+                        Some("osv.scanner"),
+                        Some(run.version.as_str()),
+                    ));
+                }
+            }
+            if paths.is_empty() {
+                paths.push(json!({"package": manifest, "reachability": "unreachable", "basis": "no-packages"}));
+            }
+            receipts.push(json!({
+                "manifest": manifest,
+                "binding": self.binding(),
+                "executionReceipt": execution_receipt,
+                "database": database,
+                "paths": paths,
+                "findings": findings,
+            }));
+        }
+        let files: Vec<String> = self.entries().map(|entry| entry.path.clone()).collect();
+        // A08 inventory over the frozen lock inputs, advisory source = this scan.
+        let inventory_artifact = dependency_osv::frozen_inventory_artifact(
+            self.root(),
+            self.inventory,
+            Some((
+                &output,
+                &format!("local-cache:{database_files}-files"),
+                &database_digest,
+            )),
+        );
+        Production::Artifact(self.input(
+            &files,
+            json!({
+                "dependencyReceipts": receipts,
+                dependency_osv::INVENTORY_ARTIFACT: inventory_artifact,
+            }),
+            run.producer(),
+        ))
+    }
+
+    // ------------------------------------------------------------------ secrets
+
+    fn secrets(&self) -> Production {
+        let files: Vec<String> = match self.provider.configuration.get("selector") {
+            Some(selector) => match self.inventory.denominator_entries(selector) {
+                Ok(selected) => selected
+                    .entries
+                    .into_iter()
+                    .map(|entry| entry.path)
+                    .collect(),
+                Err(_) => return unavailable("secret-selector-invalid"),
+            },
+            None => self.entries().map(|entry| entry.path.clone()).collect(),
+        };
+        match self.gitleaks_current_history(&files) {
+            Ok(input) => Production::Artifact(input),
+            Err(reason) => Production::Artifact(self.native_secrets_input(&files, Some(reason))),
+        }
+    }
+
+    fn gitleaks_current_history(&self, files: &[String]) -> Result<Value, String> {
+        use super::history::{manifest_value, FrozenHistory};
+        let frozen = FrozenHistory::capture(
+            self.root(),
+            self.producer.snapshot_manifest.as_deref(),
+            self.inventory,
+            files,
+        )?;
+        // Gitleaks always loads source/.gitleaksignore, including when an
+        // explicit ignore-path is supplied. Suppression is an explicit gap.
+        if frozen.manifest.object_root.join(".gitleaksignore").exists()
+            || files.iter().any(|path| path == ".gitleaksignore")
+        {
+            return Err("secret-history-suppression-unavailable".into());
+        }
+        let current_root = self.scratch.path.join("secret-current");
+        frozen.stage_current(&current_root)?;
+        let config = self.scratch.path.join("gitleaks.toml");
+        fs::write(&config, "[extend]\nuseDefault = true\n")
+            .map_err(|_| "secret-config-unavailable".to_owned())?;
+        let config_digest =
+            digest(&fs::read(&config).map_err(|_| "secret-config-unavailable".to_owned())?);
+        let common_args = vec![
+            "--report-format".into(),
+            "json".into(),
+            "--report-path".into(),
+            "-".into(),
+            "--redact=100".into(),
+            "--no-banner".into(),
+            "--no-color".into(),
+            "--log-level=error".into(),
+            "--exit-code=10".into(),
+            "--ignore-gitleaks-allow".into(),
+            "--config".into(),
+            config.to_string_lossy().into_owned(),
+            "--gitleaks-ignore-path".into(),
+            self.scratch.path.to_string_lossy().into_owned(),
+        ];
+        let environment = [
+            ("GIT_NO_REPLACE_OBJECTS", "1".into()),
+            ("GIT_NO_LAZY_FETCH", "1".into()),
+            ("GIT_CONFIG_NOSYSTEM", "1".into()),
+            (
+                "GIT_CONFIG_GLOBAL",
+                if cfg!(windows) {
+                    "NUL".into()
+                } else {
+                    "/dev/null".into()
+                },
+            ),
+            ("GIT_CONFIG_COUNT", "4".into()),
+            ("GIT_CONFIG_KEY_0", "core.hooksPath".into()),
+            (
+                "GIT_CONFIG_VALUE_0",
+                if cfg!(windows) {
+                    "NUL".into()
+                } else {
+                    "/dev/null".into()
+                },
+            ),
+            ("GIT_CONFIG_KEY_1", "diff.external".into()),
+            ("GIT_CONFIG_VALUE_1", "".into()),
+            ("GIT_CONFIG_KEY_2", "core.fsmonitor".into()),
+            ("GIT_CONFIG_VALUE_2", "false".into()),
+            ("GIT_CONFIG_KEY_3", "gc.auto".into()),
+            ("GIT_CONFIG_VALUE_3", "0".into()),
+        ];
+        let mut current_args = vec!["dir".into(), current_root.to_string_lossy().into_owned()];
+        current_args.extend(common_args.clone());
+        let current = self.run_tool_at(
+            &["gitleaks"],
+            current_args,
+            &[0, 10],
+            &environment,
+            &current_root,
+            self.producer.timeout_ms,
+        )?;
+        let current_report = self.strict_gitleaks_report(&current)?;
+        // Force text patches even for repository attributes marking text as
+        // binary; Gitleaks silently skips binary fragments. Never let local
+        // log.showSignature/gpg.program execute a project-selected verifier.
+        let mut history_args = vec!["git".into(),frozen.manifest.object_root.to_string_lossy().into_owned(),
+            format!("--log-opts=--full-history --root -m --text --no-show-signature --no-ext-diff --no-textconv --no-renames {} --",frozen.manifest.tips.iter().cloned().collect::<Vec<_>>().join(" "))];
+        history_args.extend(common_args);
+        let history = self.run_tool_at(
+            &["gitleaks"],
+            history_args,
+            &[0, 10],
+            &environment,
+            &frozen.manifest.object_root,
+            self.producer.timeout_ms,
+        )?;
+        let history_report = self.strict_gitleaks_report(&history)?;
+        if current.tool_identity() != history.tool_identity() {
+            return Err("secret-tool-identity-race".into());
+        }
+        frozen.revalidate()?;
+        // The staged tree is itself reconciled after both scanner executions.
+        let staged_paths: BTreeSet<String> = WalkDir::new(&current_root)
+            .follow_links(false)
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| "secret-current-stage-unreadable")?
+            .into_iter()
+            .filter(|entry| entry.file_type().is_file())
+            .map(|entry| relative_path(&current_root, &entry.path().to_string_lossy()))
+            .collect();
+        if staged_paths != files.iter().cloned().collect() {
+            return Err("secret-current-path-set-mismatch".into());
+        }
+        for (path, hash) in &frozen.manifest.current {
+            if digest(
+                &fs::read(current_root.join(path))
+                    .map_err(|_| "secret-current-stage-unreadable")?,
+            ) != *hash
+            {
+                return Err("secret-current-stage-drift".into());
+            }
+        }
+        let proof = manifest_value(&frozen.manifest);
+        let mut findings = Vec::new();
+        for (mode, rows, root) in [
+            ("current", current_report, &current_root),
+            ("history", history_report, &frozen.manifest.object_root),
+        ] {
+            for row in rows {
+                let path = relative_path(
+                    root,
+                    row["File"].as_str().ok_or("secret-report-path-invalid")?,
+                );
+                crate::scope::safe_path(&path).map_err(|_| "secret-report-path-invalid")?;
+                let line = row["StartLine"]
+                    .as_u64()
+                    .ok_or("secret-report-line-invalid")?;
+                let rule = row["RuleID"].as_str().ok_or("secret-report-rule-invalid")?;
+                let commit = row
+                    .get("Commit")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let mut finding = json!({"RuleID":rule,"File":path,"StartLine":line,"EndLine":row["EndLine"],"Match":"REDACTED","Mode":mode,
+                    "SecretDigest":digest(format!("{mode}\0{commit}\0{path}\0{line}\0{rule}").as_bytes())});
+                if mode == "current" {
+                    if !frozen.manifest.current.contains_key(&path) || !commit.is_empty() {
+                        return Err("secret-current-finding-outside-manifest".into());
+                    }
+                } else {
+                    let blob = frozen
+                        .manifest
+                        .commits
+                        .get(commit)
+                        .and_then(|commit| commit.files.get(&path))
+                        .ok_or("secret-history-finding-outside-manifest")?;
+                    if line > blob.lines as u64 {
+                        return Err("secret-history-finding-line-invalid".into());
+                    }
+                    finding["Commit"] = json!(commit);
+                    finding["BlobOid"] = json!(blob.oid);
+                    finding["BlobDigest"] = json!(blob.digest);
+                    finding["HistoryManifestDigest"] = proof["digest"].clone();
+                }
+                findings.push(finding);
+            }
+        }
+        let mut producer = current.producer();
+        producer["scope"] = json!("current-history");
+        producer["passes"] = json!([current.producer(), history.producer()]);
+        let evidence = json!({"scope":"current-history","denominator":{"mode":"current-history","trackedFiles":files.len(),"untrackedFiles":0,"ignoredFiles":0,"generatedFiles":0,"releaseArtifacts":0,"historyRefs":frozen.manifest.tips.len()},
+            "examined":files.len(),"tool":current.tool_identity(),"rulesetDigest":digest(format!("gitleaks-builtin\0{}\0{config_digest}",current.version).as_bytes()),"findings":findings,
+            "currentManifest":frozen.manifest.current,"historyProof":proof,"passes":[current.producer(),history.producer()]});
+        Ok(self.input(files, json!({"secretEvidence":evidence}), producer))
+    }
+
+    fn retain_secret_run(&self, run: &ToolRun) -> Result<(), String> {
+        self.producer
+            .retained_secret_runs
+            .lock()
+            .map_err(|_| "secret-evidence-lock-unavailable".to_owned())?
+            .push(run.clone());
+        Ok(())
+    }
+
+    fn strict_gitleaks_report(&self, run: &ToolRun) -> Result<Vec<Value>, String> {
+        // These flags & error/finding exit distinction were verified against
+        // pinned upstream v8.30.0; an unknown scanner needs qualification.
+        let versions: Vec<_> = run
+            .version
+            .split_whitespace()
+            .filter(|word| word.trim_start_matches('v') == "8.30.0")
+            .collect();
+        if versions.len() != 1
+            || !run.stderr.is_empty()
+            || !run.actual_receipt.complete
+            || !run.actual_receipt.process_tree.reaped
+            || run.actual_receipt.stdout.as_ref().is_none_or(|record| {
+                record.digest != digest(&run.stdout)
+                    || record.bytes != run.stdout.len()
+                    || !record.immutable
+            })
+            || run.actual_receipt.stderr.as_ref().is_none_or(|record| {
+                record.digest != digest(&run.stderr)
+                    || record.bytes != run.stderr.len()
+                    || !record.immutable
+            })
+            || !run.actual_receipt.gaps.is_empty()
+        {
+            return Err("secret-scanner-receipt-invalid".into());
+        }
+        let report: Value =
+            serde_json::from_slice(&run.stdout).map_err(|_| "secret-report-malformed")?;
+        let rows = report.as_array().ok_or("secret-report-not-array")?;
+        if run.actual_receipt.exit_code != Some(if rows.is_empty() { 0 } else { 10 }) {
+            return Err("secret-report-exit-mismatch".into());
+        }
+        for row in rows {
+            if !row.is_object()
+                || row
+                    .get("RuleID")
+                    .and_then(Value::as_str)
+                    .is_none_or(str::is_empty)
+                || row
+                    .get("File")
+                    .and_then(Value::as_str)
+                    .is_none_or(str::is_empty)
+                || row
+                    .get("StartLine")
+                    .and_then(Value::as_u64)
+                    .is_none_or(|line| line == 0)
+                || row
+                    .get("EndLine")
+                    .and_then(Value::as_u64)
+                    .is_none_or(|end| end < row["StartLine"].as_u64().unwrap_or(1))
+            {
+                return Err("secret-report-row-malformed".into());
+            }
+        }
+        Ok(rows.clone())
+    }
+
+    fn native_secrets_input(&self, files: &[String], fallback_reason: Option<String>) -> Value {
+        let rules = secret_rules();
+        let generic = generic_secret_rule();
+        let mut findings = Vec::new();
+        let mut examined = 0usize;
+        for path in files {
+            let full = self.root().join(path);
+            let Ok(meta) = fs::symlink_metadata(&full) else {
+                continue;
+            };
+            if !meta.is_file() {
+                // Symlinks are inventoried by target text; nothing to read.
+                examined += 1;
+                continue;
+            }
+            if meta.len() > SECRET_FILE_LIMIT {
+                continue;
+            }
+            let Ok(bytes) = fs::read(&full) else {
+                continue;
+            };
+            examined += 1;
+            if bytes.iter().take(8192).any(|b| *b == 0) {
+                continue;
+            }
+            let text = String::from_utf8_lossy(&bytes);
+            let lockfile = is_lockfile(path);
+            let mut seen = BTreeSet::new();
+            for (index, line) in text.lines().enumerate() {
+                if line.len() > 4096 {
+                    continue;
+                }
+                let line_number = index as u64 + 1;
+                for (rule, regex) in &rules {
+                    if let Some(found) = regex.find(line) {
+                        if seen.insert((line_number, *rule)) {
+                            findings.push(native_secret_finding(
+                                path,
+                                line_number,
+                                rule,
+                                found.as_str(),
+                            ));
+                        }
+                    }
+                }
+                if !lockfile {
+                    if let Some(captures) = generic.captures(line) {
+                        let value = captures.get(1).map(|m| m.as_str()).unwrap_or_default();
+                        if looks_like_secret(value)
+                            && seen.insert((line_number, "generic.high-entropy"))
+                        {
+                            findings.push(native_secret_finding(
+                                path,
+                                line_number,
+                                "generic.high-entropy",
+                                value,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        let evidence = json!({
+            "scope": "current-tree",
+            "denominator": secret_denominator(files.len()),
+            "findings": findings,
+            "examined": examined,
+            "tool": {"name": "legion-native-secret-scan", "version": "1"},
+            "rulesetDigest": secret_ruleset_digest(),
+        });
+        let producer = json!({
+            "mode": "native-fallback",
+            "evidence": "native-fallback",
+            "offline": true,
+            "scope": "current-tree",
+            "fallbackReason": fallback_reason.unwrap_or_else(|| "tool-missing:gitleaks".into()),
+            "examined": examined,
+            "expected": files.len(),
+        });
+        self.input(files, json!({"secretEvidence": evidence}), producer)
+    }
+
+    // ------------------------------------------------------------- supply chain
+
+    fn supply_chain(&self) -> Production {
+        use super::supply_chain_documents::{lock_kind, parse_lock, source_snapshot};
+        let paths: Vec<String> = self.entries().map(|entry| entry.path.clone()).collect();
+        let before = source_snapshot(self.root(), &self.inventory.entries);
+        if before["complete"] != true {
+            return unavailable("supply-chain-source-binding-invalid");
+        }
+        let mut locks = Vec::new();
+        let mut packages = BTreeSet::new();
+        let mut gaps = Vec::new();
+        for entry in self
+            .entries()
+            .filter(|entry| lock_kind(&entry.path).is_some())
+        {
+            let raw = fs::read(self.root().join(&entry.path));
+            match raw {
+                Ok(raw) if entry.digest.as_ref() == Some(&digest(&raw)) => {
+                    match std::str::from_utf8(&raw)
+                        .ok()
+                        .and_then(|text| parse_lock(&entry.path, text).ok())
+                    {
+                        Some(parsed) => packages.extend(parsed),
+                        None => gaps
+                            .push(json!({"kind":"dependency-manifest-unparsed","path":entry.path})),
+                    }
+                    locks.push(json!({"path":entry.path,"digest":digest(&raw),"raw":std::str::from_utf8(&raw).ok()}));
+                }
+                _ => gaps.push(json!({"kind":"supply-chain-source-drift","path":entry.path})),
+            }
+        }
+        let configuration_path = self.scratch.path.join("syft-native.yaml");
+        let configuration_raw = super::supply_chain_documents::SYFT_CONFIGURATION;
+        if fs::write(&configuration_path, configuration_raw).is_err() {
+            return unavailable("syft-configuration-unavailable");
+        }
+        let configuration = json!({"path":configuration_path,"raw":configuration_raw,"digest":digest(configuration_raw.as_bytes())});
+        let mut documents = serde_json::Map::new();
+        let mut passes = Vec::new();
+        // Always enter native SDK admission before executable discovery.
+        // Every attempt retains original SDK diagnostics before error/parse handling.
+        for (format, output) in [("cyclonedx", "cyclonedx-json"), ("spdx", "spdx-json")] {
+            let args = [
+                "scan",
+                "dir:.",
+                "--config",
+                configuration_path.to_str().unwrap_or(""),
+                "--override-default-catalogers",
+                "all",
+                "-o",
+                output,
+                "-q",
+            ]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+            match self.run_tool(&["syft"], args, &[0], &[]) {
+                Ok(run) => {
+                    documents.insert(format.into(), json!({"raw":std::str::from_utf8(&run.stdout).ok(),"digest":digest(&run.stdout),"receipt":crate::execution_policy::receipt_json(&run.actual_receipt)}));
+                    passes.push(run.producer());
+                }
+                Err(reason) => gaps
+                    .push(json!({"kind":"sbom-tool-unavailable","format":format,"reason":reason})),
+            }
+        }
+        let policy = self
+            .provider
+            .configuration
+            .get("supplyChainLicensePolicy")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let after = source_snapshot(self.root(), &self.inventory.entries);
+        // No source-only or signed-catalog shortcut supplies build provenance.
+        // Existing RightRelease catalogs authenticate manifests, not builder/source
+        // predicates. A supported build-attestation owner is still required.
+        let mut chain = json!({"schema":"legion-supply-chain-native-evidence/1",
+            "lockPackages":packages,"lockfiles":locks,"documents":documents,"syftConfiguration":configuration,
+            "licensePolicy":policy,"sourceBefore":before,"sourceAfter":after,
+            "producerGaps":gaps,"provenanceAuthority":{"status":"unavailable","reason":"build-attestation-verification-owner-unavailable"}});
+        for (setting, key) in [
+            ("supplyChainSubjectPath", "subjectArtifact"),
+            ("supplyChainProvenancePath", "provenance"),
+        ] {
+            if let Some(path) = self
+                .provider
+                .configuration
+                .get(setting)
+                .and_then(Value::as_str)
+            {
+                if let Some(entry) = self.entries().find(|entry| entry.path == path) {
+                    if let Ok(raw) = fs::read(self.root().join(path)) {
+                        if entry.digest.as_ref() == Some(&digest(&raw))
+                            && before["files"][path] == digest(&raw)
+                            && after["files"][path] == digest(&raw)
+                        {
+                            chain[key] = if key == "subjectArtifact" {
+                                json!({"path":path,"digest":digest(&raw),"rawBytes":raw})
+                            } else {
+                                json!({"path":path,"digest":digest(&raw),"raw":std::str::from_utf8(&raw).ok(),"binding":self.binding(),"executionReceipt":null})
+                            };
+                        }
+                    }
+                }
+            }
+        }
+        Production::Artifact(self.input(
+            &paths,
+            json!({"supplyChain":chain}),
+            json!({"mode":"tool","evidence":"native-dual-sbom","passes":passes,"offline":true}),
+        ))
+    }
+
+    // ----------------------------------------------------------- imported.sarif
+
+    fn imported_sarif(&self) -> Production {
+        let mut locations = vec![
+            self.root().to_path_buf(),
+            self.root().join(".sarif"),
+            self.root().join("sarif"),
+            self.root().join("reports"),
+        ];
+        if let Some(run_dir) = &self.producer.run_dir {
+            locations.push(run_dir.clone());
+            locations.push(run_dir.join("sarif"));
+        }
+        let mut found = BTreeSet::new();
+        for location in locations {
+            let Ok(entries) = fs::read_dir(&location) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+                let Ok(meta) = fs::symlink_metadata(&path) else {
+                    continue;
+                };
+                if meta.is_file()
+                    && meta.len() <= SARIF_BYTE_LIMIT
+                    && (name.ends_with(".sarif") || name.ends_with(".sarif.json"))
+                {
+                    found.insert(path);
+                }
+            }
+        }
+        if found.is_empty() {
+            return unavailable("sarif-not-present:imported.sarif");
+        }
+        let root_text = self.root().to_string_lossy().into_owned();
+        let mut items = Vec::new();
+        let mut sources = Vec::new();
+        for path in found.into_iter().take(SARIF_FILE_LIMIT) {
+            let Ok(raw) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let source = relative_path(self.root(), &path.to_string_lossy());
+            sources.push(source.clone());
+            let mut item = json!({
+                "rawBytes": raw,
+                "binding": {"revision": self.inventory.generation, "root": root_text},
+                // Self-attested: no external digest exists for a repo-local file.
+                "expectedDigest": digest(raw.as_bytes()),
+                "source": source,
+            });
+            if let Ok(parsed) = serde_json::from_str::<Value>(&raw) {
+                let runs: Vec<Value> = parsed
+                    .get("runs")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let driver = runs
+                    .first()
+                    .and_then(|r| r.get("tool"))
+                    .and_then(|t| t.get("driver"));
+                let results: Vec<Value> = runs
+                    .iter()
+                    .flat_map(|run| {
+                        run.get("results")
+                            .and_then(Value::as_array)
+                            .cloned()
+                            .unwrap_or_default()
+                    })
+                    .collect();
+                item["artifact"] = json!({
+                    "schemaVersion": "2.1.0",
+                    "revision": self.inventory.generation,
+                    "baseUri": root_text,
+                    "results": results,
+                });
+                item["toolIdentity"] = json!({
+                    "name": driver.and_then(|d| d.get("name")),
+                    "version": driver.and_then(|d| d.get("semanticVersion").or_else(|| d.get("version"))),
+                });
+            }
+            items.push(item);
+        }
+        let producer = json!({
+            "mode": "file",
+            "evidence": "repository-file",
+            "offline": true,
+            "sarifFiles": sources,
+            "binding": "inventory-revision (SARIF origin revision is not verified)",
+        });
+        let files: Vec<String> = self.entries().map(|entry| entry.path.clone()).collect();
+        Production::Artifact(self.input(&files, json!({"importedSarif": items}), producer))
+    }
+}
+
+fn read_artifact(
+    root: &Path,
+    artifact: &rightkit_evidence_effects::ArtifactRecord,
+) -> Option<Vec<u8>> {
+    if !artifact.immutable {
+        return None;
+    }
+    let path = Path::new(&artifact.path);
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let bytes = fs::read(path).ok()?;
+    (bytes.len() == artifact.bytes && digest(&bytes) == artifact.digest).then_some(bytes)
+}
+
+const AST_GREP_EXTENSIONS: &[&str] = &[
+    "rs", "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "java", "c", "h", "cpp", "cc", "cxx",
+    "hpp", "cs", "rb", "php", "swift", "kt", "kts", "scala", "lua", "sh", "bash", "html", "css",
+    "json", "yaml", "yml", "ex", "exs", "nix",
+];
+
+fn is_iac_path(path: &str) -> bool {
+    container_iac::is_iac_path(path)
+}
+
+/// Observe exact selected sources before & after scanning. No classification
+/// disposition can stand in for observing frozen source bytes, including paths
+/// classified outside supported IaC scope.
+fn iac_source_dispositions(root: &Path, entries: &[InventoryEntry]) -> Vec<Value> {
+    let root = fs::canonicalize(root).ok();
+    entries
+        .iter()
+        .map(|entry| {
+            let disposition = if is_iac_path(&entry.path) {
+                "applicable-iac"
+            } else {
+                "outside-supported-iac-scope"
+            };
+            let mut row = json!({"path": entry.path, "disposition": disposition,
+            "frozenDigest": entry.digest, "state": "unproven"});
+            let Some(root) = root.as_deref() else {
+                row["reason"] = json!("iac-source-path-invalid");
+                return row;
+            };
+            if container_iac::config_target(root, &entry.path).as_deref()
+                != Some(entry.path.as_str())
+            {
+                row["reason"] = json!("iac-source-path-invalid");
+                return row;
+            }
+            let path = match fs::canonicalize(root.join(&entry.path)) {
+                Ok(path) if path.starts_with(root) && path.is_file() => path,
+                Ok(_) => {
+                    row["reason"] = json!("iac-source-path-invalid");
+                    return row;
+                }
+                Err(_) => {
+                    row["reason"] = json!("iac-source-unreadable");
+                    return row;
+                }
+            };
+            let Ok(bytes) = fs::read(path) else {
+                row["reason"] = json!("iac-source-unreadable");
+                return row;
+            };
+            row["observedDigest"] = json!(digest(&bytes));
+            if !super::common::valid_digest(row.get("frozenDigest")) {
+                row["reason"] = json!("iac-source-digest-missing");
+            } else if row["observedDigest"] != row["frozenDigest"] {
+                row["reason"] = json!("iac-source-drift");
+            } else {
+                row["state"] = json!("validated");
+            }
+            row
+        })
+        .collect()
+}
+
+/// Existing conventional ruleset locations, relative to `root`, sorted.
+fn ruleset_paths(root: &Path, candidates: &[&str]) -> Vec<String> {
+    candidates
+        .iter()
+        .filter(|name| root.join(name).exists())
+        .map(|name| (*name).to_owned())
+        .collect()
+}
+
+/// Digest over every rule file (path and bytes) under the given roots.
+fn ruleset_digest(root: &Path, rules: &[String]) -> String {
+    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for rule in rules {
+        let base = root.join(rule);
+        for entry in WalkDir::new(&base)
+            .follow_links(false)
+            .into_iter()
+            .flatten()
+        {
+            if entry.file_type().is_file() {
+                if let Ok(bytes) = fs::read(entry.path()) {
+                    entries.push((relative_path(root, &entry.path().to_string_lossy()), bytes));
+                }
+            }
+        }
+    }
+    entries.sort();
+    let mut material = Vec::new();
+    for (path, bytes) in entries {
+        material.extend_from_slice(path.as_bytes());
+        material.push(0);
+        material.extend_from_slice(digest(&bytes).as_bytes());
+        material.push(0);
+    }
+    digest(&material)
+}
+
+/// Stable identity of a directory tree (relative path and length per file).
+fn directory_identity(dir: &Path) -> (String, usize) {
+    let mut entries: Vec<(String, u64)> = WalkDir::new(dir)
+        .follow_links(false)
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry.file_type().is_file())
+        .map(|entry| {
+            (
+                relative_path(dir, &entry.path().to_string_lossy()),
+                entry.metadata().map(|m| m.len()).unwrap_or(0),
+            )
+        })
+        .collect();
+    entries.sort();
+    (digest_json(&json!(entries)), entries.len())
+}
+
+// ------------------------------------------------------------------- secrets
+
+fn secret_denominator(tracked: usize) -> Value {
+    json!({
+        "mode": "current",
+        "trackedFiles": tracked,
+        "untrackedFiles": 0,
+        "ignoredFiles": 0,
+        "generatedFiles": 0,
+        "releaseArtifacts": 0,
+        "historyRefs": 0,
+    })
+}
+
+const SECRET_PATTERNS: &[(&str, &str)] = &[
+    ("aws.access-key-id", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    ("github.token", r"\bgh[pousr]_[A-Za-z0-9]{36,}\b"),
+    (
+        "github.fine-grained-pat",
+        concat!(r"\bgithub", r"_pat_[A-Za-z0-9_]{22,}\b"),
+    ),
+    ("slack.token", r"\bxox[baprs]-[A-Za-z0-9-]{10,}"),
+    ("stripe.live-key", r"\b[sr]k_live_[0-9A-Za-z]{20,}\b"),
+    ("google.api-key", r"\bAIza[0-9A-Za-z_\-]{35}\b"),
+    ("npm.access-token", r"\bnpm_[A-Za-z0-9]{36}\b"),
+    (
+        "private-key.pem",
+        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?-----",
+    ),
+    (
+        "jwt",
+        r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b",
+    ),
+];
+
+fn secret_rules() -> Vec<(&'static str, Regex)> {
+    SECRET_PATTERNS
+        .iter()
+        .filter_map(|(id, pattern)| Regex::new(pattern).ok().map(|regex| (*id, regex)))
+        .collect()
+}
+
+fn generic_secret_rule() -> Regex {
+    Regex::new(
+        r#"(?i)(?:secret|token|api[_-]?key|passwd|password|private[_-]?key|credential)[A-Za-z0-9_\-]*["']?\s*[:=]\s*["']([A-Za-z0-9+/_\-=.]{20,})["']"#,
+    )
+    .expect("generic secret pattern")
+}
+
+fn secret_ruleset_digest() -> String {
+    let mut material = String::from("legion-native-secret-scan/1\n");
+    for (id, pattern) in SECRET_PATTERNS.iter() {
+        material.push_str(&format!("{id}\t{pattern}\n"));
+    }
+    material.push_str("generic.high-entropy\tentropy>=3.5\n");
+    digest(material.as_bytes())
+}
+
+fn native_secret_finding(path: &str, line: u64, rule: &str, secret: &str) -> Value {
+    // The secret itself is never stored: only a digest and a redacted marker.
+    json!({
+        "RuleID": rule,
+        "File": path,
+        "StartLine": line,
+        "EndLine": line,
+        "SecretDigest": digest(secret.as_bytes()),
+        "Match": "REDACTED",
+    })
+}
+
+fn is_lockfile(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
+    name.ends_with(".lock")
+        || name.ends_with(".sum")
+        || name.ends_with(".min.js")
+        || matches!(
+            name.as_str(),
+            "package-lock.json" | "pnpm-lock.yaml" | "npm-shrinkwrap.json"
+        )
+}
+
+fn shannon_entropy(value: &str) -> f64 {
+    let mut counts: BTreeMap<char, usize> = BTreeMap::new();
+    for character in value.chars() {
+        *counts.entry(character).or_default() += 1;
+    }
+    let length = value.chars().count() as f64;
+    counts
+        .values()
+        .map(|count| {
+            let p = *count as f64 / length;
+            -p * p.log2()
+        })
+        .sum()
+}
+
+fn looks_like_secret(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    const PLACEHOLDERS: &[&str] = &[
+        "example",
+        "placeholder",
+        "changeme",
+        "xxxxx",
+        "your_",
+        "your-",
+        "dummy",
+        "sample",
+        "redacted",
+    ];
+    !PLACEHOLDERS.iter().any(|p| lower.contains(p))
+        && value.chars().any(|c| c.is_ascii_digit())
+        && value.chars().any(|c| c.is_ascii_alphabetic())
+        && shannon_entropy(value) >= 3.5
+}
+
+// ------------------------------------------------------------------ lockfiles
+
+fn lockfile_kind(path: &str) -> Option<&'static str> {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    match name {
+        "Cargo.lock" => Some("cargo"),
+        "poetry.lock" => Some("poetry"),
+        "package-lock.json" | "npm-shrinkwrap.json" => Some("npm-lock"),
+        "pnpm-lock.yaml" => Some("pnpm"),
+        "yarn.lock" => Some("yarn"),
+        "go.sum" => Some("go"),
+        _ if name.starts_with("requirements") && name.ends_with(".txt") => Some("pip"),
+        _ => None,
+    }
+}
+
+fn lockfile_paths(paths: &[String]) -> Vec<String> {
+    paths
+        .iter()
+        .filter(|p| lockfile_kind(p).is_some())
+        .cloned()
+        .collect()
+}
+
+fn purl(kind: &str, name: &str, version: &str) -> String {
+    format!("pkg:{kind}/{}@{version}", name.replace('@', "%40"))
+}
+
+/// Package-URL inventory (`pkg:<type>/<name>@<version>`) of every recognised
+/// lockfile among `paths` (relative to `root`): Cargo.lock, poetry.lock,
+/// package-lock.json, npm-shrinkwrap.json, pnpm-lock.yaml, yarn.lock, go.sum
+/// and requirements*.txt. Sorted and unique. Parsing is shallow by design:
+/// names and versions only, no resolution and no vulnerability knowledge.
+pub fn lockfile_inventory(root: &Path, paths: &[String]) -> Vec<String> {
+    let mut packages = BTreeSet::new();
+    for path in paths {
+        let Some(kind) = lockfile_kind(path) else {
+            continue;
+        };
+        let Ok(text) = fs::read_to_string(root.join(path)) else {
+            continue;
+        };
+        match kind {
+            "cargo" => packages.extend(toml_packages(&text, "cargo", false)),
+            "poetry" => packages.extend(toml_packages(&text, "pypi", true)),
+            "npm-lock" => packages.extend(npm_lock_packages(&text)),
+            "pnpm" => packages.extend(pnpm_packages(&text)),
+            "yarn" => packages.extend(yarn_packages(&text)),
+            "go" => packages.extend(go_sum_packages(&text)),
+            _ => packages.extend(requirements_packages(&text)),
+        }
+    }
+    packages.into_iter().collect()
+}
+
+fn pypi_name(name: &str) -> String {
+    name.to_ascii_lowercase().replace(['_', '.'], "-")
+}
+
+fn toml_value(line: &str, key: &str) -> Option<String> {
+    let rest = line
+        .trim()
+        .strip_prefix(key)?
+        .trim_start()
+        .strip_prefix('=')?;
+    Some(rest.trim().trim_matches('"').to_owned())
+}
+
+fn toml_packages(text: &str, kind: &str, normalize: bool) -> Vec<String> {
+    let mut packages = Vec::new();
+    let (mut name, mut version) = (None::<String>, None::<String>);
+    let mut flush = |name: &mut Option<String>, version: &mut Option<String>| {
+        if let (Some(n), Some(v)) = (name.take(), version.take()) {
+            let n = if normalize { pypi_name(&n) } else { n };
+            packages.push(purl(kind, &n, &v));
+        }
+    };
+    for line in text.lines() {
+        if line.trim() == "[[package]]" {
+            flush(&mut name, &mut version);
+        } else if line.starts_with('[') {
+            // Another table (for example `[package.dependencies]`) ends the
+            // identifying keys of the current package.
+            continue;
+        } else if let Some(value) = toml_value(line, "name") {
+            name.get_or_insert(value);
+        } else if let Some(value) = toml_value(line, "version") {
+            version.get_or_insert(value);
+        }
+    }
+    flush(&mut name, &mut version);
+    packages
+}
+
+fn npm_lock_packages(text: &str) -> Vec<String> {
+    let Ok(document) = serde_json::from_str::<Value>(text) else {
+        return Vec::new();
+    };
+    let mut packages = Vec::new();
+    if let Some(map) = document.get("packages").and_then(Value::as_object) {
+        for (key, entry) in map {
+            let name = match key.rfind("node_modules/") {
+                Some(index) => &key[index + "node_modules/".len()..],
+                None => continue,
+            };
+            if let Some(version) = entry.get("version").and_then(Value::as_str) {
+                packages.push(purl("npm", name, version));
+            }
+        }
+    } else if let Some(map) = document.get("dependencies").and_then(Value::as_object) {
+        fn walk(map: &serde_json::Map<String, Value>, out: &mut Vec<String>) {
+            for (name, entry) in map {
+                if let Some(version) = entry.get("version").and_then(Value::as_str) {
+                    out.push(purl("npm", name, version));
+                }
+                if let Some(inner) = entry.get("dependencies").and_then(Value::as_object) {
+                    walk(inner, out);
+                }
+            }
+        }
+        walk(map, &mut packages);
+    }
+    packages
+}
+
+fn pnpm_packages(text: &str) -> Vec<String> {
+    let mut packages = Vec::new();
+    let mut in_packages = false;
+    for line in text.lines() {
+        if !line.starts_with(' ') && !line.trim().is_empty() {
+            in_packages = line.trim_end() == "packages:";
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        if !in_packages || indent != 2 || !line.trim_end().ends_with(':') {
+            continue;
+        }
+        let key = line
+            .trim()
+            .trim_end_matches(':')
+            .trim_matches(|c| c == '\'' || c == '"')
+            .trim_start_matches('/');
+        let key = key.split('(').next().unwrap_or(key);
+        // v6+: `name@1.2.3`; v5: `name/1.2.3`.
+        let split = key
+            .rfind('@')
+            .filter(|index| *index > 0)
+            .or_else(|| key.rfind('/'));
+        if let Some(index) = split {
+            let (name, version) = (&key[..index], &key[index + 1..]);
+            if !name.is_empty() && version.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                packages.push(purl("npm", name, version));
+            }
+        }
+    }
+    packages
+}
+
+fn yarn_packages(text: &str) -> Vec<String> {
+    let mut packages = Vec::new();
+    let mut name: Option<String> = None;
+    for line in text.lines() {
+        if line.starts_with('#') || line.trim().is_empty() {
+            continue;
+        }
+        if !line.starts_with(' ') && line.trim_end().ends_with(':') {
+            let first = line
+                .trim_end()
+                .trim_end_matches(':')
+                .split(',')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .trim_matches('"');
+            name = first
+                .rfind('@')
+                .filter(|i| *i > 0)
+                .map(|i| first[..i].to_owned());
+        } else if let Some(current) = &name {
+            let trimmed = line.trim();
+            let version = trimmed
+                .strip_prefix("version ")
+                .or_else(|| trimmed.strip_prefix("version:"));
+            if let Some(version) = version {
+                packages.push(purl("npm", current, version.trim().trim_matches('"')));
+                name = None;
+            }
+        }
+    }
+    packages
+}
+
+fn go_sum_packages(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let (module, version) = (parts.next()?, parts.next()?);
+            let version = version.strip_suffix("/go.mod").unwrap_or(version);
+            Some(purl("golang", module, version))
+        })
+        .collect()
+}
+
+fn requirements_packages(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| {
+            let line = line
+                .split('#')
+                .next()
+                .unwrap_or_default()
+                .split(';')
+                .next()?
+                .trim();
+            let (name, version) = line.split_once("==")?;
+            let name = name.split('[').next()?.trim();
+            let version = version.trim().split_whitespace().next()?;
+            (!name.is_empty() && !version.is_empty())
+                .then(|| purl("pypi", &pypi_name(name), version))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Deterministic retention test only; these constructed bytes/receipt never
+    // count as native execution or semantic qualification evidence.
+    #[test]
+    fn scanner_diagnostic_preserves_sdk_receipt_and_binary_streams_after_scratch_drop() {
+        let outer = Scratch::create(None).unwrap();
+        let project = outer.path.join("project");
+        let retained = outer.path.join("retained");
+        fs::create_dir(&project).unwrap();
+        fs::create_dir(&retained).unwrap();
+        let producer = ArtifactProducer::new(&project).with_run_dir(&retained);
+        let provider = AuditProvider {
+            id: "security.opengrep".into(),
+            version: "1".into(),
+            role: "candidate-generator".into(),
+            phase: "security".into(),
+            lens_ids: vec![],
+            dependencies: vec![],
+            kind: crate::plan::ProviderKind::TypedExternalProjectTool,
+            configuration: BTreeMap::new(),
+            bounds: BTreeMap::new(),
+            clean_claim: "unproven".into(),
+            benchmark_status: "unqualified".into(),
+            benchmark_required_for_clean_claim: true,
+            qualification_digest: None,
+            required: true,
+        };
+        let inventory = InventoryEnvelope {
+            schema_version: 1,
+            repository_id: project.to_string_lossy().into_owned(),
+            generation: "fixture-generation".into(),
+            entries: vec![],
+            digest: digest(b"fixture-inventory"),
+        };
+        let run = Run {
+            producer: &producer,
+            provider: &provider,
+            inventory: &inventory,
+            scratch: Scratch::create(Some(&retained)).unwrap(),
+            denied_receipts: RefCell::new(Vec::new()),
+        };
+        let stdout_bytes = [0xff, 0x00, b'X'];
+        let stderr_bytes = b"actual fixture failure\n";
+        let writer = rightkit_evidence_effects::ArtifactWriter::new(&run.scratch.path);
+        let stdout = writer.write_immutable("stdout.bin", &stdout_bytes).unwrap();
+        let stderr = writer.write_immutable("stderr.bin", stderr_bytes).unwrap();
+        let request = ExternalToolRequest {
+            request_id: "retention-fixture".into(),
+            provider_id: provider.id.clone(),
+            plan_id: inventory.digest.clone(),
+            cwd: project.to_string_lossy().into_owned(),
+            ..ExternalToolRequest::default()
+        };
+        let mut receipt =
+            ExecutionReceipt::failure(&request, ExecutionState::Timeout, "fixture-timeout");
+        receipt.process_tree.started = true;
+        receipt.stdout = Some(stdout.clone());
+        receipt.stderr = Some(stderr.clone());
+        let original = crate::execution_policy::receipt_json(&receipt);
+        run.retain_scanner_diagnostic(&receipt).unwrap();
+        // Mutated source bytes cannot be relabelled under an old SDK descriptor.
+        fs::write(run.scratch.path.join("stdout.bin"), b"different").unwrap();
+        assert_eq!(
+            run.retain_scanner_diagnostic(&receipt).unwrap_err(),
+            "scanner-diagnostic-retention-invalid"
+        );
+        let scratch = run.scratch.path.clone();
+        drop(run);
+        assert!(!scratch.exists());
+        let files = fs::read_dir(retained.join("native-diagnostics"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(files.len(), 1);
+        let raw = fs::read(&files[0]).unwrap();
+        let diagnostic: Value = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(diagnostic["receipt"], original);
+        assert_eq!(diagnostic["receipt"]["complete"], false);
+        assert_eq!(diagnostic["receipt"]["state"], "timeout");
+        assert_eq!(diagnostic["receipt"]["processTree"]["reaped"], false);
+        assert_eq!(diagnostic["stdout"]["rawBytes"], json!(stdout_bytes));
+        assert!(diagnostic["stdout"]["raw"].is_null());
+        assert_eq!(diagnostic["stdout"]["originalPath"], stdout.path);
+        assert_eq!(diagnostic["stdout"]["digest"], stdout.digest);
+        assert_eq!(diagnostic["stderr"]["rawBytes"], json!(stderr_bytes));
+        assert_eq!(diagnostic["stderr"]["originalPath"], stderr.path);
+        assert_eq!(diagnostic["stderr"]["digest"], stderr.digest);
+        assert_eq!(
+            files[0].file_name().unwrap().to_string_lossy(),
+            format!(
+                "{}-{}.json",
+                provider.id,
+                digest(&raw).trim_start_matches("sha256:")
+            )
+        );
+    }
+
+    #[test]
+    fn iac_dispositions_observe_frozen_bytes_and_fail_closed_on_drift_or_missing_source() {
+        let scratch = Scratch::create(None).unwrap();
+        let root = &scratch.path;
+        let bytes = b"FROM scratch\n";
+        fs::write(root.join("Dockerfile"), bytes).unwrap();
+        let entry = InventoryEntry {
+            path: "Dockerfile".into(),
+            symbols: vec![],
+            dependencies: vec![],
+            package_scripts: vec![],
+            source_file: false,
+            digest: Some(digest(bytes)),
+        };
+        let observed = iac_source_dispositions(root, std::slice::from_ref(&entry));
+        assert_eq!(observed[0]["state"], "validated");
+        assert_eq!(observed[0]["observedDigest"], digest(bytes));
+        let mut unhashed = entry.clone();
+        unhashed.digest = None;
+        assert_eq!(
+            iac_source_dispositions(root, &[unhashed])[0]["reason"],
+            "iac-source-digest-missing"
+        );
+        fs::write(root.join("Dockerfile"), b"FROM changed\n").unwrap();
+        assert_eq!(
+            iac_source_dispositions(root, std::slice::from_ref(&entry))[0]["reason"],
+            "iac-source-drift"
+        );
+        fs::remove_file(root.join("Dockerfile")).unwrap();
+        assert_eq!(
+            iac_source_dispositions(root, &[entry])[0]["reason"],
+            "iac-source-unreadable"
+        );
+    }
+
+    #[test]
+    fn iac_dispositions_use_predicate_for_outside_scope_and_reject_path_escape() {
+        let scratch = Scratch::create(None).unwrap();
+        fs::write(scratch.path.join("README.md"), b"source").unwrap();
+        let entry = |path: &str| InventoryEntry {
+            path: path.into(),
+            symbols: vec![],
+            dependencies: vec![],
+            package_scripts: vec![],
+            source_file: false,
+            digest: Some(digest(b"source")),
+        };
+        let rows =
+            iac_source_dispositions(&scratch.path, &[entry("README.md"), entry("../Dockerfile")]);
+        assert_eq!(rows[0]["disposition"], "outside-supported-iac-scope");
+        assert_eq!(rows[0]["state"], "validated");
+        assert_eq!(rows[1]["reason"], "iac-source-path-invalid");
+    }
+
+    #[test]
+    fn outside_iac_scope_still_requires_readable_frozen_bytes() {
+        let scratch = Scratch::create(None).unwrap();
+        let root = &scratch.path;
+        fs::write(root.join("README.md"), b"source").unwrap();
+        let entry = InventoryEntry {
+            path: "README.md".into(),
+            symbols: vec![],
+            dependencies: vec![],
+            package_scripts: vec![],
+            source_file: false,
+            digest: Some(digest(b"source")),
+        };
+        let observed = iac_source_dispositions(root, std::slice::from_ref(&entry));
+        assert_eq!(observed[0]["disposition"], "outside-supported-iac-scope");
+        assert_eq!(observed[0]["state"], "validated");
+        let mut unhashed = entry.clone();
+        unhashed.digest = None;
+        assert_eq!(
+            iac_source_dispositions(root, &[unhashed])[0]["reason"],
+            "iac-source-digest-missing"
+        );
+        fs::write(root.join("README.md"), b"changed").unwrap();
+        assert_eq!(
+            iac_source_dispositions(root, std::slice::from_ref(&entry))[0]["reason"],
+            "iac-source-drift"
+        );
+        fs::remove_file(root.join("README.md")).unwrap();
+        assert_eq!(
+            iac_source_dispositions(root, &[entry])[0]["reason"],
+            "iac-source-unreadable"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn iac_dispositions_reject_symlink_escape_even_when_bytes_match() {
+        let scratch = Scratch::create(None).unwrap();
+        let root = scratch.path.join("source");
+        fs::create_dir(&root).unwrap();
+        fs::write(scratch.path.join("Dockerfile"), b"FROM scratch\n").unwrap();
+        std::os::unix::fs::symlink(scratch.path.join("Dockerfile"), root.join("Dockerfile"))
+            .unwrap();
+        let entry = InventoryEntry {
+            path: "Dockerfile".into(),
+            symbols: vec![],
+            dependencies: vec![],
+            package_scripts: vec![],
+            source_file: false,
+            digest: Some(digest(b"FROM scratch\n")),
+        };
+        assert_eq!(
+            iac_source_dispositions(&root, &[entry])[0]["reason"],
+            "iac-source-path-invalid"
+        );
+    }
+
+    #[test]
+    fn tool_version_probe_uses_the_version_flag_in_both_routes() {
+        for (tool, expected) in [
+            ("squawk", "--version"),
+            ("zizmor", "--version"),
+            ("shellcheck", "--version"),
+            ("semgrep", "--version"),
+        ] {
+            assert_eq!(tool_version_args(None), vec![expected.to_owned()], "{tool}");
+            let wrapped = vec![
+                "-f".into(),
+                "profile".into(),
+                "--".into(),
+                format!("/tools/{tool}"),
+                "scan".into(),
+                "--format=json".into(),
+            ];
+            assert_eq!(
+                tool_version_args(Some(&wrapped)),
+                vec![
+                    "-f".to_owned(),
+                    "profile".into(),
+                    "--".into(),
+                    format!("/tools/{tool}"),
+                    expected.into()
+                ],
+                "{tool}"
+            );
+        }
+    }
+
+    #[test]
+    fn entropy_filter_rejects_placeholders() {
+        assert!(!looks_like_secret("your_api_key_goes_here_1234"));
+        assert!(!looks_like_secret("aaaaaaaaaaaaaaaaaaaaaaaa"));
+        assert!(looks_like_secret("q8Zr3Kd91LmXw07VbN4tY2sHc6Pj"));
+    }
+
+    #[test]
+    fn purl_encodes_scope_marker() {
+        assert_eq!(purl("npm", "@a/b", "1.0.0"), "pkg:npm/%40a/b@1.0.0");
+    }
+}
+
+#[cfg(test)]
+#[path = "history_qualification_tests.rs"]
+mod history_qualification_tests;
+
+#[cfg(test)]
+#[path = "supply_chain_qualification_tests.rs"]
+mod supply_chain_qualification_tests;

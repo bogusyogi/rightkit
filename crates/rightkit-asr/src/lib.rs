@@ -118,6 +118,7 @@ pub mod whisper;
 pub mod routing;
 pub mod chunked;
 pub mod conditioning;
+pub mod kws;
 pub mod parakeet_core;
 #[cfg(feature = "onnx-tdt")]
 pub mod onnx_tdt;

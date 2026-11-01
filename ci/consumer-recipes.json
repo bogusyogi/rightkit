@@ -2478,6 +2478,69 @@
         "README.md": "7f4262513c9a81a0e37119e1912653a80f6f653319a3719b913c85fc9c9190a5",
         "src/main.rs": "6f6e75f5d7f96a34ad221ae7abebbb31445cef2f0a3b4392137a277e0dda72eb"
       }
+    },
+    "rightkit-code-audit-commands": {
+      "pkId": "PK171",
+      "id": "ci/consumers/rightkit-code-audit-commands/src/main.rs",
+      "files": {
+        "Cargo.toml": "512f36b109b3b9b8088325af80fed5fcecdfba529949843d0cdf8b1e29ea1765",
+        "README.md": "160612f1d8c07622568b6e92d81d774cbc802c02fdde11423de203faea986f6d",
+        "src/main.rs": "48832600fb80929db2569c0b5427b329635da9c36a72e4395beb7092682fa9ca"
+      }
+    },
+    "rightkit-code-audit-engine": {
+      "pkId": "PK172",
+      "id": "ci/consumers/rightkit-code-audit-engine/src/main.rs",
+      "files": {
+        "Cargo.toml": "fc81af44f8722b810a305171e3e2a8581d23e7452ad91fdffc80680c605baadd",
+        "README.md": "9e14378fef71844b8c512459721533b926f34a4131f4d3e42167250a4a912b31",
+        "src/main.rs": "44c2259c2c8ce4b600dd46566fe5a0fffcb126b39d2b31586941a0cfca7b341d"
+      }
+    },
+    "rightkit-code-audit-qualification": {
+      "pkId": "PK173",
+      "id": "ci/consumers/rightkit-code-audit-qualification/src/main.rs",
+      "files": {
+        "Cargo.toml": "a10130284ba71b2311eb91628bde225f5967f9272c6346c7150ed7623e49832b",
+        "README.md": "0b5101b7f3ac4365ed0ca6c0d2194591d6c96e52d28d17bb994fec43452e9697",
+        "src/main.rs": "a1057d7bca3831a731dfe16e0c34fa01e7934ccfa292686279bcbfcb31b56358"
+      }
+    },
+    "rightkit-dictation-ffi": {
+      "pkId": "PK174",
+      "id": "ci/consumers/rightkit-dictation-ffi/src/main.rs",
+      "files": {
+        "Cargo.toml": "669cc73eabf3490c8ae8fba67248d139feb446d59c55e047c66cf35bc968da32",
+        "README.md": "a0a011138cc5f491f7e790ea84d6613d9b1ef5d2b1fd61a34a184149a22e89f8",
+        "src/main.rs": "7a1ca254c1ddb289be1c7f46fea782b0f2457cef4aa8c7f719932fe10f9745eb"
+      }
+    },
+    "rightkit-dictation-tauri": {
+      "pkId": "PK175",
+      "id": "ci/consumers/rightkit-dictation-tauri/src/main.rs",
+      "files": {
+        "Cargo.toml": "f80791a8a85115dab41007dc79680764d3247922dc5850b259bcb6494469838e",
+        "README.md": "b16b7179df8dc09f11754c4093882b6c43bdbf2c1a9bb76b21da406a01fec362",
+        "src/main.rs": "ef74904f407265d51eebe8545730b388e020b2a73132b06799769998e1c0922d"
+      }
+    },
+    "rightkit-evidence-application": {
+      "pkId": "PK176",
+      "id": "ci/consumers/rightkit-evidence-application/src/main.rs",
+      "files": {
+        "Cargo.toml": "ccb2f57628179c759a20d1e206d5a6ee50c179878ae42318f64bc9e7164668c0",
+        "README.md": "4f0a90a1ad4c12a681f0508f8a0dc1fe33f1606729c6147462c991b75ccb7c03",
+        "src/main.rs": "f831e4a1a77f77a8cc409589b37954e79f9e7cd2e24eafb4627cbc64c3496677"
+      }
+    },
+    "rightkit-evidence-commands": {
+      "pkId": "PK177",
+      "id": "ci/consumers/rightkit-evidence-commands/src/main.rs",
+      "files": {
+        "Cargo.toml": "31a41cbbdfe1d3e72cc687bc9236874ac541cdefd705d1d6664e7d1892db6732",
+        "README.md": "710d657261e186431a26ecdca482947fd67525a64737c99ebe6ef24a90b45d37",
+        "src/main.rs": "916f09d569e886ca00e90b7bea4c80dd95b2e3149b5dbfbb3246af486cdedd5b"
+      }
     }
   }
 }

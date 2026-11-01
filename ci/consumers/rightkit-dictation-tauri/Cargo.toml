@@ -1,0 +1,12 @@
+[package]
+name = "rightkit-dictation-tauri-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-dictation-tauri = { version = "=0.1.0" }
+rightkit-dictation-core = { version = "=0.2.0" }
+rightkit-transcript-library = { version = "=0.1.0" }

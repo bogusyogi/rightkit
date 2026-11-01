@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-dictation-ffi",
+  "capabilities": [
+    {
+      "capability": "dictation-ffi",
+      "summary": "Stable C surface for native shells over the dictation text pipeline, ASR audio conditioning and Parakeet detokenization.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}
