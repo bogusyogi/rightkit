@@ -125,7 +125,8 @@ jobs:
           set -uo pipefail
           git config --global user.email "qualify-direct@users.noreply.github.com"
           git config --global user.name "qualify-direct"
-          env -u GITHUB_ACTIONS node packages/release/bin/rightkit-gate.mjs --to release --unit "$UNIT" 2>&1 | tee "$RUNNER_TEMP/gate.log"
+          # Exit 1 is expected: RK_DIRECT_RELEASE_HELD after the qualification is written; the file decides, not the exit code.
+          env -u GITHUB_ACTIONS node packages/release/bin/rightkit-gate.mjs --to release --unit "$UNIT" 2>&1 | tee "$RUNNER_TEMP/gate.log" || true
           q=$(grep -o "direct-origin qualification [^ ]*qualification.json" "$RUNNER_TEMP/gate.log" | tail -1 | awk '{print $3}')
           if [ -z "$q" ] || [ ! -f "$q" ]; then echo "::error::no direct-origin qualification for $UNIT"; exit 1; fi
           node -e 'const fs=require("fs");fs.writeFileSync(process.argv[2], JSON.stringify(JSON.parse(fs.readFileSync(process.argv[1],"utf8"))))' "$q" "$RUNNER_TEMP/qualification.json"
