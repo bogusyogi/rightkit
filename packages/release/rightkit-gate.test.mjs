@@ -2693,8 +2693,8 @@ function hostedHarness(fx) {
 test("hosted named cargo and npm `--to check` forward the literal selected SHA and the scope: the dependency's executing rows and the repository-wide file-only scans stay; unrelated cargo metadata, executing rows and npm installs are absent", async (t) => {
   for (const [selector, kept, dropped, fileOnly] of [
     // GC-A03: Class A covers only the unit's closure. Cargo scans execute cargo, so an unrelated workspace's cargo-deny is dropped with its other executing rows; the closure's own stay.
-    ["cargo:rightkit-app", ["check:rightkit-app", "check:rightkit-core", "cargo-deny:rightkit-app", "cargo-deny:rightkit-core"], ["check:rightkit-other", "cargo-deny:rightkit-other", "test:npm:packages-alpha", "tsc:packages-gamma"], ["secret-scan", "pnpm-lockfile:packages/gamma"]],
-    ["npm:@rightkit/alpha", ["test:npm:packages-alpha", "test:npm:packages-beta"], ["test:npm:packages-gamma", "tsc:packages-gamma", "check:rightkit-app", "check:rightkit-other", "cargo-deny:rightkit-app", "cargo-deny:rightkit-other"], ["secret-scan", "pnpm-lockfile:packages/gamma"]],
+    ["cargo:rightkit-app", ["check:rightkit-app", "check:rightkit-core", "cargo-deny:rightkit-app", "cargo-deny:rightkit-core"], ["check:rightkit-other", "cargo-deny:rightkit-other", "test:npm:packages-alpha", "tsc:packages-gamma", "pnpm-lockfile:packages/gamma", "pnpm-audit:packages/gamma", "pnpm-audit:packages/alpha"], ["secret-scan", "license"]],
+    ["npm:@rightkit/alpha", ["test:npm:packages-alpha", "test:npm:packages-beta", "pnpm-lockfile:packages/alpha", "pnpm-audit:packages/alpha", "pnpm-lockfile:packages/beta"], ["test:npm:packages-gamma", "tsc:packages-gamma", "check:rightkit-app", "check:rightkit-other", "cargo-deny:rightkit-app", "cargo-deny:rightkit-other", "pnpm-lockfile:packages/gamma", "pnpm-audit:packages/gamma"], ["secret-scan", "license"]],
   ]) {
     const fx = scopedFixture(t); const h = hostedHarness(fx);
     const r = await h.run(["--to", "check", "--unit", selector]);
@@ -2709,6 +2709,36 @@ test("hosted named cargo and npm `--to check` forward the literal selected SHA a
     assert.ok(h.metadata.every((d) => !/rightkit-other$/.test(d)), `${selector}: no unrelated Cargo metadata (${h.metadata.join(", ")})`);
     if (selector.startsWith("cargo:")) assert.ok(h.metadata.every((d) => /\/crates\/rightkit-(app|core)$/.test(d)), "Cargo is asked only about the selected workspace and its path dependency");
   }
+});
+
+test("GC-A03 publication admission: `check --commit <sha> --scope <unit dir> --rule-tier release` (the content pass) gates a unit on its own closure only; an unrelated workspace's red lock or advisory refuses nothing, the unit's own refuses", async (t) => {
+  // Each row: the unit's scope, a red scan OUTSIDE its closure (must not refuse), a red scan INSIDE it (must refuse), a red repository-wide file-only scan (must refuse).
+  const rows = [
+    ["crates/rightkit-app", ["cargo-deny:rightkit-other", "cargo-audit:rightkit-other", "pnpm-lockfile:packages/gamma", "pnpm-audit:packages/gamma", "pnpm-audit:packages/alpha"], ["cargo-deny:rightkit-app", "cargo-deny:rightkit-core"]],
+    ["packages/alpha", ["pnpm-lockfile:packages/gamma", "pnpm-audit:packages/gamma", "cargo-deny:rightkit-app", "cargo-deny:rightkit-other"], ["pnpm-lockfile:packages/alpha", "pnpm-audit:packages/alpha", "pnpm-audit:packages/beta"]],
+  ];
+  for (const [scope, outside, inside] of rows) {
+    const fx = scopedFixture(t);
+    const argv = ["check", "--commit", fx.sha, "--rule-tier", "release", "--scope", scope];
+    const redRun = async (red) => {
+      const h = hostedHarness(fx);
+      const r = await h.run(argv, { extra: { runScans: async (plan) => { h.plans.push(plan); return { scans: plan.scans.filter((s) => s.class === "A").map((s) => ({ id: s.id, class: s.class, status: red.includes(s.id) ? "fail" : "pass", ...(red.includes(s.id) ? { code: 1, output: "red" } : {}) })), notes: [], cacheHits: [], deferred: [] }; } } });
+      return { ...r, h };
+    };
+    const green = await redRun([]);
+    assert.equal(green.code, 0, `${scope}: ${green.output}`);
+    assert.match(green.output, /class A content pass: \d+ deterministic scan\(s\) over \d+ file\(s\) of [0-9a-f]{40}/, "the admission gate's pass line is the content pass line");
+    const ids = green.h.plans.at(-1).scans.map((s) => s.id);
+    assert.ok(green.h.plans.at(-1).scopeDigest, `${scope}: the plan is scoped`);
+    assert.ok(ids.includes("secret-scan"), `${scope}: repository-wide file-only scans still run`);
+    for (const id of outside) assert.ok(!ids.includes(id), `${scope}: ${id} is outside the closure and is not planned`);
+    for (const id of inside) assert.ok(ids.includes(id), `${scope}: ${id} is in the closure and is planned`);
+    const clear = await redRun(outside);
+    assert.equal(clear.code, 0, `${scope}: a red scan outside the closure refuses nothing\n${clear.output}`);
+    for (const id of [...inside, "secret-scan"]) assert.notEqual((await redRun([id])).code, 0, `${scope}: a red ${id} refuses`);
+  }
+  // --scope never reads the live tree.
+  { const fx = scopedFixture(t); const h = hostedHarness(fx); const r = await h.run(["check", "--commit", fx.sha, "--rule-tier", "release", "--scope", "crates/rightkit-app", "--worktree"]); assert.equal(r.code, 2, r.output); assert.equal(h.plans.length, 0); }
 });
 
 test("a scoped hosted check accepts a clean committed checkout and refuses --worktree, a moved HEAD, a tracked byte edit (also hidden by assume-unchanged or a git clean filter) and an edit made during the scans", async (t) => {

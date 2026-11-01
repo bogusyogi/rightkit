@@ -53,7 +53,7 @@ pub enum WriteRejection {
     /// (e.g. surfacing "not saved: looked like a credential" in the UI).
     Screened { detail: RejectReason },
     /// An id collision with an existing record. Callers should use
-    /// [`MemoryStore::update`] (or delete-then-write) for intentional
+    /// delete-then-write for intentional
     /// overwrites; a bare `write` never silently clobbers.
     DuplicateId,
 }

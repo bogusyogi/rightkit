@@ -28,6 +28,7 @@ pub const QUALIFICATION_ADMISSION: &str = r#"in src/gradle_sandbox.rs profile_te
 fn gap(detail: impl std::fmt::Display) -> SandboxGap {
     SandboxGap::IpcNamespaceInvalid(format!("gradle-bind-only: {detail}"))
 }
+#[cfg(target_os = "macos")]
 fn hash(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     format!("sha256:{}", hex::encode(Sha256::digest(bytes)))

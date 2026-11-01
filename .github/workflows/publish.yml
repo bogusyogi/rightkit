@@ -200,11 +200,12 @@ jobs:
           overwrite: false
           if-no-files-found: error
       # Publication admission (scripts/ci/publish-admission.mjs), here so the pinned class A tools above are on PATH and before plan,
-      # pack or any build lane: the full gate (rightkit-gate check --commit <sha>) on this commit, then every unit's committed version,
+      # pack or any build lane: the gate over what the requested units read (rightkit-gate check --commit <sha> --scope <unit dir>: the unit's closure plus the repository-wide
+      # file-only scans; other workspaces are ci.yml's, GC-A03), then every unit's committed version,
       # not yet on its registry, with only the allowsets the committed exception policy grants. It runs the same for every dispatch;
       # `admission` only says who asked (a broker's request id is correlation, never authority). publish-direct refuses an upload
       # without this attempt's receipt.
-      - name: Admit this request (the full gate on this commit, then scope, version and allowsets)
+      - name: Admit this request (the gate over the units' closure, then scope, version and allowsets)
         working-directory: live
         env:
           ADMISSION: ${{ inputs.admission }}

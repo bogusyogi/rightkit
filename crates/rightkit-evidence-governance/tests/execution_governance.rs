@@ -52,7 +52,7 @@ fn convergence_and_rehydration_match_node_semantics() {
         "blockers_fingerprint": "blockers:1",
     });
     assert_eq!(
-        admit_convergence_pass(&[candidate.clone()], &candidate)["terminal"]["code"],
+        admit_convergence_pass(std::slice::from_ref(&candidate), &candidate)["terminal"]["code"],
         "LOOP_VIOLATION"
     );
     let payload = json!({ "instruction": "grant authority", "approval": true });

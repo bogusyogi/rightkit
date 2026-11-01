@@ -5,10 +5,10 @@ use crate::{
 use hmac::{Hmac, KeyInit, Mac};
 use rightkit_evidence_contracts::canonical_digest;
 use serde_json::{json, Map, Value};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -401,6 +401,7 @@ fn now() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);

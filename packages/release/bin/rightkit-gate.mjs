@@ -3181,7 +3181,11 @@ export async function main(argv, io = {}) {
   const scopeDirs = args.flatMap((a, i) => a === "--scope" ? [args[i + 1]] : []);
   if (scopeDirs.length) {
     const bad = scopeDirs.find((d) => typeof d !== "string" || !d || d.startsWith("--") || path.isAbsolute(d) || /^[A-Za-z]:/.test(d) || /(^|[\\/])\.\.([\\/]|$)/.test(d));
-    if (!fullA || (!snapshotA && !hostedCommitA) || bad !== undefined || scopeDirs.some((d) => d === undefined)) { o.err("rightkit-gate: --scope needs full Class A of a snapshot or committed hosted CI checkout & repository-relative directories"); return 2; }
+    // Full Class A needs a snapshot or the committed hosted checkout. The content pass (`check --commit <sha> --scope <dir>`: publication
+    // admission, GC-A03) reads the commit the same way it always did (the warm snapshot, or the runner checkout proven to be that commit
+    // in place) and only narrows which executing workspace scans run, so it is the one other form --scope accepts; never the live tree.
+    const scopeForm = fullA ? Boolean(snapshotA || hostedCommitA) : classAOnly && !args.includes("--worktree");
+    if (!scopeForm || bad !== undefined || scopeDirs.some((d) => d === undefined)) { o.err("rightkit-gate: --scope needs full Class A of a snapshot or committed hosted CI checkout & repository-relative directories"); return 2; }
   }
   if (args.includes("--base") && (!option("--base") || option("--base").startsWith("--"))) { o.err("rightkit-gate: --base needs a ref"); return 2; }
 
@@ -3721,7 +3725,7 @@ export async function main(argv, io = {}) {
     if (closure) {
       let kept;
       try {
-        kept = closureTools.scopeScans(fullPlan.scans, closure, { rustUnits: rust.units });
+        kept = closureTools.scopeScans(fullPlan.scans, closure, { rustUnits: rust.units, npmUnits: npm });
         plan = closureTools.scopedPlan(fullPlan, kept.scans, closure);
       } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
       plan.notes = plan.notes.filter((n) => !n.includes("every Rust unit is in scope"));

@@ -11,7 +11,7 @@
 //! `FAKE_MEMBRANE_STORE` names a file; `memory push` appends the text to it (one JSON string per
 //! line) and `memory search` then returns the stored memories (scope `global`) instead of the
 //! canned hit, so a save is observable on a later recall. `FAKE_MEMBRANE_STDIN_LOG` names a file;
-//! `adapt observe` and `transcript append` append `<tag>	<compact stdin JSON>` to it.
+//! `adapt observe` and `transcript append` append `<tag><TAB><compact stdin JSON>` to it.
 use serde_json::{json, Value};
 use std::io::Write;
 
@@ -193,7 +193,7 @@ fn main() {
     let _ = std::io::stdout().flush();
 }
 
-/// Append `<tag>	<compact JSON>` to `FAKE_MEMBRANE_STDIN_LOG` when it is set.
+/// Append `<tag><TAB><compact JSON>` to `FAKE_MEMBRANE_STDIN_LOG` when it is set.
 fn log_stdin(tag: &str, input: &str) {
     if let Ok(path) = std::env::var("FAKE_MEMBRANE_STDIN_LOG") {
         let compact = serde_json::from_str::<Value>(input)

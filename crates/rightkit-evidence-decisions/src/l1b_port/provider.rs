@@ -137,7 +137,7 @@ fn text_for(record: &DecisionRecord) -> String {
 }
 
 fn estimated_tokens(text: &str) -> u64 {
-    (((text.chars().count() as u64) + 3) / 4).max(1)
+    (text.chars().count() as u64).div_ceil(4).max(1)
 }
 
 fn status_str(status: DecisionStatus) -> &'static str {
@@ -475,7 +475,7 @@ fn sha256_hex(input: &[u8]) -> String {
         0x1f83d9ab,
         0x5be0cd19,
     ];
-    for block in data.chunks_exact(64) {
+    for block in data.as_chunks::<64>().0 {
         let mut w = [0u32; 64];
         for (i, word) in w.iter_mut().take(16).enumerate() {
             *word = u32::from_be_bytes([
