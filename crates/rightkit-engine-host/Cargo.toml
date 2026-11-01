@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-engine-host"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Engine binary framework: one command registry served as a headless JSON CLI and as a stdio sidecar, shared wire types, contract and TypeScript export, isolated-data-folder rule"
@@ -16,7 +16,11 @@ path = "src/lib.rs"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rightkit-job-queue = { version = "0.5.1", features = ["contract"], path = "../rightkit-job-queue" }
+rightkit-job-queue = { version = "0.5.1", features = ["contract", "doctor"], path = "../rightkit-job-queue" }
+rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon" }
+
+[dev-dependencies]
+tempfile = "3"
 
 [workspace]
 
