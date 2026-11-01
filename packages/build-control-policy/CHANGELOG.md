@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5-phase1 (unreleased)
+
+- `rightkit-host-gate` is now a `bin` of this package (rightkit#1365), so a workspace link puts it on PATH; before, nothing installed it on Linux. The package is private and stays unpublished; a published route for apps is still open.
+
 ## Unreleased (run-root rules of the heavy-write guard, storage hardening)
 
 Not released: this is a private package and its version stays 0.1.4-phase1. The guard (`src/agent-heavy-write-guard.mjs`) is an installed asset, so a host runs these rules only after it reinstalls the policy with `node packages/build-control-policy/src/install-agent-policy.mjs`. The guard is outside the `POLICY_BUNDLE_ENTRYPOINTS` import closure, so no trust-sync is involved.

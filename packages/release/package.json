@@ -1,17 +1,19 @@
 {
   "name": "@rightkit/release",
-  "version": "0.6.17",
+  "version": "0.6.18",
   "description": "Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "bin": {
     "right-release": "cli/right-release.mjs",
     "rightkit-gate": "bin/rightkit-gate.mjs",
+    "rightkit-linux-setup": "bin/rightkit-linux-setup.mjs",
     "rightkit-agent-hook": "bin/rightkit-agent-hook.mjs"
   },
   "exports": {
     "./bin/rightkit-agent-hook.mjs": "./bin/rightkit-agent-hook.mjs",
     "./bin/rightkit-gate.mjs": "./bin/rightkit-gate.mjs",
+    "./bin/rightkit-linux-setup.mjs": "./bin/rightkit-linux-setup.mjs",
     "./cargo-contract.mjs": "./cargo-contract.mjs",
     "./cargo-target.mjs": "./cargo-target.mjs",
     "./cli/right-release.mjs": "./cli/right-release.mjs",
@@ -23,6 +25,7 @@
     "./engine-locator.mjs": "./engine-locator.mjs",
     "./github-release.mjs": "./github-release.mjs",
     "./legal-contract.mjs": "./legal-contract.mjs",
+    "./linux-setup.mjs": "./linux-setup.mjs",
     "./macos-file-evidence.mjs": "./macos-file-evidence.mjs",
     "./macos-notarization.mjs": "./macos-notarization.mjs",
     "./macos-signing-identity.mjs": "./macos-signing-identity.mjs",
@@ -51,6 +54,9 @@
           "--version"
         ],
         "rightkit-gate": [
+          "--version"
+        ],
+        "rightkit-linux-setup": [
           "--version"
         ],
         "rightkit-agent-hook": {
