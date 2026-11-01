@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-content-plan-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-content-plan = { version = "=0.1.1" }
+
