@@ -323,6 +323,7 @@
       "surface": [
         "./bin/rightkit-agent-hook.mjs",
         "./bin/rightkit-gate.mjs",
+        "./bin/rightkit-linux-setup.mjs",
         "./cargo-contract.mjs",
         "./cargo-target.mjs",
         "./cli/right-release.mjs",
@@ -334,6 +335,7 @@
         "./engine-locator.mjs",
         "./github-release.mjs",
         "./legal-contract.mjs",
+        "./linux-setup.mjs",
         "./macos-file-evidence.mjs",
         "./macos-notarization.mjs",
         "./macos-signing-identity.mjs",
@@ -1180,14 +1182,14 @@
     "rightkit-ownership": {
       "pkId": "PK14",
       "id": "ci/consumers/rightkit-ownership/src/main.rs",
-      "dependency": "rightkit-ownership = { version = \"=0.4.3\" }",
+      "dependency": "rightkit-ownership = { version = \"=0.4.4\" }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],
       "gateEvidence": "embedded catalog only; in-memory trust loader with an unavailable checkpoint authority, so no protected trust file, key, git remote or signature is used; scans one temp directory holding one file, removed at the end; no network",
       "consumes": "PK14 quality-gate consumer (reviewed recipe, named product consumers not re-read here); rightkit-ownership public items used: catalog, catalog_value, scanner_policy_digest, SCANNER_VERSION, ownership_verdict, ownership_cache_key, is_blocking_finding, codes, canonical_repository_identity, Scanner::with_embedded_catalog (inputs, scan), ScanContext, ManualClock, keyauth::AuthorityEnv",
       "files": {
-        "Cargo.toml": "43c62204a8b59b61dcde58c02a7c6b9a0f3fec6eb13149440e01bd0aa03a7c7a",
+        "Cargo.toml": "42ce37e89d068241f5b1bf21ba8fe1ab4221b3cc82ede2c512a3aa59e0a0b932",
         "README.md": "ce0f6d0da5c89859187f1a6c3d00ebfe2a1f5cd1f91ed20d92c5ef481512d448",
         "src/main.rs": "4a624a85b992e1acc685765888eae0fd661495cd7fffdd73ed12d0cab488bca1"
       },

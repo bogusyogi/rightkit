@@ -734,6 +734,44 @@ fn pnpm_graph(
             true,
         )?;
     }
+    // A link to a directory of the scanned repository outside this lock's importers (RightKit's own sample apps link
+    // packages/*) is that repository's own source: a local node, never a gap. A link leaving the repository stays unresolved.
+    let linked_rel = |importer: &str, path: &str| -> Option<String> {
+        let rel = posix_normalize(&posix_join(&[lock_dir, importer, path]));
+        (rel != ".." && !rel.starts_with("../") && !rel.starts_with('/')).then_some(rel)
+    };
+    for (id, importer) in importers.as_object().expect("importers") {
+        for section in SECTIONS {
+            let Some(map) = field(importer, section).as_object() else {
+                continue;
+            };
+            for (name, raw) in map {
+                let reference = if is_object(raw) {
+                    field(raw, "version")
+                } else {
+                    raw
+                };
+                let Some(path) = reference.as_str().and_then(|r| r.strip_prefix("link:")) else {
+                    continue;
+                };
+                let target = posix_normalize(&posix_join(&[id, path]));
+                if g.get(&format!("importer:{target}")).is_some() {
+                    continue;
+                }
+                if let Some(rel) = linked_rel(id, path) {
+                    if g.get(&format!("linked:{rel}")).is_none() {
+                        g.add(
+                            &format!("linked:{rel}"),
+                            Some(name),
+                            Some("0.0.0"),
+                            format!("path:{rel}"),
+                            true,
+                        )?;
+                    }
+                }
+            }
+        }
+    }
     let resolve = |g: &Graph, node_id: &str, name: &str, raw: &Value| -> R<Option<usize>> {
         let reference = if is_object(raw) {
             field(raw, "version")
@@ -751,10 +789,14 @@ fn pnpm_graph(
                 });
             };
             let importer = node_id.strip_prefix("importer:").unwrap_or(node_id);
-            return Ok(g.get(&format!(
-                "importer:{}",
-                posix_normalize(&posix_join(&[importer, path]))
-            )));
+            return Ok(g
+                .get(&format!(
+                    "importer:{}",
+                    posix_normalize(&posix_join(&[importer, path]))
+                ))
+                .or_else(|| {
+                    linked_rel(importer, path).and_then(|rel| g.get(&format!("linked:{rel}")))
+                }));
         }
         for candidate in [
             reference.to_string(),
@@ -771,6 +813,9 @@ fn pnpm_graph(
     };
     for at in 0..g.nodes.len() {
         let node_id = g.nodes[at].id.clone();
+        if node_id.starts_with("linked:") {
+            continue; // its own dependencies belong to its own manifest and lock
+        }
         let importer = node_id.starts_with("importer:");
         let pkg = if importer {
             field(importers, &node_id[9..]).clone()
@@ -1680,5 +1725,41 @@ mod tests {
             ]
         );
         assert!(info.is_empty());
+    }
+
+    #[test]
+    fn pnpm_link_inside_the_repository_is_local_and_one_leaving_it_is_a_gap() {
+        let files = |target: &str| -> Vec<(&'static str, String)> {
+            vec![
+                (
+                    "sample/package.json",
+                    format!("{{\"name\":\"sample\",\"dependencies\":{{\"shared\":\"link:{target}\"}}}}"),
+                ),
+                (
+                    "sample/pnpm-lock.yaml",
+                    format!("lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      shared:\n        specifier: link:{target}\n        version: link:{target}\npackages: {{}}\nsnapshots: {{}}\n"),
+                ),
+                ("sample/pnpm-workspace.yaml", "packages:\n  - \".\"\n".into()),
+                ("packages/shared/package.json", "{\"name\":\"shared\"}".into()),
+            ]
+        };
+        let unresolved = |coverage: &[Cov]| -> Vec<String> {
+            coverage
+                .iter()
+                .filter(|c| c.path == "sample/pnpm-lock.yaml")
+                .map(|c| format!("{}: {}", c.reason, c.detail.clone().unwrap_or_default()))
+                .collect()
+        };
+        let (coverage, _) = scan_owned(&files("../packages/shared"));
+        assert!(
+            unresolved(&coverage).is_empty(),
+            "{:?}",
+            unresolved(&coverage)
+        );
+        let (coverage, _) = scan_owned(&files("../../outside"));
+        assert_eq!(
+            unresolved(&coverage),
+            vec!["lockfile-unresolved-dependency: .: shared".to_string()]
+        );
     }
 }

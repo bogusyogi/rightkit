@@ -106,6 +106,17 @@ test("pnpm workspace importers, links, aliases & peer-suffixed snapshots resolve
     assert.ok(!scanApp(root, catalog, { trust: null }).coverage.some((c) => c.reason.startsWith("lockfile-")));
   });
 });
+test("pnpm: a link to a directory of the scanned repository outside the lock's importers is local source; one leaving the repository is a gap", () => {
+  const lock = (target) => `lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      shared:\n        specifier: link:${target}\n        version: link:${target}\npackages: {}\nsnapshots: {}\n`;
+  const files = (target) => ({ "sample/package.json": npmManifest({ shared: `link:${target}` }, "sample"), "sample/pnpm-lock.yaml": lock(target), "sample/pnpm-workspace.yaml": "packages:\n  - \".\"\n", "packages/shared/package.json": npmManifest({}, "shared") });
+  fixture(files("../packages/shared"), (root) => {
+    assert.deepEqual(scanApp(root, catalog, { trust: null }).coverage.filter((c) => c.path === "sample/pnpm-lock.yaml"), []);
+  });
+  fixture(files("../../outside"), (root) => {
+    const gaps = scanApp(root, catalog, { trust: null }).coverage.filter((c) => c.path === "sample/pnpm-lock.yaml");
+    assert.deepEqual(gaps.map((c) => [c.reason, c.detail]), [["lockfile-unresolved-dependency", ".: shared"]]);
+  });
+});
 test("npm nested installs resolve nearest package version & workspace links", () => {
   const lock = JSON.parse(npmLock());
   lock.packages["node_modules/puppeteer-core"].version = "23.0.0";

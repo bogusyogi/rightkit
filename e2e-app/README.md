@@ -1,8 +1,7 @@
 # RightKit all-packages e2e app (rke2e)
 
 RightKit's own end-to-end app: it depends on **every** RightKit crate (69, from source by path, `crates/engine/Cargo.toml`) and **every**
-published npm package (25, exact registry pins, `package.json`; apps never use `link:` or `workspace:` specs, and the private
-`@rightkit/build-control-policy` is not an app dependency), so a change is exercised together with everything else before any product
+npm package (26, `link:` to `packages/*`, `package.json`), so a change is exercised together with everything else before any product
 app sees it. `crates/engine/src/probes/` holds one real probe per crate (`rke2e-engine probe list | probe run --input '{"name": ...}' |
 probe all`): each does its crate's actual work on the run's isolated data and reports what it observed; a probe that cannot run here
 fails with what it needs, it is never skipped. `tests/scenarios/engine-blackbox.scenario.toml` runs `probe all` under rightkit-qa.
