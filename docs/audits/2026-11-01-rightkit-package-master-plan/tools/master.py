@@ -1,5 +1,5 @@
 import json,os,collections,sys
-S=os.path.dirname(__file__); sys.path.insert(0,S); from merge import ALIAS,kind
+S=os.path.dirname(__file__); sys.path.insert(0,S); from merge import ALIAS,kind,tier
 m=json.load(open(S+'/md/master.json')); EX=set(open(S+'/existing.txt').read().split())
 N={'postright':'PostRight','scraperight':'ScrapeRight','mailright':'MailRight','viewright':'ViewRight','genright':'GenRight','CutRight':'CutRight','pulse':'Pulse','heardright':'HeardRight','coderight':'CodeRight','legion':'Legion'}
 FAM=[('Agent platform',['rightkit-agent-engine','rightkit-agent-server','rightkit-agent-orchestration','rightkit-agent-policy','rightkit-agent-gateway','rightkit-approvals','rightkit-skills','@rightkit/skills','rightkit-evidence','rightkit-scheduler','rightkit-bot-messaging','rightkit-github','rightkit-chat-bridge','rightkit-ai-accounts','rightkit-agent-demo','RightKitAgent','@rightkit/agent-ui','rightkit-terminal-ui','@rightkit/terminal-ui']),
@@ -12,7 +12,7 @@ FAM=[('Agent platform',['rightkit-agent-engine','rightkit-agent-server','rightki
  ('Documents',['@rightkit/document-workspace','rightkit-document-workspace','@rightkit/markdown-editor','@rightkit/html-editor','@rightkit/docx-editor']),
  ('Mail & workspace',['rightkit-mail','rightkit-google-apis','@rightkit/mail-ui','@rightkit/workspace-ui']),
  ('System utilities',['rightkit-mesh','rightkit-system-monitor','rightkit-disk-cleanup','rightkit-app-manager','rightkit-launcher','rightkit-clipboard-history','rightkit-desktop-tweaks','rightkit-privileged-helper','rightkit-app-lock','RightKitNotch','RightKitSystemUI','@rightkit/system-ui']),
- ('Foundation & tooling',['rightkit-doctor','rightkit-bench','rightkit-ml-lab','@rightkit/config','@rightkit/waitlist-worker']),
+ ('Foundation & tooling',['rightkit-apple-ops','rightkit-doctor','rightkit-bench','rightkit-ml-lab','@rightkit/config','@rightkit/waitlist-worker']),
 ]
 fn=lambda n:f'{n:,}'
 def caps(a,k=6):
@@ -32,14 +32,22 @@ for r in N:
     d=json.load(open(f'{S}/md/{r}-rightkit-files.json'))['files']; c=collections.Counter()
     for f in d: c[f['action']]+=f['loc']
     tot[r]=c
-L+=["## Coverage by app","","| App | Code lines | NEW | EXTEND | ADOPT | Vendor | DROP | Stays (shell+config) | Stays % |","|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+L+=["## Coverage by app","","| App | Code lines | NEW | EXTEND | ADOPT | To Legion | Vendor | DROP | App tests (stay) | Shell+config (stay) | Shell % |","|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
 G=collections.Counter()
 for r,c in tot.items():
     code=sum(c.values())-c['NOTCODE']; st=c['SHELL']+c['CONFIG']; G.update(c)
-    L.append(f"| {N[r]} | {fn(code)} | {fn(c['NEW'])} | {fn(c['EXTEND'])} | {fn(c['ADOPT'])} | {fn(c['LEGION'])} | {fn(c['VENDOR-OWN']+c['VENDOR-KEEP'])} | {fn(c['DROP'])} | {fn(st)} | {100*st//code}% |")
+    L.append(f"| {N[r]} | {fn(code)} | {fn(c['NEW'])} | {fn(c['EXTEND'])} | {fn(c['ADOPT'])} | {fn(c['LEGION'])} | {fn(c['VENDOR-OWN']+c['VENDOR-KEEP'])} | {fn(c['DROP'])} | {fn(c['APPTEST'])} | {fn(st)} | {100*st//code}% |")
 code=sum(G.values())-G['NOTCODE']; st=G['SHELL']+G['CONFIG']
-L.append(f"| **All** | **{fn(code)}** | **{fn(G['NEW'])}** | **{fn(G['EXTEND'])}** | **{fn(G['ADOPT'])}** | **{fn(G['LEGION'])}** | **{fn(G['VENDOR-OWN']+G['VENDOR-KEEP'])}** | **{fn(G['DROP'])}** | **{fn(st)}** | **{100*st//code}%** |")
-L+=["","Lines include tests, which move with the code they test.",""]
+L.append(f"| **All** | **{fn(code)}** | **{fn(G['NEW'])}** | **{fn(G['EXTEND'])}** | **{fn(G['ADOPT'])}** | **{fn(G['LEGION'])}** | **{fn(G['VENDOR-OWN']+G['VENDOR-KEEP'])}** | **{fn(G['DROP'])}** | **{fn(G['APPTEST'])}** | **{fn(st)}** | **{100*st//code}%** |")
+L+=["","Unit tests move with their code; app journey/e2e tests stay with the app. Generated third-party notices, docs and data are not counted.",""]
+def wave(t):
+    a=m[t]['actions']
+    if a.get('NEW'):
+        if tier(t)=='private': return 4
+        return 2 if len(m[t]['repos'])>1 else 3
+    return 1
+for t in m: m[t]['wave']=wave(t) if (m[t]['actions'].get('NEW') or m[t]['actions'].get('EXTEND')) else 0; m[t]['tier']=tier(t) if m[t]['actions'].get('NEW') else 'existing'
+json.dump(m,open(S+'/md/master.json','w'),indent=1)
 # final new list
 crates=[t for t in new if kind(t)=='crate']; npm=[t for t in new if kind(t)=='npm']; sw=[t for t in new if kind(t)=='Swift']
 L+=["## Final list: new RightKit packages to create & publish","",f"**{len(new)} new packages**: {len(crates)} crates, {len(npm)} npm packages, {len(sw)} Swift packages. Grouped by family; within a family, ordered by size.",""]
@@ -47,17 +55,17 @@ seen=set()
 for fam,members in FAM:
     mem=[t for t in members if t in new]; seen.update(mem)
     if not mem: continue
-    L+=[f"### {fam}","","| Package | Kind | Used by | Lines moving in | Also ships | Merged from | What it owns |","|---|---|---|---:|---|---|---|"]
+    L+=[f"### {fam}","","| Package | Kind | Tier | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |","|---|---|---|---|---|---:|---|---|---|"]
     for t in sorted(mem,key=lambda t:-m[t]['loc']):
-        a=m[t]; L.append(f"| `{t}` | {kind(t)} | {', '.join(N[r] for r in a['repos'])} | {fn(a['loc'])} | {langs(a)} | {', '.join('`'+x+'`' for x in a['merged'])} | {caps(a)} |")
+        a=m[t]; L.append(f"| `{t}` | {kind(t)} | {tier(t)} | {wave(t)} | {', '.join(N[r] for r in a['repos'])} | {fn(a['loc'])} | {langs(a)} | {', '.join('`'+x+'`' for x in a['merged'])} | {caps(a)} |")
     L.append("")
 miss=[t for t in new if t not in seen]
-if miss: L+=["### Other",""]+[f"- `{t}` ({', '.join(N[r] for r in m[t]['repos'])}, {fn(m[t]['loc'])} lines): {caps(m[t])}" for t in miss]+[""]
+if miss: L+=["### Other",""]+[f"- `{t}` (tier {tier(t)}, wave {wave(t)}; {', '.join(N[r] for r in m[t]['repos'])}, {fn(m[t]['loc'])} lines): {caps(m[t])}" for t in miss]+[""]
 # extend
 ext=[t for t,a in m.items() if a['actions'].get('EXTEND') and kind(t)!='other']
-L+=["## Existing RightKit packages to extend","",f"**{len(ext)} existing packages** gain capability now living in apps.","","| Package | Used by | Lines moving in | What it gains |","|---|---|---:|---|"]
+L+=["## Existing RightKit packages to extend","",f"**{len(ext)} existing packages** gain capability now living in apps.","","Tier check: `check` = only one app adds code here, so confirm it is generic (public) and not product code that should be a private package instead (D4).","","| Package | Wave | Tier check | Used by | Lines moving in | What it gains |","|---|---|---|---|---:|---|"]
 for t in sorted(ext,key=lambda t:-m[t]['actions']['EXTEND']):
-    a=m[t]; L.append(f"| `{t}` | {', '.join(N[r] for r in a['repos'])} | {fn(a['actions']['EXTEND'])} | {caps(a,5)} |")
+    a=m[t]; L.append(f"| `{t}` | 1 | {'check' if len(a['repos'])==1 else 'shared'} | {', '.join(N[r] for r in a['repos'])} | {fn(a['actions']['EXTEND'])} | {caps(a,5)} |")
 lg=m.get('legion')
 if lg:
     L+=["","## Moves to Legion, not RightKit","","Skills, doctrine, agent personas, skill manifests/loaders and host projection (Claude Code, Codex, AGENTS.md) are owned by Legion. RightKit is the code kit; Legion is the skills owner.","","| From app | Lines | What |","|---|---:|---|"]

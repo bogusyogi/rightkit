@@ -1,3 +1,4 @@
+core/src/chat/install	legion	LEGION	chat skill install into Claude/Codex (host projection)
 ^settings/|windows/src/(settings|settings_gen)\.rs|hub/src/settings\.gen|scripts/gen-settings	rightkit-app-settings	EXTEND	cross-platform settings manifest + codegen (Rust/Swift/Win32/React)
 windows/src/agent\.rs	rightkit-agent-runtime	NEW	windows agent glue
 mac/Notch/Sources/App/ViewShots	RightKitHubQA	EXTEND	view snapshots

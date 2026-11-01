@@ -1,3 +1,5 @@
+heardright_core/src/settings/	rightkit-app-settings	EXTEND	settings blob & patch
+heardright_core/src/app_paths	app-shell	SHELL	app data dir name over rightkit-fs
 src-tauri/tests/(history|draft_history)	rightkit-library	NEW	tests
 src-tauri/tests/pill	rightkit-overlay	EXTEND	tests
 src-tauri/tests/(paste|delivery|streaming)	rightkit-automation	EXTEND	tests

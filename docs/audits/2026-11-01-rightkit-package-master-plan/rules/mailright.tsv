@@ -1,3 +1,5 @@
+src-tauri/src/agent/(approval|tests/approval)|engine_api/approvals|commands/agent_approvals	rightkit-approvals	NEW	user approval cards for agent send/forward/delete/attach
+src/lib/ipc/agentApprovals	@rightkit/agent-ui	NEW	approval IPC client
 src-tauri/src/agent/|engine_api/(agents|approvals)|commands/agent	rightkit-agent-gateway	NEW	paired external agents over local daemon: method registry, gate, approval cards (send/forward/delete/attach), audit log, untrusted-content contract, redaction
 src-tauri/src/app_lock	rightkit-app-lock	NEW	app lock: OS-auth verification, serialized lock/unlock transitions, DB gate
 src-tauri/src/(db_compaction|wal_checkpoint)|src-tauri/src/db/(migration_backup|migration_gate|pragma_optimize|gate_tests|open_tests)|src-tauri/src/db_gate|commands/(compaction|db_health)	rightkit-db	EXTEND	compaction w/ rowid verify, background WAL checkpoints, verified pre-migration backup, migration gate, lock-order gate

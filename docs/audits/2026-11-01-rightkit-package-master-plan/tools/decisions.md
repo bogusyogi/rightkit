@@ -1,12 +1,17 @@
-## Decisions for Adrian
+## Decisions for Adrian (D1–D6, preconditions in the design draft)
 
-1. **DOCX editor (ViewRight, 171k lines vendored).** Recommendation: own the `core` & `react` packages as `@rightkit/docx-editor`, drop vendored `agents` & `i18n` (51k). Alternative: keep upstream as an npm dependency & only own ViewRight's integration.
-2. **Tree-sitter grammars (Pulse/Membrane, 71k lines vendored).** Recommendation: use crates.io grammar crates through `rightkit-repo-graph`; no RightKit copy.
-3. **WasmKit (CodeRight iOS, 27k).** Recommendation: SwiftPM dependency, delete vendored copy.
-4. **tauri-runtime-wry fork (HeardRight, 7k).** Recommendation: upstream the patch; until then, one pinned fork owned by `rightkit-tauri-shell`, not per app.
-5. **sherpa-onnx & prebuilt xcframeworks (HeardRight iOS).** Recommendation: replace with RightKit's Rust KWS/ASR (`rightkit-asr`) built for iOS.
-6. **ONNX Runtime binary (HeardRight iOS).** Keep as binary dependency, resolved only through `rightkit-onnx`.
-7. **GenRight legacy Node server (`server/`, `compat-lib/`, `bin/`, 8k lines).** Mapped DROP as superseded by the Rust studio port; confirm nothing still calls it.
-8. **Skills live in Legion.** All skill packs, doctrine, personas, skill manifests/loaders & host projection go to Legion (CutRight skills & cutaway, Pulse membrane skill, CodeRight skills/plugins/recipes crates). RightKit has no skills package.
-9. **`rightkit-mesh`.** Already named as a RightKit crate but lives inside the Pulse repo; move it to RightKit & publish.
-10. **Single-app packages.** 50+ new packages have one consumer today (e.g. `rightkit-code-audit`, `rightkit-terminal-ui`, video editing family). They are listed as RightKit packages per the factory goal; the family grouping above is the order to extract them in.
+1. **D1, two tiers & P13.** Public RightKit stays as it is: generic, MIT/Apache, published by CI to crates.io/npm. Product domain code (45 packages marked `private` above, including `rightkit-privileged-helper`) goes to a private tier. P13 is amended: "app-specific product domain logic and presentation is a private-tier package; the app keeps only its shell." Without this, moving product code would publish proprietary source.
+2. **D2, private channel.** Proposed: a private `rightkit-private` repo with its own catalog, qualified locally (Mac + Dell), distributed as git dependencies pinned to tagged commits for Cargo, npm & SwiftPM. Legion uses the same channel.
+3. **D3, vendored code.** Each row of the vendored table:
+   - DOCX: fork & trim (proposed) or keep upstream.
+   - Tree-sitter grammars: crates.io.
+   - WasmKit: SwiftPM.
+   - tauri-runtime-wry: upstream the patch.
+   - sherpa-onnx & prebuilt xcframeworks: replace with `rightkit-asr` built for iOS.
+   - ONNX Runtime: binary via `rightkit-onnx`.
+   - GenRight legacy Node server (8.6k lines): drop once confirmed unused.
+4. **D4, confirm tiers.** Confirm each new package's tier (column above) and each extended package marked `check`. Check them against import edges, so that no public package imports private code.
+5. **D5, publication hold.** `docs/GATE-CONTRACT.md` records a hold on publication. Either lift it or schedule the waves after it.
+6. **D6, Legion as a skills distributor (via the private channel).** CodeRight's skills, plugins & recipes crates move to Legion, so CodeRight needs Legion's crates under published names (crate names & registry).
+
+Also settled: skills never become RightKit components. Legion owns them. Every NEW/EXTEND package gets an EGM-reviewed design doc before its code moves.

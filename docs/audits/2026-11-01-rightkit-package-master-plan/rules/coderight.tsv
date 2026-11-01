@@ -1,3 +1,4 @@
+bins/coderight/src/(api_skills|api_plugins|api_recipes|command_registry|custom_commands|skill_loop)	app-shell	SHELL	skill/plugin/recipe routes & command registry (call Legion skills crates)
 crates/daemon-client/src/ssh_tunnel	none	DROP	unused ssh tunnel (deletion held)
 crates/daemon-client/	rightkit-daemon	EXTEND	daemon client: app discovery, connect
 bins/coderight/tests/	rightkit-agent-server	NEW	route contract & e2e tests

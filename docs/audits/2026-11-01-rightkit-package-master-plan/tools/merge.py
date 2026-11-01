@@ -43,3 +43,14 @@ def kind(t):
     if t.startswith('rightkit-'): return 'crate'
     if t=='legion': return 'Legion'
     return 'other'
+# Proposed tier for NEW packages: 'private' = product domain logic/presentation (P13 app-specific class), published to a private registry;
+# everything else 'public' (generic add-on, MIT/Apache, crates.io/npm).
+PRIVATE={'rightkit-code-audit','rightkit-agent-server','@rightkit/agent-ui','rightkit-social-publish','rightkit-social-analytics','rightkit-social-inbox','rightkit-social-mock','@rightkit/social-ui',
+ 'rightkit-content-plan','rightkit-content-proof','rightkit-mail','@rightkit/mail-ui','@rightkit/workspace-ui','rightkit-autoedit','rightkit-shorts','rightkit-video-project','@rightkit/video-ui',
+ 'rightkit-prompt-recipes','rightkit-media-pipeline','@rightkit/media-gen-ui','rightkit-dictation','rightkit-text-polish','rightkit-voice-commands','RightKitDictation','@rightkit/dictation-ui',
+ 'rightkit-ai-accounts','rightkit-chat-bridge','rightkit-launcher','rightkit-clipboard-history','rightkit-desktop-tweaks','rightkit-disk-cleanup','rightkit-app-manager','RightKitNotch','RightKitSystemUI','@rightkit/system-ui',
+ '@rightkit/document-workspace','rightkit-document-workspace','@rightkit/markdown-editor','@rightkit/html-editor','@rightkit/docx-editor','rightkit-ml-lab','RightKitAgent','rightkit-agent-demo','@rightkit/library-ui','RightKitLibrary','rightkit-work-router','rightkit-privileged-helper'}
+def tier(t): return 'private' if t in PRIVATE else 'public'
+APPTEST_RX=r'(tests/scenarios|scenarios-ui|/e2e/|crates/e2e/|-e2e/|qa-e2e/|installed_matrix|engine/tests/|bins/coderight/tests/|scripts/qa-|scripts/sidecar-smoke/|src-tauri/tests/|crates/cutright-engine/tests/|^qa/|hub/qa-e2e/|ios-native/Tests/|UITests/)'
+
+APPTEST_CAP_RX=r'(e2e|journey|E2E|iOS tests|deterministic mock of social)'

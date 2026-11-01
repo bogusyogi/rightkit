@@ -1,3 +1,4 @@
+crates/legion-runtime/src/(l5_skills|p9_skills|l6_designer_checks|p8_designer)	legion	LEGION	skill & designer checks
 bins/legion/src/commands/(audit|verify)|bins/legion-dev/src/audit_	rightkit-code-audit	NEW	audit/verify commands & audit bench
 bins/legion/src/commands/(setup|bind|script)	legion	LEGION	host setup, binding & script projection
 bins/legion-dev/src/generators/	legion	LEGION	catalog & inventory generators
