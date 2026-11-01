@@ -23,3 +23,19 @@ pub use retriever::{
 };
 pub use screening::{screen, RejectReason, ScreeningVerdict, MIN_DURABLE_LEN};
 pub use store::{MemoryRecord, MemoryStore, NewMemory, WriteRejection};
+
+#[cfg(feature = "agent_host")]
+#[allow(missing_docs, clippy::all, rustdoc::all, unused)]
+pub mod api_memright;
+#[cfg(feature = "agent_host")]
+#[allow(missing_docs, clippy::all, rustdoc::all, unused)]
+pub mod blueprint_tools;
+#[cfg(feature = "agent_host")]
+#[allow(missing_docs, clippy::all, rustdoc::all, unused)]
+pub mod memory;
+#[cfg(feature = "agent_host")]
+#[allow(missing_docs, clippy::all, rustdoc::all, unused)]
+pub mod memory_provenance;
+#[cfg(feature = "agent_host")]
+#[allow(missing_docs, clippy::all, rustdoc::all, unused)]
+pub mod memory_save_tool;
