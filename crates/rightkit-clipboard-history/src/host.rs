@@ -87,8 +87,9 @@ pub trait Host: Send + Sync + 'static {
         Vec::new()
     }
 
-    /// Shows a short notice (a toast) with `title`, translated by the host.
-    fn note(&self, _title: &str) {}
+    /// Shows a short notice (a toast) with `title`, translated by the host; `off` marks the
+    /// "history is off" variant.
+    fn note(&self, _title: &str, _off: bool) {}
 
     /// Sends `events` as one tagged batch; `ctx` names the sender in the log.
     #[cfg(windows)]
@@ -99,6 +100,33 @@ pub trait Host: Send + Sync + 'static {
     fn physically_down(&self, _vk: u32) -> Option<bool> {
         None
     }
+
+    /// The card size the user chose: `small`, `medium`, `large` or empty for medium.
+    fn card_size(&self) -> String {
+        String::new()
+    }
+
+    /// Where the strip opens: `notch`, `bottom` or empty for the notch.
+    fn placement(&self) -> String {
+        String::new()
+    }
+
+    /// The strip's hot key in the clipboard spec's grammar; empty for the default.
+    fn hotkey_text(&self) -> String {
+        String::new()
+    }
+
+    /// The notch under `point` (screen pixels), when the strip can come out of one.
+    #[cfg(windows)]
+    fn notch_spot_at(&self, _point: (i32, i32)) -> Option<crate::strip::NotchSpot> {
+        None
+    }
+
+    /// Wakes the application's window thread (the hub's counts follow).
+    fn wake_ui(&self) {}
+
+    /// Opens the launcher in its clipboard mode.
+    fn open_launcher_clip(&self) {}
 
     /// Records an informational event with `fields`. Never called with clipboard content.
     fn log_info(&self, _event: &str, _fields: &[(&str, &str)]) {}
@@ -199,9 +227,9 @@ pub(crate) fn shift_paste_apps() -> Vec<String> {
 }
 
 #[cfg(windows)]
-pub(crate) fn note(title: &str) {
+pub(crate) fn note(title: &str, off: bool) {
     if let Some(host) = HOST.get() {
-        host.note(title);
+        host.note(title, off);
     }
 }
 
@@ -215,4 +243,59 @@ pub(crate) fn send_input(events: &[rightkit_automation::win::input::RawInput], c
 #[cfg(windows)]
 pub(crate) fn physically_down(vk: u32) -> Option<bool> {
     HOST.get()?.physically_down(vk)
+}
+
+/// The translated template for `key` with each `{}` filled from `args` in order.
+pub fn tf(key: &str, args: &[&str]) -> String {
+    let template = t(key);
+    let mut out = String::with_capacity(template.len() + 16);
+    let mut next = 0;
+    let mut rest = template;
+    while let Some(open) = rest.find("{}") {
+        out.push_str(&rest[..open]);
+        match args.get(next) {
+            Some(arg) => out.push_str(arg),
+            None => out.push_str("{}"),
+        }
+        next += 1;
+        rest = &rest[open + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
+#[cfg(windows)]
+pub(crate) fn card_size() -> String {
+    HOST.get().map(|host| host.card_size()).unwrap_or_default()
+}
+
+#[cfg(windows)]
+pub(crate) fn placement() -> String {
+    HOST.get().map(|host| host.placement()).unwrap_or_default()
+}
+
+#[cfg(windows)]
+pub(crate) fn hotkey_text() -> String {
+    HOST.get()
+        .map(|host| host.hotkey_text())
+        .unwrap_or_default()
+}
+
+#[cfg(windows)]
+pub(crate) fn notch_spot_at(point: (i32, i32)) -> Option<crate::strip::NotchSpot> {
+    HOST.get()?.notch_spot_at(point)
+}
+
+#[cfg(windows)]
+pub(crate) fn wake_ui() {
+    if let Some(host) = HOST.get() {
+        host.wake_ui();
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn open_launcher_clip() {
+    if let Some(host) = HOST.get() {
+        host.open_launcher_clip();
+    }
 }

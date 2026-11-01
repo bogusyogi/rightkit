@@ -154,7 +154,7 @@ fn run(id: &str, choice: Choice, previous: isize) {
     // SAFETY: a plain query on a handle that may have gone.
     let _ = unsafe { GetWindowThreadProcessId(front, Some(&mut pid)) };
     if is_elevated(pid) && !is_elevated(0) {
-        host::note("Copied. Press Ctrl V");
+        host::note("Copied. Press Ctrl V", false);
         return;
     }
     let exe = process::image_path(pid)

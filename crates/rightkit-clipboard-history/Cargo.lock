@@ -103,6 +103,8 @@ version = "0.1.0"
 dependencies = [
  "rightkit-automation",
  "rightkit-fs",
+ "rightkit-hotkeys",
+ "rightkit-notch-ui",
  "rightkit-time",
  "rightkit-win-ui",
  "serde",
@@ -117,6 +119,20 @@ dependencies = [
  "libc",
  "sha2",
  "thiserror",
+]
+
+[[package]]
+name = "rightkit-hotkeys"
+version = "0.1.2"
+dependencies = [
+ "windows-sys",
+]
+
+[[package]]
+name = "rightkit-notch-ui"
+version = "0.1.0"
+dependencies = [
+ "rightkit-win-ui",
 ]
 
 [[package]]
