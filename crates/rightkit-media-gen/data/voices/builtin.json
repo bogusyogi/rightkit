@@ -1,0 +1,11 @@
+{
+  "note": "Fallback voices shown when the live provider list is unavailable. Ids come from the provider adapters (documented example voices); the ElevenLabs live list (GET /v1/voices) replaces the premade entries.",
+  "elevenlabs": [
+    { "id": "JBFqnCBsd6RMkjVDRZzb", "name": "George", "category": "premade", "description": "Premade voice used in ElevenLabs' API reference; available on Free-plan keys." }
+  ],
+  "wavespeed": [
+    { "id": "Alicia", "name": "Alicia", "model": "elevenlabs-turbo-v2.5", "description": "Default voice for ElevenLabs Turbo v2.5 on WaveSpeed." },
+    { "id": "Wise_Woman", "name": "Wise Woman", "model": "minimax-speech-02-hd", "description": "Default voice for MiniMax Speech-02 HD." },
+    { "id": "Deep_Voice_Man", "name": "Deep Voice Man", "model": "minimax-speech-02-hd", "description": "MiniMax Speech-02 HD system voice." }
+  ]
+}
