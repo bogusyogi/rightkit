@@ -38,7 +38,7 @@
 //!   owner answers on this computer, in owner app: Touch ID on a Mac (a Secure Enclave key whose
 //!   use needs the fingerprint; owner app signs the request and sends `remote.unlock.decide` with
 //!   `method: "sig"`, which `approval_sig.rs` verifies against an enrolled key, the engine's own
-//!   request id, digest and client, a short expiry and a single-use nonce) or a the host app PIN
+//!   request id, digest and client, a short expiry and a single-use nonce) or the host app PIN
 //!   (`method: "pin"`, verified only here). `method: "os"` (owner app's word that the system accepted
 //!   the owner) is refused on every platform: a caller's word is not an approval. On Windows that
 //!   leaves the PIN until Windows Hello signs approvals with an enrolled key. The generic
@@ -613,7 +613,7 @@ pub(super) fn pin_item_present() -> bool {
         .is_ok_and(|secret| secret.is_some())
 }
 
-/// Whether a the host app PIN is set. Engine only (the hub and owner app ask through the engine). A PIN
+/// Whether the host app PIN is set. Engine only (the hub and owner app ask through the engine). A PIN
 /// the engine recorded as set (`protected_store::pin_was_set`) stays set when its credential item
 /// has been deleted: the PIN is then lost, not unset, and cannot be reset without the old one.
 pub fn pin_is_set() -> Result<bool> {

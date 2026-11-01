@@ -34,7 +34,7 @@
 //!   resident engine (`remote.settings.protected`), after the OS has said the answering process runs
 //!   the engine's executable (`approvals::ask_engine_verified`); an engine that is not running, or
 //!   not the engine, is a fail closed.
-//! * **The PIN marker.** The item also records that a the host app PIN was set, so deleting the PIN's own
+//! * **The PIN marker.** The item also records that a PIN was set, so deleting the PIN's own
 //!   credential item does not let the PIN be reset without the old one (`unlock.rs`). This holds
 //!   only while the engine's item survives: deleting the item, the marker file and the PIN item together is a first run with
 //!   `pin_set` false, so the PIN reads as unset and can be set again. Nothing loosens (every gate is
@@ -285,12 +285,12 @@ pub fn all() -> Result<Vec<(String, Value)>> {
     })
 }
 
-/// Whether a the host app PIN was ever set, as the engine recorded it. Engine only.
+/// Whether the host app PIN was ever set, as the engine recorded it. Engine only.
 pub fn pin_was_set() -> Result<bool> {
     with_loaded(|cache| Ok(cache.as_ref().is_some_and(|s| s.pin_set)))
 }
 
-/// Records that a the host app PIN is set or changed, and re-seals the item under the new PIN (macOS, Windows).
+/// Records that a PIN is set or changed, and re-seals the item under the new PIN (macOS, Windows).
 /// Engine only.
 pub fn mark_pin_set(pin: &str) -> Result<()> {
     with_loaded(|cache| {

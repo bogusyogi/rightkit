@@ -58,7 +58,7 @@ fn invalid(why: impl Into<String>) -> Refusal {
     Refusal::new("invalid_request", why)
 }
 
-/// The writer's refusal as a the host app code. Reading limits and the format refusals keep the codes
+/// The writer's refusal as a host app code. Reading limits and the format refusals keep the codes
 /// `docs.read` gives them.
 fn failure(error: DocsError) -> Refusal {
     match error {

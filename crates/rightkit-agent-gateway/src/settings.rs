@@ -134,7 +134,7 @@ pub const HARD_AGENT_BROWSER_MINUTES: u64 = 240;
 /// owner app's and Windows' `hub-commands` files and any other same-user writer are refused for them
 /// (`is_protected`). They change only through the owner-checked engine methods
 /// `remote.settings.set` and `remote.settings.take` (`owner_settings.rs`): the hub asks, the engine
-/// verifies the caller's executable and, for a change that makes a gate less safe, a the host app PIN, and
+/// verifies the caller's executable and, for a change that makes a gate less safe, the host app PIN, and
 /// owner app collects the change from the engine and applies it itself. docs/settings.md lists them.
 ///
 /// This list is the source of truth. The owner app (`HubBridge.swift` `protectedKeys`), Windows
