@@ -460,6 +460,9 @@
       "featureSets": [
         []
       ]
+    },
+    "rightkit-shorts": {
+      "allowIgnored": "tests/llm.rs has one #[ignore]d live-LLM test that needs a running model endpoint and is run by hand; the heuristic and fallback tests run and assert on every default run (1 ignored per default run)"
     }
   },
   "fixtures": [

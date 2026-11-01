@@ -2,7 +2,7 @@
 //! reviewable [`EditorialPlan`] -> [`CutPlan`](crate::cuts::CutPlan) -> one
 //! undoable timeline action group.
 //!
-//! Builds on `cutright-cuts` (silence, fillers, retakes). Adds:
+//! Builds on the cuts module (silence, fillers, retakes). Adds:
 //! * dead air beyond word gaps: breaths, quiet trailing-off speech, off-mic
 //!   speech, over-long pauses;
 //! * disfluency: repetitions, stutters, self-corrections, false starts;

@@ -158,9 +158,9 @@ const YUNET_MODEL_DIR: &str = "yunet-face-detection-2023mar";
 fn suite_parent() -> std::path::PathBuf {
     let parent = match std::env::var_os("HOME") {
         Some(home) if cfg!(target_os = "macos") => {
-            std::path::PathBuf::from(home).join("Library/Caches/cutright-e2e")
+            std::path::PathBuf::from(home).join("Library/Caches/rightkit-reframe-e2e")
         }
-        _ => std::env::temp_dir().join("cutright-e2e"),
+        _ => std::env::temp_dir().join("rightkit-reframe-e2e"),
     };
     std::fs::create_dir_all(&parent).expect("suite parent");
     parent

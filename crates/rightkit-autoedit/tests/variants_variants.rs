@@ -610,7 +610,7 @@ fn compare_render_runs_with_real_ffmpeg() {
             "{dur}"
         );
         // Keep one frame per layout (just after the anchor word) for review.
-        let keep = std::env::temp_dir().join("cutright-variants-compare");
+        let keep = std::env::temp_dir().join("rightkit-autoedit-variants-compare");
         std::fs::create_dir_all(&keep).unwrap();
         let png = keep.join(format!("compare-{layout:?}.png"));
         let st = Command::new(&ffmpeg)

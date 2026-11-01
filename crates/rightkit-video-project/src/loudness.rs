@@ -1,7 +1,7 @@
 //! Two-pass loudness for final renders: measure the composed mix, apply a linear
 //! `loudnorm` with the measured values, then measure the delivered file.
 //!
-//! The filters live in `cutright-timeline` (`build_ffmpeg_measure`,
+//! The filters live in `rightkit-timeline` (`build_ffmpeg_measure`,
 //! `AudioFinish::Normalize`). The composed-mix pass runs that graph on RightKit's checked
 //! runner; measuring a finished file is `rightkit-ffmpeg`'s `measure_loudness`; parsing and
 //! acceptance are its loudnorm types. Only the graph policy and the error mapping are CutRight's.
