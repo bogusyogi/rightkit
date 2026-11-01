@@ -214,7 +214,7 @@ impl McpManager {
     pub fn is_tool_name_selected(&self, qualified_name: &str) -> bool {
         self.tool_name_filter
             .as_ref()
-            .map_or(true, |filter| filter.selects(qualified_name))
+            .is_none_or(|filter| filter.selects(qualified_name))
     }
 
     /// Override the single total per-call deadline (default 120s).
@@ -346,7 +346,7 @@ impl McpManager {
     }
 
     pub fn has_canonical_membrane_read_bridge(&self, tool: &str) -> bool {
-        matches!(canonical_read_tool(tool), Some(_))
+        canonical_read_tool(tool).is_some()
             && self.canonical_membrane_binding.is_some()
             && self.canonical_membrane_caller.is_some()
             && self

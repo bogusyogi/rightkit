@@ -44,16 +44,18 @@ fn rightkit_oauth_client(
     .with_authorization_param("resource", oauth.resource.clone());
     config.scopes = oauth.scopes.clone();
 
-    let mut http = rightkit_http::ClientConfig::default();
-    http.connect_timeout = Some(OAUTH_CONNECT_TIMEOUT);
-    http.request_timeout = OAUTH_REQUEST_TIMEOUT;
-    // OAuth endpoints are credential boundaries; never follow a redirect
-    // carrying client credentials or refresh tokens.
-    http.max_redirects = 0;
-    // Token endpoints on loopback or an RFC 1918 network (a local or
-    // corporate MCP gateway) stay reachable; link-local and metadata
-    // addresses do not.
-    http.address_policy = rightkit_http::AddressPolicy::public_web().local_first();
+    let http = rightkit_http::ClientConfig {
+        connect_timeout: Some(OAUTH_CONNECT_TIMEOUT),
+        request_timeout: OAUTH_REQUEST_TIMEOUT,
+        // OAuth endpoints are credential boundaries; never follow a redirect
+        // carrying client credentials or refresh tokens.
+        max_redirects: 0,
+        // Token endpoints on loopback or an RFC 1918 network (a local or
+        // corporate MCP gateway) stay reachable; link-local and metadata
+        // addresses do not.
+        address_policy: rightkit_http::AddressPolicy::public_web().local_first(),
+        ..rightkit_http::ClientConfig::default()
+    };
 
     let mut client = rightkit_oauth::OAuthClient::new(config, rightkit_http::Client::new(http))
         .map_err(oauth_transport_error)?
@@ -433,7 +435,11 @@ mod tests {
             id_token: None,
             obtained_at: UNIX_EPOCH + Duration::from_secs(1_000),
         };
-        let tokens = mcp_tokens(&set, "https://mcp.example.com/mcp");
+        let tokens = mcp_tokens(
+            &set,
+            "https://mcp.example.com/mcp",
+            "https://auth.example.com/token",
+        );
         assert_eq!(tokens.access_token, "access");
         assert_eq!(tokens.refresh_token.as_deref(), Some("refresh"));
         assert_eq!(tokens.expires_at_unix, Some(4_600));
@@ -441,6 +447,10 @@ mod tests {
         assert_eq!(
             tokens.resource.as_deref(),
             Some("https://mcp.example.com/mcp")
+        );
+        assert_eq!(
+            tokens.token_url.as_deref(),
+            Some("https://auth.example.com/token")
         );
     }
 }

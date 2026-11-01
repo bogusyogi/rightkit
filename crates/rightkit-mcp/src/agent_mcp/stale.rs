@@ -29,8 +29,8 @@ pub fn stdio_unreachable_reason(config: &StdioConfig) -> Option<String> {
     if !SCRIPT_RUNNERS.contains(&program.as_str()) {
         return None;
     }
-    let mut args = config.args.iter();
-    while let Some(arg) = args.next() {
+    let args = config.args.iter();
+    for arg in args {
         // `-m module` and `-c code` run no file; other flags (`-3.11`, `-u`) are skipped.
         if arg == "-m" || arg == "-c" || arg == "-e" || arg == "--eval" {
             return None;
