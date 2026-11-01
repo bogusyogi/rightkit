@@ -1,0 +1,66 @@
+[package]
+name = "rke2e"
+version = "0.1.0"
+description = "RkE2E desktop shell"
+edition = "2021"
+rust-version = "1.98.0"
+publish = false
+
+[lib]
+name = "rke2e"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "rke2e"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+rke2e-protocol = { path = "../crates/protocol" }
+tauri = { version = "2", features = ["protocol-asset"] }
+serde_json = "1"
+
+# Tauri plugin crates: exact, equal to their npm counterparts (@tauri-apps/plugin-*).
+tauri-plugin-os = "=2.4.0"
+tauri-plugin-process = "=2.4.0"
+tauri-plugin-updater = "=2.14.1"
+
+# RightKit shared crates: exact registry pins only (no path/git/vendored copies), equal to
+# packages/release/rightkit-versions.json `registry` (the published set). The mandatory owners (ownership-mandatory-set.json,
+# profile desktop) are all declared in this workspace and wired by the shell, see README "Foundation owners".
+# M1 window host: rightkit-tauri-shell hosts the window (hardened webview, window state, single instance, watchdog). `logs`
+# registers the renderer log commands @rightkit/logs invokes (M15); `license` (with `host-services`) registers the settings,
+# legal-receipt and licence commands under one caller policy (src/services.rs). Its default `wv2-0_39` matches Tauri 2.12.
+rightkit-tauri-shell = { path = "../../crates/rightkit-tauri-shell", features = ["logs", "license"] }
+# M1 device identity (rightkit-device `credentials` keeps it in the OS credential store, M11).
+rightkit-device = { path = "../../crates/rightkit-device", features = ["credentials"] }
+rightkit-credentials = { path = "../../crates/rightkit-credentials" }
+# M3 engine supervision: EngineSupervisor over the owned sidecar (restart budget, per-call deadline, no replay).
+rightkit-job-queue = { path = "../../crates/rightkit-job-queue", default-features = false, features = ["supervisor"] }
+rightkit-child-process = { path = "../../crates/rightkit-child-process" }
+# M6 the release-or-test decision (rightkit_daemon::mode) is reached through rke2e-protocol; M8 safe file writes likewise.
+rightkit-daemon = { path = "../../crates/rightkit-daemon" }
+rightkit-fs = { path = "../../crates/rightkit-fs", features = ["fs"] }
+# M16 crash reporting: the window host installs the process hook first thing.
+rightkit-crash = { path = "../../crates/rightkit-crash", default-features = false }
+# M15 logging (the shell's `logs` feature brings it in; declared so the owner is visible here).
+rightkit-logs = { path = "../../crates/rightkit-logs", default-features = false }
+# M10 settings: the settings document and the legal receipt's document (src/services.rs).
+rightkit-app-settings = { path = "../../crates/rightkit-app-settings", default-features = false }
+# M12/M13 licence: the native licence client (`client`), disabled until the app registers its appKey, host and key.
+rightkit-license = { path = "../../crates/rightkit-license", default-features = false, features = ["client"] }
+# M17 HTTP: the app's first-party client, pinned to the licence host.
+rightkit-http = { path = "../../crates/rightkit-http", default-features = false }
+# M20 QA: the in-app control server, compiled only by the off-by-default `qa-native` feature below.
+rightkit-qa = { path = "../../crates/rightkit-qa", default-features = false, optional = true }
+
+[features]
+default = []
+# QA and dev only, never in `default`: registers rightkit-qa's control server (launched hidden by `rightkit-qa journeys run`)
+# and compiles the data-root test capability. `right-release` fails any release or update build whose graph or binary carries it.
+# rightkit-qa/wv2-0_39 selects the WebView2 generation of Tauri 2.12 (Windows); macOS ignores it.
+qa-native = ["dep:rightkit-qa", "rightkit-qa/control", "rightkit-qa/wv2-0_39", "rke2e-protocol/test-mode"]
+# Tauri's embedded-frontend mode (`tauri build` selects it). A QA UI build names it too: a hidden run has no dev server.
+custom-protocol = ["tauri/custom-protocol"]

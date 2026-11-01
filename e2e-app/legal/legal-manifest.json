@@ -1,0 +1,85 @@
+{
+  "schema": 2,
+  "suite": "right-suite-desktop",
+  "appKey": "rke2e",
+  "productName": "RkE2E",
+  "licensor": "Damned Ventures LLC",
+  "effectiveDate": "2026-10-24",
+  "acceptanceVersion": "rke2e-2026-10-24-v1",
+  "documents": [
+    {
+      "id": "license",
+      "role": "license",
+      "title": "Right Suite Desktop License: Ownership Notice",
+      "version": "1.0",
+      "path": "LICENSE.md",
+      "publicUrl": "https://rke2e.example/legal/license/",
+      "treatment": "agree",
+      "material": true,
+      "sha256": "74c91121939a3fc2c66d4471c5aa6d7a7b1d4d57caaf4419dd04c379119fa5b1"
+    },
+    {
+      "id": "eula",
+      "role": "eula",
+      "title": "Right Suite End User License Agreement",
+      "version": "1.1",
+      "path": "EULA.md",
+      "publicUrl": "https://rke2e.example/legal/eula/",
+      "treatment": "agree",
+      "material": true,
+      "sha256": "9a5ce62ae250ba9b4859b6831a74d38e2267007965af9ad12dd2c84ff5ed769e"
+    },
+    {
+      "id": "acceptable-use",
+      "role": "acceptable_use",
+      "title": "Right Suite Acceptable Use Policy",
+      "version": "1.0",
+      "path": "ACCEPTABLE_USE.md",
+      "publicUrl": "https://rke2e.example/legal/acceptable-use/",
+      "treatment": "agree",
+      "material": true,
+      "sha256": "2fa8470434259ba4ef182999c8ca9212185424991a6dbae16ffd60471baa41c9"
+    },
+    {
+      "id": "product-schedule",
+      "role": "product_schedule",
+      "title": "RkE2E Product Schedule",
+      "version": "1",
+      "path": "PRODUCT_SCHEDULE.md",
+      "publicUrl": "https://rke2e.example/legal/product-schedule/",
+      "treatment": "agree",
+      "material": true,
+      "sha256": "301af7f2e29969c9f8ac3d02281ec67f06115ec778cf7070360bc14e94085c5a"
+    },
+    {
+      "id": "privacy",
+      "role": "privacy_notice",
+      "title": "RkE2E Privacy Notice",
+      "version": "1",
+      "path": "PRIVACY_NOTICE.md",
+      "publicUrl": "https://rke2e.example/legal/privacy/",
+      "treatment": "acknowledge",
+      "material": false,
+      "sha256": "575b95d2a0dd24aceae2fc2982f39a4ed937fe08368e1956b1c879ef7fd9e304"
+    },
+    {
+      "id": "notices",
+      "role": "third_party_notices",
+      "title": "RkE2E Third-Party Notices",
+      "version": "1",
+      "path": "THIRD_PARTY_NOTICES.md",
+      "publicUrl": "https://rke2e.example/legal/notices/",
+      "treatment": "notice",
+      "material": false,
+      "sha256": "4d8d751a5c1c01dd432f9cfbc9c32dc9cbbedec96fe71235189afd1d6e44d31b"
+    }
+  ],
+  "appendices": [
+    {
+      "id": "npm",
+      "title": "RkE2E npm third-party licenses",
+      "path": "THIRD_PARTY_NPM_LICENSES.html",
+      "sha256": "e02575c9e1889c02598c301b2fd3ea7731e3befe9b425b5192e5957d3f9dca71"
+    }
+  ]
+}

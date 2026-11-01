@@ -1,0 +1,47 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "RkE2E",
+  "mainBinaryName": "rke2e",
+  "version": "0.1.0",
+  "identifier": "app.rightsuite.rke2e",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:5190",
+    "beforeBuildCommand": "pnpm build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "RkE2E",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 900,
+        "minHeight": 560,
+        "resizable": true,
+        "center": true,
+        "decorations": false,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost; frame-ancestors 'none'",
+      "assetProtocol": { "enable": true, "scope": ["$APPDATA/**"] }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://PLACEHOLDER-UPDATE-HOST.invalid/rke2e/updates/latest.json"],
+      "pubkey": "PLACEHOLDER-REPLACE-WITH-SUITE-UPDATER-PUBKEY",
+      "windows": { "installMode": "passive" }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": ["nsis"],
+    "publisher": "Damned Ventures LLC",
+    "externalBin": ["binaries/rke2e-engine"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+  }
+}

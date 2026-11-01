@@ -1,0 +1,384 @@
+{
+  "schema": 1,
+  "app": "rke2e",
+  "version": {
+    "$fromJson": {
+      "file": "src-tauri/tauri.conf.json",
+      "pointer": "/version"
+    }
+  },
+  "distribution": {
+    "provider": "r2-rightapps",
+    "updaterPublicKey": {
+      "$fromJson": {
+        "file": "src-tauri/tauri.conf.json",
+        "pointer": "/plugins/updater/pubkey"
+      }
+    }
+  },
+  "packageManager": "pnpm",
+  "deps": {
+    "workdirs": [
+      "."
+    ]
+  },
+  "checks": [
+    "typecheck"
+  ],
+  "buildInputs": {
+    "include": [
+      "right-release.config.json",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "index.html",
+      "tsconfig.json",
+      "vite.config.ts",
+      "src/**",
+      "assets/**",
+      "Cargo.toml",
+      "Cargo.lock",
+      "rust-toolchain.toml",
+      "crates/**",
+      "src-tauri/Cargo.toml",
+      "src-tauri/build.rs",
+      "src-tauri/src/**",
+      "src-tauri/capabilities/**",
+      "src-tauri/icons/**",
+      "src-tauri/tauri.conf.json",
+      "switches.json",
+      "legal-snapshot.config.json",
+      "legal/**"
+    ],
+    "exclude": [
+      "**/*.test.*",
+      "**/tests/**",
+      "node_modules/**",
+      ".right-release/**",
+      ".cache/**",
+      "dist/**",
+      "target/**",
+      "src-tauri/target/**",
+      "*.dmg",
+      "*.exe",
+      "*.sig"
+    ]
+  },
+  "sidecars": {
+    "profiles": {
+      "dev": "dev",
+      "release": "release"
+    },
+    "sidecars": [
+      {
+        "kind": "cargo-bin",
+        "package": "rke2e-engine",
+        "manifestPath": "crates/engine/Cargo.toml"
+      },
+      {
+        "kind": "ffmpeg",
+        "variant": "decode",
+        "tools": [
+          "ffmpeg"
+        ],
+        "catalog": {
+          "crate": "rightkit-ffmpeg"
+        },
+        "notices": {
+          "dir": "src-tauri/resources/third-party/ffmpeg",
+          "sourceOfferContact": "https://orthiclabs.com/legal/ffmpeg-source"
+        },
+        "platforms": [
+          "mac"
+        ],
+        "sources": {
+          "ffmpeg": {
+            "aarch64": {
+              "url": "https://raw.githubusercontent.com/bogusyogi/rightkit/16422e2c18c9f6d85612f30eda9645eef8924ebc/crates/rightkit-ffmpeg/artifacts/ffmpeg-7.1.5-macos-arm64.tar.gz",
+              "sha256": "010d32bbb3f51c9cc9eb90dce5160e67038acd3a7f0e02201d0db6796856ff78",
+              "member": "ffmpeg"
+            },
+            "x86_64": {
+              "url": "https://raw.githubusercontent.com/bogusyogi/rightkit/16422e2c18c9f6d85612f30eda9645eef8924ebc/crates/rightkit-ffmpeg/artifacts/ffmpeg-7.1.5-macos-x86_64.tar.gz",
+              "sha256": "c0d9b550936144dd7460d39b617e6bc0b65bc1e0f5a622940ebef34cb344adfa",
+              "member": "ffmpeg"
+            }
+          }
+        }
+      },
+      {
+        "kind": "ffmpeg",
+        "variant": "decode",
+        "tools": [
+          "ffmpeg"
+        ],
+        "catalog": {
+          "crate": "rightkit-ffmpeg"
+        },
+        "notices": {
+          "dir": "src-tauri/resources/third-party/ffmpeg",
+          "sourceOfferContact": "https://orthiclabs.com/legal/ffmpeg-source"
+        },
+        "platforms": [
+          "win"
+        ],
+        "sources": {
+          "ffmpeg": {
+            "url": "https://raw.githubusercontent.com/bogusyogi/rightkit/16422e2c18c9f6d85612f30eda9645eef8924ebc/crates/rightkit-ffmpeg/artifacts/ffmpeg-7.1.5-windows-x64.tar.gz",
+            "sha256": "663381a94ae12a819b8e412950973cbbd765ec863e1c058e6e1de8730b991ae3",
+            "member": "ffmpeg.exe"
+          }
+        }
+      },
+      {
+        "kind": "native-library",
+        "library": "onnxruntime",
+        "version": "1.30.0",
+        "catalog": {
+          "crate": "rightkit-ffmpeg"
+        },
+        "platforms": [
+          "mac"
+        ]
+      }
+    ]
+  },
+  "development": {
+    "targets": {
+      "win": {
+        "build": [
+          {
+            "cmd": "right-release",
+            "args": [
+              "stage-sidecar",
+              "--target",
+              "x86_64-pc-windows-msvc"
+            ]
+          },
+          {
+            "cmd": "pnpm",
+            "args": [
+              "exec",
+              "tauri",
+              "build",
+              "--target",
+              "x86_64-pc-windows-msvc",
+              "--no-bundle",
+              "--config",
+              {
+                "$json": {
+                  "bundle": {
+                    "createUpdaterArtifacts": false
+                  }
+                }
+              },
+              "--",
+              "--profile",
+              "dev",
+              "--locked"
+            ]
+          }
+        ],
+        "install": {
+          "kind": "tauri-authenticode",
+          "productName": "RkE2E",
+          "manifestPath": "src-tauri/Cargo.toml",
+          "targetTriple": "x86_64-pc-windows-msvc",
+          "expectedInstalledPath": "{{localAppData}}/RkE2E/rke2e.exe",
+          "sidecars": [
+            "rke2e-engine.exe"
+          ]
+        }
+      },
+      "mac": {
+        "build": [
+          {
+            "cmd": "right-release",
+            "args": [
+              "stage-sidecar",
+              "--target",
+              "aarch64-apple-darwin"
+            ]
+          },
+          {
+            "cmd": "pnpm",
+            "args": [
+              "exec",
+              "tauri",
+              "build",
+              "--target",
+              "aarch64-apple-darwin",
+              "--bundles",
+              "app",
+              "--no-sign",
+              "--config",
+              {
+                "$json": {
+                  "bundle": {
+                    "createUpdaterArtifacts": false,
+                    "macOS": {
+                      "signingIdentity": "-"
+                    }
+                  }
+                }
+              },
+              "--",
+              "--profile",
+              "dev",
+              "--locked"
+            ]
+          }
+        ],
+        "install": {
+          "kind": "tauri-devid",
+          "productName": "RkE2E",
+          "destination": "/Applications/RkE2E.app",
+          "manifestPath": "src-tauri/Cargo.toml",
+          "targetTriple": "aarch64-apple-darwin"
+        }
+      }
+    }
+  },
+  "targets": {
+    "mac": {
+      "signed": true,
+      "signingContract": "macos-developer-id-notarized-portable-v1",
+      "macPackage": {
+        "triple": "aarch64-apple-darwin",
+        "cargoTargetRoot": "Cargo.toml",
+        "updater": true,
+        "prepare": [
+          {
+            "cmd": "right-release",
+            "args": [
+              "stage-sidecar",
+              "--target",
+              "aarch64-apple-darwin"
+            ]
+          }
+        ]
+      },
+      "notarize": {
+        "app": "target/aarch64-apple-darwin/release/bundle/macos/RkE2E.app",
+        "file": "RkE2E_{{version}}_aarch64.dmg",
+        "profile": "apple-dev-notary"
+      },
+      "artifacts": [
+        "RkE2E_{{version}}_aarch64.dmg"
+      ],
+      "hardening": [
+        "RkE2E_{{version}}_aarch64.dmg"
+      ],
+      "publish": {
+        "cmd": "right-release",
+        "args": [
+          "publish-update",
+          "--config",
+          "right-release.config.json",
+          "--platform",
+          "mac"
+        ]
+      },
+      "installer": {
+        "artifacts": [
+          {
+            "file": "RkE2E_{{version}}_aarch64.dmg",
+            "key": "rke2e/installers/mac/current/RkE2E_aarch64.dmg"
+          }
+        ]
+      },
+      "updater": {
+        "artifacts": [
+          {
+            "file": "RkE2E.app.tar.gz",
+            "signature": "RkE2E.app.tar.gz.sig",
+            "platform": "darwin-aarch64",
+            "key": "rke2e/updates/mac/current/RkE2E.app.tar.gz"
+          }
+        ]
+      }
+    },
+    "win": {
+      "signed": true,
+      "winPackage": {
+        "installer": "nsis",
+        "productName": "RkE2E",
+        "updater": true,
+        "cargoTargetRoot": "Cargo.toml",
+        "prepare": [
+          {
+            "cmd": "right-release",
+            "args": [
+              "stage-sidecar",
+              "--target",
+              "x86_64-pc-windows-msvc"
+            ]
+          }
+        ]
+      },
+      "sign": {
+        "prePackageFiles": [
+          "target/x86_64-pc-windows-msvc/release/rke2e.exe"
+        ],
+        "files": [
+          "target/x86_64-pc-windows-msvc/release/bundle/nsis/RkE2E_{{version}}_x64-setup.exe"
+        ]
+      },
+      "artifacts": [
+        "target/x86_64-pc-windows-msvc/release/bundle/nsis"
+      ],
+      "hardening": [
+        "target/x86_64-pc-windows-msvc/release/bundle/nsis"
+      ],
+      "publish": {
+        "cmd": "right-release",
+        "args": [
+          "publish-update",
+          "--config",
+          "right-release.config.json",
+          "--platform",
+          "win"
+        ]
+      },
+      "installer": {
+        "artifacts": [
+          {
+            "file": "target/x86_64-pc-windows-msvc/release/bundle/nsis/RkE2E_{{version}}_x64-setup.exe",
+            "key": "rke2e/installers/windows/current/RkE2E_x64-setup.exe"
+          }
+        ]
+      },
+      "updater": {
+        "artifacts": [
+          {
+            "file": "target/x86_64-pc-windows-msvc/release/bundle/nsis/RkE2E_{{version}}_x64-setup.exe",
+            "signature": "target/x86_64-pc-windows-msvc/release/bundle/nsis/RkE2E_{{version}}_x64-setup.exe.sig",
+            "platform": "windows-x86_64",
+            "key": "rke2e/updates/windows/current/RkE2E_x64-setup.exe"
+          }
+        ]
+      }
+    }
+  },
+  "legal": {
+    "manifest": "legal/legal-manifest.json",
+    "tauriConfig": "src-tauri/tauri.conf.json",
+    "npmNotices": {
+      "output": "legal/THIRD_PARTY_NPM_LICENSES.html",
+      "productName": "RkE2E",
+      "exclude": [
+        "@rightkit/"
+      ]
+    }
+  },
+  "qa": {
+    "version": "1",
+    "config": "rightkit-qa.toml",
+    "checks": {
+      "smoke.launch": [
+        "app.launch"
+      ]
+    },
+    "journeys": {}
+  }
+}

@@ -1998,6 +1998,12 @@ export async function stageSidecars({ appRoot, manifest, target, cacheRoot, deps
   };
   validateStageSidecarReceipt(receipt, { target: plan.target.triple });
   const receiptFile = path.resolve(appRoot, plan.receiptPath);
+  // A receipt that would differ only in `stagedAt` is kept as it is: staging the same target again with the same results (the gate staged it
+  // first in a split, rightkit-gate stageSidecarsOnce) leaves every byte unchanged, so the gate's stage ledger sees no change to its staged outputs.
+  const sameAs = (old) => { const { stagedAt: _a, ...a } = old; const { stagedAt: _b, ...b } = receipt; return JSON.stringify(a) === JSON.stringify(b); };
+  let previous = null;
+  try { previous = JSON.parse(fs.readFileSync(receiptFile, "utf8")); } catch { previous = null; }
+  if (previous && sameAs(previous)) return { receipt: previous, receiptPath: receiptFile, files: previous.files, externalBinNames: previous.files.filter((file) => file.externalBin).map((file) => file.name), unchanged: true };
   fs.mkdirSync(path.dirname(receiptFile), { recursive: true });
   fs.writeFileSync(receiptFile, `${JSON.stringify(receipt, null, 2)}\n`);
   return { receipt, receiptPath: receiptFile, files, externalBinNames: files.filter((file) => file.externalBin).map((file) => file.name) };

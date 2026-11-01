@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "_comment": "Advisory exceptions for this Cargo workspace (RightKit class A policy, as ci/advisory-exceptions.json in RightKit). deny.toml and .cargo/audit.toml must match it exactly; approvedBy needs a person.",
+  "exceptions": [
+    {
+      "id": "RUSTSEC-2024-0429",
+      "crate": "glib",
+      "affectedVersions": [
+        "0.18.5"
+      ],
+      "dependents": [
+        "atk 0.18.2",
+        "cairo-rs 0.18.5",
+        "gdk 0.18.2",
+        "gdk-pixbuf 0.18.5",
+        "gdkx11 0.18.2",
+        "gio 0.18.4",
+        "gtk 0.18.2",
+        "javascriptcore-rs 1.1.2",
+        "libappindicator 0.9.0",
+        "pango 0.18.3",
+        "soup3 0.5.0",
+        "webkit2gtk 2.0.2"
+      ],
+      "path": "atk -> glib",
+      "owner": "RK Fable",
+      "rationale": "glib arrives only through tauri's Linux/BSD-gated GTK dependency; RightKit release targets are Windows and macOS only. Invalidated the moment any GTK (Linux or BSD) target ships.",
+      "evidence": "deny.toml [advisories].ignore reason; Cargo.lock reverse dependencies of glib",
+      "reviewBy": "2026-11-22",
+      "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md (RightKit ci/advisory-exceptions.json, same advisory)"
+    },
+    {
+      "id": "RUSTSEC-2023-0071",
+      "crate": "rsa",
+      "affectedVersions": [
+        "0.9.10"
+      ],
+      "dependents": [
+        "rightkit-ownership 0.4.3"
+      ],
+      "path": "rightkit-ownership -> rsa",
+      "owner": "RK Fable",
+      "rationale": "Marvin timing attack applies to RSA private-key operations; rightkit-ownership only parses and exports public keys and verifies signatures, and no RustCrypto RSA private-key operation exists in the workspace.",
+      "evidence": "crates/rightkit-ownership/src/keylog.rs:11-25",
+      "reviewBy": "2026-11-22",
+      "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md; rightkit-ownership 0.4.0 re-checked by RK Fable 2026-10-22: rsa use unchanged (crates/rightkit-ownership/src/keylog.rs public-key parse, size/exponent check and PSS/PKCS1v15 verify only; no private-key operation in the crate); rightkit-ownership 0.4.1 re-checked by RightKit Mac new 2026-10-23: keylog.rs unchanged since 0.4.0 (git diff f893f78d..208dc78f empty for it); 0.4.1 only moves catalog-digest drift to a warning (approval.rs/verdict.rs/evidence.rs/admission.rs), no rsa use added; rsa use remains public-key parse, size/exponent check and PSS/PKCS1v15 verify; rightkit-ownership 0.4.2 re-checked by RightKit Mac new 2026-10-23: catalog JSON entry only (right-suite-api capability), no src change, no rsa use added; carried into e2e-app as a rightkit-ownership consumer (rightkit#1344)"
+    }
+  ]
+}

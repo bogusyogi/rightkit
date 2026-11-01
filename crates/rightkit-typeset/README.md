@@ -38,6 +38,19 @@ Supports Unicode cmap formats 4 & 12, preferring format 12, plus first face of T
 
 `latex` (mitex 0.2.4), `png` (typst-render 0.15.1), `embedded-fonts` (typst-assets). None is on by default. Base dependencies: `typst` and `typst-svg` 0.15.1.
 
+## Consumer requirement: citationberg patch
+
+citationberg 0.7.0 on crates.io pins quick-xml 0.38.4 (RUSTSEC-2026-0194, RUSTSEC-2026-0195). RightKit's fixed copy is
+`vendor/citationberg` (see its VENDORED.md). A `[patch.crates-io]` applies only in the workspace that declares it, so every
+app workspace that links `rightkit-typeset` declares the same patch, pointing at that copy, until upstream ships quick-xml >= 0.41:
+
+```toml
+[patch.crates-io]
+citationberg = { path = "<RightKit>/vendor/citationberg" }
+```
+
+Without it the app's `cargo deny` and `cargo audit` fail on quick-xml 0.38.4. The all-packages sample app (`e2e-app/Cargo.toml`) carries it.
+
 ## Licences
 
 This crate is MIT OR Apache-2.0. Typst, typst-svg, typst-render and mitex are Apache-2.0. No fonts are bundled by default; the `embedded-fonts` feature brings Typst's fonts under their own licences, listed in [THIRD-PARTY.md](THIRD-PARTY.md). A cargo-deny licence run on CI over Typst's full dependency tree is a precondition of the first publish.

@@ -1,0 +1,25 @@
+{
+  "appKey": "rke2e",
+  "productName": "RkE2E",
+  "licensor": "Damned Ventures LLC",
+  "effectiveDate": "2026-10-24",
+  "acceptanceVersion": "rke2e-2026-10-24-v1",
+  "draftAcceptanceVersion": "rke2e-2026-10-24-draft-v1",
+  "sourceRoot": "../legal",
+  "documents": [
+    { "id": "license", "role": "license", "title": "Right Suite Desktop License: Ownership Notice", "version": "1.0", "path": "LICENSE.md", "source": "LICENSE.md", "publicUrl": "https://rke2e.example/legal/license/", "treatment": "agree", "material": true },
+    { "id": "eula", "role": "eula", "title": "Right Suite End User License Agreement", "version": "1.1", "path": "EULA.md", "source": "EULA.md", "publicUrl": "https://rke2e.example/legal/eula/", "treatment": "agree", "material": true },
+    { "id": "acceptable-use", "role": "acceptable_use", "title": "Right Suite Acceptable Use Policy", "version": "1.0", "path": "ACCEPTABLE_USE.md", "source": "ACCEPTABLE_USE.md", "publicUrl": "https://rke2e.example/legal/acceptable-use/", "treatment": "agree", "material": true },
+    { "id": "product-schedule", "role": "product_schedule", "title": "RkE2E Product Schedule", "version": "1", "path": "PRODUCT_SCHEDULE.md", "publicUrl": "https://rke2e.example/legal/product-schedule/", "treatment": "agree", "material": true },
+    { "id": "privacy", "role": "privacy_notice", "title": "RkE2E Privacy Notice", "version": "1", "path": "PRIVACY_NOTICE.md", "publicUrl": "https://rke2e.example/legal/privacy/", "treatment": "acknowledge", "material": false },
+    { "id": "notices", "role": "third_party_notices", "title": "RkE2E Third-Party Notices", "version": "1", "path": "THIRD_PARTY_NOTICES.md", "publicUrl": "https://rke2e.example/legal/notices/", "treatment": "notice", "material": false }
+  ],
+  "appendices": [
+    { "id": "npm", "title": "RkE2E npm third-party licenses", "path": "THIRD_PARTY_NPM_LICENSES.html" }
+  ],
+  "notices": {
+    "template": "NOTICES.template.md",
+    "path": "THIRD_PARTY_NOTICES.md",
+    "hashes": { "lock": "pnpm-lock.yaml", "cargoLock": "Cargo.lock", "npmAppendix": "legal/THIRD_PARTY_NPM_LICENSES.html" }
+  }
+}

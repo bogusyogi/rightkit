@@ -1,0 +1,45 @@
+{
+  "$comment": "What an app generated from this template must still replace or wire before it can ship. Shared capabilities are never placeholders: each one is an exact published pin. packages/release/template-contract.test.mjs fails when a listed marker is gone from its file, when the template carries a placeholder marker that is not listed, and when a declaredOnly owner is wired in source but still listed.",
+  "replace": [
+    {
+      "file": "src-tauri/tauri.conf.json",
+      "marker": "PLACEHOLDER-UPDATE-HOST.invalid",
+      "with": "the app's update manifest URL (the release provider's public host)"
+    },
+    {
+      "file": "src-tauri/tauri.conf.json",
+      "marker": "PLACEHOLDER-REPLACE-WITH-SUITE-UPDATER-PUBKEY",
+      "with": "the suite updater public key, copied from a shipped app (never generate keys); right-release.config.json reads distribution.updaterPublicKey from this file"
+    },
+    {
+      "file": "src-tauri/icons/README.md",
+      "marker": "PLACEHOLDER icons",
+      "with": "the full icon set, from `pnpm exec tauri icon <approved-master.png>` (adds icon.icns); delete this README"
+    },
+    {
+      "file": "legal-snapshot.config.json",
+      "marker": ".example/legal/",
+      "with": "the app's public legal host, then `pnpm exec legal-snapshot`"
+    },
+    {
+      "file": "legal/PRODUCT_SCHEDULE.md",
+      "with": "reviewed product schedule text (refunds, plans), then `pnpm exec legal-snapshot`"
+    },
+    {
+      "file": "legal/PRIVACY_NOTICE.md",
+      "with": "reviewed privacy notice text for what the app actually receives, then `pnpm exec legal-snapshot`"
+    },
+    {
+      "file": "src-tauri/src/services.rs",
+      "marker": "pub const LICENSE: Option<LicenseRegistration> = None;",
+      "with": "the app's registered appKey, licence host and Ed25519 public key (bogusyogi/rightkit#272) for a licensed app; a free app keeps None"
+    },
+    {
+      "file": "assets/brand/brand.json",
+      "with": "the approved palette from /brand <code>, then `pnpm brand:sync`"
+    }
+  ],
+  "declaredOnly": [
+    { "owner": "rightkit-db", "ecosystem": "cargo", "rows": ["M9"], "manifest": "crates/engine/Cargo.toml", "source": "crates/engine/src", "blockedOn": "the engine opens no database until the app has product state" }
+  ]
+}

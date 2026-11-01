@@ -129,6 +129,13 @@ test("[GB-53] a client that reads frames drains every complete frame before it b
   assert.match(drainFrames(`${frame(64)}\n`, limit).error, /exceeds the 64-byte limit/, "a 64-byte body plus its newline is over");
   assert.match(drainFrames(`{"type":"X","p":"${"a".repeat(80)}`, limit).error, /incomplete frame/, "an incomplete frame already at the limit cannot fit it");
   assert.equal(drainFrames("a tool's own very long output line ".repeat(10), limit).error, null, "cargo's output is not a wire frame");
+  // rightkit#1351: `cargo metadata` prints one JSON document per call, megabytes on a Tauri workspace; it is the tool's output, never a frame.
+  const metadata = `{"packages":[${'"a",'.repeat(40)}"z"],"workspace_root":"/w"}`;
+  const kept = drainFrames(`${metadata}\n`, limit);
+  assert.equal(kept.error, null, "a tool's JSON line over the limit is not judged");
+  assert.deepEqual(kept.frames, [metadata], "and is kept whole");
+  assert.match(drainFrames(`{"bytes":1,"type":"JOB_EVENT","p":"${"a".repeat(80)}"}\n`, limit).error, /exceeds the 64-byte limit/, "a protocol frame is judged wherever its type key sits");
+  assert.equal(drainFrames(`{"type":"not-an-event","p":"${"a".repeat(80)}"}\n`, limit).error, null, "a lower-case type is not a protocol event type");
   assert.equal(drainFrames(`${frame(20)}\n${frame(20)}\n${frame(20)}\n`, limit).frames.length, 3, "several frames in one read");
 });
 

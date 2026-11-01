@@ -9,6 +9,7 @@ const AGENT_BIN = /(?:\.rightkit-managed|rightkitmanagedagent|rightkit[/\\]build
 export function unmanagedEnv(base = process.env, extra = {}) {
   const env = { ...base };
   delete env.RIGHTKIT_BUILD_BROKER_SOCKET;
+  delete env.RUSTRIGHT_BUILD_BROKER_SOCKET;
   for (const key of Object.keys(env)) {
     if (key.toUpperCase() !== "PATH") continue;
     env[key] = String(env[key] ?? "").split(path.delimiter).filter((entry) => !AGENT_BIN.test(entry)).join(path.delimiter);

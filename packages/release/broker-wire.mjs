@@ -33,11 +33,22 @@ export function overCapProblem(event) {
   return null;
 }
 
+/** The broker's event types are upper-case words (`RESULT`, `JOB_EVENT`, `FRAME_OVER_CAP`, ...). */
+const PROTOCOL_TYPE = /^[A-Z][A-Z0-9_]*$/;
+
+/** Whether one line body is a broker protocol frame: a JSON object whose `type` is a protocol event type. */
+function isProtocolFrame(body) {
+  try {
+    const value = JSON.parse(body);
+    return value !== null && typeof value === "object" && !Array.isArray(value) && typeof value.type === "string" && PROTOCOL_TYPE.test(value.type);
+  } catch { return false; }
+}
+
 /**
  * Parses captured client output as RustRight's client reads the wire: every complete newline-terminated frame is drained and checked against the limit FIRST, and
  * only then is the one incomplete frame still waiting for its newline bounded (a frame already at the limit without a newline cannot fit it). A limit-sized frame
  * followed by the start of the next one in the same read is valid. Returns `{ frames: [text], overCap: [event], error: string | null }`; lines that are not JSON
- * objects (cargo's own output) are kept as frames and never judged.
+ * objects with a protocol `type` (cargo's own output, JSON included) are kept as frames and never judged.
  */
 export function drainFrames(text, limit = MAX_BROKER_LINE_BYTES) {
   const frames = []; const overCap = [];
@@ -47,8 +58,9 @@ export function drainFrames(text, limit = MAX_BROKER_LINE_BYTES) {
     if (at < 0) break;
     const line = rest.subarray(0, at + 1);
     rest = rest.subarray(at + 1);
-    const protocolLike = line[0] === 0x7b; // `{`: a protocol frame; a tool's own long output line is not a wire frame and is never judged here
-    if (protocolLike && line.length > limit) return { frames, overCap, error: `a frame of ${line.length} bytes (newline included) exceeds the ${limit}-byte limit` };
+    // Only a protocol frame is judged: a JSON object whose `type` names a protocol event. A tool's own output line is never a wire frame, even when it is
+    // JSON: `cargo metadata` prints its whole document as one `{"packages":...}` line, megabytes on a large workspace (rightkit#1351).
+    if (line.length > limit && line[0] === 0x7b && isProtocolFrame(line.subarray(0, line.length - 1).toString("utf8"))) return { frames, overCap, error: `a frame of ${line.length} bytes (newline included) exceeds the ${limit}-byte limit` };
     const body = line.subarray(0, line.length - 1).toString("utf8");
     frames.push(body);
     if (body.startsWith("{")) { try { const event = JSON.parse(body); if (overCapProblem(event)) overCap.push(event); } catch { /* not a protocol frame */ } }

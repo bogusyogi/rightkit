@@ -1,0 +1,57 @@
+name = "app launch: hidden window, supervised engine"
+tier = "fast"
+target = "ui"
+
+[[step]]
+kind = "ui_launch"
+mode = "hidden"
+env = { RKE2E_ENGINE_BIN = "${engine}" }
+  [[step.expect]]
+  path = "health.ok"
+  eq = true
+
+# First run on isolated data: the legal gate comes first (J-003 covers what it records).
+[[step]]
+kind = "ui_wait_eval"
+label = "the first-run legal gate is shown"
+js = "return document.querySelector('[data-testid=\"onboarding-legal\"] .rk-legal-gate__agree') !== null;"
+
+[[step]]
+kind = "ui_click"
+label = "eligibility: individual"
+selector = "input[name=\"rk-legal-gate-eligibility\"][value=\"individual\"]"
+
+[[step]]
+kind = "ui_click"
+label = "tick the agreement"
+selector = ".rk-legal-gate__checkbox-row input"
+
+[[step]]
+kind = "ui_click"
+label = "agree"
+selector = ".rk-legal-gate__agree"
+
+[[step]]
+kind = "ui_wait_eval"
+label = "setup shows its finish step"
+js = "return document.querySelector('[data-testid=\"onboarding\"] footer button:last-child') !== null;"
+
+[[step]]
+kind = "ui_click"
+label = "finish setup"
+selector = "[data-testid=\"onboarding\"] footer button:last-child"
+
+[[step]]
+kind = "ui_wait_eval"
+label = "the native platform is rendered"
+js = "return (document.querySelector('[data-testid=\"platform\"]')?.textContent ?? '').length > 0;"
+
+[[step]]
+kind = "ui_click"
+label = "run the engine doctor from the window"
+selector = "[data-testid=\"run-doctor\"]"
+
+[[step]]
+kind = "ui_wait_eval"
+label = "the supervised engine answered"
+js = "return (document.querySelector('[data-testid=\"doctor\"]')?.textContent ?? '').includes('rke2e-engine');"
