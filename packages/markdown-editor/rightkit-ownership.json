@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/markdown-editor",
+  "capabilities": [
+    {
+      "capability": "markdown-editor",
+      "summary": "Markdown and MDX editor: ProseMirror WYSIWYG, source mode, math, diagrams and properties panel.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

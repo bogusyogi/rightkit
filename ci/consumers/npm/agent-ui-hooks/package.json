@@ -1,0 +1,15 @@
+{
+  "name": "rightkit-agent-ui-hooks-root-export-consumer",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.16.1",
+  "scripts": {
+    "qualify": "node consumer.mjs"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "@rightkit/app-update": "0.4.2",
+    "@rightkit/react-shell": "0.7.2"
+  }
+}

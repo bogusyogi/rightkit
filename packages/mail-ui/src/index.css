@@ -1,0 +1,21 @@
+@layer theme, components, utilities;
+@import "tailwindcss/theme.css" layer(theme) theme(static);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@import './styles/index-01.css';
+@import './styles/index-02.css';
+@import './styles/index-03.css';
+@import './styles/index-04.css';
+@import './styles/index-05.css';
+@import './styles/index-06.css';
+@import './styles/index-07.css';
+@import './styles/index-08.css';
+@import './styles/index-09.css';
+@import './styles/index-10.css';
+@import './styles/index-11.css';
+@import './styles/index-12.css';
+@import './styles/index-13.css';
+@import './styles/index-14.css';
+@import './styles/index-15.css';
+@import './styles/index-16.css';
+@import './styles/index-17.css';

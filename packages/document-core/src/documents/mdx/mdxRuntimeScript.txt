@@ -1,0 +1,584 @@
+(() => {
+  const sessionId = "__VR_SESSION_ID__";
+  const parentTarget = "*";
+  const compiledType = "__VR_MDX_COMPILED__";
+  const linkType = "__VR_MDX_LINK__";
+  const runtimeErrorType = "__VR_MDX_RUNTIME_ERROR__";
+  const heightType = "__VR_MDX_HEIGHT__";
+  const findOpenType = "__VR_MDX_FIND_OPEN__";
+  const findType = "__VR_MDX_FIND__";
+  const stepType = "__VR_MDX_FIND_STEP__";
+  const clearType = "__VR_MDX_FIND_CLEAR__";
+  const resultType = "__VR_MDX_FIND_RESULT__";
+  const printType = "__VR_MDX_PRINT__";
+  const printContentType = "__VR_MDX_PRINT_CONTENT__";
+  const themeType = "__VR_MDX_THEME__";
+
+  const MARK_CLASS = "__vr_find";
+  const ACTIVE_CLASS = "__vr_find_active";
+  const Fragment = Symbol("vr-mdx-fragment");
+  let rootEl = null;
+  let entryId = null;
+  let moduleGraph = {};
+  const moduleCache = new Map();
+
+  function jsx(type, props, key) {
+    const nextProps = props ? {...props} : {};
+    if (key !== undefined) nextProps.key = key;
+    return {__vrVNode: true, type, props: nextProps};
+  }
+
+  const jsxs = jsx;
+  const jsxDEV = jsx;
+
+  function createElement(type, props, ...children) {
+    const nextProps = props ? {...props} : {};
+    if (children.length === 1) nextProps.children = children[0];
+    else if (children.length > 1) nextProps.children = children;
+    return {__vrVNode: true, type, props: nextProps};
+  }
+
+  function postRuntimeError(err, fallbackName) {
+    parent.postMessage(
+      {
+        type: runtimeErrorType,
+        sessionId,
+        name: err && err.name ? err.name : fallbackName,
+        message: err && err.message ? err.message : String(err),
+        stack: err && err.stack ? err.stack : undefined,
+      },
+      parentTarget,
+    );
+  }
+
+  function normalizeChildren(value) {
+    if (value == null || value === false || value === true) return [];
+    return Array.isArray(value) ? value.flatMap(normalizeChildren) : [value];
+  }
+
+  function appendChildren(target, children) {
+    for (const child of normalizeChildren(children)) {
+      target.appendChild(renderNode(child));
+    }
+  }
+
+  function styleObjectToCssText(style) {
+    return Object.entries(style)
+      .map(([key, value]) => {
+        const cssKey = key.replace(/[A-Z]/g, (match) => "-" + match.toLowerCase());
+        return value == null ? "" : cssKey + ":" + String(value);
+      })
+      .filter(Boolean)
+      .join(";");
+  }
+
+  function applyProps(el, props) {
+    for (const [name, value] of Object.entries(props || {})) {
+      if (name === "children" || name === "key" || value == null || value === false) continue;
+      if (name === "className") {
+        el.setAttribute("class", String(value));
+        continue;
+      }
+      if (name === "htmlFor") {
+        el.setAttribute("for", String(value));
+        continue;
+      }
+      if (name === "style" && typeof value === "object") {
+        el.setAttribute("style", styleObjectToCssText(value));
+        continue;
+      }
+      if (name === "dangerouslySetInnerHTML" && value && typeof value === "object" && "__html" in value) {
+        el.innerHTML = String(value.__html || "");
+        continue;
+      }
+      if (name.startsWith("on") && typeof value === "function") {
+        el.addEventListener(name.slice(2).toLowerCase(), (event) => {
+          try {
+            value(event);
+          } catch (err) {
+            postRuntimeError(err, "EventHandlerError");
+          }
+        });
+        continue;
+      }
+      if (value === true) {
+        el.setAttribute(name, "");
+        continue;
+      }
+      el.setAttribute(name, String(value));
+    }
+  }
+
+  function renderNode(node) {
+    if (node == null || node === false || node === true) return document.createComment("");
+    if (Array.isArray(node)) {
+      const frag = document.createDocumentFragment();
+      appendChildren(frag, node);
+      return frag;
+    }
+    if (typeof node === "string" || typeof node === "number") {
+      return document.createTextNode(String(node));
+    }
+    if (!node || typeof node !== "object" || !node.__vrVNode) {
+      return document.createTextNode(String(node));
+    }
+
+    const props = node.props || {};
+    if (node.type === Fragment) {
+      const frag = document.createDocumentFragment();
+      appendChildren(frag, props.children);
+      return frag;
+    }
+
+    if (typeof node.type === "function") {
+      return renderNode(node.type(props));
+    }
+
+    if (typeof node.type !== "string") {
+      throw new Error("Unknown component type in MDX preview.");
+    }
+
+    const el = document.createElement(node.type);
+    applyProps(el, props);
+    if (!(props.dangerouslySetInnerHTML && typeof props.dangerouslySetInnerHTML === "object")) {
+      appendChildren(el, props.children);
+    }
+    return el;
+  }
+
+  function calloutTone(type) {
+    switch (String(type || "NOTE").toUpperCase()) {
+      case "TIP":
+      case "IMPORTANT":
+        return "#0c6aa5";
+      case "WARNING":
+        return "#d97706";
+      case "CAUTION":
+        return "#dc2626";
+      default:
+        return "#64748b";
+    }
+  }
+
+  function builtins() {
+    return {
+      Callout(props) {
+        const kind = String(props.type || "NOTE").toUpperCase();
+        const title = props.title || kind;
+        const tone = calloutTone(kind);
+        return jsxs("aside", {
+          className: "vr-mdx-callout",
+          style: {borderLeft: "4px solid " + tone},
+          children: [
+            jsx("div", {className: "vr-mdx-label", children: title}),
+            jsx("div", {children: props.children}),
+          ],
+        });
+      },
+      Stepper(props) {
+        return jsx("ol", {className: "vr-mdx-stepper", children: props.children});
+      },
+      Comparison(props) {
+        return jsx("div", {className: "vr-mdx-grid", children: props.children});
+      },
+      Faq(props) {
+        return jsx("div", {className: "vr-mdx-faq", children: props.children});
+      },
+      RichTable(props) {
+        return jsx("div", {className: "vr-mdx-table-wrap", children: props.children});
+      },
+      Frontmatter(props) {
+        if (props.data && typeof props.data === "object") {
+          const rows = Object.entries(props.data);
+          return jsx("dl", {
+            className: "vr-mdx-frontmatter",
+            children: rows.map(([key, value]) =>
+              jsxs(Fragment, {
+                children: [
+                  jsx("dt", {children: key}),
+                  jsx("dd", {children: typeof value === "string" ? value : JSON.stringify(value)}),
+                ],
+              }),
+            ),
+          });
+        }
+        return jsx("div", {className: "vr-mdx-frontmatter", children: props.children});
+      },
+      CodeBlock(props) {
+        const lang = props.lang || props.language || "text";
+        const code = props.code || props.children || "";
+        return jsxs("div", {
+          className: "vr-mdx-code",
+          children: [
+            jsx("div", {className: "vr-mdx-code-label", children: lang}),
+            jsx("pre", {children: jsx("code", {children: typeof code === "string" ? code : String(code)})}),
+          ],
+        });
+      },
+      MermaidBlock(props) {
+        const code = props.code || props.children || "";
+        return jsxs("pre", {
+          className: "vr-mdx-code",
+          children: [
+            jsx("div", {className: "vr-mdx-code-label", children: "mermaid"}),
+            jsx("code", {children: typeof code === "string" ? code : String(code)}),
+          ],
+        });
+      },
+      Math(props) {
+        const value = props.value || props.children || "";
+        return props.display
+          ? jsx("pre", {className: "vr-mdx-math-block", children: String(value)})
+          : jsx("code", {className: "vr-mdx-math-inline", children: String(value)});
+      },
+    };
+  }
+
+  function resolveModuleId(spec, parentId) {
+    if (typeof spec !== "string") throw new Error("MDX import specifier must be a string.");
+    if (/^https:\/\/viewright\.invalid\//i.test(spec)) return spec;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(spec)) {
+      throw new Error("Blocked external module import: " + spec);
+    }
+    return new URL(spec, parentId).href;
+  }
+
+  function loadModule(spec, parentId) {
+    const moduleId = parentId ? resolveModuleId(spec, parentId) : spec;
+    const cached = moduleCache.get(moduleId);
+    if (cached) return cached.exports;
+    const record = moduleGraph[moduleId];
+    if (!record) throw new Error("Missing contained MDX module: " + moduleId);
+
+    if (record.kind === "cjs") {
+      const module = {exports: {}};
+      moduleCache.set(moduleId, module);
+      try {
+        const require = (childSpec) => loadModule(childSpec, moduleId);
+        const factory = new Function(
+          "exports",
+          "module",
+          "require",
+          "createElement",
+          "Fragment",
+          "jsx",
+          "jsxs",
+          "jsxDEV",
+          record.code,
+        );
+        factory(
+          module.exports,
+          module,
+          require,
+          createElement,
+          Fragment,
+          jsx,
+          jsxs,
+          jsxDEV,
+        );
+        return module.exports;
+      } catch (err) {
+        moduleCache.delete(moduleId);
+        throw err;
+      }
+    }
+
+    const module = {exports: {}};
+    moduleCache.set(moduleId, module);
+    try {
+      const require = (childSpec) => loadModule(childSpec, moduleId);
+      const factory = new Function(record.code);
+      module.exports = factory(
+        {Fragment, jsx, jsxs, jsxDEV},
+        require,
+      );
+      return module.exports;
+    } catch (err) {
+      moduleCache.delete(moduleId);
+      throw err;
+    }
+  }
+
+  function renderEntry() {
+    if (!rootEl) rootEl = document.getElementById("root");
+    if (!rootEl || !entryId) return;
+    const mod = loadModule(entryId, null);
+    const Content = mod && (mod.default || mod.MDXContent);
+    if (typeof Content !== "function") {
+      throw new Error("Compiled MDX did not export a default component.");
+    }
+    const tree = jsx(Content, {components: builtins()});
+    rootEl.replaceChildren(renderNode(tree));
+    reportHeight();
+  }
+
+  function injectMarkStyle() {
+    if (document.getElementById("__vr_find_style__")) return;
+    const s = document.createElement("style");
+    s.id = "__vr_find_style__";
+    s.textContent =
+      "." + MARK_CLASS + "{background-color:rgba(12,106,165,.40);border-radius:2px;}" +
+      "." + ACTIVE_CLASS + "{background-color:#0c6aa5;color:#fff;border-radius:2px;}";
+    document.head.appendChild(s);
+  }
+
+  let matches = [];
+  let markGroups = [];
+  let nodeIndex = [];
+  let active = -1;
+
+  const isWordChar = (ch) => !!ch && /[\p{L}\p{N}_]/u.test(ch);
+
+  function buildIndex() {
+    nodeIndex = [];
+    const root = document.body || document.documentElement;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(n) {
+        const p = n.parentNode;
+        if (!p) return NodeFilter.FILTER_REJECT;
+        const tag = p.nodeName;
+        if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT" || tag === "TITLE") return NodeFilter.FILTER_REJECT;
+        if (!n.nodeValue || n.nodeValue.length === 0) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    let offset = 0;
+    let text = "";
+    let n;
+    while ((n = walker.nextNode())) {
+      const value = n.nodeValue || "";
+      const len = value.length;
+      nodeIndex.push({node: n, start: offset, end: offset + len});
+      offset += len;
+      text += value;
+    }
+    return text;
+  }
+
+  function compute(text, q, opts) {
+    if (!q) return [];
+    const matchCase = !!opts.matchCase;
+    const wholeWord = !!opts.wholeWord;
+    const haystack = matchCase ? text : text.toLocaleLowerCase();
+    const needle = matchCase ? q : q.toLocaleLowerCase();
+    const out = [];
+    let pos = haystack.indexOf(needle);
+    while (pos !== -1) {
+      const end = pos + q.length;
+      const before = text[pos - 1];
+      const after = text[end];
+      if (!wholeWord || (!isWordChar(before) && !isWordChar(after))) out.push({start: pos, end});
+      pos = haystack.indexOf(needle, pos + Math.max(1, needle.length));
+    }
+    return out;
+  }
+
+  function clearMarks() {
+    for (const grp of markGroups) {
+      for (const span of grp) {
+        const parent = span.parentNode;
+        if (!parent) continue;
+        while (span.firstChild) parent.insertBefore(span.firstChild, span);
+        parent.removeChild(span);
+        parent.normalize();
+      }
+    }
+    markGroups = [];
+  }
+
+  function wrapRange(start, end) {
+    const groups = [];
+    for (let i = nodeIndex.length - 1; i >= 0; i--) {
+      const seg = nodeIndex[i];
+      if (seg.end <= start || seg.start >= end) continue;
+      const ls = Math.max(0, start - seg.start);
+      const le = Math.min(seg.node.nodeValue.length, end - seg.start);
+      let node = seg.node;
+      if (seg.node.nodeValue.length > le) node.splitText(le);
+      if (ls > 0) node = node.splitText(ls);
+      const span = document.createElement("span");
+      span.className = MARK_CLASS;
+      const parent = node.parentNode;
+      parent.insertBefore(span, node);
+      span.appendChild(node);
+      groups.unshift(span);
+    }
+    return groups;
+  }
+
+  function setActive(idx) {
+    for (let g = 0; g < markGroups.length; g++) {
+      for (const span of markGroups[g]) {
+        span.className = g === idx ? MARK_CLASS + " " + ACTIVE_CLASS : MARK_CLASS;
+      }
+    }
+    if (idx >= 0 && markGroups[idx] && markGroups[idx][0] && markGroups[idx][0].scrollIntoView) {
+      markGroups[idx][0].scrollIntoView({block: "center"});
+    }
+  }
+
+  function applyMatches() {
+    injectMarkStyle();
+    markGroups = matches.map((m) => wrapRange(m.start, m.end));
+    if (active >= 0) setActive(active);
+  }
+
+  function respond(requestId) {
+    parent.postMessage(
+      {type: resultType, sessionId, requestId, count: matches.length, activeIndex: active},
+      parentTarget,
+    );
+  }
+
+  function anchorFrom(event) {
+    return event.target && event.target.closest ? event.target.closest("a[href]") : null;
+  }
+
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (event.defaultPrevented || event.button !== 0) return;
+      const anchor = anchorFrom(event);
+      if (!anchor) return;
+      const href = anchor.getAttribute("href") || "";
+      if (!href) return;
+      if (href.charAt(0) === "#") {
+        event.preventDefault();
+        const id = decodeURIComponent(href.slice(1));
+        if (!id) {
+          window.scrollTo({top: 0});
+          return;
+        }
+        let target = document.getElementById(id);
+        if (!target) {
+          try {
+            target = document.querySelector('[name="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+          } catch (_) {
+            target = null;
+          }
+        }
+        if (target && target.scrollIntoView) target.scrollIntoView();
+        return;
+      }
+      event.preventDefault();
+      parent.postMessage({type: linkType, sessionId, href, newTab: !!(event.metaKey || event.ctrlKey)}, parentTarget);
+    },
+    true,
+  );
+
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key || "").toLowerCase() === "f") {
+        e.preventDefault();
+        parent.postMessage({type: findOpenType, sessionId}, parentTarget);
+      }
+    },
+    true,
+  );
+
+  let lastReportedHeight = -1;
+  function reportHeight() {
+    const h = Math.max(
+      document.documentElement.scrollHeight,
+      document.body ? document.body.scrollHeight : 0,
+    );
+    if (h === lastReportedHeight) return; // unchanged — don't wake the parent for nothing
+    lastReportedHeight = h;
+    parent.postMessage({type: heightType, sessionId, height: h}, parentTarget);
+  }
+
+  if (typeof ResizeObserver !== "undefined" && document.documentElement) {
+    const observer = new ResizeObserver(reportHeight);
+    observer.observe(document.documentElement);
+    window.addEventListener("pagehide", () => observer.disconnect());
+  } else {
+    // Fallback for engines without ResizeObserver. Poll once a second until the height has been
+    // unchanged for three ticks, then stop; pagehide clears it too. Never a forever-interval.
+    window.addEventListener("load", reportHeight);
+    let stableTicks = 0;
+    const poll = setInterval(() => {
+      const before = lastReportedHeight;
+      reportHeight();
+      stableTicks = lastReportedHeight === before ? stableTicks + 1 : 0;
+      if (stableTicks >= 3) clearInterval(poll);
+    }, 1000);
+    window.addEventListener("pagehide", () => clearInterval(poll));
+  }
+
+  // Parent-resolved app theme colors arrive as --vr-* custom properties. Only well-formed names
+  // are applied, so a malformed message cannot inject arbitrary CSS.
+  function applyTheme(vars) {
+    const root = document.documentElement;
+    for (const name of Object.keys(vars)) {
+      if (/^--vr-[a-z-]+$/.test(name) && typeof vars[name] === "string") {
+        root.style.setProperty(name, vars[name]);
+      }
+    }
+  }
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== parent) return;
+    const data = event.data;
+    if (!data || data.sessionId !== sessionId) return;
+    switch (data.type) {
+      case compiledType:
+        if (typeof data.entryId === "string" && data.modules && typeof data.modules === "object") {
+          try {
+            entryId = data.entryId;
+            moduleGraph = data.modules;
+            moduleCache.clear();
+            renderEntry();
+          } catch (err) {
+            if (!rootEl) rootEl = document.getElementById("root");
+            if (rootEl) {
+              rootEl.replaceChildren(
+                renderNode(
+                  jsx("pre", {
+                    className: "vr-mdx-runtime-error",
+                    "data-vr-runtime-error": "1",
+                    children: err && err.message ? err.message : String(err),
+                  }),
+                ),
+              );
+            }
+            postRuntimeError(err, "MdxRuntimeError");
+          }
+        }
+        break;
+      case themeType:
+        if (data.vars && typeof data.vars === "object") applyTheme(data.vars);
+        break;
+      case findType: {
+        clearMarks();
+        const text = buildIndex();
+        matches = compute(text, data.query || "", {matchCase: !!data.matchCase, wholeWord: !!data.wholeWord});
+        active = matches.length ? 0 : -1;
+        applyMatches();
+        respond(data.requestId);
+        break;
+      }
+      case stepType: {
+        const n = matches.length;
+        const next = n ? (((active + (data.delta | 0)) % n) + n) % n : -1;
+        active = next;
+        setActive(active);
+        respond(data.requestId);
+        break;
+      }
+      case clearType:
+        clearMarks();
+        matches = [];
+        active = -1;
+        break;
+      case printType:
+        // Don't print this frame directly: it's pinned to the on-screen content-pane box, so
+        // window.print() here would paginate against that fixed viewport, not the document's full
+        // height. Send the rendered markup back to the parent, which prints it in-flow.
+        try {
+          parent.postMessage({ type: printContentType, sessionId: sessionId, html: document.documentElement.outerHTML }, parentTarget);
+        } catch (e) {}
+        break;
+    }
+  });
+})();

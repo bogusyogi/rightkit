@@ -1,0 +1,467 @@
+/* Titlebar tab strip (src/app/tabs/) — horizontal open-document tabs fused into the
+   titlebar chrome. Rendered inside the Toolbar's .vr-chrome header, so the shared tokens
+   already map to the CHROME palette (index.css .vr-chrome: --panel = --chrome,
+   --panel-2 = --chrome-2, --ink = --chrome-hover, --paper = --chrome-paper,
+   --muted = --chrome-muted, --line = --chrome-line; --copper = accent). The ACTIVE tab
+   takes --reader-surface/--reader-text instead so it reads as the top edge of the page.
+   Visual reference: docs/design/viewright-tabs-explorer.html (.tabbar/.tabs/.tab/.newtab/
+   .overview/.pop); the brief's behaviour notes win where they differ. */
+
+/* Strip root: fills the Toolbar's middle stretch, bottom-aligned so tabs end flush with
+   the header's bottom edge (the active tab visually fuses into the page). Empty regions
+   carry data-tauri-drag-region so they still drag the window. */
+.vr-tabstrip {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  min-width: 0;
+}
+
+/* Collapsed sidebar on macOS: the 52px rail is narrower than the traffic lights, so this
+   spacer keeps the first strip control clear of them. */
+.vr-tabstrip-lead-lights {
+  flex: none;
+  width: 30px;
+  align-self: stretch;
+}
+
+/* Horizontal scroller holding the tablist (a display:contents inner div carries the
+   role). It shrinks to its tabs, so the "+" after it follows the last tab, and caps at the
+   room available, scrolling beyond that. Edges with hidden tabs fade (data attributes
+   set by TabStrip), so no tab is ever sliced against a neighbouring control. */
+.vr-tabs {
+  display: flex;
+  align-items: flex-end;
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  /* 12px each side holds the active tab's fuse curves, which extend 12px past the tab, so
+     they never count as overflow. */
+  padding: 0 12px;
+  --vr-fade-start: #000;
+  --vr-fade-end: #000;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    var(--vr-fade-start) 0,
+    #000 28px,
+    #000 calc(100% - 28px),
+    var(--vr-fade-end) 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    var(--vr-fade-start) 0,
+    #000 28px,
+    #000 calc(100% - 28px),
+    var(--vr-fade-end) 100%
+  );
+}
+.vr-tabs[data-vr-scrolled] {
+  --vr-fade-start: transparent;
+}
+.vr-tabs[data-vr-more-end] {
+  --vr-fade-end: transparent;
+}
+.vr-tabs::-webkit-scrollbar {
+  display: none;
+}
+/* The ARIA tablist is display:contents — the scroller stays the flex container. */
+.vr-tabs-list {
+  display: contents;
+}
+
+/* ── Tab ────────────────────────────────────────────────────────────────── */
+.vr-tab {
+  position: relative;
+  /* An explicit width (not just flex-basis) so the shrink-to-fit scroller sizes itself from
+     220px tabs rather than from each tab's text. */
+  flex: 0 1 auto;
+  width: 220px;
+  min-width: 104px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px 0 11px;
+  border-radius: 10px 10px 0 0;
+  /* Muted but readable: a step toward --paper from the raw chrome-muted token. */
+  color: color-mix(in srgb, var(--muted) 72%, var(--paper));
+  white-space: nowrap;
+  font-family: var(--app-font);
+  font-size: var(--vr-text-sm);
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* Hover lifts an inactive tab into a floating chip (mockup .tab:not(.active):hover). */
+.vr-tab:not(.vr-tab-active):hover {
+  background: var(--ink);
+  border-radius: 9px;
+  height: 34px;
+  margin-bottom: 3px;
+  color: var(--paper);
+}
+/* Quiet hairline between adjacent inactive tabs, hidden next to the active or a
+   hovered tab (mockup .tab + .tab::before). */
+.vr-tab + .vr-tab:not(.vr-tab-active)::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 11px;
+  bottom: 11px;
+  width: 1px;
+  /* The chrome line token is nearly invisible on dark chrome; derive the divider from the
+     muted text colour so adjacent tabs read as separate in every theme. */
+  background: color-mix(in srgb, var(--muted) 62%, transparent);
+}
+.vr-tab-active + .vr-tab::before,
+.vr-tab:hover::before,
+.vr-tab:hover + .vr-tab::before {
+  opacity: 0;
+}
+/* The active tab is reader-surface (fuses into the page — the concave corner curves
+   are the TabFuseCurves SVG children). Its min-width relaxes so it can still shrink
+   on very narrow windows (mockup .tab.active). */
+.vr-tab-active {
+  background: var(--reader-surface);
+  color: var(--reader-text);
+  z-index: 2;
+  min-width: min(170px, 30%);
+}
+.vr-tab:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--copper);
+}
+.vr-tab-dragging {
+  opacity: 0.55;
+  transform: scale(0.99);
+}
+
+/* Format badge tile (FileTypeIcon paints the badge itself; the span just keeps it
+   from shrinking under pressure). */
+.vr-tab-ficon {
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+
+/* The name fades at its right edge (mask), never ellipsis — the fade leaves room for
+   the overlaid close affordance on inactive tabs. */
+.vr-tab-name {
+  overflow: hidden;
+  text-overflow: clip;
+  flex: 1;
+  min-width: 0;
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent);
+}
+
+/* Dirty marker — the copper dot (mockup .dot / sidebar data-vr-tab-dirty-indicator). */
+.vr-tab-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--copper);
+  flex: none;
+}
+/* On inactive tabs the dot overlays the name's faded end instead of reserving width;
+   right:14px centers it where the 24px hover × will appear. */
+.vr-tab:not(.vr-tab-active) .vr-tab-dot {
+  position: absolute;
+  right: 14px;
+}
+.vr-tab:not(.vr-tab-dirty) .vr-tab-dot,
+.vr-tab-dirty:hover .vr-tab-dot {
+  display: none;
+}
+
+/* Close ×: always visible (in flow) on the active tab; on inactive tabs it overlays the
+   name end on hover only, so names keep the full width. */
+.vr-tab-x {
+  /* 24px square — the brief's minimum hit target (icon inside stays 12px). */
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  color: inherit;
+  flex: none;
+  opacity: 0;
+}
+.vr-tab:hover .vr-tab-x,
+.vr-tab-active .vr-tab-x {
+  opacity: 1;
+}
+.vr-tab-x:hover {
+  background: var(--ink);
+}
+.vr-tab-active .vr-tab-x:hover {
+  /* The active tab sits on the reader surface, so the hover ring is the reader line. */
+  background: var(--reader-line);
+}
+.vr-tab:not(.vr-tab-active) .vr-tab-x {
+  position: absolute;
+  right: 6px;
+  display: none;
+  background: var(--ink);
+}
+.vr-tab:not(.vr-tab-active):hover .vr-tab-x,
+.vr-tab:not(.vr-tab-active):focus-within .vr-tab-x {
+  display: grid;
+}
+/* Dirty tabs show the dot instead of × until hovered (mockup .tab.dirty). */
+.vr-tab-dirty:not(:hover):not(:focus-within) .vr-tab-x {
+  display: none;
+}
+
+/* 2px copper insertion marker shown on the drop-target tab while drag-reordering. */
+.vr-tab-dropbar {
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--copper);
+  pointer-events: none;
+  z-index: 4;
+}
+.vr-tab-dropbar[data-pos="before"] {
+  left: -2px;
+}
+.vr-tab-dropbar[data-pos="after"] {
+  right: -2px;
+}
+
+/* ── Strip buttons (overview) ──────────────────── */
+.vr-ov-btn {
+  flex: none;
+  min-width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--muted);
+}
+.vr-ov-btn:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* Empty titlebar space after the tabs: a window-drag region. */
+.vr-tabstrip-fill {
+  flex: 1 1 0;
+  min-width: 12px;
+  align-self: stretch;
+}
+
+/* Tab overview cluster at the strip start, beside the sidebar control. */
+.vr-tabstrip-ov {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  align-self: center;
+  padding: 0 8px 0 4px;
+}
+.vr-ov-btn {
+  width: auto;
+  padding: 0 8px;
+  gap: 3px;
+}
+.vr-ov-btn[aria-expanded="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+.vr-ov-count {
+  font-size: var(--vr-text-xs);
+  font-weight: 600;
+}
+
+/* ── Tab overview popover (⌘⇧A) — brief Part A item 8; mockup .pop ─────────
+   The panel chrome (glass, open/exit animation, Escape + click-outside, focus
+   restore) comes from the shared Popover primitive (.vr-pop); these rules own
+   the popover's contents only. Positioned off .vr-tabstrip (position:relative),
+   dropped just below the header and right-aligned under the overview button. */
+.vr-ov-pop {
+  top: calc(100% + 6px);
+  left: 8px;
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(62vh, 460px);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 8px;
+}
+
+/* Search field — focused on open; narrows by filename AND parent folder. */
+.vr-ov-q {
+  width: 100%;
+  height: 30px;
+  flex: none;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 0 12px;
+  color: var(--paper);
+  font-family: var(--app-font);
+  font-size: var(--vr-text-sm);
+}
+.vr-ov-q::placeholder {
+  color: var(--muted);
+}
+.vr-ov-q:focus-visible {
+  outline: none;
+  border-color: var(--copper);
+}
+
+/* Type chips with counts; zero-count chips aren't rendered. */
+.vr-ov-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: none;
+  margin: 8px 0;
+}
+.vr-ov-chip {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: var(--vr-text-sm);
+  background: var(--panel);
+  color: var(--muted);
+}
+.vr-ov-chip:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+.vr-ov-chip[aria-pressed="true"] {
+  background: var(--paper);
+  color: var(--panel);
+}
+
+/* Scrollable row list — one real focusable <button> per matching tab. */
+.vr-ov-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.vr-ov-empty {
+  padding: 12px 4px;
+  color: var(--muted);
+  font-size: var(--vr-text-sm);
+}
+.vr-ov-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 40px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  text-align: left;
+  color: var(--paper);
+}
+.vr-ov-row:hover {
+  background: var(--ink);
+}
+.vr-ov-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--copper);
+}
+.vr-ov-row-active {
+  background: var(--ink);
+  font-weight: 600;
+}
+.vr-ov-row-ficon {
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+.vr-ov-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.vr-ov-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--vr-text-sm);
+}
+.vr-ov-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--vr-text-xs);
+  color: var(--muted);
+}
+.vr-ov-row-unsaved {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--vr-text-xs);
+  color: var(--copper);
+  white-space: nowrap;
+}
+
+/* Footer — "N of M tabs" always; the bulk Close only while a filter or search
+   narrows the set (label names type + count, "· X unsaved, will ask" when dirty). */
+.vr-ov-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  padding: 8px 4px 2px;
+  font-size: var(--vr-text-sm);
+  color: var(--muted);
+}
+.vr-ov-sum {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vr-ov-close {
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: var(--paper);
+  font-size: var(--vr-text-sm);
+  white-space: nowrap;
+}
+.vr-ov-close:hover {
+  background: var(--ink);
+}
+
+/* ‹ › paging buttons: shown only while tabs overflow; the one with nothing further that way
+   dims. Visibility keys off the scroller's edge flags (set by TabStrip on scroll/resize). */
+.vr-tab-arrow {
+  display: none;
+  flex: none;
+  align-self: center;
+  width: 24px;
+  height: 28px;
+  margin-bottom: 4px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--muted);
+}
+.vr-tab-arrow:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+.vr-tabstrip:has(.vr-tabs[data-vr-scrolled]) .vr-tab-arrow,
+.vr-tabstrip:has(.vr-tabs[data-vr-more-end]) .vr-tab-arrow {
+  display: inline-flex;
+}
+.vr-tabstrip:not(:has(.vr-tabs[data-vr-scrolled])) .vr-tab-arrow-start,
+.vr-tabstrip:not(:has(.vr-tabs[data-vr-more-end])) .vr-tab-arrow-end {
+  opacity: 0.35;
+  pointer-events: none;
+}

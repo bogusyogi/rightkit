@@ -1,0 +1,148 @@
+{
+  "_meta": {
+    "version": "1.1.0",
+    "updated": "2026-07-18",
+    "principle": "The aesthetic preset goes at the END of the prompt as a styling layer. It composes with the camera move + action prompt fragments. Picking the wrong aesthetic for the channel is the #1 failure mode (we picked 'premium' for Puck v3, which is a brand-video aesthetic, not a social-ad aesthetic).",
+    "decision_rule": "If the destination is a paid social feed (Reels, TikTok, YouTube Shorts), pick UGC or lifestyle. If the destination is a brand keynote, product page, or B2B channel, pick premium or cinematic. Brand videos play in showrooms — social ads play next to UGC of someone's lunch.",
+    "category": "video",
+    "subcategory": "aesthetics"
+  },
+  "_brand_defaults": {
+    "DD": {
+      "item_key": "lifestyle",
+      "status": "provisional_from_memory",
+      "seeded_from": "D:\\Claude\\CLAUDE.md DD section + ad_pipeline learnings (premium_product is wrong for social per neuroscience research)",
+      "notes": "Use premium_product ONLY for brand pages / keynotes, never social"
+    },
+    "RH": {
+      "item_key": "lifestyle",
+      "status": "provisional_from_memory",
+      "seeded_from": "D:\\Claude\\CLAUDE.md RH section + D:\\Claude\\SEO\\blog-posts\\rottenhand\\"
+    },
+    "TS": {
+      "item_key": "raw_street",
+      "status": "provisional_from_memory",
+      "seeded_from": "G:\\My Drive\\Toxic Sundae\\Branding\\Brand Identity\\Brand Book.pdf"
+    },
+    "HR": {
+      "item_key": "documentary",
+      "status": "provisional_from_memory",
+      "seeded_from": "D:\\Claude\\heardright\\brand.md (V3 voice command center positioning, locked 2026-05-03)"
+    },
+    "DV": {
+      "item_key": "documentary",
+      "status": "unknown_needs_owner_input",
+      "seeded_from": "no source yet — Damned Ventures founder brand"
+    },
+    "SS": {
+      "item_key": "documentary",
+      "status": "owner_approved",
+      "seeded_from": "D:\\Claude\\CLAUDE.md SS section"
+    }
+  },
+  "items": {
+    "ugc": {
+      "name": "UGC handheld (highest social conversion per 2026 neuroscience)",
+      "use": "Reels / TikTok / YouTube Shorts. Default for any social ad target.",
+      "fragment": "shot on iPhone, handheld with slight natural motion, vertical 9:16, casual lighting, organic feel, NOT polished or cinematic, NOT professional studio, slightly imperfect framing",
+      "feel": "Phone-shot, slightly imperfect, native-to-feed",
+      "lighting": "available natural light or single-source warm light, not studio-lit",
+      "motion_advice": "use handheld_documentary, first_person_pov, follow_behind camera moves",
+      "post_advice": "minimal color grading, leave slight noise, do NOT upscale to perfect",
+      "tags": []
+    },
+    "ugc_street_interview": {
+      "name": "UGC street interview (organic vox-pop format)",
+      "use": "Reels / TikTok — talking-to-camera in a real environment. Sub-pattern of ugc. Best fit: TS (founder counter-culture voice on the street), RH (wearer approached interview-style). Simulates organic street content, not an ad.",
+      "fragment": "street interview style, handheld phone camera with slight instability, subject speaking directly to lens while walking or standing in a casual urban environment, interviewer implied just off-frame, ambient street background, vertical 9:16, organic feel, NOT studio, NOT polished, NOT tripod-stable",
+      "feel": "Vox-pop / man-on-the-street — caught-in-the-moment, native-to-feed",
+      "lighting": "available daylight or storefront/street lighting, mixed color temperatures acceptable",
+      "motion_advice": "use handheld_documentary, over_the_shoulder, follow_behind camera moves",
+      "post_advice": "minimal grade, leave noise and micro-shake, do NOT stabilize to gimbal-smooth",
+      "source": "DYzXTE-scCu / byjoeym (June 2026 IG absorb) — native feed rule: copy organic formats",
+      "tags": ["ugc_subpattern"]
+    },
+    "ugc_try_on": {
+      "name": "UGC try-on (mirror / bedroom haul format)",
+      "use": "Reels / TikTok — person tries on the item with a natural unscripted reaction. Sub-pattern of ugc. Best fit: RH, TS (wearables). NOT applicable to DD (non-wearable EDC). No product packaging visible in frame.",
+      "fragment": "casual try-on video, bedroom or mirror setting, person puts on the garment and reacts naturally, phone propped or handheld at eye level, lived-in room visible in background, vertical 9:16, unscripted feel, NOT studio, NOT staged product packaging, NOT professional model posing",
+      "feel": "Haul / fit-check — a friend showing you what they bought",
+      "lighting": "single warm room light or window daylight, not studio-lit",
+      "motion_advice": "use eye_level_static (propped phone) or handheld_documentary; rack_focus for fabric detail",
+      "post_advice": "minimal color grade, keep mirror/phone realism, do NOT upscale to perfect",
+      "source": "DYzXTE-scCu / byjoeym (June 2026 IG absorb) — native feed rule: copy organic formats",
+      "tags": ["ugc_subpattern"]
+    },
+    "lifestyle": {
+      "name": "Lifestyle (commercial-grade UGC)",
+      "use": "Mid-tier social — DTC product ads where you want polish without losing authenticity",
+      "fragment": "natural daylight, lived-in environment, soft shadows, color graded for warmth, slight cinematic depth, real-world setting",
+      "feel": "Professional-but-relatable, like a magazine spread that moves",
+      "lighting": "soft natural daylight, golden hour preferred, avoid studio rim lights",
+      "motion_advice": "use lateral_track, follow_behind, push_in slow",
+      "post_advice": "subtle color grade, light Topaz upscale OK, keep some grain",
+      "tags": []
+    },
+    "cinematic": {
+      "name": "Cinematic (movie-quality, broad-audience)",
+      "use": "Hero brand videos, launch trailers, premium DTC. NOT default for social.",
+      "fragment": "cinematic 35mm film aesthetic, anamorphic letterbox feel, dramatic key + rim lighting, deep shadows, color graded teal-and-orange or moody monochrome, depth of field with shallow focus",
+      "feel": "Hollywood-trailer language — anamorphic feel, dramatic lighting, scored music",
+      "lighting": "dramatic three-point lighting, hard key + soft fill + rim, deep shadows OK",
+      "motion_advice": "use crane_up, dolly_zoom, slow_push_in, 360_orbit",
+      "post_advice": "heavy color grading, Topaz upscale to 4K, frame interpolation for slo-mo",
+      "tags": []
+    },
+    "premium_product": {
+      "name": "Premium product photography (Apple-keynote vibe)",
+      "use": "Brand pages, premium product detail pages, B2B keynotes. Brand videos NOT social ads.",
+      "fragment": "premium product photography aesthetic, locked camera no movement, slow deliberate reveal, clean studio lighting from upper-left, deep dramatic shadows on dark background, hyperrealistic, 8k product render quality, NOT handheld NOT casual",
+      "feel": "Apple keynote — locked camera, slow reveals, clinical lighting, silent except for product sound design",
+      "lighting": "studio softbox upper-left, deep negative fill on right, accent rim light",
+      "motion_advice": "use static (eye_level_static, low_angle_power, extreme_close_up) or very slow push_in",
+      "post_advice": "minimal color grade (already lit), 4K upscale, ensure pixel-perfect product fidelity",
+      "warning": "This is what we did for Puck v3 — and per neuroscience research it converts WORSE on social than UGC. Reserve for brand pages and keynotes, not feed-targeted ads.",
+      "tags": []
+    },
+    "documentary": {
+      "name": "Documentary (real, raw, observational)",
+      "use": "Founder-story ads, behind-the-scenes content, transparency-driven brands",
+      "fragment": "documentary style cinematography, observational camera, slight handheld, available light, grain visible, no obvious lighting setup, candid feel",
+      "feel": "Vice / Magnolia Network — observational, slightly distant, grain visible",
+      "lighting": "available light only, accept whatever's in the scene",
+      "motion_advice": "use handheld_documentary, follow_behind, over_the_shoulder",
+      "post_advice": "leave grain, minimal color grade, almost no visual polish",
+      "tags": []
+    },
+    "kinetic_typography": {
+      "name": "Kinetic typography (text-led, no live action)",
+      "use": "Quote / stat / announcement reels. Pure text + motion.",
+      "fragment": "kinetic typography animation, bold text reveals, brand color palette, text scale and rotation animations, minimal background, vertical 9:16",
+      "feel": "Modern brand-poster motion — words build, punctuate, exit",
+      "lighting": "n/a",
+      "motion_advice": "n/a — built in Remotion not generated, use this preset for the brief that goes to Remotion",
+      "post_advice": "Remotion native, not AI generated",
+      "tags": []
+    },
+    "anime_stylized": {
+      "name": "Anime / illustrated (stylized non-real)",
+      "use": "Toxic Sundae or any brand with illustrated identity. Avoids uncanny valley entirely.",
+      "fragment": "anime style illustration, hand-drawn aesthetic, bold flat colors, dynamic composition, NOT photorealistic, stylized characters",
+      "feel": "Studio Ghibli / Spider-Verse — clearly illustrated, avoids uncanny",
+      "lighting": "stylized illustrated lighting, no real-world physics required",
+      "motion_advice": "use any — illustrated style hides AI motion artifacts",
+      "post_advice": "minimal — keep the illustrated look intact",
+      "tags": []
+    },
+    "raw_street": {
+      "name": "Raw street / underground (Toxic Sundae, counter-culture brands)",
+      "use": "Counter-culture, streetwear, DIY brand vibes — Toxic Sundae specifically",
+      "fragment": "raw street style, urban environment, gritty texture, fluorescent or sodium lighting, slight underexposure, dynamic handheld energy, anti-corporate aesthetic",
+      "feel": "Skate video, warehouse documentary, unfiltered urban",
+      "lighting": "fluorescent / sodium / streetlight — embrace mixed temperatures",
+      "motion_advice": "use whip_pan, handheld_documentary, fast crash zooms",
+      "post_advice": "high contrast, push the shadows, leave noise",
+      "tags": []
+    }
+  }
+}

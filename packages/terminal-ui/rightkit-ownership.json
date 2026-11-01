@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/terminal-ui",
+  "capabilities": [
+    {
+      "capability": "terminal-ui-components",
+      "summary": "Persistent terminal pane and its React hook.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

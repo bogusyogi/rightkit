@@ -1,0 +1,340 @@
+.ws-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.ws-form input,
+.ws-form textarea {
+  background: var(--ink);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  color: var(--paper);
+  font-family: var(--body);
+  font-size: 13px;
+  padding: 8px 10px;
+  outline: none;
+}
+
+.ws-form input:focus,
+.ws-form textarea:focus {
+  border-color: var(--copper);
+}
+
+.ws-form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ws-form-row span {
+  flex: 0 0 44px;
+}
+
+.ws-form-row input {
+  flex: 1;
+}
+
+.ws-form-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.ws-panel h2 {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 20px;
+  letter-spacing: -0.015em;
+  color: var(--paper);
+  margin-bottom: 14px;
+}
+
+.ws-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.ws-row {
+  display: grid;
+  grid-template-columns: 18px 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 6px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.ws-row:hover {
+  background: var(--panel);
+}
+
+.drive-search,
+.workspace-search,
+.workspace-select {
+  background: var(--panel-2);
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 13px;
+}
+
+.drive-search,
+.workspace-search {
+  min-width: 200px;
+}
+
+.ws-daygroup {
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  padding: 12px 6px 4px;
+}
+
+.ws-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-done {
+  text-decoration: line-through;
+  color: var(--muted-2);
+}
+
+.drive-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+}
+
+.crumb {
+  background: transparent;
+  border: none;
+  color: var(--copper);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.crumb-sep {
+  color: var(--muted-2);
+}
+
+.ws-ic {
+  color: var(--muted-2);
+}
+
+.ws-title {
+  font-size: 13.5px;
+  color: var(--paper);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-sub {
+  font-size: 12px;
+  color: var(--muted-2);
+  white-space: nowrap;
+}
+
+/* ---- Compose button (sidebar) ---- */
+
+/* ---- Compose drawer (bottom-right, Gmail-style) ---- */
+
+.compose {
+  position: fixed;
+  right: 24px;
+  bottom: 0;
+  width: 540px;
+  max-width: calc(100vw - 48px);
+  height: 520px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.45);
+  z-index: 60;
+  animation: popIn 0.14s ease-out;
+}
+
+.compose-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 10px 16px;
+  background: var(--panel-2);
+  border-radius: 10px 10px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--paper);
+}
+
+.compose-fields {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+}
+
+.compose-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.recip-suggest {
+  position: absolute;
+  top: 100%;
+  left: 52px;
+  right: 16px;
+  z-index: 70;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.recip-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.recip-item:hover,
+.recip-item.active {
+  background: var(--panel-2);
+}
+
+.recip-photo {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.recip-init {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.recip-name {
+  color: var(--paper);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.recip-email {
+  color: var(--muted-2);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compose-row .cl {
+  flex: 0 0 36px;
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+.recip-chips {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  cursor: text;
+}
+
+.recip-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--muted-2, #3a3a3a);
+  color: var(--paper);
+  font-size: 12px;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recip-chip-x {
+  background: none;
+  border: none;
+  color: var(--muted, #888);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.recip-chip-x:hover {
+  color: var(--paper);
+}
+
+.recip-input {
+  flex: 1;
+  min-width: 80px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--paper);
+  font-family: var(--body);
+  font-size: 13px;
+}
+
+/* Multi-line settings text: `.rk-input` (the owner skin) is one line high, so a textarea resets the height and
+   sets its own padding and minimum height. Background, focus ring and invalid state stay the owner's. */
+.mr-textarea {
+  height: auto;
+  padding: 8px 10px;
+  width: 100%;
+  min-height: 60px;
+  font-family: var(--body);
+}
+
+.mr-textarea--tall {
+  min-height: 80px;
+}

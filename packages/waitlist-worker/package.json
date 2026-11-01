@@ -1,0 +1,45 @@
+{
+  "name": "@rightkit/waitlist-worker",
+  "version": "0.1.0",
+  "description": "Cloudflare Worker that captures waitlist email signups in KV, rate-limits per IP and sends an optional Resend confirmation email.",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "example",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "sideEffects": false,
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bogusyogi/rightkit.git",
+    "directory": "packages/waitlist-worker"
+  },
+  "packageManager": "pnpm@12.16.1"
+}

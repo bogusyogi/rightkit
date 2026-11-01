@@ -317,9 +317,18 @@ export function writeTscProject({ contentRoot, packageDir, workspace, tmpdir = o
     if (typeof manifest.name !== "string" || path.resolve(dir) === path.resolve(packageDir)) continue;
     const exported = manifest.exports && typeof manifest.exports === "object" ? Object.entries(manifest.exports) : [];
     for (const [sub, target] of exported) {
-      const types = target && typeof target === "object" ? target.types : null;
+      // Types sit on the target, or under one export condition (`development` for a test-only subpath, then `default`).
+      const types = target && typeof target === "object" ? (target.types ?? target.development?.types ?? target.default?.types ?? null) : null;
       const m = typeof types === "string" ? DIST_TYPES.exec(types) : null;
       if (!m) continue;
+      // A subpath pattern (`./*` -> `./dist/*.d.ts`) maps as a TypeScript paths pattern onto the same pattern in src; the sibling
+      // must commit a src directory for it to resolve against.
+      if (sub.includes("*")) {
+        if (!sub.endsWith("*") || (sub.match(/\*/g) ?? []).length !== 1 || (m[1].match(/\*/g) ?? []).length !== 1) throw new Error(`${manifest.name} exports ${sub} with types ${types}: only one trailing * pattern maps to src`);
+        if (!fs.existsSync(path.join(dir, "src"))) throw new Error(`${manifest.name} exports ${sub} with types ${types}, and ${rel}/src does not exist`);
+        paths[`${manifest.name}${sub.slice(1)}`] = [`src/${m[1]}.ts`, `src/${m[1]}.tsx`, `src/${m[1]}/index.ts`, `src/${m[1]}/index.tsx`].map((f) => path.join(dir, f));
+        continue;
+      }
       const source = [`src/${m[1]}.ts`, `src/${m[1]}.tsx`, `src/${m[1]}/index.ts`, `src/${m[1]}/index.tsx`].map((f) => path.join(dir, f)).find((f) => fs.existsSync(f));
       if (!source) throw new Error(`${manifest.name} exports ${sub} with types ${types}, and ${rel}/src has no committed source for it`);
       paths[sub === "." ? manifest.name : `${manifest.name}${sub.slice(1)}`] = [source];

@@ -1,0 +1,21 @@
+.motion .mo-lede{margin-bottom:18px}
+.mo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start}
+.mo-card{display:grid;gap:10px;padding:14px 16px;border-radius:12px;background:var(--panel);box-shadow:0 0 0 .5px var(--line-strong)}
+.mo-card h3{margin:0;font-size:13px;font-weight:600;color:var(--ink-2)}
+.mo-f{display:grid;gap:4px;font-size:12px;color:var(--ink-2)}
+.mo-f input{width:100%}
+.mo-f select{width:100%}
+.mo-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.mo-3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;align-items:end}
+.mo-hint{margin:0;font-size:12px;color:var(--ink-3)}
+.mo-warn{background:var(--warn-soft);color:var(--warn)}
+.mo-approve{display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--ink)}
+.mo-progress{display:grid;gap:4px}
+.mo-progress small{color:var(--ink-3)}
+.mo-bar{height:6px;border-radius:99px;background:var(--fill);overflow:hidden}
+.mo-bar span{display:block;height:100%;background:var(--accent);transition:width .15s linear}
+.mo-msg{margin-top:14px}
+.mo-result{margin-top:14px}
+.mo-media{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.mo-media img,.mo-media video{width:100%;max-height:360px;object-fit:contain;border-radius:8px;background:#000}
+.mo-path{overflow-wrap:anywhere;font:12px ui-monospace,monospace}

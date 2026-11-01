@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/agent-ui-components",
+  "capabilities": [
+    {
+      "capability": "agent-ui-components",
+      "summary": "Coding-agent UI components: app frame, chat, composer, review, panels, delivery, remote and usage.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

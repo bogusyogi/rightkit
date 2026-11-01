@@ -1,0 +1,108 @@
+// RIGHTKIT-PENDING #383: ported version saved in /Volumes/D/scratch/postright/port-wip/full-port.patch
+// Invented hook test sets for the mock: one decided, one open. Brief references, bodies, openings, job ids
+// and pull ids are fictional. Values are invented integers as exact text, as the engine returns them.
+import type { HookTestSet } from "../types";
+import { SCOPE_ALPHA, SCOPE_BETA } from "./fixtures-optimise";
+
+export const FIXTURE_HOOK_TESTS: HookTestSet[] = [
+  {
+    // Decided: opening 2 is promoted, openings 1 and 3 are archived. Each keeps its value and lineage.
+    id: "hook-fixture-decided-01",
+    scopeId: SCOPE_ALPHA,
+    briefRef: "Fixture brief hook-01",
+    body: "Fixture body. The first line of each opening is the only thing that changes between trial reels.",
+    metric: "views",
+    window: "lifetime",
+    state: "decided",
+    revision: 5,
+    winnerIndex: 2,
+    decidedAtUtc: "2026-10-07T12:00:00Z",
+    createdAtUtc: "2026-10-06T08:00:00Z",
+    updatedAtUtc: "2026-10-07T12:00:00Z",
+    openings: [
+      {
+        index: 1,
+        text: "Fixture opening one.",
+        jobId: "fixture-job-0201",
+        boundAtUtc: "2026-10-06T08:45:00Z",
+        role: "archived",
+        value: "18300",
+        observedAtUtc: "2026-10-07T09:10:00Z",
+        pullId: "pull-fixture-0301",
+        publishedAtUtc: "2026-10-06T08:30:00Z",
+      },
+      {
+        index: 2,
+        text: "Fixture opening two.",
+        jobId: "fixture-job-0202",
+        boundAtUtc: "2026-10-06T08:35:00Z",
+        role: "promoted",
+        value: "41250",
+        observedAtUtc: "2026-10-07T08:40:00Z",
+        pullId: "pull-fixture-0302",
+        publishedAtUtc: "2026-10-06T08:20:00Z",
+      },
+      {
+        index: 3,
+        text: "Fixture opening three.",
+        jobId: "fixture-job-0203",
+        boundAtUtc: "2026-10-06T11:10:00Z",
+        role: "archived",
+        value: "12940",
+        observedAtUtc: "2026-10-07T11:20:00Z",
+        pullId: "pull-fixture-0303",
+        publishedAtUtc: "2026-10-06T11:00:00Z",
+      },
+    ],
+  },
+  {
+    // Open: two openings are bound and one is not yet. Nothing has been read or decided.
+    id: "hook-fixture-open-01",
+    scopeId: SCOPE_BETA,
+    briefRef: "Fixture brief hook-02",
+    body: "Fixture body for an open test. Three openings, two of them published so far.",
+    metric: "views",
+    window: "lifetime",
+    state: "open",
+    revision: 3,
+    winnerIndex: null,
+    decidedAtUtc: null,
+    createdAtUtc: "2026-10-10T07:00:00Z",
+    updatedAtUtc: "2026-10-11T09:30:00Z",
+    openings: [
+      {
+        index: 1,
+        text: "Fixture open opening one.",
+        jobId: "fixture-job-0301",
+        boundAtUtc: "2026-10-10T07:30:00Z",
+        role: null,
+        value: null,
+        observedAtUtc: null,
+        pullId: null,
+        publishedAtUtc: null,
+      },
+      {
+        index: 2,
+        text: "Fixture open opening two.",
+        jobId: "fixture-job-0302",
+        boundAtUtc: "2026-10-11T09:30:00Z",
+        role: null,
+        value: null,
+        observedAtUtc: null,
+        pullId: null,
+        publishedAtUtc: null,
+      },
+      {
+        index: 3,
+        text: "Fixture open opening three.",
+        jobId: null,
+        boundAtUtc: null,
+        role: null,
+        value: null,
+        observedAtUtc: null,
+        pullId: null,
+        publishedAtUtc: null,
+      },
+    ],
+  },
+];
