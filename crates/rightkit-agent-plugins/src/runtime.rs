@@ -168,6 +168,17 @@ pub async fn run_plugin_entry_with_policy(
     Ok(parse_plugin_output(&stdout))
 }
 
+#[cfg(test)]
+fn apply_environment_policy(
+    command: &mut Command,
+    plugin_root: &Path,
+    invocation: &PluginInvocation,
+    policy: &PluginSandboxPolicy,
+) {
+    command.env_clear();
+    command.envs(plugin_environment(plugin_root, invocation, policy));
+}
+
 /// Adapter-owned entry point for daemon hosts. Hosts that can supply native
 /// process policy should use this seam; legacy wrapper remains available for
 /// compatibility with embedded callers.
@@ -204,11 +215,14 @@ pub async fn run_plugin_entry_with_policy_and_adapter(
         cwd: plugin_root.display().to_string(),
         context: rightkit_sandbox::execution::ProcessLaunchContext {
             workspace_root: plugin_root.display().to_string(),
-            sandbox_profile: Some("plugin".into()),
+            sandbox_profile: Some(rightkit_sandbox::execution::PLUGIN_SANDBOX_PROFILE.into()),
             sandbox_required: true,
-            network_required: effective_policy.strip_network_env,
+            // Network stays available only when the policy does not strip it.
+            network_required: !effective_policy.strip_network_env,
         },
-        env: Vec::new(),
+        // The complete environment the plugin sees. The launcher starts a `plugin` profile
+        // child from an empty environment (contract R6), so nothing else reaches it.
+        env: plugin_environment(plugin_root, &invocation, &effective_policy),
     };
     let mut child = adapter
         .spawn(spec)
@@ -384,47 +398,57 @@ fn resolve_on_path(name: &str) -> Option<String> {
         .map(|candidate| candidate.display().to_string())
 }
 
-#[cfg(test)]
-fn apply_environment_policy(
-    command: &mut Command,
+/// The complete environment a plugin process starts with (contract R6). `inheritEnv=false`
+/// gives it only the minimal platform variables plus `allowedEnv`; `deniedEnv` is removed in
+/// every case; `stripNetworkEnv` removes the proxy, certificate and cloud-credential variables.
+fn plugin_environment(
     plugin_root: &Path,
     invocation: &PluginInvocation,
     policy: &PluginSandboxPolicy,
-) {
-    if !policy.inherit_env {
-        command.env_clear();
+) -> Vec<(String, String)> {
+    let mut env: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    if policy.inherit_env {
+        for (key, value) in std::env::vars_os() {
+            if let (Some(key), Some(value)) = (key.to_str(), value.to_str()) {
+                env.insert(key.to_string(), value.to_string());
+            }
+        }
+    } else {
         for key in minimal_env_keys() {
             if let Ok(value) = std::env::var(key) {
-                command.env(key, value);
+                env.insert((*key).to_string(), value);
             }
         }
         for key in &policy.allowed_env {
             if let Ok(value) = std::env::var(key) {
-                command.env(key, value);
+                env.insert(key.clone(), value);
             }
         }
     }
-
     for key in &policy.denied_env {
-        command.env_remove(key);
+        env.remove(key);
     }
-
     if policy.strip_network_env {
         for key in network_env_keys() {
-            command.env_remove(key);
+            env.remove(&key);
         }
-        command.env("RIGHTKIT_PLUGIN_NETWORK", "disabled");
+        env.insert("RIGHTKIT_PLUGIN_NETWORK".into(), "disabled".into());
     }
-
-    command.env("RIGHTKIT_PLUGIN_ROOT", plugin_root);
-    command.env("RIGHTKIT_WORKSPACE_ROOT", &invocation.workspace_root);
-    command.env(
-        "RIGHTKIT_PLUGIN_ENV_INHERITED",
-        if policy.inherit_env { "true" } else { "false" },
+    env.insert(
+        "RIGHTKIT_PLUGIN_ROOT".into(),
+        plugin_root.display().to_string(),
     );
+    env.insert(
+        "RIGHTKIT_WORKSPACE_ROOT".into(),
+        invocation.workspace_root.display().to_string(),
+    );
+    env.insert(
+        "RIGHTKIT_PLUGIN_ENV_INHERITED".into(),
+        if policy.inherit_env { "true" } else { "false" }.into(),
+    );
+    env.into_iter().collect()
 }
 
-#[cfg(test)]
 fn minimal_env_keys() -> &'static [&'static str] {
     if cfg!(windows) {
         &[
@@ -456,7 +480,6 @@ fn minimal_env_keys() -> &'static [&'static str] {
     }
 }
 
-#[cfg(test)]
 fn network_env_keys() -> Vec<String> {
     let base = [
         "HTTP_PROXY",
