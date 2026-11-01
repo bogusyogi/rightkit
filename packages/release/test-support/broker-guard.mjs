@@ -348,6 +348,16 @@ export function hermeticTempBase({ tmpdir = os.tmpdir(), platform = process.plat
   return fallback;
 }
 
+const OUTER_CARGO_WRAPPER = /(^|[\\/])rk-cargo-shim-[0-9a-f]{16}[\\/]bin[\\/]?$/;
+/** The environment without a gate's runtime cargo wrapper: its bin directory dropped from PATH, and CARGO (and the wrapper's single-workspace CARGO_TARGET_DIR) unset when CARGO names it. */
+export function withoutOuterCargoWrapper(env) {
+  const out = { ...env };
+  const pathKey = Object.keys(out).find((k) => k.toUpperCase() === "PATH");
+  if (pathKey && typeof out[pathKey] === "string") out[pathKey] = out[pathKey].split(path.delimiter).filter((d) => !OUTER_CARGO_WRAPPER.test(d)).join(path.delimiter);
+  if (typeof out.CARGO === "string" && OUTER_CARGO_WRAPPER.test(path.dirname(out.CARGO))) { delete out.CARGO; delete out.CARGO_TARGET_DIR; }
+  return out;
+}
+
 export function installBrokerGuard() {
   if (globalThis[INSTALLED]) return globalThis[INSTALLED];
   const state = { enforcing: enforcing(), guardImport: GUARD_IMPORT };
@@ -370,6 +380,12 @@ export function installBrokerGuard() {
   // TMPDIR/TEMP/TMP so os.tmpdir() in this process and every child answers the same.
   process.env.RIGHTKIT_TEST_TMP ??= realpathSync.native(mkdtempSync(path.join(hermeticTempBase(), "rk-hermetic-")));
   for (const name of ["TMPDIR", "TEMP", "TMP"]) process.env[name] = process.env.RIGHTKIT_TEST_TMP;
+  // When this suite itself runs inside a gate unit stage (rightkit-gate --unit npm:@rightkit/release), the OUTER gate's runtime cargo
+  // wrapper is first on PATH and named in CARGO. The real-cargo tests build their own throwaway workspaces through their own gate; the
+  // outer wrapper would refuse those (RK_CARGO_UNBOUND_WORKSPACE: none of them is its unit's), and an inner gate would even wrap it as
+  // "the real cargo". Strip it, so the tests see the host's cargo as they do outside a gate; the outer gate's after-stage snapshot
+  // verify still sees every byte the tests write into its snapshot.
+  { const clean = withoutOuterCargoWrapper(process.env); for (const k of Object.keys(process.env)) if (!(k in clean)) delete process.env[k]; Object.assign(process.env, clean); }
   process.env.RIGHTKIT_GUARD_DATA_ROOT ??= realpathSync.native(mkdtempSync(path.join(os.tmpdir(), "rightkit-release-test-root-")));
   process.env.RIGHTKIT_DATA_ROOT = process.env.RIGHTKIT_GUARD_DATA_ROOT;
   // Child Node processes (release.mjs, build-release.mjs, cargo-target.mjs, fixtures) load the guard too.
