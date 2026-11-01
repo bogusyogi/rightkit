@@ -6,6 +6,7 @@
 - **Build ownership: a reused detached group id is not a live straggler:** a recorded group whose leader started after the record was written (the OS reused the pid) no longer holds the host (b0abc2828).
 - **RightKit's own sample apps are built as apps, scoped to their directory** (`ci/sample-apps.json`, fd63966df).
 - **Fixes from tracing the HeardRight source-QA and package path:** cargo contract, QA layout, door ledger and stage-sidecar staging (3a750e8f0).
+- **Ownership scan: a pnpm `link:` into the scanned repository is local source:** a link outside the lock's importers but inside the repository (RightKit's sample apps link `packages/*`) is a local node, not a `lockfile-unresolved-dependency` gap; a link leaving the repository still is one (same rule in rightkit-ownership 0.4.3).
 - **QA admission:** Mac rightkit-qa 0.10.1 runner 14eba841 approved, e7590e12 withdrawn (b1752bf63).
 
 ## 0.6.16 (unpublished)
