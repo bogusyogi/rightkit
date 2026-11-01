@@ -1,8 +1,9 @@
-//! Layered merge logic for [`CodeRightConfig`].
+//! Layered merge logic for [`HostConfig`].
 
 use crate::agent_config::types::{
-    BudgetConfig, FeatureConfig, HostConfig, MemoryConfig, ModelConfig, OrchestrationConfig,
+    BudgetConfig, FeatureConfig, HooksConfig, HostConfig, ModelConfig, OrchestrationConfig,
     PermissionsConfig, PromptConfig, RemoteConfig, SessionConfig, ToolsConfig, TuiConfig,
+    TurnConfig,
 };
 use std::collections::HashMap;
 
@@ -60,9 +61,31 @@ pub fn merge(base: HostConfig, overlay: HostConfig) -> HostConfig {
         remote: merge_remote(base.remote, overlay.remote),
         orchestration: merge_orchestration(base.orchestration, overlay.orchestration),
         prompt: merge_prompt(base.prompt, overlay.prompt),
-        memory: merge_memory(base.memory, overlay.memory),
         tui: merge_tui(base.tui, overlay.tui),
+        hooks: merge_hooks(base.hooks, overlay.hooks),
+        turn: TurnConfig {
+            max_wall_clock_minutes: option_scalar(
+                base.turn.max_wall_clock_minutes,
+                overlay.turn.max_wall_clock_minutes,
+            ),
+        },
     }
+}
+
+/// Hook lists per event extend the base list in order: the user layer's hooks run first, then the
+/// overlay's (rule 58: one ordered chain, any deny wins).
+fn merge_hooks(mut base: HooksConfig, overlay: HooksConfig) -> HooksConfig {
+    for (event, value) in overlay.0 {
+        match (base.0.get_mut(&event), value) {
+            (Some(serde_json::Value::Array(existing)), serde_json::Value::Array(more)) => {
+                existing.extend(more);
+            }
+            (_, value) => {
+                base.0.insert(event, value);
+            }
+        }
+    }
+    base
 }
 
 fn merge_tui(base: TuiConfig, overlay: TuiConfig) -> TuiConfig {
@@ -212,15 +235,6 @@ fn merge_prompt(base: PromptConfig, overlay: PromptConfig) -> PromptConfig {
     }
 }
 
-fn merge_memory(base: MemoryConfig, overlay: MemoryConfig) -> MemoryConfig {
-    MemoryConfig {
-        retrieval_tier: scalar(base.retrieval_tier, overlay.retrieval_tier),
-        bandit_enabled: option_scalar(base.bandit_enabled, overlay.bandit_enabled),
-        bandit_epsilon: option_scalar(base.bandit_epsilon, overlay.bandit_epsilon),
-        bandit_alpha: option_scalar(base.bandit_alpha, overlay.bandit_alpha),
-    }
-}
-
 /// Provenance for a merge conflict — which layers contributed which value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MergeConflict {
@@ -313,11 +327,6 @@ pub fn merge_with_report(
             "prompt.brief_default",
             &base.prompt.brief_default,
             &overlay.prompt.brief_default,
-        ),
-        (
-            "memory.bandit_enabled",
-            &base.memory.bandit_enabled,
-            &overlay.memory.bandit_enabled,
         ),
     ];
     for (field, base_val, overlay_val) in bool_fields {
