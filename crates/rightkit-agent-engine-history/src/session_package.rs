@@ -10,7 +10,7 @@
 //!
 //! # Credential safety
 //!
-//! [`SessionPackage`] can only ever be built from [`host_mobile_runtime::journal::JournalEvent`]
+//! [`SessionPackage`] can only ever be built from `JournalEvent` (from the host mobile runtime journal)
 //! records, which already exclude raw secrets by construction (see that
 //! module's doc comment). This module additionally never adds a field wide
 //! enough to carry a credential — no free-form maps, no provider tokens, no
