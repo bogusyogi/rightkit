@@ -1,0 +1,136 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated": "2026-05-04",
+    "category": "image",
+    "subcategory": "aesthetics",
+    "principle": "Top-level aesthetic preset. Pick ONE per image. The aesthetic decides which lens/lighting/composition/skin choices follow naturally — composer reads brand_default first, then aesthetic constrains the downstream picks. Aesthetic is a style commitment; lighting/lens/composition are tactical implementations of it.",
+    "sources": [
+      "OpenAI image-generation guide 2026 (style layer first)",
+      "Google Imagen prompt guide (subject + style + composition pattern)",
+      "Black Forest Labs FLUX prompting guide (style-first prompt structure)",
+      "Runway Gen-4 prompting guide (visual style as opening token)",
+      "Adrian's KDP coloring book production wave 2026-04-28 (sumi_e_adult template)",
+      "Adrian's anime A/B test 2026-05-04 (qwen wins soft-painterly, NB Pro wins composition, FLUX.2 Pro wins crisp anime)"
+    ],
+    "interpolation_rule": "Paste fragment as the OPENING clause of the composed prompt before subject/composition/lighting. Negative constraints compile per the model's negative_compile_strategy declared in per-model-quirks.json — never paste 'no X' verbatim into prompts for models that prefer positive rewriting (Runway, FLUX)."
+  },
+
+  "_brand_defaults": {
+    "DD": { "item_key": "premium_product",     "status": "provisional_from_memory", "seeded_from": "D:\\Claude\\CLAUDE.md Damned Designs section (premium EDC, dark considered, copper accent)" },
+    "RH": { "item_key": "lifestyle",           "status": "provisional_from_memory", "seeded_from": "D:\\Claude\\CLAUDE.md Rotten Hand section (slow fashion, honest grounded)" },
+    "TS": { "item_key": "cyberpunk_anime",     "status": "provisional_from_memory", "seeded_from": "D:\\Claude\\CLAUDE.md Toxic Sundae section + brand book (counter-culture, dystopian)" },
+    "HR": { "item_key": "brand_aware_layout",  "status": "provisional_from_memory", "seeded_from": "D:\\Claude\\heardright\\brand.md V3 (local voice control, structured UI)" },
+    "DV": { "item_key": "documentary_editorial","status": "unknown_needs_owner_input", "seeded_from": "no source yet — Damned Ventures (Professor founder mode)" },
+    "SS": { "item_key": "documentary_editorial","status": "owner_approved",            "seeded_from": "D:\\Claude\\CLAUDE.md SS section (photography passion, documentary style)" }
+  },
+
+  "items": {
+    "premium_product": {
+      "name": "Premium product",
+      "use": "Hero shots of physical objects where craftsmanship reads. Knives, EDC, watches, tools. Quiet confidence over flash. DD default. Pairs with 85mm + rim/back lighting + deep focus.",
+      "fragment": "premium product photography, considered minimal composition, the object framed with respect for its craft, restrained palette, every element justified by what it reveals about the object",
+      "negative_constraints": ["no busy backgrounds", "no extreme color saturation", "no marketing copy on image", "no hands holding the product unless intentional"],
+      "tags": ["product", "minimal", "craft-forward", "DD-default"]
+    },
+    "lifestyle": {
+      "name": "Lifestyle (slow-fashion grounded)",
+      "use": "Real people in real moments wearing clothes. Editorial-magazine spread feel without the fashion-magazine artifice. RH default. Pairs with 50mm + soft window light + mid-ground anchor.",
+      "fragment": "honest lifestyle photography, real moment captured, natural posture, clothes that belong in the scene rather than displayed, painterly muted palette, magazine editorial without the artifice",
+      "negative_constraints": ["no posed mannequin look", "no studio backdrop", "no fashion-week glamour"],
+      "tags": ["editorial", "honest", "grounded", "RH-default"]
+    },
+    "cyberpunk_anime": {
+      "name": "Cyberpunk anime / counter-culture manga",
+      "use": "Defiant streetwear, dystopian alleys, neon-noir illustration. Manga panel composition. TS default. Pairs with anamorphic + practicals-only + foreground blur. Won the ts-streetwear A/B for Qwen-Image 2026-05-04.",
+      "fragment": "cyberpunk anime manga illustration, neon-lit dystopian environment, ink-drawn panel art, dramatic high-contrast shadows, counter-culture energy",
+      "negative_constraints": [],
+      "tags": ["anime", "manga", "neon", "dystopian", "TS-default"]
+    },
+    "brand_aware_layout": {
+      "name": "Brand-aware structured layout (UI / dashboard / typography)",
+      "use": "Mockups with embedded UI elements, license keys, command palettes, dashboards, transcript displays. HR default. Pairs with 50mm + soft window + centered_static. Routes to GPT Image 2 (text_premium) for accurate text rendering, Recraft V4 for design-system primitives.",
+      "fragment": "structured product UI mockup, clean grid layout, restrained palette, the interface treated as the subject, every element typographically considered, design-system primitives composed honestly",
+      "negative_constraints": ["no lorem ipsum garbled text", "no exaggerated shadows", "no random decorative flourishes"],
+      "tags": ["ui-mockup", "typography", "structured", "text_safe", "HR-default"],
+      "warning": "Text-in-image is a moat for NB Pro and GPT Image 2. Most other models will garble multi-line typography — route accordingly."
+    },
+    "documentary_editorial": {
+      "name": "Documentary editorial",
+      "use": "Photography-first work. Real available light, real subjects. Honest framing without polish. SS default. Pairs with 50mm or 85mm + available light + golden_ratio. Founder photography aesthetic.",
+      "fragment": "documentary editorial photography, available light only, honest unposed framing, the moment as it actually was, no studio polish, observational photographer's eye",
+      "negative_constraints": ["no studio lighting", "no posed glamour", "no over-retouched skin"],
+      "tags": ["documentary", "editorial", "available-light", "SS-default", "DV-default"]
+    },
+    "soft_painterly_ghibli": {
+      "name": "Soft painterly Ghibli",
+      "use": "Studio-Ghibli-style soft anime. Painterly hand-drawn quality. Won the rh-editorial A/B for Qwen-Image and FLUX.2 Pro 2026-05-04. Use when subject is a gentle character mood-piece.",
+      "fragment": "Studio Ghibli soft anime illustration, hand-drawn painterly quality, Miyazaki-style character design, watercolor anime backgrounds, gentle warm light, muted earth tones",
+      "negative_constraints": ["no hyperrealistic skin", "no photographic depth", "no 3d render"],
+      "tags": ["anime", "ghibli", "painterly", "soft"]
+    },
+    "watercolor_storybook": {
+      "name": "Watercolor storybook (kids picture book)",
+      "use": "Soft brushwork illustration for kids picture books. Used by NB Pro production for kids book covers + adult coloring book interiors. Pairs with rule_of_thirds + intimacy_warm + ages 4-8 friendly proportions.",
+      "fragment": "watercolor children's picture book illustration, soft brush strokes, gentle pastel palette, hand-painted storybook art, friendly warm character expressions, kid-friendly proportions",
+      "negative_constraints": ["no photorealistic detail", "no scary expressions", "no dark backgrounds", "no fine pattern fills"],
+      "tags": ["watercolor", "storybook", "kids", "ages-4-8", "text_safe"]
+    },
+    "sumi_e_adult_coloring": {
+      "name": "Sumi-e adult coloring book line art",
+      "use": "Pure black-ink line art in the Johanna Basford / Japanese sumi-e tradition. Adult coloring book interiors (KDP 6×9). Production-validated on NB Pro 2026-04-28 with the locked content-pipeline reference image. Pairs with rule_of_thirds + 30%-white-space + bold-line-hierarchy.",
+      "fragment": "black ink line art coloring book illustration in the tradition of Johanna Basford and traditional Japanese sumi-e, ONE clear focal subject in bold confident outlines, supporting elements in medium line weight, fine decorative accents only where they serve composition, approximately 30 percent unmarked white space, off-center focal placement, no shading, no grey fills, no color, pure black ink on pure white",
+      "negative_constraints": ["no color", "no shading", "no grey fills", "no halftone", "no text", "no border", "no photorealistic detail", "no busy backgrounds"],
+      "tags": ["line-art", "kdp", "adult-coloring", "sumi-e", "production-validated"]
+    },
+    "kids_friendly_thick_line": {
+      "name": "Kids friendly thick-line coloring book",
+      "use": "Thick bold outlines for ages 4-8 coloring books (KDP 8.5×11). Chunky markers + child hands. Production-validated on NB Pro for book-1-ganesha 2026-04-28. Pairs with friendly-expressions + 50%-white-space + simple-large-shapes.",
+      "fragment": "children's coloring book line art for ages 4 to 8, THICK BOLD outlines suitable for crayons and chunky markers, LARGE SIMPLE shapes that a child's hand can color inside without going outside the lines, ONE clear focal character drawn the largest, supporting elements simplified to silhouette-level, approximately 50 percent unmarked white space, friendly warm expressions never scary never sad, pure thick black ink on pure white, kid-friendly proportions with rounder faces and larger eyes",
+      "negative_constraints": ["no tiny details", "no fine patterns", "no busy backgrounds", "no shading", "no color", "no scary expressions", "no sad expressions", "no dark backgrounds", "no thin lines"],
+      "tags": ["line-art", "kdp", "kids-coloring", "thick-line", "ages-4-8", "production-validated"]
+    },
+    "crisp_anime_cel": {
+      "name": "Crisp anime cel-style",
+      "use": "Sharp cel-shaded anime with clean lines and saturated palettes. Won the character-anime A/B for FLUX.2 Pro 2026-05-04. Pairs with rule_of_thirds + flat-shading + manga proportions.",
+      "fragment": "crisp cel-shaded anime illustration, sharp clean linework, saturated anime palette, flat shading with clear color zones, traditional manga proportions, dynamic character pose",
+      "negative_constraints": ["no painterly brushwork", "no photographic depth", "no 3d render"],
+      "tags": ["anime", "cel", "crisp", "manga"]
+    },
+    "vector_flat_editorial": {
+      "name": "Vector flat editorial",
+      "use": "Flat-vector cartoon scenes for editorial illustration, infographics, motion-line storytelling. Won the scene-cartoon A/B for Qwen-Image 2026-05-04. Pairs with bold-outlines + warm-color-palette + motion-lines.",
+      "fragment": "flat-vector editorial cartoon illustration, bold outlines and motion lines, vibrant warm color palette, illustrated editorial scene, magazine-spread feel",
+      "negative_constraints": ["no photorealistic detail", "no gradients", "no painterly brushwork"],
+      "tags": ["vector", "flat", "editorial", "cartoon"]
+    },
+    "soft_painterly_concept": {
+      "name": "Soft painterly concept art",
+      "use": "Loose watercolor / sketch concept-art for mood-pieces and atmospheric stills. MJ V7 fast natural mode 2026-05-04. Pairs with available-light + asymmetric-composition + intimate-frame.",
+      "fragment": "soft painterly concept art, loose watercolor and ink sketch quality, atmospheric mood, paper-textured background, hand-drawn studio-art feel",
+      "negative_constraints": ["no studio-clean lighting", "no perfectly rendered detail", "no photographic precision"],
+      "tags": ["concept-art", "painterly", "atmospheric", "mood-piece"]
+    },
+    "storyboard_keyframe": {
+      "name": "Storyboard keyframe for I2V",
+      "use": "Start or end pose frame designed to seed Image-to-Video animation. Clean composition, single dominant subject, neutral background that survives camera moves, character readable from gesture alone. Phase B.5 anime test 2026-05-05 — feeds into Veo/Kling I2V handoff.",
+      "fragment": "clean storyboard keyframe illustration, single readable pose, clear silhouette, neutral simplified background, even diffuse light, character-anchor composition designed for image-to-video continuation, anime cel style",
+      "negative_constraints": ["no busy background", "no motion blur", "no multiple competing subjects", "no extreme camera angle"],
+      "tags": ["storyboard", "keyframe", "i2v", "animation", "anchor"]
+    },
+    "manga_panel_sequence": {
+      "name": "Manga 4-panel sequence",
+      "use": "Four sequential manga panels on one sheet showing continuous action — same character identity across panels, panel-to-panel staging coherent, gutter spacing visible. Phase B.5 anime test 2026-05-05 — tests panel-storytelling competence beyond single-frame mood.",
+      "fragment": "four-panel manga sequence on a single sheet, 2x2 grid with visible gutters, same character preserved across all four panels, continuous action staging, dynamic composition, ink-and-tone manga style with clear panel borders",
+      "negative_constraints": ["no single-image composition", "no character drift between panels", "no missing panel borders", "no painterly atmosphere"],
+      "tags": ["manga", "panel", "sequence", "comic", "continuity"]
+    },
+    "orthographic_sheet": {
+      "name": "Orthographic prop / mecha sheet",
+      "use": "Object/vehicle/mecha design sheet — front, side, top, back orthographic views with measurement lines and labeled callouts on a clean background. Phase B.5 anime test 2026-05-05 — tests structured technical-illustration competence.",
+      "fragment": "orthographic concept-art sheet, multiple labeled views (front, side, top, back) of a single object on flat off-white background, clean technical linework, measurement guides, callout labels with leader lines, design-document feel",
+      "negative_constraints": ["no perspective foreshortening", "no painterly shading", "no environmental background", "no character"],
+      "tags": ["orthographic", "concept-art", "technical", "model-sheet", "prop"]
+    }
+  }
+}

@@ -1,0 +1,229 @@
+{
+ "_meta": {
+  "version": "1.0.0",
+  "issue": "bogusyogi/genright#279",
+  "principle": "Per-model parameter overlay. The prompt text is always kept (fallback); params are additive. Adapters apply params only when support status is 'documented', or 'unverified' with an explicit opt-in.",
+  "sources": {
+   "kling_camera_control": "Kling API camera_control {type: simple|down_back|forward_up|right_turn_forward|left_turn_forward, config:{horizontal,vertical,pan,tilt,roll,zoom}}, simple needs exactly one non-zero axis (range -10..10 from Kling API docs, via https://docs.comfy.org/built-in-nodes/partner-node/video/kwai_vgi/kling-camera-controls). Sign convention per that page: zoom negative narrows FOV (push in), pan positive = up, tilt positive = right. Not every Kling model/mode supports it; fal Kling v1.6 pro i2v schema has no camera_control (https://fal.ai/models/fal-ai/kling-video/v1.6/pro/image-to-video/api).",
+   "seedance_camera_fixed": "Boolean camera_fixed 'Whether to fix the camera position' on fal ByteDance Seedance v1 pro i2v (https://fal.ai/models/fal-ai/bytedance/seedance/v1/pro/image-to-video/api). Not verified for Seedance 2.",
+   "veo": "Veo exposes no camera parameter (Gemini API / fal veo3.1 schemas); camera is prompt-only. Not fetched this pass, treat as unverified negative.",
+   "wan_happy": "WaveSpeed Wan / HappyHorse image-to-video adapters take no camera parameter; prompt-only."
+  }
+ },
+ "models": {
+  "kling-3-pro": {
+   "family": "kling",
+   "param": "kling_camera_control",
+   "request_field": "camera_control",
+   "status": "unverified"
+  },
+  "seedance-2-fast": {
+   "family": "seedance",
+   "param": "seedance_camera_fixed",
+   "request_field": "camera_fixed",
+   "status": "unverified"
+  }
+ },
+ "families_prompt_only": [
+  "veo",
+  "wan",
+  "happy"
+ ],
+ "effects": {
+  "note": "Transition and text-overlay effect templates have no native provider parameter on any served model; they stay prompt/post-process only.",
+  "native": []
+ },
+ "moves": {
+  "eye_level_static": {
+   "seedance_camera_fixed": true
+  },
+  "low_angle_power": {
+   "seedance_camera_fixed": true
+  },
+  "high_angle_vulnerability": {
+   "seedance_camera_fixed": true
+  },
+  "dutch_angle": {
+   "seedance_camera_fixed": true
+  },
+  "extreme_close_up": {
+   "seedance_camera_fixed": true
+  },
+  "wide_establishing": {
+   "seedance_camera_fixed": true
+  },
+  "over_the_shoulder": {
+   "seedance_camera_fixed": true
+  },
+  "birds_eye": {
+   "seedance_camera_fixed": true
+  },
+  "worms_eye": {
+   "seedance_camera_fixed": true
+  },
+  "symmetrical_center": {
+   "seedance_camera_fixed": true
+  },
+  "slow_push_in": {
+   "kling_camera_control": {
+    "type": "simple",
+    "config": {
+     "zoom": -3
+    }
+   },
+   "seedance_camera_fixed": false
+  },
+  "pull_out_reveal": {
+   "kling_camera_control": {
+    "type": "simple",
+    "config": {
+     "zoom": 3
+    }
+   },
+   "seedance_camera_fixed": false
+  },
+  "lateral_track_lr": {
+   "kling_camera_control": {
+    "type": "simple",
+    "config": {
+     "horizontal": 5
+    }
+   },
+   "seedance_camera_fixed": false
+  },
+  "lateral_track_rl": {
+   "kling_camera_control": {
+    "type": "simple",
+    "config": {
+     "horizontal": -5
+    }
+   },
+   "seedance_camera_fixed": false
+  },
+  "crane_up": {
+   "kling_camera_control": {
+    "type": "simple",
+    "config": {
+     "vertical": 5
+    }
+   },
+   "seedance_camera_fixed": false
+  },
+  "crane_down": {
+   "kling_camera_control": {
+    "type": "simple",
+    "config": {
+     "vertical": -5
+    }
+   },
+   "seedance_camera_fixed": false
+  },
+  "dolly_zoom": {
+   "seedance_camera_fixed": false
+  },
+  "crash_zoom_in": {
+   "kling_camera_control": {
+    "type": "simple",
+    "config": {
+     "zoom": -8
+    }
+   },
+   "seedance_camera_fixed": false
+  },
+  "whip_pan_right": {
+   "kling_camera_control": {
+    "type": "simple",
+    "config": {
+     "tilt": 8
+    }
+   },
+   "seedance_camera_fixed": false
+  },
+  "whip_pan_left": {
+   "kling_camera_control": {
+    "type": "simple",
+    "config": {
+     "tilt": -8
+    }
+   },
+   "seedance_camera_fixed": false
+  },
+  "tilt_up": {
+   "kling_camera_control": {
+    "type": "simple",
+    "config": {
+     "pan": 3
+    }
+   },
+   "seedance_camera_fixed": false
+  },
+  "tilt_down": {
+   "kling_camera_control": {
+    "type": "simple",
+    "config": {
+     "pan": -3
+    }
+   },
+   "seedance_camera_fixed": false
+  },
+  "180_orbit": {
+   "seedance_camera_fixed": false
+  },
+  "360_orbit": {
+   "seedance_camera_fixed": false
+  },
+  "low_orbit": {
+   "seedance_camera_fixed": false
+  },
+  "ascending_spiral": {
+   "seedance_camera_fixed": false
+  },
+  "descending_spiral": {
+   "kling_camera_control": {
+    "type": "down_back"
+   },
+   "seedance_camera_fixed": false
+  },
+  "half_orbit_push_in": {
+   "kling_camera_control": {
+    "type": "right_turn_forward"
+   },
+   "seedance_camera_fixed": false
+  },
+  "orbit_crane_up": {
+   "kling_camera_control": {
+    "type": "forward_up"
+   },
+   "seedance_camera_fixed": false
+  },
+  "figure_8": {
+   "seedance_camera_fixed": false
+  },
+  "through_frame": {
+   "seedance_camera_fixed": false
+  },
+  "follow_behind": {
+   "seedance_camera_fixed": false
+  },
+  "handheld_documentary": {
+   "seedance_camera_fixed": false
+  },
+  "first_person_pov": {
+   "seedance_camera_fixed": false
+  },
+  "rack_focus": {
+   "seedance_camera_fixed": true
+  },
+  "slow_motion": {},
+  "time_lapse": {},
+  "underwater_pov": {
+   "seedance_camera_fixed": false
+  },
+  "macro_extreme_detail": {
+   "seedance_camera_fixed": true
+  },
+  "split_diopter": {
+   "seedance_camera_fixed": true
+  }
+ }
+}

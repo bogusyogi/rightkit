@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0.0",
+  "id": "ugc_character_review_15s",
+  "title": "15-second UGC character review: a character speaks a review script",
+  "source": {
+    "template": "none in the repository: no prompt, route or node content",
+    "plan": "docs/plans/2026-10-08-genright-execution-plan.md:143-144 (G11 names the 15-second UGC character review)"
+  },
+  "inputs": [
+    {"name": "character_image", "type": "image"},
+    {"name": "script_text", "type": "text"},
+    {"name": "prompt", "type": "text"}
+  ],
+  "nodes": [
+    {
+      "id": "speech",
+      "kind": "voice",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "script_text", "type": "text"}
+      },
+      "depends_on": []
+    },
+    {
+      "id": "review_clip",
+      "kind": "avatar",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "prompt", "type": "text"},
+        "image_url": {"input": "character_image", "type": "image"},
+        "audio_url": {"node": "speech", "type": "audio"},
+        "duration": 15
+      },
+      "depends_on": ["speech"]
+    }
+  ],
+  "outputs": [{"name": "clip", "from": "review_clip"}],
+  "review": {
+    "required": true,
+    "policy": "Default: review required. The per-recipe review policy (plan :92) is not yet expressed per recipe in the source. The 15-second duration is the plan's figure."
+  }
+}

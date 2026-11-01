@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-prompt-recipes",
+  "capabilities": [
+    {
+      "capability": "prompt-recipes",
+      "summary": "Prompt contracts and validator, recipe composer and catalogue, character and LoRA lock, video quality templates, template swap, brand codes and the KDP workflow.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "_meta": {
+    "model_slug": "gpt-image-2",
+    "version": "1.0.0",
+    "official_doc_url": "https://developers.openai.com/api/docs/models/gpt-image-2",
+    "schema_last_verified": "2026-05-05",
+    "research_sources": [
+      "https://developers.openai.com/api/docs/models/gpt-image-2",
+      "https://developers.openai.com/api/docs/guides/image-generation",
+      "https://wavespeed.ai/blog/posts/gpt-image-2-api-guide/"
+    ],
+    "pricing_tier_id": "gpt-image-2-medium",
+    "_pricing_tier_resolved_by": "quality field — see resolve_pricing_tier rule below",
+    "_invoice_status_note": "Cost varies by quality tier. See recipes/image/invoice-status.json[gpt-image-2-low|medium|high|auto]. HIGH AND AUTO TIERS ARE UNVERIFIED ESTIMATES."
+  },
+  "required_fields": {
+    "prompt": { "type": "string", "required": true, "max_length": 4000 },
+    "quality": {
+      "type": "enum",
+      "required": true,
+      "enum": ["low", "medium", "high"],
+      "_note": "EvoLink route exposes explicit low|medium|high quality. Do not expose auto in Media Console; it is blocked by the production validator to prevent surprise spend."
+    }
+  },
+  "optional_fields": {
+    "size": { "type": "string", "default": "1024x1024", "_examples": ["1024x1024", "1024x1792", "1792x1024", "auto"] },
+    "resolution": { "type": "enum", "enum": ["1K", "2K", "4K"], "default": "1K" },
+    "n": { "type": "integer", "min": 1, "max": 10, "default": 1 },
+    "callback_url": { "type": "string" },
+    "image_urls": { "type": "array", "max_items": 16, "supported": true }
+  },
+  "negative_prompt_policy": {
+    "strategy": "natural_language_inline",
+    "_note": "GPT Image 2 has no separate negative_prompt field. Express avoid-this in natural language inline. The model is robust to 'do not include X' phrasing."
+  },
+  "reference_syntax": {
+    "method": "image_urls_array",
+    "max_references": 16,
+    "_note": "EvoLink gpt-image-2 accepts up to 16 image_urls."
+  },
+  "official_prompt_template": {
+    "_format": "structured-object",
+    "slots": ["subject", "context", "style"],
+    "_ordering": "natural-language descriptive prompt, no rigid structure required",
+    "_renderer_id": "gpt_image_2_default"
+  },
+  "validator_rules": [
+    {
+      "id": "prompt_required",
+      "kind": "length",
+      "field": "prompt",
+      "min": 1,
+      "throws": "gpt-image-2: prompt is required"
+    },
+    {
+      "id": "quality_required_explicit",
+      "kind": "handler",
+      "handler": "validateGptImage2QualityRequired",
+      "throws": "gpt-image-2: quality must be explicitly low|medium|high. 'auto' is only allowed when ctx.allow_auto_quality === true (prevents surprise spend on high tier)."
+    },
+    {
+      "id": "quality_in_enum",
+      "kind": "enum",
+      "field": "quality",
+      "enum": ["low", "medium", "high"],
+      "throws": "gpt-image-2: quality '{value}' must be low|medium|high"
+    },
+    {
+      "id": "n_range",
+      "kind": "range",
+      "field": "n",
+      "min": 1,
+      "max": 10,
+      "throws": "gpt-image-2: n must be 1..10 (got {value})"
+    }
+  ]
+}

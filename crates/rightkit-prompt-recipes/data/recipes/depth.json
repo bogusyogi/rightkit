@@ -1,0 +1,108 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated": "2026-05-04",
+    "category": "image",
+    "subcategory": "depth",
+    "principle": "Spatial layering ONLY. Foreground / midground / background content prompts. Three-layer images read as cinematic; flat single-plane images read as snapshots. Ownership boundary: depth does NOT describe lens DoF behavior (that lives in lens.json).",
+    "sources": [
+      "Higgsfield AI tutorial transcript 2026-05-03 (depth as one of four cinematic dimensions)"
+    ],
+    "interpolation_rule": "Paste fragment verbatim into the depth clause. Caller may need to specify what occupies each layer in the brief if the recipe doesn't infer it."
+  },
+  "_brand_defaults": {
+    "DD": {
+      "item_key": "mid_ground_anchor",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md DD: product placed cleanly with environment context"
+    },
+    "RH": {
+      "item_key": "mid_ground_anchor",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md RH: lifestyle subject in real environment"
+    },
+    "TS": {
+      "item_key": "foreground_object_blur",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md TS: atmospheric neon-noir layered depth"
+    },
+    "HR": {
+      "item_key": "deep_focus_three_layer",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md HR: UI demos need everything readable"
+    },
+    "DV": {
+      "item_key": "mid_ground_anchor",
+      "status": "unknown_needs_owner_input",
+      "seeded_from": "no source yet"
+    },
+    "SS": {
+      "item_key": "silhouette_layered_back",
+      "status": "owner_approved",
+      "seeded_from": "CLAUDE.md SS: photography contre-jour layered back-light"
+    }
+  },
+  "items": {
+    "deep_focus_three_layer": {
+      "name": "Deep three-layer composition",
+      "use": "Foreground element + midground subject + background context, all readable. The Higgsfield default for cinematic feel.",
+      "fragment": "clear foreground element framing the shot, the main subject in the midground at focal distance, atmospheric background context behind, three distinct layers of depth all contributing to the composition",
+      "tags": [
+        "deep",
+        "three-layer",
+        "default-cinematic"
+      ]
+    },
+    "mid_ground_anchor": {
+      "name": "Midground subject anchor",
+      "use": "Subject placed in midground with foreground/background atmosphere. Less rigid than deep three-layer.",
+      "fragment": "subject anchored in the midground at natural focal distance, soft atmosphere in front and behind, the eye drawn to the middle plane",
+      "tags": [
+        "midground",
+        "anchored",
+        "atmospheric"
+      ]
+    },
+    "foreground_object_blur": {
+      "name": "Foreground object soft-blurred",
+      "use": "An object in the foreground partially occluding the subject, slightly blurred. Adds depth and intimacy. Plant leaves, glass, fabric, etc.",
+      "fragment": "an object in the immediate foreground partially framing the shot and slightly blurred, the subject sharp behind it in the midground, the foreground element creating intimacy and depth",
+      "tags": [
+        "foreground-blur",
+        "occlusion",
+        "intimate"
+      ]
+    },
+    "silhouette_layered_back": {
+      "name": "Silhouettes against bright back",
+      "use": "Foreground/midground subjects in silhouette against bright background (window, sunset, fire). Drama, anonymity, scale.",
+      "fragment": "subject in silhouette against a brightly lit background, the figure's outline clearly defined against light, layered depth created by the contrast between dark foreground and luminous background",
+      "tags": [
+        "silhouette",
+        "high-contrast",
+        "dramatic"
+      ]
+    },
+    "flat_no_depth": {
+      "name": "Flat single-plane",
+      "use": "Deliberately flat composition. Used only when flatness is the point — billboard ads, formal portraits, technical product. Most images should NOT pick this.",
+      "fragment": "flat single-plane composition without atmospheric depth, all elements at roughly the same focal distance, deliberately graphic and two-dimensional",
+      "tags": [
+        "flat",
+        "graphic",
+        "deliberate"
+      ],
+      "warning": "Default cinematic look needs depth. Only pick this when flatness serves the message."
+    },
+    "compressed_telephoto_layers": {
+      "name": "Compressed telephoto layers",
+      "use": "Long-lens look where multiple layers of subject (street crowd, mountain ranges) appear stacked closer than they are. Used for environmental compression. NOTE: while this references a long-lens visual, the LENS choice is in lens.json — this entry is about the spatial result.",
+      "fragment": "multiple layers of subject and environment compressed visually so they appear stacked close together despite real distance, the depth-flattening effect that makes a busy scene feel dense and layered",
+      "tags": [
+        "compressed",
+        "stacked",
+        "telephoto-look"
+      ]
+    }
+  }
+}

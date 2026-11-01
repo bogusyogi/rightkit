@@ -1,0 +1,225 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated": "2026-05-04",
+    "category": "image",
+    "subcategory": "color-psychology",
+    "principle": "Palette + emotion resolution. Maps emotion-name → color treatment. Single source of truth for translating viewer emotion into palette. When colorPsychology='auto' is passed to the composer, the composer resolves which preset to use via the emotion field by matching against `emotion_keys`.",
+    "sources": [
+      "Higgsfield AI tutorial transcript 2026-05-03 (color psychology mapping)",
+      "Patti Bellantoni, If It's Purple, Someone's Gonna Die (cinematic color theory)"
+    ],
+    "interpolation_rule": "Paste fragment verbatim into the color clause. emotion_keys is consulted ONLY when caller passes colorPsychology='auto' + an emotion."
+  },
+  "_brand_defaults": {
+    "DD": {
+      "item_key": "intimacy_warm_skin_tones",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md DD: copper accent + warm earth tones"
+    },
+    "RH": {
+      "item_key": "nostalgia_warm_sepia",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md RH: muted earth tones, slow fashion grounded"
+    },
+    "TS": {
+      "item_key": "tension_red_amber",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md TS: counter-culture defiant emotional palette"
+    },
+    "HR": {
+      "item_key": "calm_blue_grey",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md HR: Linear/Cron/Arc visual peers, structured calm"
+    },
+    "DV": {
+      "item_key": "intimacy_warm_skin_tones",
+      "status": "unknown_needs_owner_input",
+      "seeded_from": "no source yet — Damned Ventures (Professor founder mode)"
+    },
+    "SS": {
+      "item_key": "intimacy_warm_skin_tones",
+      "status": "owner_approved",
+      "seeded_from": "CLAUDE.md SS: photography passion, warm honest portraiture"
+    }
+  },
+  "items": {
+    "tension_red_amber": {
+      "name": "Tension red / amber",
+      "use": "Anger, intensity, urgency, danger, emotionally charged confrontations.",
+      "fragment": "color palette dominated by reds, ambers, and warm tones, high saturation in the warm range, deep shadows holding contrast, the visual heat of an emotionally charged scene",
+      "emotion_keys": [
+        "tension",
+        "anger",
+        "intensity",
+        "danger",
+        "rage"
+      ],
+      "tags": [
+        "red",
+        "warm",
+        "high-saturation"
+      ]
+    },
+    "calm_blue_grey": {
+      "name": "Calm blue / grey",
+      "use": "Calmness, isolation, distance, contemplation. The cool emotional opposite of tension red.",
+      "fragment": "color palette dominated by cool blues and neutral greys, desaturated warm tones, the still cool quality of contemplation or emotional distance",
+      "emotion_keys": [
+        "calm",
+        "contemplative",
+        "still",
+        "peaceful",
+        "distant",
+        "thoughtful"
+      ],
+      "tags": [
+        "blue",
+        "cool",
+        "desaturated"
+      ]
+    },
+    "nostalgia_warm_sepia": {
+      "name": "Nostalgia warm sepia",
+      "use": "Memory, longing, the past, faded warmth. Family photos, period pieces, looking back.",
+      "fragment": "warm sepia-tinted palette, slight desaturation overall but warmth preserved in skin tones, faded highlights and gentle shadows, the visual quality of memory",
+      "emotion_keys": [
+        "nostalgia",
+        "longing",
+        "memory",
+        "remembrance",
+        "wistful",
+        "bittersweet"
+      ],
+      "tags": [
+        "sepia",
+        "warm",
+        "faded"
+      ]
+    },
+    "isolation_cool_desaturated": {
+      "name": "Isolation cool desaturated",
+      "use": "Loneliness, alienation, depression, stark emotional distance. Stronger than calm-blue — pulls saturation way down.",
+      "fragment": "cool desaturated palette with most color drained from the scene, blue-grey shadows, slight warmth only in skin tones, the visual emptiness of isolation or depression",
+      "emotion_keys": [
+        "isolation",
+        "loneliness",
+        "alienation",
+        "depression",
+        "emptiness"
+      ],
+      "tags": [
+        "desaturated",
+        "cool",
+        "stark"
+      ]
+    },
+    "intimacy_warm_skin_tones": {
+      "name": "Intimacy warm skin tones",
+      "use": "Tender moments, family, romance, vulnerability. Warm palette but saturation pulled gently — not garish.",
+      "fragment": "warm palette pushed toward natural skin tones, gentle saturation in oranges and warm pinks, soft contrast, the visual closeness of an intimate moment",
+      "emotion_keys": [
+        "intimacy",
+        "tenderness",
+        "love",
+        "warmth",
+        "closeness",
+        "vulnerability"
+      ],
+      "tags": [
+        "warm",
+        "skin-tones",
+        "soft-contrast"
+      ]
+    },
+    "clinical_cool_neutral": {
+      "name": "Clinical cool neutral",
+      "use": "Medical, technical, institutional, sterile. Hospitals, labs, corporate. Cold, clean, no emotion.",
+      "fragment": "clinical cool neutral palette, slight blue-green tint, minimal saturation, even lighting that erases warmth, the sterile institutional quality of a hospital or lab",
+      "emotion_keys": [
+        "clinical",
+        "sterile",
+        "institutional",
+        "neutral",
+        "detached"
+      ],
+      "tags": [
+        "neutral",
+        "cool",
+        "clinical"
+      ]
+    },
+    "dread_green_sickly": {
+      "name": "Dread sickly green",
+      "use": "Horror, illness, decay, unease. The Matrix / Fincher palette. Faces look unwell.",
+      "fragment": "sickly green-yellow tinted palette, cool and slightly bilious, skin tones pushed unhealthy, the visual quality of dread or impending wrongness",
+      "emotion_keys": [
+        "dread",
+        "horror",
+        "sickness",
+        "unease",
+        "menace",
+        "decay"
+      ],
+      "tags": [
+        "green",
+        "sickly",
+        "horror"
+      ]
+    },
+    "joy_saturated_pop": {
+      "name": "Joy saturated pop",
+      "use": "Celebration, energy, summer, advertising-bright happiness. Punch up everything.",
+      "fragment": "highly saturated palette across the spectrum, every color brought to peak intensity, bright primaries and complementaries punching out of the frame, the visual exuberance of joy",
+      "emotion_keys": [
+        "joy",
+        "celebration",
+        "energy",
+        "excitement",
+        "playful",
+        "upbeat"
+      ],
+      "tags": [
+        "saturated",
+        "bright",
+        "energetic"
+      ]
+    },
+    "serenity_pastel_low_contrast": {
+      "name": "Serenity pastel low-contrast",
+      "use": "Soft mornings, quiet domesticity, gentle wellness. Pastels, low contrast, breathy.",
+      "fragment": "soft pastel palette with low contrast, gentle pinks, creams, and pale blues, highlights blooming softly, the breathy quiet quality of a peaceful morning",
+      "emotion_keys": [
+        "serenity",
+        "gentle",
+        "peaceful-domestic",
+        "soft",
+        "wellness",
+        "breathy"
+      ],
+      "tags": [
+        "pastel",
+        "low-contrast",
+        "soft"
+      ]
+    },
+    "urgency_high_contrast_complementary": {
+      "name": "Urgency high-contrast complementary",
+      "use": "Action, urgency, news, sport. Strong complementary color pairs (orange/teal, red/cyan), high contrast.",
+      "fragment": "high-contrast complementary color palette (orange and teal, or red and cyan), strong saturation in both poles, deep shadows separating the two color regions, the urgent dynamic energy of an action scene",
+      "emotion_keys": [
+        "urgency",
+        "action",
+        "energy-high",
+        "dynamic",
+        "competitive",
+        "newsworthy"
+      ],
+      "tags": [
+        "complementary",
+        "high-contrast",
+        "saturated"
+      ]
+    }
+  }
+}

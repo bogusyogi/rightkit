@@ -1,0 +1,84 @@
+{
+  "_meta": {
+    "model_slug": "seedream-v4",
+    "version": "1.0.0",
+    "official_doc_url": "https://wavespeed.ai/docs/docs-api/bytedance/bytedance-seedream-v4",
+    "schema_last_verified": "2026-05-05",
+    "research_sources": [
+      "https://wavespeed.ai/docs/docs-api/bytedance/bytedance-seedream-v4",
+      "https://wavespeed.ai/docs/docs-api/bytedance/bytedance-seedream-v4-sequential",
+      "https://wavespeed.ai/blog/posts/seedream-4-0-to-5-0-complete-tutorial-image-generation-editing/"
+    ],
+    "pricing_tier_id": "seedream-v4-default",
+    "_invoice_status_note": "See recipes/image/invoice-status.json[seedream-v4-default]. ESTIMATE — UNVERIFIED. Slug wired fresh 2026-05-05; invoice reconciliation pending."
+  },
+  "required_fields": {
+    "prompt": { "type": "string", "required": true, "max_length": 4000 },
+    "size": {
+      "type": "string",
+      "required": false,
+      "default": "2048*2048",
+      "_format": "WIDTH*HEIGHT (asterisk separator)"
+    }
+  },
+  "optional_fields": {
+    "max_images": {
+      "type": "integer",
+      "min": 1,
+      "max": 9,
+      "default": 1,
+      "_note": "If using sequential endpoint, must match prompt-declared 'a series of N images' count."
+    },
+    "enable_base64_output": { "type": "boolean", "default": false },
+    "enable_sync_mode": { "type": "boolean", "default": false },
+    "endpoint_variant": {
+      "type": "enum",
+      "enum": ["default", "sequential", "edit", "edit-sequential"],
+      "default": "default"
+    }
+  },
+  "negative_prompt_policy": {
+    "strategy": "natural_language_inline",
+    "_note": "Seedream has no separate negative_prompt field. Express constraints inline. Edit prompts use 'replace [A] with [B]; keep [identity]; preserve [lighting]' grammar."
+  },
+  "reference_syntax": {
+    "method": "image_urls_array",
+    "max_references": 4,
+    "_note": "Edit/sequential-edit endpoints accept reference images. Default T2I does not."
+  },
+  "official_prompt_template": {
+    "_format": "structured-object",
+    "slots": ["action", "object", "target_feature", "_optional_series_clause"],
+    "_ordering": "action + object + target_feature [+ ', a series of {N} images, [style locks]' if sequential]",
+    "_renderer_id": "seedream_v4"
+  },
+  "validator_rules": [
+    {
+      "id": "prompt_required",
+      "kind": "length",
+      "field": "prompt",
+      "min": 1,
+      "throws": "seedream-v4: prompt is required"
+    },
+    {
+      "id": "max_images_range",
+      "kind": "range",
+      "field": "max_images",
+      "min": 1,
+      "max": 9,
+      "throws": "seedream-v4: max_images must be 1..9 (got {value})"
+    },
+    {
+      "id": "seedream_count_match",
+      "kind": "handler",
+      "handler": "validateSeedreamDeclaredCount",
+      "throws": "seedream-v4: prompt-declared count ({declared}) must equal max_images ({max_images}). Sequential generation requires both to agree."
+    },
+    {
+      "id": "sequential_endpoint_requires_series_lang",
+      "kind": "handler",
+      "handler": "validateSeedreamDeclaredCount",
+      "throws": "seedream-v4: endpoint_variant='sequential' but prompt lacks 'a series of N' or style-lock language. Sequential generation will fail without explicit series declaration."
+    }
+  ]
+}

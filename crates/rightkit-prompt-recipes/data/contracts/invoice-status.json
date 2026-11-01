@@ -1,0 +1,392 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated": "2026-05-05",
+    "_purpose": "Single source of truth for image-gen pricing per pricing_tier_id. Contracts reference pricing_tier_id; this file holds {cost_per_image, invoice_verified, last_invoice_check_date, source}. Cost moves independently of contract schema, so it lives separately.",
+    "_invoice_verified_meaning": "true = at least one invoice line item has been reconciled against the cost_per_image at this tier. false = estimate from public docs only. Reconciliation lesson per memory cost_preflight_invoice_recon.md.",
+    "category": "image",
+    "subcategory": "invoice-status",
+    "principle": "Invoice and pricing data is a spend-control recipe library. Each item exposes a pricing tier that contracts and preflight cost checks can reference without hardcoding rates."
+  },
+  "tiers": {
+    "nb-pro-2k": {
+      "model_slug": "nano-banana-pro",
+      "tier_label": "2K resolution",
+      "cost_per_image": 0.039,
+      "invoice_verified": true,
+      "last_invoice_check": "2026-05-04",
+      "source": "nanobananaapi.ai dashboard reconciled during Phase B run 2026-05-04"
+    },
+    "nb-pro-4k": {
+      "model_slug": "nano-banana-pro",
+      "tier_label": "4K resolution",
+      "cost_per_image": 0.078,
+      "invoice_verified": false,
+      "source": "estimate — 2x of 2K tier per nanobananaapi.ai docs",
+      "next_invoice_check": "first 4K production run"
+    },
+    "flux-2-pro-32steps": {
+      "model_slug": "flux-2-pro",
+      "tier_label": "32 inference steps (default)",
+      "cost_per_image": 0.06,
+      "invoice_verified": true,
+      "last_invoice_check": "2026-05-04",
+      "source": "fal.ai dashboard reconciled during Phase B run 2026-05-04"
+    },
+    "flux-2-dev-default": {
+      "model_slug": "flux-2-dev",
+      "tier_label": "FLUX.2 dev default settings",
+      "cost_per_image": 0.012,
+      "invoice_verified": false,
+      "source": "fal pricing 2026-05-04 — $0.012/MP. Sibling of flux-2-pro at lower price."
+    },
+    "qwen-image-1mp": {
+      "model_slug": "qwen-image",
+      "tier_label": "1MP (1024*1024 default)",
+      "cost_per_image": 0.025,
+      "invoice_verified": true,
+      "last_invoice_check": "2026-05-04",
+      "source": "WaveSpeed dashboard reconciled during Phase B run 2026-05-04"
+    },
+    "gpt-image-2-low": {
+      "model_slug": "gpt-image-2",
+      "tier_label": "quality=low",
+      "cost_per_image": 0.022,
+      "invoice_verified": false,
+      "source": "per-model-quirks.json estimate — needs invoice reconciliation"
+    },
+    "gpt-image-2-medium": {
+      "model_slug": "gpt-image-2",
+      "tier_label": "quality=medium",
+      "cost_per_image": 0.05,
+      "invoice_verified": false,
+      "source": "estimate — needs invoice reconciliation"
+    },
+    "gpt-image-2-high": {
+      "model_slug": "gpt-image-2",
+      "tier_label": "quality=high",
+      "cost_per_image": 0.2,
+      "invoice_verified": false,
+      "source": "PRE-PRODUCTION ESTIMATE used during 2026-05-05 Phase 1 storyboard test ($2.00 spent on 10 renders). MUST be reconciled against EvoLink dashboard before next high-tier run.",
+      "next_invoice_check": "operator EvoLink dashboard check after 2026-05-05 storyboard run"
+    },
+    "gpt-image-2-auto": {
+      "model_slug": "gpt-image-2",
+      "tier_label": "quality=auto (model-decided)",
+      "cost_per_image_max": 0.2,
+      "invoice_verified": false,
+      "source": "auto can resolve to any tier. Treat as worst-case until proven. Codex synthesis 2026-05-05: 'Do not default to auto for production/test harnesses. Require explicit quality.'"
+    },
+    "recraft-v4-raster-1mp": {
+      "model_slug": "recraft-v4-raster",
+      "tier_label": "V4 raster 1MP",
+      "cost_per_image": 0.04,
+      "invoice_verified": false,
+      "source": "estimate from Recraft public pricing"
+    },
+    "recraft-v4-pro-4mp": {
+      "model_slug": "recraft-v4-raster",
+      "tier_label": "V4 Pro raster 4MP",
+      "cost_per_image": 0.08,
+      "invoice_verified": false,
+      "source": "estimate"
+    },
+    "recraft-v4-vector": {
+      "model_slug": "recraft-v4-vector",
+      "tier_label": "V4 vector SVG",
+      "cost_per_image": 0.04,
+      "invoice_verified": false,
+      "source": "estimate"
+    },
+    "imagen-4-standard": {
+      "model_slug": "imagen-4-standard",
+      "tier_label": "Imagen 4 standard",
+      "cost_per_image": 0.04,
+      "invoice_verified": false,
+      "source": "estimate from Vertex AI public pricing"
+    },
+    "imagen-4-ultra": {
+      "model_slug": "imagen-4-ultra",
+      "tier_label": "Imagen 4 Ultra",
+      "cost_per_image": 0.08,
+      "invoice_verified": false,
+      "source": "estimate from Vertex AI public pricing"
+    },
+    "seedream-v4-default": {
+      "model_slug": "seedream-v4",
+      "tier_label": "Seedream V4 single image",
+      "cost_per_image": 0.04,
+      "invoice_verified": false,
+      "source": "PRE-PRODUCTION ESTIMATE — 50-render video plate test 2026-05-05 fired 10 Seedream renders at this rate ($0.40). Plus a single probe charge during slug verification (~$0.04 sunk). MUST be reconciled against WaveSpeed dashboard.",
+      "next_invoice_check": "operator WaveSpeed dashboard check"
+    },
+    "seedream-v4-sequential": {
+      "model_slug": "seedream-v4",
+      "tier_label": "Seedream V4 Sequential (per-image of N)",
+      "cost_per_image": 0.04,
+      "invoice_verified": false,
+      "source": "estimate — same per-image rate × max_images"
+    },
+    "mj-v7-fast": {
+      "model_slug": "mj-v7",
+      "tier_label": "MJ V7 fast mode (EvoLink relay)",
+      "cost_per_image": 0.05,
+      "invoice_verified": false,
+      "source": "EvoLink relay rate — needs invoice reconciliation"
+    },
+    "mj-v7-relax": {
+      "model_slug": "mj-v7",
+      "tier_label": "MJ V7 relax mode (EvoLink relay)",
+      "cost_per_image": 0.025,
+      "invoice_verified": false,
+      "source": "EvoLink relay rate — estimate"
+    }
+  },
+  "_unverified_tier_ids_needing_invoice_check": [
+    "gpt-image-2-low",
+    "gpt-image-2-medium",
+    "gpt-image-2-high",
+    "gpt-image-2-auto",
+    "nb-pro-4k",
+    "recraft-v4-raster-1mp",
+    "recraft-v4-pro-4mp",
+    "recraft-v4-vector",
+    "imagen-4-standard",
+    "imagen-4-ultra",
+    "seedream-v4-default",
+    "seedream-v4-sequential",
+    "mj-v7-fast",
+    "mj-v7-relax"
+  ],
+  "_session_charges_pending_reconciliation": {
+    "2026-05-05": [
+      "$2.00 — 10 renders gpt-image-2 quality=high during video-plate-ab and storyboard-hr tests",
+      "$0.40 — 10 renders seedream-v4 during video-plate-ab",
+      "$0.04 — 1 probe render seedream-v4 during slug verification"
+    ]
+  },
+  "items": {
+    "nb-pro-2k": {
+      "name": "nano-banana-pro - 2K resolution",
+      "use": "Invoice-verified pricing tier for cost preflight.",
+      "fragment": "nano-banana-pro 2K resolution: 0.039 USD per image invoice-verified.",
+      "pricing_tier": {
+        "model_slug": "nano-banana-pro",
+        "tier_label": "2K resolution",
+        "cost_per_image": 0.039,
+        "invoice_verified": true,
+        "last_invoice_check": "2026-05-04",
+        "source": "nanobananaapi.ai dashboard reconciled during Phase B run 2026-05-04"
+      }
+    },
+    "nb-pro-4k": {
+      "name": "nano-banana-pro - 4K resolution",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "nano-banana-pro 4K resolution: 0.078 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "nano-banana-pro",
+        "tier_label": "4K resolution",
+        "cost_per_image": 0.078,
+        "invoice_verified": false,
+        "source": "estimate — 2x of 2K tier per nanobananaapi.ai docs",
+        "next_invoice_check": "first 4K production run"
+      }
+    },
+    "flux-2-pro-32steps": {
+      "name": "flux-2-pro - 32 inference steps (default)",
+      "use": "Invoice-verified pricing tier for cost preflight.",
+      "fragment": "flux-2-pro 32 inference steps (default): 0.06 USD per image invoice-verified.",
+      "pricing_tier": {
+        "model_slug": "flux-2-pro",
+        "tier_label": "32 inference steps (default)",
+        "cost_per_image": 0.06,
+        "invoice_verified": true,
+        "last_invoice_check": "2026-05-04",
+        "source": "fal.ai dashboard reconciled during Phase B run 2026-05-04"
+      }
+    },
+    "flux-2-dev-default": {
+      "name": "flux-2-dev - FLUX.2 dev default settings",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "flux-2-dev FLUX.2 dev default settings: 0.012 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "flux-2-dev",
+        "tier_label": "FLUX.2 dev default settings",
+        "cost_per_image": 0.012,
+        "invoice_verified": false,
+        "source": "fal pricing 2026-05-04 — $0.012/MP. Sibling of flux-2-pro at lower price."
+      }
+    },
+    "qwen-image-1mp": {
+      "name": "qwen-image - 1MP (1024*1024 default)",
+      "use": "Invoice-verified pricing tier for cost preflight.",
+      "fragment": "qwen-image 1MP (1024*1024 default): 0.025 USD per image invoice-verified.",
+      "pricing_tier": {
+        "model_slug": "qwen-image",
+        "tier_label": "1MP (1024*1024 default)",
+        "cost_per_image": 0.025,
+        "invoice_verified": true,
+        "last_invoice_check": "2026-05-04",
+        "source": "WaveSpeed dashboard reconciled during Phase B run 2026-05-04"
+      }
+    },
+    "gpt-image-2-low": {
+      "name": "gpt-image-2 - quality=low",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "gpt-image-2 quality=low: 0.022 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "gpt-image-2",
+        "tier_label": "quality=low",
+        "cost_per_image": 0.022,
+        "invoice_verified": false,
+        "source": "per-model-quirks.json estimate — needs invoice reconciliation"
+      }
+    },
+    "gpt-image-2-medium": {
+      "name": "gpt-image-2 - quality=medium",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "gpt-image-2 quality=medium: 0.05 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "gpt-image-2",
+        "tier_label": "quality=medium",
+        "cost_per_image": 0.05,
+        "invoice_verified": false,
+        "source": "estimate — needs invoice reconciliation"
+      }
+    },
+    "gpt-image-2-high": {
+      "name": "gpt-image-2 - quality=high",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "gpt-image-2 quality=high: 0.2 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "gpt-image-2",
+        "tier_label": "quality=high",
+        "cost_per_image": 0.2,
+        "invoice_verified": false,
+        "source": "PRE-PRODUCTION ESTIMATE used during 2026-05-05 Phase 1 storyboard test ($2.00 spent on 10 renders). MUST be reconciled against EvoLink dashboard before next high-tier run.",
+        "next_invoice_check": "operator EvoLink dashboard check after 2026-05-05 storyboard run"
+      }
+    },
+    "gpt-image-2-auto": {
+      "name": "gpt-image-2 - quality=auto (model-decided)",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "gpt-image-2 quality=auto (model-decided): 0.2 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "gpt-image-2",
+        "tier_label": "quality=auto (model-decided)",
+        "cost_per_image_max": 0.2,
+        "invoice_verified": false,
+        "source": "auto can resolve to any tier. Treat as worst-case until proven. Codex synthesis 2026-05-05: 'Do not default to auto for production/test harnesses. Require explicit quality.'"
+      }
+    },
+    "recraft-v4-raster-1mp": {
+      "name": "recraft-v4-raster - V4 raster 1MP",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "recraft-v4-raster V4 raster 1MP: 0.04 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "recraft-v4-raster",
+        "tier_label": "V4 raster 1MP",
+        "cost_per_image": 0.04,
+        "invoice_verified": false,
+        "source": "estimate from Recraft public pricing"
+      }
+    },
+    "recraft-v4-pro-4mp": {
+      "name": "recraft-v4-raster - V4 Pro raster 4MP",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "recraft-v4-raster V4 Pro raster 4MP: 0.08 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "recraft-v4-raster",
+        "tier_label": "V4 Pro raster 4MP",
+        "cost_per_image": 0.08,
+        "invoice_verified": false,
+        "source": "estimate"
+      }
+    },
+    "recraft-v4-vector": {
+      "name": "recraft-v4-vector - V4 vector SVG",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "recraft-v4-vector V4 vector SVG: 0.04 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "recraft-v4-vector",
+        "tier_label": "V4 vector SVG",
+        "cost_per_image": 0.04,
+        "invoice_verified": false,
+        "source": "estimate"
+      }
+    },
+    "imagen-4-standard": {
+      "name": "imagen-4-standard - Imagen 4 standard",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "imagen-4-standard Imagen 4 standard: 0.04 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "imagen-4-standard",
+        "tier_label": "Imagen 4 standard",
+        "cost_per_image": 0.04,
+        "invoice_verified": false,
+        "source": "estimate from Vertex AI public pricing"
+      }
+    },
+    "imagen-4-ultra": {
+      "name": "imagen-4-ultra - Imagen 4 Ultra",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "imagen-4-ultra Imagen 4 Ultra: 0.08 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "imagen-4-ultra",
+        "tier_label": "Imagen 4 Ultra",
+        "cost_per_image": 0.08,
+        "invoice_verified": false,
+        "source": "estimate from Vertex AI public pricing"
+      }
+    },
+    "seedream-v4-default": {
+      "name": "seedream-v4 - Seedream V4 single image",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "seedream-v4 Seedream V4 single image: 0.04 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "seedream-v4",
+        "tier_label": "Seedream V4 single image",
+        "cost_per_image": 0.04,
+        "invoice_verified": false,
+        "source": "PRE-PRODUCTION ESTIMATE — 50-render video plate test 2026-05-05 fired 10 Seedream renders at this rate ($0.40). Plus a single probe charge during slug verification (~$0.04 sunk). MUST be reconciled against WaveSpeed dashboard.",
+        "next_invoice_check": "operator WaveSpeed dashboard check"
+      }
+    },
+    "seedream-v4-sequential": {
+      "name": "seedream-v4 - Seedream V4 Sequential (per-image of N)",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "seedream-v4 Seedream V4 Sequential (per-image of N): 0.04 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "seedream-v4",
+        "tier_label": "Seedream V4 Sequential (per-image of N)",
+        "cost_per_image": 0.04,
+        "invoice_verified": false,
+        "source": "estimate — same per-image rate × max_images"
+      }
+    },
+    "mj-v7-fast": {
+      "name": "mj-v7 - MJ V7 fast mode (EvoLink relay)",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "mj-v7 MJ V7 fast mode (EvoLink relay): 0.05 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "mj-v7",
+        "tier_label": "MJ V7 fast mode (EvoLink relay)",
+        "cost_per_image": 0.05,
+        "invoice_verified": false,
+        "source": "EvoLink relay rate — needs invoice reconciliation"
+      }
+    },
+    "mj-v7-relax": {
+      "name": "mj-v7 - MJ V7 relax mode (EvoLink relay)",
+      "use": "Estimated pricing tier; reconcile against the provider dashboard before production use.",
+      "fragment": "mj-v7 MJ V7 relax mode (EvoLink relay): 0.025 USD per image estimate.",
+      "pricing_tier": {
+        "model_slug": "mj-v7",
+        "tier_label": "MJ V7 relax mode (EvoLink relay)",
+        "cost_per_image": 0.025,
+        "invoice_verified": false,
+        "source": "EvoLink relay rate — estimate"
+      }
+    }
+  }
+}

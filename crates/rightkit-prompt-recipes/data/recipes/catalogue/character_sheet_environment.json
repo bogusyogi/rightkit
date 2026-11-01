@@ -1,0 +1,105 @@
+{
+  "schema_version": "1.0.0",
+  "id": "character_sheet_environment",
+  "title": "Six-panel character sheet plus environment plate: six angles of one identity and one environment",
+  "source": {
+    "template": "none in the repository: templates.json character_reference_batch declares no panel or angle list (scenario batch only)",
+    "plan": "docs/plans/2026-10-08-genright-execution-plan.md:64 (character reference batch as data, per-route slot count and angles, bound to G7 identity versions) and :144 (G11 names the six-panel character sheet)",
+    "acceptance": "docs/plans/2026-10-08-genright-execution-plan.md:146 (six angles of one identity that the eyes gate accepts)"
+  },
+  "inputs": [
+    {"name": "identity_image", "type": "image"},
+    {"name": "panel_prompt", "type": "text"},
+    {"name": "environment_prompt", "type": "text"}
+  ],
+  "nodes": [
+    {
+      "id": "panel_1",
+      "kind": "image",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "panel_prompt", "type": "text"},
+        "reference": {"input": "identity_image", "type": "image"},
+        "panel": 1
+      },
+      "depends_on": []
+    },
+    {
+      "id": "panel_2",
+      "kind": "image",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "panel_prompt", "type": "text"},
+        "reference": {"input": "identity_image", "type": "image"},
+        "panel": 2
+      },
+      "depends_on": []
+    },
+    {
+      "id": "panel_3",
+      "kind": "image",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "panel_prompt", "type": "text"},
+        "reference": {"input": "identity_image", "type": "image"},
+        "panel": 3
+      },
+      "depends_on": []
+    },
+    {
+      "id": "panel_4",
+      "kind": "image",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "panel_prompt", "type": "text"},
+        "reference": {"input": "identity_image", "type": "image"},
+        "panel": 4
+      },
+      "depends_on": []
+    },
+    {
+      "id": "panel_5",
+      "kind": "image",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "panel_prompt", "type": "text"},
+        "reference": {"input": "identity_image", "type": "image"},
+        "panel": 5
+      },
+      "depends_on": []
+    },
+    {
+      "id": "panel_6",
+      "kind": "image",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "panel_prompt", "type": "text"},
+        "reference": {"input": "identity_image", "type": "image"},
+        "panel": 6
+      },
+      "depends_on": []
+    },
+    {
+      "id": "environment",
+      "kind": "image",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "environment_prompt", "type": "text"}
+      },
+      "depends_on": []
+    }
+  ],
+  "outputs": [
+    {"name": "panel_1", "from": "panel_1"},
+    {"name": "panel_2", "from": "panel_2"},
+    {"name": "panel_3", "from": "panel_3"},
+    {"name": "panel_4", "from": "panel_4"},
+    {"name": "panel_5", "from": "panel_5"},
+    {"name": "panel_6", "from": "panel_6"},
+    {"name": "environment", "from": "environment"}
+  ],
+  "review": {
+    "required": true,
+    "policy": "Default: review required. The per-recipe review policy (plan :92) is not yet expressed per recipe in the source. Panel angles are not declared in the source; panel_1 to panel_6 are slot numbers, and the prompt input carries the angle text."
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "model_slug": "recraft-v4-vector",
+    "version": "1.0.0",
+    "official_doc_url": "https://www.recraft.ai/docs/api-reference/getting-started",
+    "schema_last_verified": "2026-05-05",
+    "_extends_parent": "recraft-v4-raster",
+    "_extends_note": "Sibling of recraft-v4-raster. Same WaveSpeed API surface, but outputs SVG vector. The route currently documents prompt + size only.",
+    "research_sources": [
+      "https://www.recraft.ai/docs/api-reference/getting-started",
+      "https://runware.ai/docs/models/recraft-v4-vector"
+    ],
+    "pricing_tier_id": "recraft-v4-vector",
+    "_invoice_status_note": "See recipes/image/invoice-status.json[recraft-v4-vector]. ESTIMATE — needs invoice reconciliation."
+  },
+  "required_fields": {
+    "prompt": { "type": "string", "required": true, "max_length": 4000 }
+  },
+  "optional_fields": {
+    "size": { "type": "string", "default": "1024*1024", "_format": "WIDTH*HEIGHT (asterisk separator)" }
+  },
+  "negative_prompt_policy": {
+    "strategy": "natural_language_inline",
+    "_note": "Same as raster — no separate negative_prompt field."
+  },
+  "reference_syntax": {
+    "method": "none",
+    "max_references": 0,
+    "_note": "WaveSpeed Recraft V4 text-to-image route does not document image_urls."
+  },
+  "official_prompt_template": {
+    "_format": "structured-object",
+    "slots": ["subject", "composition", "style_descriptor"],
+    "_ordering": "{subject}, {composition}, {style_descriptor}",
+    "_renderer_id": "recraft_default"
+  },
+  "validator_rules": [
+    { "id": "prompt_required", "kind": "length", "field": "prompt", "min": 1, "throws": "recraft-v4-vector: prompt is required" }
+  ]
+}

@@ -1,0 +1,220 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated": "2026-05-04",
+    "category": "image",
+    "subcategory": "editing",
+    "principle": "Image editing uses fundamentally different prompt grammar from generation. Generation describes what to create; editing describes what to PRESERVE and what to CHANGE. FLUX Kontext, GPT Image 2 i2i, and NB2 image-edit all favor preserve/change clauses, identity markers, and stepwise edits over free-form rewrites.",
+    "sources": [
+      "Black Forest Labs FLUX Kontext prompting guide (preservation clauses, stepwise edits)",
+      "OpenAI GPT Image 2 image-edit guide (natural-language edit instructions)",
+      "Google Imagen edit/inpaint reference",
+      "NB Pro multi-image composition docs (@img1 reference + edit-on-reference)",
+      "Adrian's Puck v3 lesson: prose drifts product details; use refs + preservation clauses"
+    ],
+    "interpolation_rule": "Editing prompts compose differently from generation prompts. Composer must detect edit intent (presence of `image_urls` + edit endpoint) and switch to editing.json templates instead of aesthetics.json."
+  },
+  "_brand_defaults": {
+    "DD": {
+      "item_key": "background_swap",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md DD: product hero shots — subject locked, background swap is most common edit"
+    },
+    "RH": {
+      "item_key": "color_grade_only",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md RH: muted earth tone consistency across editorial imagery"
+    },
+    "TS": {
+      "item_key": "color_grade_only",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md TS: toxic-green palette match across drops"
+    },
+    "HR": {
+      "item_key": "preserve_change",
+      "status": "provisional_from_memory",
+      "seeded_from": "HR brand UI mockups — preserve UI exactly, change only backgrounds/copy"
+    },
+    "DV": {
+      "item_key": "preserve_change",
+      "status": "unknown_needs_owner_input",
+      "seeded_from": "no source yet"
+    },
+    "SS": {
+      "item_key": "object_remove",
+      "status": "owner_approved",
+      "seeded_from": "CLAUDE.md SS: documentary photography — remove distractions, keep moment"
+    }
+  },
+  "items": {
+    "preserve_change": {
+      "name": "Preserve / Change (FLUX Kontext canonical)",
+      "use": "Default editing pattern. Describe what stays exactly the same, then what changes. Works on FLUX Kontext, GPT Image 2 i2i, NB2 image-edit. Most reliable edit pattern across models.",
+      "fragment": "PRESERVE EXACTLY: [list what must NOT change — face, clothing, product, text, composition, lighting]. CHANGE ONLY: [list the single specific change — background, color, expression, pose].",
+      "negative_constraints": [
+        "do not redraw the entire image",
+        "do not invent new details outside the change instruction",
+        "do not modify the preserved elements"
+      ],
+      "tags": [
+        "edit-default",
+        "flux-kontext",
+        "gpt-image-2",
+        "nb2"
+      ],
+      "model_threading": {
+        "flux-2-pro": {
+          "endpoint": "fal-ai/flux-2-kontext (separate from text-to-image)",
+          "syntax": "exact preserve/change clauses; FLUX Kontext is purpose-built for this"
+        },
+        "nano-banana-pro": {
+          "endpoint": "POST /api/v1/nanobanana/edit-2 (or generate-2 with image_urls + edit instruction)",
+          "syntax": "@img1 + 'PRESERVE / CHANGE' clauses"
+        },
+        "gpt-image-2": {
+          "endpoint": "POST /v1/images/generations with image_urls + edit prompt",
+          "syntax": "natural-language: 'change only the background to X, keep everything else exactly as in the reference'"
+        },
+        "imagen-4-standard": {
+          "endpoint": "Imagen edit endpoint (when available on WaveSpeed)",
+          "syntax": "describe target state + reference; Imagen weights edit refs loosely"
+        }
+      }
+    },
+    "identity_marker": {
+      "name": "Identity-marker preservation (face / hands / text)",
+      "use": "When the identity-critical elements (face, hands holding the product, brand text, license key digits) MUST stay pixel-perfect. Use markers to be explicit.",
+      "fragment": "[IDENTITY-LOCKED ELEMENTS — do not modify]: face, hands, product, visible text. [EDITABLE ELEMENTS]: [what can change]. The locked elements must match the reference image at pixel level.",
+      "negative_constraints": [
+        "do not modify locked identity elements",
+        "do not redraw face or hands",
+        "do not regenerate text — preserve every character exactly"
+      ],
+      "tags": [
+        "identity",
+        "face-lock",
+        "text-lock",
+        "puck-product-lock"
+      ],
+      "model_threading": {
+        "flux-2-pro": {
+          "endpoint": "fal-ai/flux-2-kontext",
+          "syntax": "explicit IDENTITY-LOCKED list + EDITABLE list"
+        },
+        "nano-banana-pro": {
+          "endpoint": "edit-2",
+          "syntax": "@img1 + identity markers; NB2 is strongest at face/hand/text preservation"
+        },
+        "gpt-image-2": {
+          "endpoint": "edit",
+          "syntax": "'preserve identity exactly: face, hands, text. modify only: background.'"
+        }
+      }
+    },
+    "stepwise_edit_chain": {
+      "name": "Stepwise edit chain (multi-pass)",
+      "use": "When a single edit prompt would conflict with itself (change A, change B, change C all at once). Run as a chain — each pass changes ONE thing, output of pass N becomes input to pass N+1. FLUX Kontext docs explicitly recommend this for complex edits.",
+      "fragment": "Edit pass 1 of N: PRESERVE all original elements. CHANGE ONLY [single specific thing]. Pass output becomes input to pass 2.",
+      "negative_constraints": [
+        "do not attempt multiple edits in one pass",
+        "do not deviate from the single specified change"
+      ],
+      "tags": [
+        "multi-pass",
+        "flux-kontext-recommended",
+        "complex-edit"
+      ],
+      "model_threading": {
+        "flux-2-pro": {
+          "endpoint": "fal-ai/flux-2-kontext",
+          "syntax": "chain N kontext calls, each with one preserve/change pair"
+        },
+        "gpt-image-2": {
+          "endpoint": "edit",
+          "syntax": "chain N edit calls; GPT Image 2 token cost scales — keep passes minimal"
+        }
+      }
+    },
+    "background_swap": {
+      "name": "Background swap (subject-locked)",
+      "use": "Common product / portrait edit. Subject stays exactly. Background changes. Single most-used edit pattern in marketing image work.",
+      "fragment": "PRESERVE EXACTLY: the subject (product or person), all subject details, lighting on the subject. CHANGE ONLY: the background, replace with [new background description]. The subject's lighting must remain consistent with the original.",
+      "negative_constraints": [
+        "do not relight the subject",
+        "do not move the subject",
+        "do not modify the subject's edges or shadows"
+      ],
+      "tags": [
+        "background-swap",
+        "product-edit",
+        "portrait-edit"
+      ],
+      "model_threading": {
+        "flux-2-pro": {
+          "endpoint": "fal-ai/flux-2-kontext",
+          "syntax": "preserve/change with subject fully locked"
+        },
+        "nano-banana-pro": {
+          "endpoint": "edit-2",
+          "syntax": "@img1 + 'replace background only'"
+        },
+        "gpt-image-2": {
+          "endpoint": "edit",
+          "syntax": "'change only the background to X, keep the subject and its lighting unchanged'"
+        }
+      }
+    },
+    "color_grade_only": {
+      "name": "Color grade only (LUT-style)",
+      "use": "Apply a film/look/mood color grade without changing content. Useful for matching brand palette across a batch (DD copper warm, RH muted earth, TS toxic-green neon).",
+      "fragment": "PRESERVE EXACTLY: every visual element, composition, lighting direction, all subjects and backgrounds. CHANGE ONLY: the color grade — apply [target palette description]. Treat as a LUT pass, not a redesign.",
+      "negative_constraints": [
+        "do not modify any element shapes or positions",
+        "do not regenerate textures",
+        "do not change lighting direction — only color temperature/saturation"
+      ],
+      "tags": [
+        "color-grade",
+        "lut-pass",
+        "brand-palette-match"
+      ],
+      "model_threading": {
+        "flux-2-pro": {
+          "endpoint": "fal-ai/flux-2-kontext",
+          "syntax": "explicit LUT-pass clause"
+        },
+        "gpt-image-2": {
+          "endpoint": "edit",
+          "syntax": "'apply only a color-grade pass: [target palette]. preserve every other element'"
+        }
+      }
+    },
+    "object_remove": {
+      "name": "Object removal (inpaint-style)",
+      "use": "Remove a specific element — watermark, person in background, distracting prop. Inpaint-style edit.",
+      "fragment": "PRESERVE EXACTLY: the entire image. REMOVE: [specific element being deleted] and replace with plausible content from the surrounding context (matching texture, color, lighting).",
+      "negative_constraints": [
+        "do not modify any element other than the removed object's region",
+        "do not add new elements"
+      ],
+      "tags": [
+        "object-remove",
+        "inpaint"
+      ],
+      "model_threading": {
+        "flux-2-pro": {
+          "endpoint": "fal-ai/flux-2-kontext",
+          "syntax": "explicit removal clause"
+        },
+        "nano-banana-pro": {
+          "endpoint": "edit-2",
+          "syntax": "@img1 + 'remove [element], inpaint surrounding context'"
+        },
+        "gpt-image-2": {
+          "endpoint": "edit",
+          "syntax": "'remove [element]; preserve everything else'"
+        }
+      }
+    }
+  }
+}

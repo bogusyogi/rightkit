@@ -1,0 +1,303 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "created": "2026-05-04",
+    "sources": [
+      "PJ Ace ad audio patterns (HSP — hook, story, payoff)",
+      "ad-patterns.json beat-level audio cues",
+      "tools/pipelines/audio/synth.mjs procedural SFX recipes",
+      "ElevenLabs voice library + Sound Generation API",
+      "Codex audit 2026-05-04"
+    ],
+    "principle": "Veo audio is OFF by default ($0.20/s vs $0.40/s with audio). Audio is mixed externally via tools/pipelines/audio/mix.mjs. This file maps SHOT INTENT to a layered audio recipe (VO + SFX + music bed) the mixer can ingest.",
+    "category": "video",
+    "subcategory": "audio",
+    "consumed_by": [
+      "tools/pipelines/audio/mix.mjs — manifest layers consume these recipes",
+      "tools/pipelines/video/manifests/_schema.json — assembly.audio_path can be replaced by an audio-recipe key (Phase 2.11 additive)"
+    ],
+    "updated": "2026-05-04"
+  },
+  "voice_over_styles": {
+    "founder_direct": {
+      "_use": "HR / founder-led brands. First-person, lived experience.",
+      "_voice_note": "alex_warm_f30 = Bella (ElevenLabs library, warm female 30s). Swap to founder clone preset when ready.",
+      "elevenlabs_voice": "alex_warm_f30",
+      "settings": {
+        "stability": 0.6,
+        "similarity_boost": 0.8,
+        "style": 0.15
+      },
+      "pacing": "natural conversational, breath audible",
+      "match_aesthetic": [
+        "ugc",
+        "lifestyle"
+      ]
+    },
+    "premium_narrator": {
+      "_use": "Brand-page hero, launch trailer, premium DTC",
+      "_voice_note": "Pick a deep resonant male preset from ElevenLabs library. Placeholder uses narrator_neutral_m until brand voice locked.",
+      "elevenlabs_voice": "narrator_neutral_m",
+      "settings": {
+        "stability": 0.75,
+        "similarity_boost": 0.85,
+        "style": 0.05
+      },
+      "pacing": "deliberate, full-stop on each sentence",
+      "match_aesthetic": [
+        "cinematic",
+        "premium_product"
+      ]
+    },
+    "ugc_founder_phone": {
+      "_use": "Native social — 'I shot this on my phone'",
+      "_voice_note": "Founder clone when available; else alex_warm_f30 with elevated style.",
+      "elevenlabs_voice": "alex_warm_f30",
+      "settings": {
+        "stability": 0.5,
+        "similarity_boost": 0.7,
+        "style": 0.25
+      },
+      "pacing": "slightly rushed, casual, real",
+      "match_aesthetic": [
+        "ugc"
+      ]
+    }
+  },
+  "sfx_recipes": {
+    "ui_ding": {
+      "_use": "App / message confirmation, notification beat",
+      "synth_recipe": "synth:messenger_ping",
+      "alt_elevenlabs_prompt": "soft UI message notification ding, single tone, 0.4s, clean digital",
+      "volume": 0.55
+    },
+    "listening_chime": {
+      "_use": "Wake-word activation — 'decipher' fires, system begins listening",
+      "synth_recipe": "synth:listening_chime",
+      "alt_elevenlabs_prompt": "rising activation chime, 0.5s, soft synth, copper warm tone",
+      "volume": 0.42
+    },
+    "sent_tick": {
+      "_use": "Message sent confirmation, action complete",
+      "synth_recipe": "synth:sent_tick",
+      "alt_elevenlabs_prompt": "high crisp confirmation tick, 0.1s",
+      "volume": 0.38
+    },
+    "metal_slide": {
+      "_use": "Knife / EDC reveal — blade releases or locks into place",
+      "alt_elevenlabs_prompt": "metallic slide-and-click, 0.3s, satisfying mechanical detent, no reverb",
+      "volume": 0.6
+    },
+    "fabric_rustle": {
+      "_use": "Apparel reveals, shirt unfolding",
+      "alt_elevenlabs_prompt": "soft cotton fabric rustle, 0.5s, close-mic, natural",
+      "volume": 0.5
+    },
+    "magsafe_ting": {
+      "_use": "Phone snaps to magnetic accessory, premium product feel",
+      "alt_elevenlabs_prompt": "magnetic snap-to-position ting, 0.2s, satisfying click with brief resonance",
+      "volume": 0.55
+    }
+  },
+  "music_bed_styles": {
+    "warm_acoustic_kitchen": {
+      "_use": "HR-style intimate scenes, founder-direct, lifestyle",
+      "elevenlabs_music_prompt": "warm minimal acoustic, soft guitar, gentle pulse, no lyrics, 32s",
+      "volume_under_vo": 0.1,
+      "fade_in_s": 1.5,
+      "fade_out_s": 2
+    },
+    "modern_cinematic_swell": {
+      "_use": "Premium brand video, launch trailer",
+      "elevenlabs_music_prompt": "modern cinematic build, strings + soft synth, slow crescendo, no drums, 30s",
+      "volume_under_vo": 0.12,
+      "fade_in_s": 2,
+      "fade_out_s": 3
+    },
+    "ugc_lo_fi_loop": {
+      "_use": "TikTok / Reels native — feels like a creator's track",
+      "elevenlabs_music_prompt": "lo-fi hip-hop loop, soft beat, vinyl warmth, 20s loopable",
+      "volume_under_vo": 0.08,
+      "fade_in_s": 0.5,
+      "fade_out_s": 1
+    }
+  },
+  "rules": {
+    "vo_above_music_db": "VO peaks must sit ≥10 dB above music bed RMS. HR-ad calibration: VO peaks at -12 to -15 dB, music at -27 to -30 dB.",
+    "loudnorm_target": "I=-16 LUFS broadcast standard. Apply via ffmpeg loudnorm filter after mix.",
+    "sfx_timing": "Hit on the visual beat, not before. SFX leading the visual by even 100ms reads as 'wrong'.",
+    "wake_word_lead": "VO start_s must match the actual mouth-open frame, not the shot boundary. Probe sample frames before scheduling."
+  },
+  "items": {
+    "founder_direct": {
+      "name": "Voice over: Founder Direct",
+      "use": "HR / founder-led brands. First-person, lived experience.",
+      "fragment": "alex_warm_f30",
+      "kind": "voice_over_styles",
+      "recipe": {
+        "_use": "HR / founder-led brands. First-person, lived experience.",
+        "_voice_note": "alex_warm_f30 = Bella (ElevenLabs library, warm female 30s). Swap to founder clone preset when ready.",
+        "elevenlabs_voice": "alex_warm_f30",
+        "settings": {
+          "stability": 0.6,
+          "similarity_boost": 0.8,
+          "style": 0.15
+        },
+        "pacing": "natural conversational, breath audible",
+        "match_aesthetic": [
+          "ugc",
+          "lifestyle"
+        ]
+      }
+    },
+    "premium_narrator": {
+      "name": "Voice over: Premium Narrator",
+      "use": "Brand-page hero, launch trailer, premium DTC",
+      "fragment": "narrator_neutral_m",
+      "kind": "voice_over_styles",
+      "recipe": {
+        "_use": "Brand-page hero, launch trailer, premium DTC",
+        "_voice_note": "Pick a deep resonant male preset from ElevenLabs library. Placeholder uses narrator_neutral_m until brand voice locked.",
+        "elevenlabs_voice": "narrator_neutral_m",
+        "settings": {
+          "stability": 0.75,
+          "similarity_boost": 0.85,
+          "style": 0.05
+        },
+        "pacing": "deliberate, full-stop on each sentence",
+        "match_aesthetic": [
+          "cinematic",
+          "premium_product"
+        ]
+      }
+    },
+    "ugc_founder_phone": {
+      "name": "Voice over: Ugc Founder Phone",
+      "use": "Native social — 'I shot this on my phone'",
+      "fragment": "alex_warm_f30",
+      "kind": "voice_over_styles",
+      "recipe": {
+        "_use": "Native social — 'I shot this on my phone'",
+        "_voice_note": "Founder clone when available; else alex_warm_f30 with elevated style.",
+        "elevenlabs_voice": "alex_warm_f30",
+        "settings": {
+          "stability": 0.5,
+          "similarity_boost": 0.7,
+          "style": 0.25
+        },
+        "pacing": "slightly rushed, casual, real",
+        "match_aesthetic": [
+          "ugc"
+        ]
+      }
+    },
+    "ui_ding": {
+      "name": "SFX: Ui Ding",
+      "use": "App / message confirmation, notification beat",
+      "fragment": "soft UI message notification ding, single tone, 0.4s, clean digital",
+      "kind": "sfx_recipes",
+      "recipe": {
+        "_use": "App / message confirmation, notification beat",
+        "synth_recipe": "synth:messenger_ping",
+        "alt_elevenlabs_prompt": "soft UI message notification ding, single tone, 0.4s, clean digital",
+        "volume": 0.55
+      }
+    },
+    "listening_chime": {
+      "name": "SFX: Listening Chime",
+      "use": "Wake-word activation — 'decipher' fires, system begins listening",
+      "fragment": "rising activation chime, 0.5s, soft synth, copper warm tone",
+      "kind": "sfx_recipes",
+      "recipe": {
+        "_use": "Wake-word activation — 'decipher' fires, system begins listening",
+        "synth_recipe": "synth:listening_chime",
+        "alt_elevenlabs_prompt": "rising activation chime, 0.5s, soft synth, copper warm tone",
+        "volume": 0.42
+      }
+    },
+    "sent_tick": {
+      "name": "SFX: Sent Tick",
+      "use": "Message sent confirmation, action complete",
+      "fragment": "high crisp confirmation tick, 0.1s",
+      "kind": "sfx_recipes",
+      "recipe": {
+        "_use": "Message sent confirmation, action complete",
+        "synth_recipe": "synth:sent_tick",
+        "alt_elevenlabs_prompt": "high crisp confirmation tick, 0.1s",
+        "volume": 0.38
+      }
+    },
+    "metal_slide": {
+      "name": "SFX: Metal Slide",
+      "use": "Knife / EDC reveal — blade releases or locks into place",
+      "fragment": "metallic slide-and-click, 0.3s, satisfying mechanical detent, no reverb",
+      "kind": "sfx_recipes",
+      "recipe": {
+        "_use": "Knife / EDC reveal — blade releases or locks into place",
+        "alt_elevenlabs_prompt": "metallic slide-and-click, 0.3s, satisfying mechanical detent, no reverb",
+        "volume": 0.6
+      }
+    },
+    "fabric_rustle": {
+      "name": "SFX: Fabric Rustle",
+      "use": "Apparel reveals, shirt unfolding",
+      "fragment": "soft cotton fabric rustle, 0.5s, close-mic, natural",
+      "kind": "sfx_recipes",
+      "recipe": {
+        "_use": "Apparel reveals, shirt unfolding",
+        "alt_elevenlabs_prompt": "soft cotton fabric rustle, 0.5s, close-mic, natural",
+        "volume": 0.5
+      }
+    },
+    "magsafe_ting": {
+      "name": "SFX: Magsafe Ting",
+      "use": "Phone snaps to magnetic accessory, premium product feel",
+      "fragment": "magnetic snap-to-position ting, 0.2s, satisfying click with brief resonance",
+      "kind": "sfx_recipes",
+      "recipe": {
+        "_use": "Phone snaps to magnetic accessory, premium product feel",
+        "alt_elevenlabs_prompt": "magnetic snap-to-position ting, 0.2s, satisfying click with brief resonance",
+        "volume": 0.55
+      }
+    },
+    "warm_acoustic_kitchen": {
+      "name": "Music bed: Warm Acoustic Kitchen",
+      "use": "HR-style intimate scenes, founder-direct, lifestyle",
+      "fragment": "warm minimal acoustic, soft guitar, gentle pulse, no lyrics, 32s",
+      "kind": "music_bed_styles",
+      "recipe": {
+        "_use": "HR-style intimate scenes, founder-direct, lifestyle",
+        "elevenlabs_music_prompt": "warm minimal acoustic, soft guitar, gentle pulse, no lyrics, 32s",
+        "volume_under_vo": 0.1,
+        "fade_in_s": 1.5,
+        "fade_out_s": 2
+      }
+    },
+    "modern_cinematic_swell": {
+      "name": "Music bed: Modern Cinematic Swell",
+      "use": "Premium brand video, launch trailer",
+      "fragment": "modern cinematic build, strings + soft synth, slow crescendo, no drums, 30s",
+      "kind": "music_bed_styles",
+      "recipe": {
+        "_use": "Premium brand video, launch trailer",
+        "elevenlabs_music_prompt": "modern cinematic build, strings + soft synth, slow crescendo, no drums, 30s",
+        "volume_under_vo": 0.12,
+        "fade_in_s": 2,
+        "fade_out_s": 3
+      }
+    },
+    "ugc_lo_fi_loop": {
+      "name": "Music bed: Ugc Lo Fi Loop",
+      "use": "TikTok / Reels native — feels like a creator's track",
+      "fragment": "lo-fi hip-hop loop, soft beat, vinyl warmth, 20s loopable",
+      "kind": "music_bed_styles",
+      "recipe": {
+        "_use": "TikTok / Reels native — feels like a creator's track",
+        "elevenlabs_music_prompt": "lo-fi hip-hop loop, soft beat, vinyl warmth, 20s loopable",
+        "volume_under_vo": 0.08,
+        "fade_in_s": 0.5,
+        "fade_out_s": 1
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+[
+  {
+    "id": "crayon",
+    "label": "Crayon",
+    "prompt_fragment": "Apply a soft wax crayon look with visible gentle crayon grain, cheerful children-book colors, and slightly imperfect hand-colored texture."
+  },
+  {
+    "id": "marker",
+    "label": "Marker",
+    "prompt_fragment": "Apply a clean alcohol-marker coloring look with smooth filled areas, bright but print-safe color, crisp separation, and no muddy blending."
+  },
+  {
+    "id": "colored_pencil",
+    "label": "Colored pencil",
+    "prompt_fragment": "Apply a polished colored pencil look with layered pencil texture, soft shading, warm highlights, and careful hand-colored detail."
+  }
+]

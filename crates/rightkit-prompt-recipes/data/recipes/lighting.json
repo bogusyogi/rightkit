@@ -1,0 +1,181 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated": "2026-05-04",
+    "category": "image",
+    "subcategory": "lighting",
+    "principle": "Light quality, direction, and temperature ONLY. Cinematic lighting has motivation (a visible source), direction (where light comes from), and emotional intent. Flat overhead light kills cinema. Pick the light that serves the emotion.",
+    "sources": [
+      "Higgsfield AI tutorial transcript 2026-05-03 (cinematic image fundamentals)",
+      "Roger Deakins ASC commentary (motivated lighting principle)"
+    ],
+    "interpolation_rule": "Paste fragment verbatim into the lighting clause of the composed prompt."
+  },
+  "_brand_defaults": {
+    "DD": {
+      "item_key": "rim_back_separation",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md DD: premium product hero separation"
+    },
+    "RH": {
+      "item_key": "soft_window_north",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md RH: slow fashion gentle indoor light"
+    },
+    "TS": {
+      "item_key": "practicals_only",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md TS: neon-noir lit by in-scene practicals"
+    },
+    "HR": {
+      "item_key": "soft_window_north",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md HR: calm structured indoor like Linear app screenshots"
+    },
+    "DV": {
+      "item_key": "motivated_key",
+      "status": "unknown_needs_owner_input",
+      "seeded_from": "no source yet"
+    },
+    "SS": {
+      "item_key": "golden_hour_warm",
+      "status": "owner_approved",
+      "seeded_from": "CLAUDE.md SS: photography golden-hour aspirational"
+    }
+  },
+  "items": {
+    "motivated_key": {
+      "name": "Motivated key light",
+      "use": "When the scene has a visible light source (window, lamp, screen) that explains where the key light comes from. The default for grounded realism.",
+      "fragment": "lighting motivated by a visible source in the scene, key light from the direction of that source, soft shadows falling away from it, the light has a clear reason for being there",
+      "tags": [
+        "motivated",
+        "realistic",
+        "default-realism"
+      ]
+    },
+    "soft_window_north": {
+      "name": "Soft north-facing window",
+      "use": "Indoor portraits, kitchen scenes, workspace shots. North light is even, flattering, no harsh sun. Photographers' favorite.",
+      "fragment": "soft directional light from a large window facing away from direct sun, even diffused illumination, gentle wraparound shadows on faces, the cool indirect quality that flatters skin",
+      "tags": [
+        "soft",
+        "directional",
+        "portrait-friendly",
+        "indoor"
+      ]
+    },
+    "golden_hour_warm": {
+      "name": "Golden hour warm",
+      "use": "Outdoor scenes 30 min before sunset. Long warm shadows, low sun angle, romantic / aspirational mood.",
+      "fragment": "warm low-angle sunlight from late afternoon, golden hour tone, long soft shadows raking across the scene, warm amber highlights on edges, the magic-hour quality cinematographers wait for",
+      "tags": [
+        "warm",
+        "directional",
+        "outdoor",
+        "aspirational"
+      ]
+    },
+    "harsh_overhead": {
+      "name": "Harsh overhead",
+      "use": "Midday sun outdoors, fluorescent office, interrogation feel. Unflattering on faces but signals environment honestly.",
+      "fragment": "harsh overhead lighting creating short hard shadows directly below subjects, top-lit unflattering quality, raccoon-eye shadows, the unforgiving look of midday sun or office fluorescent",
+      "tags": [
+        "harsh",
+        "top-lit",
+        "unflattering",
+        "documentary"
+      ]
+    },
+    "single_source_warm": {
+      "name": "Single warm practical",
+      "use": "Cozy interior shots, evening kitchen, a single lamp lit. Intimate, warm, slightly contrasty.",
+      "fragment": "single warm practical light source visible in or just outside the frame, deep shadows on the opposite side, warm tungsten color temperature, intimate cozy feel",
+      "tags": [
+        "warm",
+        "single-source",
+        "intimate",
+        "tungsten"
+      ]
+    },
+    "practicals_only": {
+      "name": "Practicals only",
+      "use": "Night scenes lit entirely by visible in-scene lights (lamps, neon, screens). No fill. Cinematic but moody.",
+      "fragment": "lit entirely by practical light sources visible in the scene, no off-screen fill, deep negative space where practicals don't reach, mixed color temperatures from different sources, the cinematic quality of letting the room light itself",
+      "tags": [
+        "practicals",
+        "low-key",
+        "night",
+        "cinematic"
+      ]
+    },
+    "available_documentary": {
+      "name": "Available light documentary",
+      "use": "Whatever light is in the room, no setup, observational. Documentary feel. Not flattering but honest.",
+      "fragment": "available light only, no obvious lighting setup, accept whatever sources are in the scene, slight underexposure where shadows fall, observational documentary quality",
+      "tags": [
+        "available",
+        "documentary",
+        "no-setup",
+        "honest"
+      ]
+    },
+    "rim_back_separation": {
+      "name": "Rim/back light separation",
+      "use": "When subject needs to pop from background. Backlight or strong rim. Used for hero shots, product reveals, dramatic portraits.",
+      "fragment": "strong rim light from behind the subject creating an outline of light on hair and shoulder edges, separation from a darker background, the subject visually carved out from the scene",
+      "tags": [
+        "rim",
+        "back-light",
+        "hero",
+        "separation"
+      ]
+    },
+    "clamshell_portrait": {
+      "name": "Clamshell beauty light",
+      "use": "Beauty portraiture, even flattering light from above and below the face. Erases skin texture. Use sparingly — too much equals AI plastic look.",
+      "fragment": "soft even key light from above the eye line plus subtle fill from below, flattering but not flat, gentle wrap on cheekbones, the controlled beauty-lighting quality of a magazine cover",
+      "tags": [
+        "beauty",
+        "portrait",
+        "even",
+        "flattering"
+      ],
+      "warning": "Combine with skin-texture preset to avoid AI-plastic look. Clamshell + smooth skin = waxy."
+    },
+    "low_key_contrast": {
+      "name": "Low-key high contrast",
+      "use": "Dramatic, moody, much of frame in shadow. Thriller, noir, mystery. Single hard light, deep blacks.",
+      "fragment": "low-key lighting with most of the frame in shadow, single hard light from one side, deep impenetrable blacks, only the focal point illuminated, the chiaroscuro of a thriller",
+      "tags": [
+        "low-key",
+        "high-contrast",
+        "moody",
+        "noir"
+      ]
+    },
+    "chiaroscuro": {
+      "name": "Chiaroscuro painterly",
+      "use": "Renaissance painterly light. Single source, soft falloff, deep shadows. Gravitas, intimacy, depth.",
+      "fragment": "chiaroscuro painterly lighting, single soft light source with gradual falloff into deep shadow, the quality of Caravaggio or a Vermeer, light defining form through shadow",
+      "tags": [
+        "painterly",
+        "single-source",
+        "soft",
+        "dramatic"
+      ]
+    },
+    "flat_overcast": {
+      "name": "Flat overcast diffuse",
+      "use": "Heavily overcast day, even sky-light. No shadows, no contrast, flat. Useful for product or technical shots; deadly for emotional ones.",
+      "fragment": "flat diffuse overcast lighting, no directional shadows, even sky-light from all around, the matte quality of a heavily clouded day",
+      "tags": [
+        "flat",
+        "diffuse",
+        "low-contrast",
+        "technical"
+      ],
+      "warning": "Avoid for emotional or character-driven scenes — kills mood."
+    }
+  }
+}
