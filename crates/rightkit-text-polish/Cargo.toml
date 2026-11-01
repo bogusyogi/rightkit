@@ -18,6 +18,9 @@ regex = "1"
 serde = { version = "1", features = ["derive"] }
 rightkit-voice-commands = { version = "0.1.0", path = "../rightkit-voice-commands" }
 
+[dev-dependencies]
+serde_json = "1"
+
 [workspace]
 
 # Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
