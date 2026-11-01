@@ -29,6 +29,9 @@
 //! plus [`delivery`] for pure decode/probe/caption rules. These APIs preserve
 //! existing content-pipeline verdict & declared-hold semantics.
 //!
+//! Final-render QA (feature `render-qa`): `render_qa` probes a rendered file with ffmpeg, records a typed report
+//! and content-addressed receipt, and builds per-platform social packages that refuse an unqualified render.
+//!
 //! Code review (feature `code`): `code_review` adjudicates independent
 //! provider judgments over candidate findings, normalizes them and issues
 //! receipts; `minimize` (feature `minimize`) builds and verifies minimal-diff
@@ -48,6 +51,8 @@ pub mod ladder;
 pub mod minimize;
 pub mod qa;
 mod record;
+#[cfg(feature = "render-qa")]
+pub mod render_qa;
 mod repair;
 mod rules;
 mod subject;

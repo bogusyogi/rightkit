@@ -1,0 +1,42 @@
+{
+  "youtube": {
+    "name": "YouTube",
+    "aspects": [[16, 9]],
+    "min_width": 1280,
+    "max_duration_ms": 43200000,
+    "max_title_chars": 100,
+    "max_description_chars": 5000,
+    "max_tags_total_chars": 500,
+    "thumbnail": { "width_max": 1920 }
+  },
+  "shorts": {
+    "name": "YouTube Shorts",
+    "aspects": [[9, 16]],
+    "min_width": 720,
+    "max_duration_ms": 180000,
+    "max_title_chars": 100,
+    "max_description_chars": 5000,
+    "max_tags_total_chars": 500,
+    "thumbnail": { "width_max": 1080 }
+  },
+  "reels": {
+    "name": "Instagram Reels",
+    "aspects": [[9, 16]],
+    "min_width": 720,
+    "max_duration_ms": 180000,
+    "max_title_chars": 150,
+    "max_description_chars": 2200,
+    "max_tags_total_chars": 2200,
+    "thumbnail": { "width_max": 1080 }
+  },
+  "tiktok": {
+    "name": "TikTok",
+    "aspects": [[9, 16]],
+    "min_width": 720,
+    "max_duration_ms": 600000,
+    "max_title_chars": 150,
+    "max_description_chars": 2200,
+    "max_tags_total_chars": 2200,
+    "thumbnail": { "width_max": 1080 }
+  }
+}
