@@ -157,7 +157,7 @@ function wrapperSpawn(ledgerDir, { tokenOf = (_args, env) => env[SCAN_TOKEN_ENV]
 function cargoRun(t, spawnOver = {}) {
   const ledgerDir = path.join(scratch(t), "ledger");
   const fsx = memoryFs(FILES);
-  const plan = planScans({ changed: ["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], contentRoot: ROOT, liveRoot: ROOT, ...fsx, platform: "win32" });
+  const plan = planScans({ changed: ["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], contentRoot: ROOT, liveRoot: ROOT, ...fsx, platform: "win32", cargoCommand: ["cargo"] });
   const w = wrapperSpawn(ledgerDir, spawnOver);
   const run = () => runScans(plan, {
     ...fsx, classes: ["A"], exclude: (s) => !/^cargo-(metadata|deny|audit|package-list)/.test(s.id), env: {}, execPath: "node", toolPolicy: POLICY, toolOps: TOOL_OPS, spawn: w.spawn,

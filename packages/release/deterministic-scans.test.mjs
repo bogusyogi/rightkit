@@ -716,9 +716,9 @@ test("class B evidence binds to the input content and to a real class A run", as
   // (No advisory-exception set in this tree: that scan is the one class A scan every run plans.)
   const swiftOnly = fakeFs({ "swift/a.swift": "", "Package.swift": "" }, { "swift/a.swift": "", "Package.swift": "" });
   const swift = planScans({ changed: ["swift/a.swift"], contentRoot: CONTENT, liveRoot: LIVE, ...swiftOnly, platform: "darwin" });
-  assert.equal(swift.scans.filter((s) => s.class === "A").length, 0);
+  assert.deepEqual(swift.scans.filter((s) => s.class === "A").map((s) => s.id), ["swift-lock"], "the only class A scan of a Swift-only plan is the file-only lock check");
   const swiftFs = fakeFs({ ...crateFiles, "swift/a.swift": "", "Package.swift": "" }, {});
-  const bare = await runScans(swift, deps({ ...swiftFs }));
+  const bare = await runScans(swift, deps({ ...swiftFs, classes: ["B"] }));
   assert.ok(bare.scans.length > 0 && bare.scans.every((s) => s.code === "CLASS_A_REQUIRED"));
   const evidence = await runScans(swift, deps({ ...swiftFs, classes: ["A"] }));
   const ok = await runScans(swift, deps({ ...swiftFs, classes: ["B"], priorClassA: evidence }));
@@ -2971,7 +2971,7 @@ test("[GB-67] on a broker host a swift scan is the carried adapter job and sends
     const entries = fsModule.readdirSync(ledgerDir).flatMap((f) => { try { return fsModule.readFileSync(path.join(ledgerDir, f), "utf8").trim().split("\n").map((l) => JSON.parse(l)); } catch { return []; } });
     const sent = entries.find((e) => e.adapter === "rightkit-swift");
     assert.ok(sent, `the adapter request is ledgered: ${JSON.stringify(entries)}`);
-    assert.deepEqual(sent.argv, ["build", "--package-path", "."], "no --scratch-path, no --build-path");
+    assert.deepEqual(sent.argv, ["build", "--package-path", ".", "--disable-automatic-resolution"], "no --scratch-path, no --build-path");
   } finally { rmSync(ledgerDir, { recursive: true, force: true }); }
 });
 
@@ -3121,7 +3121,10 @@ test("[RA-18] the policy owner's data: scanToolPolicyFromPipeline reads ci/rk-pi
   assert.equal(darwin.shellcheck.sha256, pipeline.tools.shellcheck.darwin.sha256);
   assert.equal(darwin.shellcheck.version, "0.11.0");
   for (const name of Object.keys(darwin)) assert.ok(TRUSTED_SCAN_TOOLS.includes(name), `${name} is a trusted scan tool`);
-  assert.deepEqual(scanToolPolicyFromPipeline(pipeline.tools, "linux"), {}, "no linux enrolment exists: nothing is invented for a host the owner did not enrol");
+  const linux = scanToolPolicyFromPipeline(pipeline.tools, "linux");
+  for (const [name, entry] of Object.entries(linux)) assert.equal(entry.sha256, pipeline.tools[name].linux.sha256, `${name}: the linux policy is the owner's enrolment, byte for byte`);
+  assert.deepEqual(Object.keys(linux).sort(), Object.keys(pipeline.tools).filter((name) => pipeline.tools[name].linux).sort());
+  assert.deepEqual(scanToolPolicyFromPipeline(pipeline.tools, "freebsd"), {}, "no enrolment exists for a host the owner did not enrol: nothing is invented");
   assert.deepEqual(scanToolPolicyFromPipeline(undefined), {});
   const untrusted = resolveTrustedScanTool("actionlint", { policy: darwin, platform: "darwin" });
   assert.equal(untrusted.ok, false);

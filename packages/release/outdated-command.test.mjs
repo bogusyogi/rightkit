@@ -5,6 +5,7 @@
 // installed layouts (npm-flat and pnpm virtual store) around the real CLI and prove the updater's bin is found and run from there.
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tempRoot } from "./test-support/temp-roots.mjs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -131,7 +132,7 @@ test("an installed package that is not the updater, has no right-update bin, or 
 });
 
 test("the CLI help lists the update command", () => {
-  const help = spawnSync(process.execPath, [path.join(here, "cli", "right-release.mjs"), "--help"], { encoding: "utf8", windowsHide: true, timeout: 60_000 });
+  const help = spawnSync(process.execPath, [path.join(here, "cli", "right-release.mjs"), "--help"], { encoding: "utf8", windowsHide: true, timeout: 60_000, cwd: tempRoot("rk-help-cwd-") });
   assert.equal(help.status, 0);
   assert.match(help.stdout, /^ {2}update check\|apply\|gate\|land\|discard\|run\|schedule \[--repo <path>\]$/m);
   assert.match(help.stdout, /pinned @rightkit\/outdated updater \(right-update\)/);

@@ -10,6 +10,10 @@ starts through broker-admitted `workflow_dispatch` requests. `publish.yml` quali
 The contract target ([GATE-CONTRACT.md](GATE-CONTRACT.md)) is automatic Git-triggered publication for RightKit after CI qualification; the dispatch routes above are current, not the contract.
 The public-repository guard rejects private forks.
 
+## `@rightkit/release` tests: unit class and broker class
+
+`packages/release/test-support/suites.json` classes every test file as `unit` or `broker`. `pnpm --dir packages/release run test` (what the gate and qualify-direct run on a Linux runner with no RustRight broker) runs the unit class and passes with no skip. The broker class (`pnpm --dir packages/release run test:broker`) starts the installed RustRight broker and runs only on a Mac, a Dell or a host with `rustright` on PATH; it fails where there is no broker and is never skipped or simulated. **`test:broker` on a Mac or Dell is required evidence before `@rightkit/release` is published**; `test:all` runs both classes.
+
 ## Layout
 
 | File | Role |

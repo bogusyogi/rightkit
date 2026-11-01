@@ -8,6 +8,7 @@
 
 ## 0.6.17 (unpublished)
 
+- **`pnpm test` passes on a Linux direct origin (rightkit#1365):** the package's tests are split by `test-support/suites.json` into a unit class (`pnpm test`, no broker, no skips) and a broker class (`pnpm run test:broker`, the files that start the installed RustRight broker; required evidence on a Mac or Dell before publishing; never skipped or simulated), `pnpm run test:all` runs both. The shard runner gives each shard its own process group and removes the gate's launch variables from the tests. Hardcoded home paths, pnpm CLI resolution under pnpm/action-setup, template and pnpm 12 multi-document lockfile reads, `rightkit-linux-setup`'s launch policy and several stale test expectations are fixed.
 - **A tool's own JSON output is never judged as a broker frame (rightkit#1351):** `drainFrames` judged every captured line starting with `{` against the 1 MiB frame limit, so the one-line `cargo metadata` document of a large workspace (2.28 MB for a Tauri app) failed every carried full-metadata call (cargo-deny) with `RK_CARGO_BROKER_UNVERIFIED` (frame-over-cap) on the Mac and the Dell. Only a JSON object whose `type` is a protocol event type is judged now.
 - **Build ownership: a reused detached group id is not a live straggler:** a recorded group whose leader started after the record was written (the OS reused the pid) no longer holds the host (b0abc2828).
 - **RightKit's own sample apps are built as apps, scoped to their directory** (`ci/sample-apps.json`, fd63966df).

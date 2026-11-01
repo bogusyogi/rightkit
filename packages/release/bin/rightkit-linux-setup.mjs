@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // rightkit-linux-setup [--root <app>] [--dry-run]: provision a Linux host (cloud container, VM, WSL2) for `rightkit-host-gate`.
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../background-process.mjs";
 import { setup } from "../linux-setup.mjs";
 
 const args = process.argv.slice(2);

@@ -31,10 +31,22 @@ pub fn command_path(command: &str) -> Option<PathBuf> {
     None
 }
 
+/// A child of a windowless parent opens no console window on Windows (`CREATE_NO_WINDOW`); a no-op elsewhere.
+fn hidden(command: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    command
+}
+
 /// The first line `<executable> --version` prints, trimmed; `None` when it cannot run, exits
 /// non-zero or prints nothing.
 pub fn tool_version(executable: &Path) -> Option<String> {
-    let output = Command::new(executable).arg("--version").output().ok()?;
+    let mut command = Command::new(executable);
+    hidden(&mut command);
+    let output = command.arg("--version").output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -123,7 +135,9 @@ pub enum Bounded {
 /// timeout. `Err` is a spawn or wait failure.
 pub fn run_bounded(program: &Path, args: &[&str], timeout: Duration) -> Result<Bounded, String> {
     let started = Instant::now();
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    hidden(&mut command);
+    let mut child = command
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -184,7 +198,9 @@ pub fn clipboard_candidates() -> &'static [(&'static str, &'static [&'static str
 pub fn copy_to_clipboard(text: &str) -> Result<String, String> {
     let mut last = String::from("no clipboard candidates configured for this target");
     for (bin, args) in clipboard_candidates() {
-        let mut child = match Command::new(bin)
+        let mut command = Command::new(bin);
+        hidden(&mut command);
+        let mut child = match command
             .args(*args)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())

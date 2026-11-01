@@ -146,7 +146,7 @@ const out = [];
 const code = await main(["check", "--commit", ${JSON.stringify(sha)}, "--full-a", "--snapshot", snap.path], { cwd: ${JSON.stringify(repo)}, platform: "linux", snapshotRoot: ${JSON.stringify(snapRoot)}, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0,
   ${executorStub ? `resolveExecutor: () => (${executorStub}),` : ""}
   spawn: undefined, runScans: async () => ({ scans: [], notes: [], cacheHits: [] }) });
-console.log(JSON.stringify({ code, out: out.join("\\n").slice(-1500) }));\n`.replace("spawn: undefined, ", ""));
+console.log(JSON.stringify({ code, out: out.join("\\n").slice(-8000) }));\n`.replace("spawn: undefined, ", ""));
     // The host ownership record and snapshots stay in this fixture, never in the real state or data root.
     const env = { ...process.env, NODE_OPTIONS: "", RK_GATE_CACHE: "0", PATH: `${shimDir}:${directDir}:${process.env.PATH}`, RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
     const r = spawnSync(process.execPath, [driver], { env, encoding: "utf8", cwd: repo });

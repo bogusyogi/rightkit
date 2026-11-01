@@ -3535,7 +3535,9 @@ export async function main(argv, io = {}) {
     // `wrapRoot` is the verified snapshot, `wrapBroker` the broker of a broker host (the compile's, or the check's discovery broker).
     const bindCargoWrapper = async (wrapRoot, wrapBroker) => {
       targetDirs = {};
-      for (const ws of wrapBroker ? [] : rust.workspaces) {
+      // A scoped run (--unit or a nested app) scans only its closure's workspaces (GC-A03): an unrelated workspace's output directory is neither resolved nor wrapped.
+      const wrapped = closure ? rust.workspaces.filter((ws) => ws.units.some((u) => closure.rust.has(u.name))) : rust.workspaces;
+      for (const ws of wrapBroker ? [] : wrapped) {
         const manifest = path.join(root, ws.cargoDir, "Cargo.toml");
         if (!o.exists(manifest)) { o.err(`${tag} BLOCKED: the checkout has no ${posix(path.relative(root, manifest))}, so the output directory of workspace ${ws.cargoDir} cannot be resolved; nothing compiled`); return 1; }
         // Resolved in the PRIMARY CHECKOUT with the stage's environment, before the source location changes (row 7.09: CARGO_TARGET_DIR,

@@ -447,8 +447,9 @@ const socketBase = (prefix, file) => (process.platform === "win32" || Buffer.byt
 /** Windows cannot hold the declared Linux broker route's endpoint: a unix socket file on a POSIX path (the route is Linux's only, and its judging reads POSIX paths). */
 const NO_UNIX_SOCKET = process.platform === "win32" && "a declared Linux broker names a unix socket file on a POSIX path, which Windows cannot hold";
 async function declaredLinuxBroker(t) {
-  const dir = tmp(t, "rk-linux-route-", socketBase("rk-linux-route-", "broker.sock"));
-  const socket = path.join(dir, "broker.sock");
+  // Not named broker.sock: the test broker guard refuses a connect to any path with that name, and this fixture is the one socket a test may talk to.
+  const dir = tmp(t, "rk-linux-route-", socketBase("rk-linux-route-", "declared.sock"));
+  const socket = path.join(dir, "declared.sock");
   const server = net.createServer();
   await new Promise((resolve, reject) => { server.once("error", reject); server.listen(socket, resolve); });
   t.after(() => server.close());
