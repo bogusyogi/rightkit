@@ -766,6 +766,7 @@ name = "rightkit-social-publish"
 version = "0.1.1"
 dependencies = [
  "rightkit-cache",
+ "rightkit-fs",
  "rightkit-http",
  "rightkit-logs",
  "rightkit-platform-rules",

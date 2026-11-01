@@ -28,7 +28,7 @@ use crate::protocol::{
     AccountReadiness, AccountRecord, AccountResumeInput, Scope, CONNECTION_STATES,
     ENTITLEMENT_STATES, INSTAGRAM_LOGIN_ROUTES, PLATFORMS,
 };
-use crate::util::{bad, invalid_transition, non_empty, require_channel, WriteTxn};
+use crate::util::{bad, in_txn, invalid_transition, non_empty, require_channel, WriteTxn};
 use crate::Fail;
 
 /// Methods that write. A dry run reports these and writes nothing.
@@ -226,19 +226,6 @@ fn with_readiness(mut rec: AccountRecord, now: i64) -> Result<AccountRecord, Fai
     Ok(rec)
 }
 
-/// Runs `body` in a write transaction of `store` and returns what it produced.
-fn in_txn<T>(
-    store: &dyn AccountStore,
-    mut body: impl FnMut() -> Result<T, Fail>,
-) -> Result<T, Fail> {
-    let mut out: Option<T> = None;
-    store.write_txn(&mut || {
-        out = Some(body()?);
-        Ok(())
-    })?;
-    out.ok_or_else(|| ("internal", "the transaction produced no result".to_string()))
-}
-
 fn fields_of(
     req: &AccountPutInput,
     token_expires_at: Option<String>,
@@ -306,10 +293,12 @@ pub fn account_put(store: &dyn AccountStore, input: Value) -> Result<Value, Fail
             None => {
                 match req.expected_revision {
                     None | Some(0) => {}
-                    Some(n) => return Err(conflict(format!(
+                    Some(n) => {
+                        return Err(conflict(format!(
                         "account {} does not exist (revision 0); expected_revision {n} is stale",
                         req.platform
-                    ))),
+                    )))
+                    }
                 }
                 store.insert_account(&req.scope, &req.platform, &fields, &stamp)?;
             }

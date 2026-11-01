@@ -119,3 +119,16 @@ pub trait WriteTxn: ChannelLookup {
     /// Runs `body` in one write transaction: commit on `Ok`, roll back on `Err`.
     fn write_txn(&self, body: &mut dyn FnMut() -> Result<(), Fail>) -> Result<(), Fail>;
 }
+
+/// Runs `body` in a write transaction of `store` and returns what it produced.
+pub fn in_txn<S: WriteTxn + ?Sized, T>(
+    store: &S,
+    mut body: impl FnMut() -> Result<T, Fail>,
+) -> Result<T, Fail> {
+    let mut out: Option<T> = None;
+    store.write_txn(&mut || {
+        out = Some(body()?);
+        Ok(())
+    })?;
+    out.ok_or_else(|| internal("the transaction produced no result"))
+}
