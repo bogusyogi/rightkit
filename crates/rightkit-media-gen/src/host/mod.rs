@@ -25,6 +25,14 @@ pub fn app_data_root() -> PathBuf {
     app_data_root_for(env_var("APP_DATA").map(Into::into))
 }
 
+/// The data folder the caller chose explicitly (`<PREFIX>_APP_DATA`, which an engine's
+/// `--data-dir <dir>` also sets), or `None` when the per-user default would be used.
+pub fn explicit_data_root() -> Option<PathBuf> {
+    env_var("APP_DATA")
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+}
+
 /// The per-user default data folder, ignoring `<PREFIX>_APP_DATA`.
 pub fn user_data_root() -> PathBuf {
     app_data_root_for(None)

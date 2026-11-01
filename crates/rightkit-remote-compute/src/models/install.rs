@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use rightkit_models::{Event, InstallOptions, ModelSpec, Store};
 use serde_json::{json, Map, Value};
 
-use rightkit_media_gen::host::model_store;
+use rightkit_local_gen::model_store;
 use rightkit_media_gen::{store, Context, GenError, GenResult};
 
 const INSTALLS_KEY: &str = "models.installs";

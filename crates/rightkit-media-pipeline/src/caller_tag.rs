@@ -55,7 +55,7 @@ fn current_registration() -> Registration {
     registration(
         rightkit_media_gen::host::explicit_data_root(),
         &rightkit_media_gen::host::user_data_root(),
-        rightkit_media_gen::host::qa_marked(),
+        crate::brief::qa_marked(),
         cfg!(debug_assertions),
     )
 }

@@ -59,7 +59,7 @@ use rightkit_media_gen::{api, library, Context, GenError, GenResult};
 use serde_json::{json, Value};
 
 /// Whether the host QA marker (`<PREFIX>_QA`) is set (non-empty, not `0`).
-fn qa_marked() -> bool {
+pub fn qa_marked() -> bool {
     rightkit_media_gen::host::env_var("QA").is_some_and(|v| !v.is_empty() && v != "0")
 }
 
