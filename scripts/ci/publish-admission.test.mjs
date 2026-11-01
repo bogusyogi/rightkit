@@ -337,6 +337,15 @@ test("bind (B2): the sealed helper must be the sign-swap job's, carry no .sign.j
   assert.throws(noHelper([]), /does not record/);
   assert.throws(noHelper(undefined), /does not record/);
   assert.doesNotThrow(noHelper([SWAP_HELPER_ARCHIVE_RECEIPT, SWAP_HELPER_ARCHIVE_BIN]));
+  // A direct (Linux) origin neither builds nor signs the helper: @rightkit/release is accepted with empty/absent exclusions, but not claiming any.
+  const direct = (contentExcluded) => () => readQualificationInput(JSON.stringify({ ...qual({ contentExcluded }), executor: "direct" }), { sha: SHA, registry: "npm", units: ["@rightkit/release"] });
+  assert.equal(direct([])().contentExcluded.length, 0);
+  assert.equal(direct(undefined)().contentExcluded.length, 0);
+  assert.throws(direct(HELPER_PATHS), /direct-origin qualification for @rightkit\/release claims excluded/);
+  const dq = bindFixture({ local, hosted: [...PKG, ...helperEntries("signed-by-ci")], over: { contentExcluded: [], executor: "direct" } });
+  assert.equal(bindPackedToQualification(dq.args).swapHelperSha256, sha256("signed-by-ci"), "the hosted sign-swap binding still applies to a direct origin");
+  assert.throws(() => bindPackedToQualification({ ...dq.args, swapSha256: `${sha256("other")}  rightkit-swap\n` }), /not the sign-swap job's/);
+  assert.throws(() => bindPackedToQualification({ ...dq.args, swapSha256: undefined }), /needs the sign-swap job's/);
   // An exclusion claimed for another unit is refused at the qualification, and a differing helper there is any other differing entry.
   assert.throws(() => readQualificationInput(JSON.stringify(qual({ name: "@rightkit/ci", version: "0.3.2", contentExcluded: HELPER_PATHS })), { sha: SHA, registry: "npm", units: ["@rightkit/ci"] }), /claims excluded archive entries for @rightkit\/ci/);
   const other = bindFixture({ name: "@rightkit/ci", local, hosted, swap: false, over: { version: "0.3.2" } });
@@ -636,7 +645,7 @@ test("direct admission (#1341): a Linux origin's re-derived direct-origin record
   const record = (over = {}) => buildDirectOrigin({ repository: RIGHTKIT_REPOSITORY, commit: SHA, tree: TREE, unit, registry: "npm", platform: "linux", artifact,
     stages: { compile: directStageEvidence({ stage: "compile", commit: SHA, tree: TREE, command: "cargo build" }), package: directStageEvidence({ stage: "package", commit: SHA, tree: TREE, command: "pnpm pack", outputSha256: artifact.artifactSha256 }) }, ...over });
   const directQual = (directOrigin = record(), over = {}) => ({ schema: QUALIFICATION_SCHEMA, commit: SHA, tree: TREE, runtime: "r".repeat(64), executor: "direct", unit, stages: { check: { ok: true }, compile: { ok: true }, package: { ok: true }, qualify: { ok: true } },
-    artifactSha256: artifact.artifactSha256, contentSha256: CONTENT, contentExcluded: HELPER_PATHS, directOrigin, ...over });
+    artifactSha256: artifact.artifactSha256, contentSha256: CONTENT, contentExcluded: [], directOrigin, ...over });
   const directEnv = (q = directQual(), extra = {}) => ({ ...brokerEnv({ ADMISSION: "direct", REQUEST_ID: "" }), QUALIFICATION: JSON.stringify(q), ...extra });
   const receipt = await admit({ env: directEnv(), git: git(), runGate: greenGate(), fetchImpl: npm(["0.6.6"]), policy: policy() });
   assert.equal(receipt.mode, "direct");
