@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-agent-engine-runtime-middleware",
+  "capabilities": [
+    {
+      "capability": "agent-runtime-middleware",
+      "summary": "Agent engine runtime middleware: request and turn interception hooks; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

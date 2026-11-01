@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-agent-engine-runtime-middleware-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-agent-engine-runtime-middleware = { version = "=0.1.0" }
+
