@@ -13,8 +13,8 @@
 //!   `logs`, staging `staging`, references `references` sit directly in it.
 //! - Model root: `<PREFIX>_MODEL_ROOT`; else the saved `model_root` when it is absolute (a
 //!   relative saved value is ignored); else `<app folder>/models`. LoRA folder: `<model root>/loras`.
-//! - Outputs: `<content root>/local-images` (a host that keeps outputs in its own folder passes
-//!   that folder as the content root).
+//! - Outputs: `<content root>/<content subdir>/local-images` (the subdir is the host's
+//!   [`crate::host::HostConfig::content_subdir`]).
 //! - `sd-server` binary (`sd-server.exe` on Windows): `<PREFIX>_SD_SERVER` (not checked for
 //!   existence); else the first candidate directory that holds the binary (`exists()`); else
 //!   `<app folder>/bin/sd-server`.
@@ -86,7 +86,9 @@ pub fn local_image(
         staging_dir: app_folder.join("staging"),
         reference_dir: app_folder.join("references"),
         lora_root: model_root.join("loras"),
-        output_root: PathBuf::from(content_root).join("local-images"),
+        output_root: PathBuf::from(content_root)
+            .join(&crate::host::config().content_subdir)
+            .join("local-images"),
         backend_binary: sd_server_path(env, &app_folder, candidate_dirs),
         app_data_dir: app_folder,
         model_root,

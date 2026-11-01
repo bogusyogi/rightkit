@@ -20,6 +20,12 @@ pub struct HostConfig {
     /// Folder name used for the per-machine lock directory (`/tmp/<name>-<uid>` on Unix,
     /// `%PROGRAMDATA%\<name>\runtime` on Windows) and the default workspace folder under home.
     pub machine_dir_name: String,
+    /// Reverse-DNS app identifier: the per-user data folder name and the OS credential store
+    /// service. Frozen once users have data: changing it orphans their keys and data.
+    pub app_identifier: String,
+    /// Folder under the content root that holds the host's outputs
+    /// (`<content root>/<content_subdir>/local-images`).
+    pub content_subdir: String,
 }
 
 impl Default for HostConfig {
@@ -29,6 +35,8 @@ impl Default for HostConfig {
             store_app: "rightkit".into(),
             env_prefix: "RIGHTKIT".into(),
             machine_dir_name: "rightkit".into(),
+            app_identifier: "dev.rightkit.app".into(),
+            content_subdir: "rightkit".into(),
         }
     }
 }
