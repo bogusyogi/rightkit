@@ -1,0 +1,568 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "provider": "fal",
+      "model": "fal-ai/flux-2-max/edit",
+      "kind": "image",
+      "label": "FLUX.2 Max edit with reference images ($0.07 first processed megapixel, $0.03 each additional; input images count)",
+      "endpoint": "fal-ai/flux-2-max/edit",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "image_urls",
+          "json_key": "image_urls",
+          "type": "url_list",
+          "role": "reference",
+          "required": true
+        },
+        {
+          "param": "image_size",
+          "json_key": "image_size",
+          "type": "string",
+          "enum": [
+            "auto",
+            "square_hd",
+            "square",
+            "portrait_4_3",
+            "portrait_16_9",
+            "landscape_4_3",
+            "landscape_16_9"
+          ],
+          "default": "auto"
+        },
+        {
+          "param": "output_format",
+          "json_key": "output_format",
+          "type": "string",
+          "enum": [
+            "jpeg",
+            "png"
+          ],
+          "default": "jpeg"
+        },
+        {
+          "param": "seed",
+          "json_key": "seed",
+          "type": "integer"
+        },
+        {
+          "param": "megapixels",
+          "type": "number",
+          "send": false,
+          "required": true,
+          "min": 0
+        }
+      ],
+      "pricing": {
+        "kind": "per_megapixel",
+        "first_usd": 0.07,
+        "additional_usd": 0.03,
+        "megapixels_param": "megapixels"
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://fal.ai/models/fal-ai/flux-2-max/edit"
+    },
+    {
+      "provider": "fal",
+      "model": "fal-ai/flux-2/lora",
+      "kind": "image",
+      "label": "FLUX.2 Dev LoRA text-to-image ($0.021 per megapixel; x1.5/x2/x2.5 for LoRAs of 2-3/3-4/4-5 GB)",
+      "endpoint": "fal-ai/flux-2/lora",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "image_size",
+          "json_key": "image_size",
+          "type": "string",
+          "enum": [
+            "square_hd",
+            "square",
+            "portrait_4_3",
+            "portrait_16_9",
+            "landscape_4_3",
+            "landscape_16_9"
+          ],
+          "default": "landscape_4_3"
+        },
+        {
+          "param": "loras",
+          "json_key": "loras",
+          "type": "json",
+          "max_bytes": 4096
+        },
+        {
+          "param": "num_inference_steps",
+          "json_key": "num_inference_steps",
+          "type": "integer",
+          "default": 28,
+          "min": 4,
+          "max": 50
+        },
+        {
+          "param": "guidance_scale",
+          "json_key": "guidance_scale",
+          "type": "number",
+          "default": 2.5,
+          "min": 0,
+          "max": 20
+        },
+        {
+          "param": "output_format",
+          "json_key": "output_format",
+          "type": "string",
+          "enum": [
+            "jpeg",
+            "png",
+            "webp"
+          ],
+          "default": "png"
+        },
+        {
+          "param": "seed",
+          "json_key": "seed",
+          "type": "integer"
+        },
+        {
+          "param": "megapixels",
+          "type": "number",
+          "send": false,
+          "required": true,
+          "min": 0
+        },
+        {
+          "param": "lora_size_class",
+          "type": "string",
+          "send": false,
+          "required": true,
+          "enum": [
+            "up_to_2gb",
+            "2_3gb",
+            "3_4gb",
+            "4_5gb"
+          ]
+        }
+      ],
+      "pricing": {
+        "kind": "per_megapixel",
+        "usd": 0.021,
+        "megapixels_param": "megapixels",
+        "adjust": [
+          {
+            "when": {
+              "param": "lora_size_class",
+              "equals": "2_3gb"
+            },
+            "multiply": 1.5
+          },
+          {
+            "when": {
+              "param": "lora_size_class",
+              "equals": "3_4gb"
+            },
+            "multiply": 2
+          },
+          {
+            "when": {
+              "param": "lora_size_class",
+              "equals": "4_5gb"
+            },
+            "multiply": 2.5
+          }
+        ]
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://fal.ai/models/fal-ai/flux-2/lora"
+    },
+    {
+      "provider": "fal",
+      "model": "fal-ai/flux-2/lora/edit",
+      "kind": "image",
+      "label": "FLUX.2 Dev LoRA edit with reference images ($0.021 per megapixel of input and output; x1.5/x2/x2.5 for LoRAs of 2-3/3-4/4-5 GB)",
+      "endpoint": "fal-ai/flux-2/lora/edit",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "image_urls",
+          "json_key": "image_urls",
+          "type": "url_list",
+          "role": "reference",
+          "required": true,
+          "max_items": 4
+        },
+        {
+          "param": "image_size",
+          "json_key": "image_size",
+          "type": "string",
+          "enum": [
+            "square_hd",
+            "square",
+            "portrait_4_3",
+            "portrait_16_9",
+            "landscape_4_3",
+            "landscape_16_9"
+          ]
+        },
+        {
+          "param": "loras",
+          "json_key": "loras",
+          "type": "json",
+          "max_bytes": 4096
+        },
+        {
+          "param": "num_inference_steps",
+          "json_key": "num_inference_steps",
+          "type": "integer",
+          "default": 28,
+          "min": 4,
+          "max": 50
+        },
+        {
+          "param": "guidance_scale",
+          "json_key": "guidance_scale",
+          "type": "number",
+          "default": 2.5,
+          "min": 0,
+          "max": 20
+        },
+        {
+          "param": "output_format",
+          "json_key": "output_format",
+          "type": "string",
+          "enum": [
+            "jpeg",
+            "png",
+            "webp"
+          ],
+          "default": "png"
+        },
+        {
+          "param": "seed",
+          "json_key": "seed",
+          "type": "integer"
+        },
+        {
+          "param": "megapixels",
+          "type": "number",
+          "send": false,
+          "required": true,
+          "min": 0
+        },
+        {
+          "param": "lora_size_class",
+          "type": "string",
+          "send": false,
+          "required": true,
+          "enum": [
+            "up_to_2gb",
+            "2_3gb",
+            "3_4gb",
+            "4_5gb"
+          ]
+        }
+      ],
+      "pricing": {
+        "kind": "per_megapixel",
+        "usd": 0.021,
+        "megapixels_param": "megapixels",
+        "adjust": [
+          {
+            "when": {
+              "param": "lora_size_class",
+              "equals": "2_3gb"
+            },
+            "multiply": 1.5
+          },
+          {
+            "when": {
+              "param": "lora_size_class",
+              "equals": "3_4gb"
+            },
+            "multiply": 2
+          },
+          {
+            "when": {
+              "param": "lora_size_class",
+              "equals": "4_5gb"
+            },
+            "multiply": 2.5
+          }
+        ]
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://fal.ai/models/fal-ai/flux-2/lora/edit"
+    },
+    {
+      "provider": "fal",
+      "model": "bytedance/seedream/v5/lite/text-to-image",
+      "kind": "image",
+      "label": "Seedream 5.0 Lite text-to-image ($0.035 per image)",
+      "endpoint": "bytedance/seedream/v5/lite/text-to-image",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "image_size",
+          "json_key": "image_size",
+          "type": "string",
+          "enum": [
+            "square_hd",
+            "square",
+            "portrait_4_3",
+            "portrait_16_9",
+            "landscape_4_3",
+            "landscape_16_9",
+            "auto_2K",
+            "auto_3K",
+            "auto_4K"
+          ],
+          "default": "auto_2K"
+        }
+      ],
+      "pricing": {
+        "kind": "flat",
+        "usd": 0.035
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://fal.ai/models/bytedance/seedream/v5/lite/text-to-image"
+    },
+    {
+      "provider": "fal",
+      "model": "bytedance/seedream/v5/lite/edit",
+      "kind": "image",
+      "label": "Seedream 5.0 Lite edit with reference images ($0.035 per image)",
+      "endpoint": "bytedance/seedream/v5/lite/edit",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "image_urls",
+          "json_key": "image_urls",
+          "type": "url_list",
+          "role": "reference",
+          "required": true,
+          "max_items": 10
+        },
+        {
+          "param": "image_size",
+          "json_key": "image_size",
+          "type": "string",
+          "enum": [
+            "square_hd",
+            "square",
+            "portrait_4_3",
+            "portrait_16_9",
+            "landscape_4_3",
+            "landscape_16_9",
+            "auto_2K",
+            "auto_3K",
+            "auto_4K"
+          ],
+          "default": "auto_2K"
+        }
+      ],
+      "pricing": {
+        "kind": "flat",
+        "usd": 0.035
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://fal.ai/models/bytedance/seedream/v5/lite/edit"
+    },
+    {
+      "provider": "fal",
+      "model": "fal-ai/hidream-o1-image",
+      "kind": "image",
+      "label": "HiDream-O1-Image text-to-image, optional reference images ($0.01 per megapixel)",
+      "endpoint": "fal-ai/hidream-o1-image",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "reference_image_urls",
+          "json_key": "reference_image_urls",
+          "type": "url_list",
+          "role": "reference"
+        },
+        {
+          "param": "image_size",
+          "json_key": "image_size",
+          "type": "string",
+          "enum": [
+            "square_hd",
+            "square",
+            "portrait_4_3",
+            "portrait_16_9",
+            "landscape_4_3",
+            "landscape_16_9"
+          ]
+        },
+        {
+          "param": "keep_original_aspect",
+          "json_key": "keep_original_aspect",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "param": "num_inference_steps",
+          "json_key": "num_inference_steps",
+          "type": "integer",
+          "default": 50,
+          "min": 1,
+          "max": 50
+        },
+        {
+          "param": "guidance_scale",
+          "json_key": "guidance_scale",
+          "type": "number",
+          "default": 5,
+          "min": 0,
+          "max": 20
+        },
+        {
+          "param": "output_format",
+          "json_key": "output_format",
+          "type": "string",
+          "enum": [
+            "jpeg",
+            "png",
+            "webp"
+          ],
+          "default": "png"
+        },
+        {
+          "param": "seed",
+          "json_key": "seed",
+          "type": "integer"
+        },
+        {
+          "param": "megapixels",
+          "type": "number",
+          "send": false,
+          "required": true,
+          "min": 0
+        }
+      ],
+      "pricing": {
+        "kind": "per_megapixel",
+        "usd": 0.01,
+        "megapixels_param": "megapixels"
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://fal.ai/models/fal-ai/hidream-o1-image"
+    },
+    {
+      "provider": "fal",
+      "model": "fal-ai/hidream-o1-image/edit",
+      "kind": "image",
+      "label": "HiDream-O1-Image edit with reference images ($0.01 per megapixel)",
+      "endpoint": "fal-ai/hidream-o1-image/edit",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "reference_image_urls",
+          "json_key": "reference_image_urls",
+          "type": "url_list",
+          "role": "reference",
+          "required": true
+        },
+        {
+          "param": "image_size",
+          "json_key": "image_size",
+          "type": "string",
+          "enum": [
+            "square_hd",
+            "square",
+            "portrait_4_3",
+            "portrait_16_9",
+            "landscape_4_3",
+            "landscape_16_9"
+          ]
+        },
+        {
+          "param": "keep_original_aspect",
+          "json_key": "keep_original_aspect",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "param": "num_inference_steps",
+          "json_key": "num_inference_steps",
+          "type": "integer",
+          "default": 50,
+          "min": 1,
+          "max": 50
+        },
+        {
+          "param": "guidance_scale",
+          "json_key": "guidance_scale",
+          "type": "number",
+          "default": 5,
+          "min": 0,
+          "max": 20
+        },
+        {
+          "param": "output_format",
+          "json_key": "output_format",
+          "type": "string",
+          "enum": [
+            "jpeg",
+            "png",
+            "webp"
+          ],
+          "default": "png"
+        },
+        {
+          "param": "seed",
+          "json_key": "seed",
+          "type": "integer"
+        },
+        {
+          "param": "megapixels",
+          "type": "number",
+          "send": false,
+          "required": true,
+          "min": 0
+        }
+      ],
+      "pricing": {
+        "kind": "per_megapixel",
+        "usd": 0.01,
+        "megapixels_param": "megapixels"
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://fal.ai/models/fal-ai/hidream-o1-image/edit"
+    }
+  ]
+}

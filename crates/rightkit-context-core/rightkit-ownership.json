@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-context-core",
+  "capabilities": [
+    {
+      "capability": "context-budget",
+      "summary": "Context budget and lane reconciliation: one cross-provider attention budget whose explicit lanes reconcile every receipt's selected and delivered tokens.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

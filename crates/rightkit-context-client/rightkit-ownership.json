@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-context-client",
+  "capabilities": [
+    {
+      "capability": "context-client",
+      "summary": "Transport-injected client for canonical context v1 operation envelopes.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+[package]
+name = "rightkit-disk-cleanup"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.0"
+description = "Disk usage scanning and safe cleanup: symlink-safe bounded scan, cleanup rules with evidence, duplicates, folder growth, crash-safe snapshot store and an undoable cleanup journal."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_disk_cleanup"
+path = "src/lib.rs"
+
+[dependencies]
+rightkit-time = { version = "0.1.0", path = "../rightkit-time" }
+rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "lock", "digest"], path = "../rightkit-fs" }
+rightkit-search = { version = "0.4.1", default-features = false, features = ["filename-index"], path = "../rightkit-search" }
+rightkit-app-settings = { version = "0.3.0", path = "../rightkit-app-settings" }
+libc = { version = "0.2" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+sysinfo = { version = "=0.39.6" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+rightkit-fsindex = { version = "0.6.0", default-features = false, path = "../rightkit-fsindex" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl"] }
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

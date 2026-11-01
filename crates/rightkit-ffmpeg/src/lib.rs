@@ -23,6 +23,7 @@ pub mod content_digest;
 pub mod decode;
 pub mod dev_resolve;
 pub mod encoders;
+pub mod h264_rule;
 pub mod handle;
 pub mod loudnorm;
 #[cfg(feature = "native")]

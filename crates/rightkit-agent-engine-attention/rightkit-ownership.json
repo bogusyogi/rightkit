@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-agent-engine-attention",
+  "capabilities": [
+    {
+      "capability": "agent-attention",
+      "summary": "Agent attention inbox: unread/needs-input items, snooze, density, quiet hours and deep links as axum routes; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

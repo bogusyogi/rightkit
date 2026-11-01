@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-memory-store-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-memory-store = { version = "=0.1.0" }
+

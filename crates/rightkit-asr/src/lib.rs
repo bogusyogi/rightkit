@@ -50,6 +50,30 @@
 //! - Channels: Mono (stereo will be converted automatically)
 //! - Bit Depth: 16-bit PCM or 32-bit float
 
+// Test-only environment switches: read only in this crate's own tests and `test-mode` builds;
+// a release build gets `Err(NotPresent)` / `None` and does not contain the name.
+#[allow(unused_macros)]
+macro_rules! dev_var {
+    ($name:expr) => {{
+        #[cfg(any(test, feature = "test-mode"))]
+        let value = ::std::env::var($name);
+        #[cfg(not(any(test, feature = "test-mode")))]
+        let value: ::std::result::Result<::std::string::String, ::std::env::VarError> =
+            ::std::result::Result::Err(::std::env::VarError::NotPresent);
+        value
+    }};
+}
+#[allow(unused_macros)]
+macro_rules! dev_var_os {
+    ($name:expr) => {{
+        #[cfg(any(test, feature = "test-mode"))]
+        let value = ::std::env::var_os($name);
+        #[cfg(not(any(test, feature = "test-mode")))]
+        let value: ::std::option::Option<::std::ffi::OsString> = ::std::option::Option::None;
+        value
+    }};
+}
+
 mod audio;
 mod config;
 mod decoder;
@@ -95,6 +119,8 @@ pub mod routing;
 pub mod chunked;
 pub mod conditioning;
 pub mod parakeet_core;
+#[cfg(feature = "onnx-tdt")]
+pub mod onnx_tdt;
 pub mod longform;
 #[cfg(target_os = "macos")]
 pub mod parakeet_coreml;

@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-remote-compute",
+  "capabilities": [
+    {
+      "capability": "remote-compute",
+      "summary": "Rented GPU workers (Vast/SSH) lifecycle and time-billed spend; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

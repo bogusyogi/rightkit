@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-context",
+  "capabilities": [
+    {
+      "capability": "context",
+      "summary": "Context, memory and repository-graph commands for coding agents: the membrane CLI, hook entry points and the resident a host app supervises.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

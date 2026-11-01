@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "provider": "fal",
+      "model": "fal-ai/ltx-2/retake-video",
+      "kind": "replace_object",
+      "label": "LTX Video 2.0 Retake ($0.10 per second of retaken segment, prompt-driven, not live-reconciled)",
+      "endpoint": "fal-ai/ltx-2/retake-video",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "video_url",
+          "json_key": "video_url",
+          "type": "url",
+          "role": "video",
+          "required": true
+        },
+        {
+          "param": "start_time",
+          "json_key": "start_time",
+          "type": "number",
+          "default": 0,
+          "min": 0,
+          "max": 20
+        },
+        {
+          "param": "duration",
+          "json_key": "duration",
+          "type": "number",
+          "default": 5,
+          "min": 2,
+          "max": 20
+        },
+        {
+          "param": "retake_mode",
+          "json_key": "retake_mode",
+          "type": "string",
+          "enum": [
+            "replace_audio",
+            "replace_video",
+            "replace_audio_and_video"
+          ],
+          "default": "replace_audio_and_video"
+        }
+      ],
+      "pricing": {
+        "kind": "per_second",
+        "usd": 0.1,
+        "seconds_param": "duration"
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://fal.ai/models/fal-ai/ltx-2/retake-video",
+      "durations": {
+        "min_duration_s": 2,
+        "max_duration_s": 20,
+        "default_duration_s": 5
+      }
+    },
+    {
+      "provider": "fal",
+      "model": "fal-ai/veo3.1",
+      "kind": "video",
+      "label": "Veo 3.1 text-to-video (silent; 720p/1080p $0.20/s, 4k $0.40/s)",
+      "endpoint": "fal-ai/veo3.1",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "negative_prompt",
+          "json_key": "negative_prompt",
+          "type": "string"
+        },
+        {
+          "param": "seed",
+          "json_key": "seed",
+          "type": "integer"
+        },
+        {
+          "param": "aspect_ratio",
+          "json_key": "aspect_ratio",
+          "type": "string",
+          "enum": [
+            "16:9",
+            "9:16"
+          ],
+          "default": "16:9"
+        },
+        {
+          "param": "duration",
+          "json_key": "duration",
+          "type": "enum_seconds",
+          "enum": [
+            "4s",
+            "6s",
+            "8s"
+          ],
+          "default": "8s",
+          "seconds_for": {
+            "4s": 4,
+            "6s": 6,
+            "8s": 8
+          }
+        },
+        {
+          "param": "resolution",
+          "json_key": "resolution",
+          "type": "string",
+          "enum": [
+            "720p",
+            "1080p",
+            "4k"
+          ],
+          "default": "720p"
+        }
+      ],
+      "constants": {
+        "generate_audio": false
+      },
+      "pricing": {
+        "kind": "per_second",
+        "usd": 0.4,
+        "seconds_param": "duration",
+        "by": {
+          "param": "resolution",
+          "values": {
+            "720p": 0.2,
+            "1080p": 0.2,
+            "4k": 0.4
+          }
+        }
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://fal.ai/models/fal-ai/veo3.1",
+      "durations": {
+        "durations_s": [
+          4,
+          6,
+          8
+        ],
+        "default_duration_s": 8
+      }
+    }
+  ]
+}

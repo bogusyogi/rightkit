@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-code-audit-provider-sdk",
+  "capabilities": [
+    {
+      "capability": "code-audit-provider-sdk",
+      "summary": "Code audit provider SDK: provider registry, source and effect interfaces for audit providers; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

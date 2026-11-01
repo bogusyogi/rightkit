@@ -1,0 +1,91 @@
+//! # membrane-provider-sdk
+//!
+//! The Membrane provider SDK. Every external adapter that wants to serve
+//! one or more Membrane MCP operations (the `membrane_*` set declared in
+//! `membrane-protocol::operations`) implements [`Provider`].
+//!
+//! The SDK is intentionally tiny. It re-exports:
+//!
+//!   * [`Provider`] — the trait every adapter implements
+//!     ([`provider::Provider`]).
+//!   * [`CapabilityV1`] — the per-operation capability envelope
+//!     ([`provider::CapabilityV1`]).
+//!   * [`ProviderError`] / [`Result`] — the typed error vocabulary
+//!     ([`error`]).
+//!
+//! ## Usage
+//!
+//! ```no_run
+//! use rightkit_context_provider_sdk::{CapabilityV1, Provider, ProviderError, Result};
+//! use rightkit_context_provider_sdk::provider::{ProviderIdentityV1, ProviderReadinessV1};
+//! use serde_json::json;
+//!
+//! struct EchoProvider {
+//!     ops: Vec<&'static str>,
+//!     ready: bool,
+//! }
+//!
+//! impl Provider for EchoProvider {
+//!     fn initialize(&mut self, _config: &serde_json::Value) -> Result<()> {
+//!         self.ready = true;
+//!         Ok(())
+//!     }
+//!     fn readiness(&self) -> ProviderReadinessV1 {
+//!         ProviderReadinessV1::unknown(ProviderIdentityV1 {
+//!             provider_id: "echo".into(), installation_id: "example".into(),
+//!             service_id: "echo-service".into(), release_generation: "dev".into(),
+//!             data_root_digest: "sha256:example".into(),
+//!         }, "example readiness is not observed")
+//!     }
+//!     fn list_capabilities(&self) -> Vec<CapabilityV1> {
+//!         self.ops
+//!             .iter()
+//!             .map(|n| CapabilityV1 {
+//!                 name: (*n).to_string(),
+//!                 schema_version: 1,
+//!                 error_version: 1,
+//!             })
+//!             .collect()
+//!     }
+//!     fn handle_operation(
+//!         &self,
+//!         _operation: &str,
+//!         _request: &serde_json::Value,
+//!     ) -> Result<serde_json::Value> {
+//!         if !self.ready {
+//!             return Err(ProviderError::Uninitialized("echo".into()));
+//!         }
+//!         Ok(json!({ "kind": "success", "data": { "ok": true } }))
+//!     }
+//! }
+//! ```
+//!
+//! See `docs/reference/providers/README.md` for the full adapter-authoring guide.
+
+pub mod context;
+pub mod error;
+pub mod output;
+pub mod provider;
+pub mod registry;
+pub mod source;
+
+pub use context::{ProviderContext, ValidatedScopeGrantView};
+pub use error::{ProviderError, Result};
+pub use output::{empty_output, validate_output, ProviderOutput, ProviderStatusV1};
+pub use provider::{CapabilityV1, Provider};
+pub use registry::{ProviderRegistration, ProviderRegistry};
+pub use source::{
+    BlueprintResult, BlueprintSource, FreshnessSource, MemoryCandidate, MemoryCandidateSource,
+    ScopeGrantSource, ScopeGrantView, SkillCatalogEntry, SkillCatalogSource, SourceQuery,
+    SourceResponse, SourceResult, SourceSet, SourceWarning,
+};
+
+/// Re-export the membrane-protocol operations slice accessor so adapter
+/// authors can pin their `CapabilityV1` to the same registry the runtime
+/// and the MCP tool surface use.
+pub use rightkit_context_protocol::operations_slice;
+
+/// Re-export the membrane-protocol canonical-JSON helpers so adapters can
+/// byte-compare their own response against the fixture's expected
+/// response in their own unit tests.
+pub use rightkit_context_protocol::canonical::{canonical_json_of, canonicalize, digest_str};

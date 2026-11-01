@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-automation"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts."
@@ -26,6 +26,18 @@ paths = ["dep:rightkit-daemon"]
 # shipping apps opt in explicitly; without it `offscreen` fails with a typed
 # `OcclusionSpiNotCompiled` error on macOS.
 offscreen-private-spi = []
+# `desktop`: dictation-grade focus continuity (stop-time destination pinning and validation),
+# clipboard staging with exact generation tracking, frontmost-window identity, window text
+# harvest and native text writes for macOS and Windows. Off by default.
+desktop-context = [
+  "dep:windows-sys",
+  "dep:rightkit-child-process",
+  "dep:core-foundation",
+  "dep:core-graphics",
+  "dep:objc2",
+  "dep:objc2-app-kit",
+  "dep:objc2-foundation",
+]
 
 [dependencies]
 rightkit-daemon = { version = "0.5.0", path = "../rightkit-daemon", optional = true }
@@ -55,9 +67,44 @@ windows = { version = "0.62", features = [
 
 # Real-app gates. `harness = false`: the macOS gate must run on the main thread
 # (NSWorkspace state is published through the main run loop).
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.61.2"
+optional = true
+features = [
+  "Win32_Foundation",
+  "Win32_Globalization",
+  "Win32_Graphics_Gdi",
+  "Win32_System_Com",
+  "Win32_System_Com_Marshal",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_DataExchange",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Accessibility",
+  "Win32_UI_WindowsAndMessaging",
+]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", optional = true }
+core-foundation = { version = "0.10", optional = true }
+core-graphics = { version = "0.25", features = ["highsierra"], optional = true }
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", optional = true }
+objc2-foundation = { version = "0.3", optional = true }
+
 [[test]]
 name = "e2e_mac"
 harness = false
+
+[[test]]
+name = "desktop_window_query_native"
+path = "tests/desktop_window_query_native.rs"
+harness = false
+required-features = ["desktop-context"]
 
 [package.metadata.rightkit]
 continuous = false
