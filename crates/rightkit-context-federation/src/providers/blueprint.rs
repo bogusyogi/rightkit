@@ -1,0 +1,489 @@
+//! Blueprint provider lane.
+//!
+//! The lane consumes only the typed `BlueprintSource` contract.  It does not
+//! parse repository files, open Blueprint storage, or invoke a CLI/process.
+
+use crate::blueprint_client::ContextualBlueprintSource;
+use rightkit_context_protocol::{
+    FederationProviderStatusV1, OverlayIdentityV1, ProviderDiagnosticsV1, ProviderId,
+    ProviderOmissionV1, ProviderWarningV1, ReasonCode, SourceResolutionReceiptV1,
+    SourceResolutionStatusV1, WarningSeverity, PROVIDER_OUTPUT_SCHEMA_VERSION,
+};
+use rightkit_context_provider_sdk::{
+    BlueprintSource, Provider, ProviderContext, ProviderError, ProviderOutput,
+};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
+pub const BLUEPRINT_DEFAULT_CAP: usize = 64;
+pub const BLUEPRINT_MAX_CAP: usize = 256;
+
+#[derive(Clone)]
+pub struct BlueprintProvider {
+    contextual_source: Option<Arc<dyn ContextualBlueprintSource>>,
+    candidate_cap: usize,
+}
+
+impl BlueprintProvider {
+    /// Construct a provider without a request-aware source.
+    ///
+    /// This constructor is retained for composition compatibility, but it is
+    /// deliberately fail-closed: live dispatch never falls back to
+    /// `BlueprintSource::query`, which cannot carry request deadline or
+    /// cancellation.
+    pub fn new(_source: Arc<dyn BlueprintSource>) -> Self {
+        Self {
+            contextual_source: None,
+            candidate_cap: BLUEPRINT_DEFAULT_CAP,
+        }
+    }
+
+    pub fn with_contextual_source<S>(source: Arc<S>) -> Self
+    where
+        S: BlueprintSource + ContextualBlueprintSource + 'static,
+    {
+        Self {
+            contextual_source: Some(source),
+            candidate_cap: BLUEPRINT_DEFAULT_CAP,
+        }
+    }
+
+    /// Construct from the ordinary source projection plus its mandatory
+    /// request-aware adapter.  The ordinary source is retained by runtime
+    /// source composition for other provider lanes; this provider dispatches
+    /// only through the contextual adapter.
+    pub fn with_contextual_source_pair(
+        _source: Arc<dyn BlueprintSource>,
+        contextual_source: Arc<dyn ContextualBlueprintSource>,
+    ) -> Self {
+        Self {
+            contextual_source: Some(contextual_source),
+            candidate_cap: BLUEPRINT_DEFAULT_CAP,
+        }
+    }
+
+    pub fn with_candidate_cap(mut self, cap: usize) -> Self {
+        self.candidate_cap = cap.clamp(1, BLUEPRINT_MAX_CAP);
+        self
+    }
+
+    pub fn candidate_cap(&self) -> usize {
+        self.candidate_cap
+    }
+
+    async fn provide_inner(
+        &self,
+        context: &ProviderContext,
+    ) -> Result<ProviderOutput, ProviderError> {
+        if context.is_cancelled() {
+            return Err(ProviderError::Cancelled);
+        }
+        if context.is_deadline_exhausted() {
+            return Err(ProviderError::DeadlineExceeded);
+        }
+        let mut query = context.query();
+        // Only a scope grant or the request's freshness snapshot can pin an
+        // expected Blueprint generation.
+        //
+        // `ProviderContext::query()` fills `generation` with the *release*
+        // generation — the Membrane build's `sha256:` identity — while
+        // Blueprint answers with its snapshot's content identity
+        // (`xxh128:<hash>`). Those are different things and can never be
+        // equal, so falling back to it gapped every Blueprint query as
+        // generation-incoherent: zero candidates, an empty packet, and a
+        // context request that failed with no sign the provider had answered.
+        //
+        // Grant-free requests (hooks, ambient pulls) pin the freshness
+        // snapshot's graph generation instead — the same identity admission
+        // binds — so the shared client cache engages and the provider check
+        // cannot disagree with admission. A degraded snapshot contributes no
+        // pin, matching admission's unconstrained degraded path.
+        query.generation = context
+            .scope_grant
+            .as_ref()
+            .map(|grant| grant.blueprint_generation.clone())
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                context
+                    .freshness
+                    .generation
+                    .clone()
+                    .filter(|value| !value.is_empty())
+            });
+        let expected_generation = query.generation.clone();
+        let response = match match self.contextual_source.as_ref() {
+            Some(source) => {
+                source
+                    .query_with_context(&query, context.deadline, context.cancellation.clone())
+                    .await
+            }
+            None => Err(ProviderError::MissingSource("blueprint_context")),
+        } {
+            Ok(response) => response,
+            Err(ProviderError::Cancelled) => return Err(ProviderError::Cancelled),
+            Err(ProviderError::DeadlineExceeded) => return Err(ProviderError::DeadlineExceeded),
+            Err(error) => return Ok(gap_output(error)),
+        };
+        if context.is_cancelled() {
+            return Err(ProviderError::Cancelled);
+        }
+        if context.is_deadline_exhausted() {
+            return Err(ProviderError::DeadlineExceeded);
+        }
+        if let Some(expected) = expected_generation
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            if response.generation.as_deref() != Some(expected)
+                || response.value.generation != expected
+            {
+                return Ok(generation_gap(
+                    expected,
+                    response
+                        .generation
+                        .as_deref()
+                        .unwrap_or(&response.value.generation),
+                ));
+            }
+        }
+        if response.value.candidates.len() > self.candidate_cap {
+            return Ok(oversized_output(self.candidate_cap));
+        }
+        let generation = response.value.generation.clone();
+        let payload = response.value.payload.clone();
+        let native_omissions = payload.as_ref().map(native_omissions).unwrap_or_default();
+        let candidate_count = response.value.candidates.len();
+        let mut output = ProviderOutput {
+            schema_version: PROVIDER_OUTPUT_SCHEMA_VERSION,
+            provider: ProviderId::Blueprint,
+            status: if response.complete && native_omissions.is_empty() {
+                FederationProviderStatusV1::Complete
+            } else {
+                FederationProviderStatusV1::Partial
+            },
+            generation: Some(generation.clone()),
+            candidates: response.value.candidates,
+            warnings: response.warnings.into_iter().map(warning).collect(),
+            omissions: native_omissions,
+            diagnostics: Some(native_diagnostics(
+                payload.as_ref(),
+                &generation,
+                response.complete,
+                candidate_count,
+                context,
+            )),
+            extensions: Default::default(),
+        };
+        for candidate in &mut output.candidates {
+            candidate.provider = Some(ProviderId::Blueprint.as_str().to_owned());
+        }
+        if let Some(paths) = payload.as_ref().and_then(atomic_path_provenance) {
+            output
+                .extensions
+                .insert("atomicEvidencePaths".to_owned(), paths);
+        }
+        let overlay_identity =
+            context
+                .freshness
+                .overlay_digest
+                .as_ref()
+                .map(|digest| OverlayIdentityV1 {
+                    session_id: context.session_id.clone(),
+                    worktree_path: context.repository_root.clone(),
+                    generation_id: generation.clone(),
+                    overlay_digest: digest.clone(),
+                });
+        let resolutions = output
+            .candidates
+            .iter()
+            .filter(|candidate| {
+                matches!(
+                    candidate.source_kind.to_ascii_lowercase().as_str(),
+                    "graph" | "vector"
+                )
+            })
+            .map(|candidate| SourceResolutionReceiptV1 {
+                schema_version: 1,
+                candidate_id: candidate.id.clone(),
+                provider: ProviderId::Blueprint.as_str().to_owned(),
+                status: SourceResolutionStatusV1::Resolved,
+                expected_hash: candidate.source_hash.clone(),
+                resolved_hash: Some(candidate.source_hash.clone()),
+                expected_generation: generation.clone(),
+                resolved_generation: Some(generation.clone()),
+                expected_path: candidate.source_ref.clone(),
+                resolved_path: Some(candidate.source_ref.clone()),
+                resolver: candidate.resolver.clone(),
+                overlay_identity: overlay_identity.clone(),
+            })
+            .collect::<Vec<_>>();
+        if !resolutions.is_empty() {
+            output.extensions.insert(
+                "sourceResolutions".to_owned(),
+                serde_json::to_value(resolutions).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if output.candidates.is_empty() && output.warnings.is_empty() {
+            output.status = FederationProviderStatusV1::Partial;
+            output.warnings.push(ProviderWarningV1 {
+                provider: ProviderId::Blueprint,
+                reason: ReasonCode::ProviderUnavailable,
+                severity: WarningSeverity::Warning,
+                detail_id: Some("no_relevant_seed".to_owned()),
+                stage: Some("blueprint_recall".to_owned()),
+                message: None,
+            });
+        }
+        Ok(output)
+    }
+}
+
+fn native_omissions(payload: &serde_json::Value) -> Vec<ProviderOmissionV1> {
+    payload
+        .get("omissions")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|omission| {
+            let detail = omission
+                .get("reason")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("blueprint_incomplete");
+            ProviderOmissionV1 {
+                provider: ProviderId::Blueprint,
+                reason: reason_for_native_detail(detail),
+                candidate_id: omission
+                    .get("candidateId")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned),
+                detail_id: Some(detail.to_owned()),
+                stage: Some("blueprint_source".to_owned()),
+            }
+        })
+        .collect()
+}
+
+fn reason_for_native_detail(detail: &str) -> ReasonCode {
+    match detail {
+        "stale_generation" | "incomplete_generation" => ReasonCode::GenerationIncoherent,
+        "deadline_exceeded" | "timeout" => ReasonCode::ProviderTimeout,
+        "request_cancelled" | "cancelled" => ReasonCode::ProviderCancelled,
+        "unsupported" => ReasonCode::ProviderUnavailable,
+        _ => ReasonCode::ProviderFailed,
+    }
+}
+
+fn native_diagnostics(
+    payload: Option<&serde_json::Value>,
+    generation: &str,
+    complete: bool,
+    candidate_count: usize,
+    context: &ProviderContext,
+) -> ProviderDiagnosticsV1 {
+    let mut attributes = std::collections::BTreeMap::from([
+        (
+            "status".to_owned(),
+            payload
+                .and_then(|value| value.get("state"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(if complete { "complete" } else { "partial" })
+                .to_owned(),
+        ),
+        ("complete".to_owned(), complete.to_string()),
+        ("candidate_count".to_owned(), candidate_count.to_string()),
+        (
+            "freshness".to_owned(),
+            if context.freshness.stale {
+                "stale"
+            } else {
+                "current"
+            }
+            .to_owned(),
+        ),
+        (
+            "cancellation".to_owned(),
+            context.is_cancelled().to_string(),
+        ),
+    ]);
+    for key in ["coverage", "errors", "fallback"] {
+        if let Some(value) = payload.and_then(|value| value.get(key)) {
+            attributes.insert(key.to_owned(), value.to_string());
+        }
+    }
+    ProviderDiagnosticsV1 {
+        provider: ProviderId::Blueprint,
+        elapsed_ms: None,
+        generation: Some(generation.to_owned()),
+        attributes,
+    }
+}
+
+fn atomic_path_provenance(payload: &serde_json::Value) -> Option<serde_json::Value> {
+    let candidates = payload
+        .pointer("/candidateSet/candidates")
+        .or_else(|| payload.get("candidates"))?
+        .as_array()?;
+    let paths = candidates
+        .iter()
+        .filter_map(|candidate| {
+            let id = candidate.get("id")?.as_str()?;
+            let evidence_path_id = candidate.get("evidencePathId")?.as_str()?;
+            let envelope = candidate.get("evidenceEnvelope")?.clone();
+            Some(serde_json::json!({
+                "candidateId": id,
+                "recallCircuitId": candidate.get("recallCircuitId").cloned().unwrap_or(serde_json::Value::Null),
+                "evidencePathId": evidence_path_id,
+                "evidenceEnvelope": envelope,
+            }))
+        })
+        .collect::<Vec<_>>();
+    (!paths.is_empty()).then_some(serde_json::Value::Array(paths))
+}
+
+impl Provider for BlueprintProvider {
+    fn provide<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        context: &'life1 ProviderContext,
+    ) -> Pin<Box<dyn Future<Output = Result<ProviderOutput, ProviderError>> + Send + 'async_trait>>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(self.provide_inner(context))
+    }
+
+    fn list_capabilities(&self) -> Vec<rightkit_context_provider_sdk::CapabilityV1> {
+        vec![rightkit_context_provider_sdk::CapabilityV1 {
+            name: "membrane_blueprint".into(),
+            schema_version: 1,
+            error_version: 1,
+        }]
+    }
+}
+
+fn warning(source: rightkit_context_provider_sdk::SourceWarning) -> ProviderWarningV1 {
+    ProviderWarningV1 {
+        provider: ProviderId::Blueprint,
+        reason: ReasonCode::parse(&source.code).unwrap_or(ReasonCode::ProviderFailed),
+        severity: WarningSeverity::Warning,
+        detail_id: source.detail_id,
+        stage: Some("blueprint_source".to_owned()),
+        message: None,
+    }
+}
+
+fn gap_output(error: ProviderError) -> ProviderOutput {
+    // The receipt carries only a detail id; the cause goes to the worker log.
+    stderr_line!(
+        "{}",
+        serde_json::json!({
+            "event": "federation_provider_gap",
+            "provider": "blueprint",
+            "error": error.to_string(),
+        })
+    );
+    let (reason, detail) = match error {
+        ProviderError::Unavailable(_) | ProviderError::MissingSource(_) => {
+            (ReasonCode::ProviderUnavailable, "blueprint_unavailable")
+        }
+        ProviderError::Typed { ref code, .. } if code == "root_not_enrolled" => (
+            ReasonCode::ProviderUnavailable,
+            "blueprint_root_not_enrolled",
+        ),
+        ProviderError::Typed { ref code, .. } if code == "graph_missing" => {
+            (ReasonCode::ProviderUnavailable, "blueprint_graph_missing")
+        }
+        ProviderError::Typed { ref code, .. } if code == "not_configured" => {
+            (ReasonCode::ProviderUnavailable, "blueprint_not_configured")
+        }
+        ProviderError::Typed { ref code, .. }
+            if matches!(code.as_str(), "stale_blocked" | "generation_mismatch") =>
+        {
+            (ReasonCode::GenerationIncoherent, "blueprint_stale")
+        }
+        ProviderError::SourceFailure(_) => (ReasonCode::ProviderFailed, "blueprint_source_failed"),
+        ProviderError::MalformedOutput(_) => (ReasonCode::ProviderMalformed, "blueprint_malformed"),
+        ProviderError::IdentityMismatch(_) => (ReasonCode::GenerationIncoherent, "blueprint_stale"),
+        _ => (ReasonCode::ProviderFailed, "blueprint_failed"),
+    };
+    ProviderOutput {
+        schema_version: PROVIDER_OUTPUT_SCHEMA_VERSION,
+        provider: ProviderId::Blueprint,
+        status: FederationProviderStatusV1::Partial,
+        generation: None,
+        candidates: Vec::new(),
+        warnings: vec![ProviderWarningV1 {
+            provider: ProviderId::Blueprint,
+            reason,
+            severity: WarningSeverity::Warning,
+            detail_id: Some(detail.into()),
+            stage: Some("blueprint_source".into()),
+            message: None,
+        }],
+        omissions: vec![ProviderOmissionV1 {
+            provider: ProviderId::Blueprint,
+            reason,
+            candidate_id: None,
+            detail_id: Some(detail.into()),
+            stage: Some("blueprint_source".into()),
+        }],
+        diagnostics: None,
+        extensions: Default::default(),
+    }
+}
+
+fn generation_gap(expected: &str, observed: &str) -> ProviderOutput {
+    ProviderOutput {
+        schema_version: PROVIDER_OUTPUT_SCHEMA_VERSION,
+        provider: ProviderId::Blueprint,
+        status: FederationProviderStatusV1::Partial,
+        generation: (!observed.is_empty()).then(|| observed.to_owned()),
+        candidates: Vec::new(),
+        warnings: vec![ProviderWarningV1 {
+            provider: ProviderId::Blueprint,
+            reason: ReasonCode::GenerationIncoherent,
+            severity: WarningSeverity::Warning,
+            detail_id: Some("generation_incoherent".into()),
+            stage: Some("generation_admission".into()),
+            message: None,
+        }],
+        omissions: vec![ProviderOmissionV1 {
+            provider: ProviderId::Blueprint,
+            reason: ReasonCode::GenerationIncoherent,
+            candidate_id: None,
+            detail_id: Some(format!("expected:{expected}")),
+            stage: Some("generation_admission".into()),
+        }],
+        diagnostics: None,
+        extensions: Default::default(),
+    }
+}
+
+fn oversized_output(cap: usize) -> ProviderOutput {
+    ProviderOutput {
+        schema_version: PROVIDER_OUTPUT_SCHEMA_VERSION,
+        provider: ProviderId::Blueprint,
+        status: FederationProviderStatusV1::Partial,
+        generation: None,
+        candidates: Vec::new(),
+        warnings: vec![ProviderWarningV1 {
+            provider: ProviderId::Blueprint,
+            reason: ReasonCode::ProviderMalformed,
+            severity: WarningSeverity::Warning,
+            detail_id: Some("candidate_cap_exceeded".into()),
+            stage: Some("blueprint_bounds".into()),
+            message: None,
+        }],
+        omissions: vec![ProviderOmissionV1 {
+            provider: ProviderId::Blueprint,
+            reason: ReasonCode::ProviderMalformed,
+            candidate_id: None,
+            detail_id: Some(format!("cap:{cap}")),
+            stage: Some("blueprint_bounds".into()),
+        }],
+        diagnostics: None,
+        extensions: Default::default(),
+    }
+}

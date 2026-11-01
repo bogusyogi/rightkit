@@ -1,0 +1,8 @@
+{
+  "name": "au20-fixture-negative-dep",
+  "private": true,
+  "version": "0.0.0",
+  "dependencies": {
+    "minimist": "1.2.8"
+  }
+}

@@ -1,0 +1,281 @@
+{
+  "$defs": {
+    "candidate": {
+      "additionalProperties": false,
+      "properties": {
+        "baseCommit": {
+          "type": "string"
+        },
+        "estimatedTokens": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "exact": {
+          "type": "boolean"
+        },
+        "freshnessClass": {
+          "$ref": "#/$defs/freshnessClass"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "instructionPolicy": {
+          "type": "string"
+        },
+        "layer": {
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "overlayDigest": {
+          "type": "string"
+        },
+        "protected": {
+          "type": "boolean"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "providerScore": {
+          "type": "number"
+        },
+        "recoverable": {
+          "type": "boolean"
+        },
+        "resolver": {
+          "type": "string"
+        },
+        "scoreComponents": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "type": "object"
+        },
+        "snapshotId": {
+          "type": "string"
+        },
+        "sourceHash": {
+          "type": "string"
+        },
+        "sourceKind": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sourceRef": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "trustClass": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "layer",
+        "sourceKind",
+        "sourceRef",
+        "sourceHash",
+        "trustClass",
+        "instructionPolicy",
+        "providerScore",
+        "estimatedTokens",
+        "protected",
+        "exact",
+        "recoverable",
+        "resolver",
+        "text"
+      ],
+      "type": "object"
+    },
+    "freshness": {
+      "additionalProperties": false,
+      "properties": {
+        "baseCommit": {
+          "type": "string"
+        },
+        "expectedReleaseGeneration": {
+          "type": "string"
+        },
+        "graphState": {
+          "$ref": "#/$defs/graphState"
+        },
+        "indexedAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "observedReleaseGeneration": {
+          "type": "string"
+        },
+        "overlayDigest": {
+          "type": "string"
+        },
+        "releaseGenerationStatus": {
+          "$ref": "#/$defs/releaseGenerationStatus"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "snapshotId": {
+          "type": "string"
+        },
+        "stale": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "revision",
+        "indexedAt",
+        "stale"
+      ],
+      "type": "object"
+    },
+    "freshnessClass": {
+      "enum": [
+        "current",
+        "committed_snapshot",
+        "dirty_overlay",
+        "stale_snapshot",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "graphState": {
+      "enum": [
+        "clean",
+        "dirty_overlay",
+        "stale_snapshot",
+        "missing_snapshot",
+        "partial_reindex",
+        "concurrent_update",
+        "indeterminate"
+      ],
+      "type": "string"
+    },
+    "omission": {
+      "additionalProperties": false,
+      "properties": {
+        "detailId": {
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "layer": {
+          "maximum": 255,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "stage": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "providerCeiling": {
+      "additionalProperties": false,
+      "properties": {
+        "maxCandidates": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxEstimatedTokens": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "maxCandidates",
+        "maxEstimatedTokens"
+      ],
+      "type": "object"
+    },
+    "releaseGenerationStatus": {
+      "enum": [
+        "matched",
+        "mismatch",
+        "unavailable"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "https://membrane/schemas/context-candidate-set.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "MBR-101: Membrane-owned federated candidate contract consumed by native Pull, cortex-core admission planning, and generated protocol projections.",
+  "properties": {
+    "candidates": {
+      "items": {
+        "$ref": "#/$defs/candidate"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "$ref": "#/$defs/freshness"
+    },
+    "indexedAt": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "mode": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "omissions": {
+      "items": {
+        "$ref": "#/$defs/omission"
+      },
+      "type": "array"
+    },
+    "provider": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "providerCeiling": {
+      "$ref": "#/$defs/providerCeiling"
+    },
+    "schemaVersion": {
+      "const": 1,
+      "type": "integer"
+    },
+    "task": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "traceId": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "traceId",
+    "indexedAt",
+    "task",
+    "mode",
+    "provider",
+    "freshness",
+    "providerCeiling",
+    "candidates",
+    "omissions"
+  ],
+  "title": "ContextCandidateSetV1",
+  "type": "object",
+  "x-membrane-source": "schemas/context-candidate-set.v1.schema.json",
+  "x-membrane-source-hash": "sha256:660096bac5c14e555440df44b2656126da9d6847cfac0a4f2cfd4b6fcec4dcdb",
+  "x-membrane-generator": "scripts/generate-host-contracts.mjs"
+}

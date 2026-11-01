@@ -1,0 +1,92 @@
+[package]
+name = "rightkit-code-audit-engine"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Repository code audit engine: native providers, DAG and scheduler, evidence issuers, findings history and review runtime"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "data/**", "assets/**", "examples/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_code_audit_engine"
+path = "src/lib.rs"
+
+[dependencies]
+regex = { version = "1.13.1" }
+async-trait = { version = "0.1.92" }
+rightkit-evidence-contracts = { version = "0.1.0", path = "../rightkit-evidence-contracts" }
+rightkit-evidence-report = { version = "0.1.0", path = "../rightkit-evidence-report" }
+rightkit-code-audit-provider-sdk = { version = "0.1.0", path = "../rightkit-code-audit-provider-sdk" }
+rightkit-evidence-effects = { version = "0.1.0", path = "../rightkit-evidence-effects" }
+headless_chrome = { version = "1" }
+hmac = { version = "0.13.0" }
+hex = { version = "0.4.3" }
+getrandom = { version = "0.3.4" }
+sha2 = { version = "0.11.1" }
+sha1 = { version = "=0.11.0" }
+ed25519-dalek = { version = "=2.2.0" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+serde_yaml = { version = "0.9.34" }
+image = { version = "0.25" }
+thiserror = { version = "2.0.20" }
+walkdir = { version = "2.5.0" }
+tokio-util = { version = "0.7.20", features = ["rt"] }
+tokio = { version = "1.53.3", features = ["full"] }
+toml = { version = "1.1.8" }
+rightkit-ownership = { version = "0.4.3", path = "../rightkit-ownership" }
+rightkit-browser = { version = "0.3.7", path = "../rightkit-browser" }
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
+rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "json"], path = "../rightkit-fs" }
+rightkit-cache = { version = "0.2.3", path = "../rightkit-cache" }
+rightkit-agents = { version = "0.2.0", features = ["claude"], path = "../rightkit-agents" }
+rightkit-agent-tools = { version = "0.3.0", default-features = false, path = "../rightkit-agent-tools" }
+
+[[test]]
+name = "native_reasoning_cutover"
+path = "tests/native_reasoning_cutover.rs"
+
+[[test]]
+name = "native_legacy_external_tool"
+path = "tests/native_legacy_external_tool.rs"
+
+[[test]]
+name = "native_legacy_provider_equivalence"
+path = "tests/native_legacy_provider_equivalence.rs"
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0
