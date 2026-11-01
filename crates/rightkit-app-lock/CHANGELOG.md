@@ -4,3 +4,4 @@
 
 - First RightKit release, moved from MailRight (src-tauri app_lock modules).
 - Added `pin_window` (Windows): a modal masked PIN entry window moved from `pulse-windows` (Pulse) `unlock_auth.rs`.
+- Added Windows `hello_key`: Hello owner-key enrolment, binding and signing over an `OwnerEngine` trait, moved from the Pulse hub (`hello.rs`).

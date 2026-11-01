@@ -7,6 +7,8 @@
 
 pub mod flow;
 #[cfg(windows)]
+pub mod hello_key;
+#[cfg(windows)]
 pub mod pin_window;
 mod preference;
 mod startup;
