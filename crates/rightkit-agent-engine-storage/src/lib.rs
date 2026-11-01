@@ -1,5 +1,5 @@
 //! rightkit-agent-engine-storage — SQLite-backed persistence for the host app sessions,
-//! the append-only event log, tasks, artifacts, and memory.
+//! the append-only event log, tasks and artifacts.
 
 mod adapt;
 mod adapt_observation_cursor;
@@ -13,7 +13,6 @@ mod events;
 mod goals;
 mod handoff;
 mod inference;
-mod memory;
 pub mod migrations;
 mod remote;
 mod run_budget_state;
@@ -59,7 +58,6 @@ pub use handoff::{
 pub use inference::{
     DirectInferenceConnectionRow, InferenceRouteAttestationRow, InferenceRuntimeBindingRow,
 };
-pub use memory::MemoryRow;
 pub use remote::{RemoteBindingRow, RemoteChannelRow, RemoteDeliveryRow};
 pub use session::SessionRow;
 pub use soak_health::{
@@ -291,9 +289,8 @@ mod db_permission_tests {
 
 impl Storage {
     /// Persist the daemon-wide PL-009 observation ledger as one atomically
-    /// replaced snapshot. Schema creation is idempotent for older databases.
+    /// replaced snapshot (the table is created by migration 33).
     pub fn save_observation_snapshot(&mut self, snapshot: &[u8]) -> Result<()> {
-        self.conn.execute_batch("CREATE TABLE IF NOT EXISTS observation_ledger (id INTEGER PRIMARY KEY CHECK (id = 1), snapshot BLOB NOT NULL)")?;
         self.conn.execute("INSERT INTO observation_ledger (id, snapshot) VALUES (1, ?1) ON CONFLICT(id) DO UPDATE SET snapshot = excluded.snapshot", [snapshot])?;
         Ok(())
     }
@@ -306,7 +303,6 @@ impl Storage {
         tasks: &[rightkit_agent_engine_protocol::TaskNode],
         snapshot: &[u8],
     ) -> Result<()> {
-        self.conn.execute_batch("CREATE TABLE IF NOT EXISTS observation_ledger (id INTEGER PRIMARY KEY CHECK (id = 1), snapshot BLOB NOT NULL)")?;
         let tx = rightkit_db::write_txn(&mut self.conn)?;
         for task in tasks {
             let node_json = serde_json::to_string(task)?;
@@ -321,7 +317,6 @@ impl Storage {
     }
 
     pub fn load_observation_snapshot(&self) -> Result<Option<Vec<u8>>> {
-        self.conn.execute_batch("CREATE TABLE IF NOT EXISTS observation_ledger (id INTEGER PRIMARY KEY CHECK (id = 1), snapshot BLOB NOT NULL)")?;
         let mut stmt = self
             .conn
             .prepare("SELECT snapshot FROM observation_ledger WHERE id = 1")?;
@@ -334,6 +329,8 @@ impl Storage {
             .with_journal_env("RIGHTKIT_SQLITE_JOURNAL_MODE")
             .with_per_host_fallback(true);
         options.foreign_keys = true;
+        // Deleting a session removes its bytes, not just its rows (storage rule 35).
+        options.secure_delete = Some(true);
         let conn = options.open_writer()?;
         let effective_path =
             conn.query_row("PRAGMA database_list", [], |row| row.get::<_, String>(2))?;
@@ -387,57 +384,6 @@ impl Storage {
 
     pub fn read_pool(&self) -> Option<StoragePool> {
         self.read_pool.clone()
-    }
-
-    /// Delete events for sessions that have been dormant for more than `older_than_days` days,
-    /// and that have at least one `SessionCompacted` event (meaning their history is summarised).
-    /// Returns the number of rows deleted.
-    pub fn prune_old_events(&self, older_than_days: u32) -> Result<u64> {
-        let cutoff_secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-            .saturating_sub(older_than_days as u64 * 86400);
-        let cutoff = format_unix_as_iso(cutoff_secs);
-        let deleted = self.conn.execute(
-            "DELETE FROM events WHERE session_id IN (
-                 SELECT id FROM sessions
-                 WHERE status = 'dormant'
-                   AND updated_at < ?1
-                   AND id IN (
-                       SELECT DISTINCT session_id FROM events WHERE kind = 'sessionCompacted'
-                   )
-             )",
-            [&cutoff],
-        )? as u64;
-        Ok(deleted)
-    }
-
-    /// Delete all events for a session with seq < the given threshold.
-    /// Returns the number of rows deleted.
-    pub fn delete_events_before_seq(&self, session_id: &str, seq: u32) -> Result<usize> {
-        let deleted = self.conn.execute(
-            "DELETE FROM events WHERE session_id = ?1 AND seq < ?2",
-            rusqlite::params![session_id, seq as i64],
-        )?;
-        Ok(deleted)
-    }
-
-    /// Get all sessions that have been compacted, returning (session_id, compaction_seq) pairs
-    /// where compaction_seq is the seq of the latest SessionCompacted event for that session.
-    pub fn compacted_sessions(&self) -> Result<Vec<(String, u32)>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT session_id, MAX(seq) as seq FROM events \
-             WHERE kind = 'sessionCompacted' GROUP BY session_id",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u32))
-        })?;
-        let mut out = Vec::new();
-        for row in rows {
-            out.push(row?);
-        }
-        Ok(out)
     }
 
     /// Open an in-memory database and run migrations. Useful for tests.
@@ -535,17 +481,6 @@ impl Storage {
     }
 }
 
-/// Format a Unix timestamp (seconds since epoch) as a zero-padded RFC 3339 string
-/// in UTC (`YYYY-MM-DDTHH:MM:SSZ`). Used so ISO string comparisons in SQL work
-/// correctly against timestamps produced by `now_iso()` in the daemon.
-fn format_unix_as_iso(secs: u64) -> String {
-    i64::try_from(secs)
-        .ok()
-        .and_then(|secs| rightkit_time::DateTime::from_unix(secs, 0))
-        .map(|dt| dt.format_rfc3339())
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -631,17 +566,6 @@ mod tests {
             .expect("waiter should acquire the returned reader");
         waiter.join().unwrap();
         assert_eq!(pool.idle_len(), 1);
-    }
-
-    fn mem(id: &str, tier: &str, score: f64) -> MemoryRow {
-        MemoryRow {
-            id: id.to_string(),
-            tier: tier.to_string(),
-            content: format!("content-{id}"),
-            score,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            meta_json: "{}".to_string(),
-        }
     }
 
     // ── open / migrations ────────────────────────────────────────────────
@@ -1350,53 +1274,5 @@ mod tests {
         s.upsert_artifact("s1", &updated).unwrap();
         let got = s.get_artifact("a1").unwrap().unwrap();
         assert_eq!(got.trust_label, "rejected");
-    }
-
-    // ── memory ───────────────────────────────────────────────────────────
-
-    #[test]
-    fn write_and_get_memory() {
-        let s = Storage::open_in_memory().unwrap();
-        let row = mem("m1", "hot", 0.5);
-        s.write_memory(&row).unwrap();
-        assert_eq!(s.get_memory("m1").unwrap().unwrap(), row);
-        assert!(s.get_memory("ghost").unwrap().is_none());
-    }
-
-    #[test]
-    fn query_memory_by_tier_ordered_by_score() {
-        let s = Storage::open_in_memory().unwrap();
-        s.write_memory(&mem("m1", "hot", 0.2)).unwrap();
-        s.write_memory(&mem("m2", "hot", 0.9)).unwrap();
-        s.write_memory(&mem("m3", "hot", 0.5)).unwrap();
-        s.write_memory(&mem("c1", "cold", 0.99)).unwrap();
-        let hot = s.query_memory_by_tier("hot").unwrap();
-        let ids: Vec<_> = hot.iter().map(|m| m.id.as_str()).collect();
-        assert_eq!(ids, vec!["m2", "m3", "m1"]);
-        // cold not included
-        assert!(hot.iter().all(|m| m.tier == "hot"));
-    }
-
-    #[test]
-    fn top_memories_limit() {
-        let s = Storage::open_in_memory().unwrap();
-        s.write_memory(&mem("m1", "a", 0.1)).unwrap();
-        s.write_memory(&mem("m2", "b", 0.8)).unwrap();
-        s.write_memory(&mem("m3", "c", 0.5)).unwrap();
-        s.write_memory(&mem("m4", "d", 0.95)).unwrap();
-        let top = s.top_memories(2).unwrap();
-        assert_eq!(top.len(), 2);
-        assert_eq!(top[0].id, "m4");
-        assert_eq!(top[1].id, "m2");
-    }
-
-    #[test]
-    fn write_memory_overwrites() {
-        let s = Storage::open_in_memory().unwrap();
-        s.write_memory(&mem("m1", "a", 0.1)).unwrap();
-        s.write_memory(&mem("m1", "a", 0.7)).unwrap();
-        let got = s.get_memory("m1").unwrap().unwrap();
-        assert_eq!(got.score, 0.7);
-        assert_eq!(s.top_memories(10).unwrap().len(), 1);
     }
 }

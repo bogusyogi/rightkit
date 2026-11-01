@@ -587,7 +587,8 @@ mod tests {
                 )
                 .unwrap();
             storage
-                .delete_events_before_seq("session-1", u32::MAX)
+                .conn
+                .execute("DELETE FROM events WHERE session_id = ?1", ["session-1"])
                 .unwrap();
         }
         let storage = Storage::open(&path).unwrap();

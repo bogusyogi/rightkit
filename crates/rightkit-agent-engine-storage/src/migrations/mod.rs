@@ -934,26 +934,6 @@ WHEN NEW.evidence_hash NOT GLOB 'sha256:*'
 BEGIN SELECT RAISE(ABORT, 'workflow evidence requires sha256 evidence hash'); END;
 "#;
 
-/// The additive `ALTER TABLE ADD COLUMN` set baseline databases (whether
-/// freshly created via `BASELINE_SQL` above, or pre-existing databases that
-/// predate one or more of these columns) still need applied. `ALTER TABLE
-/// ADD COLUMN` errors if the column already exists, so each statement here is
-/// run best-effort and any "duplicate column" error is swallowed — mirrors
-/// the historical behavior in `schema.rs` exactly.
-const BASELINE_ADD_COLUMNS: &[&str] = &[
-    "ALTER TABLE sessions ADD COLUMN updated_at TEXT",
-    "ALTER TABLE sessions ADD COLUMN parent_session_id TEXT",
-    "ALTER TABLE sessions ADD COLUMN role TEXT",
-    "ALTER TABLE sessions ADD COLUMN status TEXT",
-    "ALTER TABLE sessions ADD COLUMN tags TEXT DEFAULT ''",
-    "ALTER TABLE sessions ADD COLUMN recovery_marker TEXT",
-    "ALTER TABLE benchmarks ADD COLUMN task_id TEXT",
-    "ALTER TABLE benchmarks ADD COLUMN passed INTEGER",
-    "ALTER TABLE benchmarks ADD COLUMN agent_output TEXT",
-    "ALTER TABLE benchmarks ADD COLUMN verify_output TEXT",
-    "ALTER TABLE benchmarks ADD COLUMN verify_error TEXT",
-];
-
 const LEARNING_PROPOSALS_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS learning_proposals (
     id TEXT PRIMARY KEY,
@@ -1499,6 +1479,13 @@ fn all_migrations() -> Vec<Migration> {
             sql: ADAPT_OBSERVATION_CURSOR_SQL,
             down_sql: Some("DROP TABLE IF EXISTS adapt_observation_cursors;"),
         },
+        Migration {
+            version: 33,
+            name: "drop the memory table; observation ledger and session columns in the schema",
+            // Applied by `apply_v33_table_cleanup` (a code step: the column adds are conditional).
+            sql: "",
+            down_sql: None,
+        },
     ]
 }
 
@@ -1524,6 +1511,8 @@ fn rightkit_migrations() -> Vec<rightkit_db::Migration> {
                 // Migration 3 installs the FTS mirror triggers; rows appended
                 // before it ran are not mirrored, so it also backfills.
                 rightkit_db::Step::Code(apply_events_fts_triggers_and_backfill)
+            } else if m.version == 33 {
+                rightkit_db::Step::Code(apply_v33_table_cleanup)
             } else {
                 rightkit_db::Step::Sql(m.sql)
             },
@@ -1538,28 +1527,53 @@ fn apply_events_fts_triggers_and_backfill(conn: &Connection) -> rusqlite::Result
     Ok(())
 }
 
-/// Best-effort additive-column pass, run at the end of every migrate call
-/// (every statement is a no-op once applied).
-fn apply_baseline_add_columns(conn: &Connection) {
-    for stmt in BASELINE_ADD_COLUMNS {
-        let _ = conn.execute(stmt, []);
+/// Migration 33 (storage rules 23, 31, SC-22): drops the empty `memory` table (the host app keeps
+/// no memory store here), creates `observation_ledger` here instead of in the three methods that
+/// used it, and adds the two `sessions` columns the earlier best-effort column pass created, only
+/// when missing (a v32 database already has them).
+fn apply_v33_table_cleanup(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "DROP TABLE IF EXISTS memory;
+         CREATE TABLE IF NOT EXISTS observation_ledger (
+             id INTEGER PRIMARY KEY CHECK (id = 1),
+             snapshot BLOB NOT NULL
+         );",
+    )?;
+    for (column, definition) in [("tags", "TEXT DEFAULT ''"), ("recovery_marker", "TEXT")] {
+        let present = conn
+            .prepare("SELECT name FROM pragma_table_info('sessions') WHERE name = ?1")?
+            .exists([column])?;
+        if !present {
+            conn.execute_batch(&format!(
+                "ALTER TABLE sessions ADD COLUMN {column} {definition}"
+            ))?;
+        }
     }
+    Ok(())
 }
 
-/// Bring `conn` (backed by the file at `db_path`, or `None` for `:memory:`)
-/// up to date via `rightkit_db::migrate`, then run the host app's additive
-/// column pass. Thin adapter: it only supplies the host app's migration list,
-/// forward-compat probe and error mapping.
-pub fn migrate(conn: &Connection, db_path: Option<&Path>) -> Result<()> {
-    let options = rightkit_db::MigrateOptions {
+/// How many `pre-v*.bak` pre-migration backups are kept (storage rule 29).
+const BACKUP_RETENTION: usize = 2;
+
+fn migrate_options(db_path: Option<&Path>) -> rightkit_db::MigrateOptions {
+    rightkit_db::MigrateOptions {
         backup_options: db_path.map(|path| {
             DbOptions::new(path)
                 .with_journal_env("RIGHTKIT_SQLITE_JOURNAL_MODE")
                 .with_per_host_fallback(true)
         }),
         forward_compatible: Some(forward_schema_is_compatible),
+        // Rule 29 (B59): keep the newest 2 `pre-v*.bak` pre-migration backups.
+        backup_retention: Some(BACKUP_RETENTION),
         ..rightkit_db::MigrateOptions::default()
-    };
+    }
+}
+
+/// Bring `conn` (backed by the file at `db_path`, or `None` for `:memory:`)
+/// up to date via `rightkit_db::migrate`. Thin adapter: it only supplies the
+/// host app's migration list, forward-compat probe and error mapping.
+pub fn migrate(conn: &Connection, db_path: Option<&Path>) -> Result<()> {
+    let options = migrate_options(db_path);
     match rightkit_db::migrate(conn, db_path, &rightkit_migrations(), &options) {
         Ok(report) => {
             if let Some(marker) = &report.interrupted_previous {
@@ -1576,7 +1590,6 @@ pub fn migrate(conn: &Connection, db_path: Option<&Path>) -> Result<()> {
             for version in &report.applied {
                 tracing::info!(version, "rightkit-agent-engine-storage applied migration");
             }
-            apply_baseline_add_columns(conn);
             Ok(())
         }
         Err(rightkit_db::DbError::NewerDatabase { current, max }) => {
@@ -1592,7 +1605,6 @@ fn forward_schema_is_compatible(conn: &Connection) -> bool {
         "SELECT session_id, seq, kind, payload_json, created_at FROM events LIMIT 0",
         "SELECT session_id, id, node_json FROM tasks LIMIT 0",
         "SELECT id, session_id, path, trust_label, row_json FROM artifacts LIMIT 0",
-        "SELECT id, tier, content, score, created_at, meta_json FROM memory LIMIT 0",
         "SELECT id, session_id, turn_id, tool_name, schema_version, args_hash, args_redacted_json, lifecycle_state, policy_verdict_id, approval_id, process_id, trust_label, started_at, completed_at, output_hash, artifact_ids_json, error_class, updated_at FROM tool_invocations LIMIT 0",
         "SELECT invocation_id, session_id, seq, kind, created_at, payload_redacted_json FROM tool_invocation_events LIMIT 0",
         "SELECT invocation_id, session_id, reason, created_at FROM tool_invocation_cancellations LIMIT 0",
@@ -1666,7 +1678,7 @@ mod tests {
             "events",
             "tasks",
             "artifacts",
-            "memory",
+            "observation_ledger",
             "remote_channels",
             "remote_bindings",
             "remote_deliveries",
