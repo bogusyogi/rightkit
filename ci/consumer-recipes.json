@@ -1567,7 +1567,7 @@
       "files": {
         "Cargo.toml": "c05e80e0bc4d058275415f5a609fb3f4bd3e6ebf3341d47b9fdc2dac3aeb136f",
         "README.md": "35b884cbd32e9418e0346a2e007fda4260081151d62338e6dd839597d36b9ab4",
-        "src/main.rs": "9417c32d67f50400a9834dc9d49115fa20361d3bafee40365eb262f97cf7db63"
+        "src/main.rs": "9d6243363d96a18efd9acda6f13c61b9bca42eb84c9a3b4a31a320885c91c9d1"
       }
     },
     "rightkit-compositor": {
