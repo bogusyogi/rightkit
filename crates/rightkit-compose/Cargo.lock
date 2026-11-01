@@ -2188,6 +2188,7 @@ dependencies = [
  "rightkit-crypto",
  "rightkit-ffmpeg",
  "rightkit-fs",
+ "rightkit-time",
  "rightkit-timeline",
  "rightkit-video-project",
  "serde",
@@ -2235,6 +2236,10 @@ dependencies = [
  "sha2",
  "thiserror",
 ]
+
+[[package]]
+name = "rightkit-time"
+version = "0.1.1"
 
 [[package]]
 name = "rightkit-timeline"
