@@ -4,6 +4,8 @@
 //! Windows, Store apps. The application supplies translation, HTTPS and logging through [`host`].
 
 pub mod calc;
+#[cfg(windows)]
+pub mod chat;
 pub mod commands;
 pub mod config;
 pub mod dictionary;
@@ -11,7 +13,10 @@ pub mod files;
 pub mod host;
 pub mod json;
 pub mod notes;
+#[cfg(windows)]
+pub mod panel;
 pub mod rates;
+pub mod response_layout;
 #[cfg(windows)]
 pub mod snippets;
 #[cfg(windows)]

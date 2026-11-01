@@ -128,12 +128,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-hotkeys"
+version = "0.1.2"
+dependencies = [
+ "windows-sys",
+]
+
+[[package]]
 name = "rightkit-launcher"
 version = "0.1.0"
 dependencies = [
  "rightkit-automation",
  "rightkit-child-process",
  "rightkit-clipboard-history",
+ "rightkit-fs",
+ "rightkit-hotkeys",
  "rightkit-overlay",
  "rightkit-win-ui",
  "serde",

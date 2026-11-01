@@ -3,8 +3,9 @@
 //! application installs one [`Host`] at start-up; until it does the history has no folder, uses
 //! the default limits, English text and no logging.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock, PoisonError};
 
 /// How much history is kept.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,10 +111,20 @@ pub fn install(host: Box<dyn Host>) -> bool {
     HOST.set(host).is_ok()
 }
 
-/// The text for `key`, translated by the host when one is installed.
-pub fn t(key: &str) -> String {
-    HOST.get()
-        .map_or_else(|| key.to_string(), |host| host.translate(key))
+/// The text for `key`, translated by the host when one is installed. Each distinct translation is
+/// kept for the life of the process (the catalog is finite), so the result is `'static`.
+pub fn t(key: &str) -> &'static str {
+    static KEPT: Mutex<BTreeSet<&'static str>> = Mutex::new(BTreeSet::new());
+    let text = HOST
+        .get()
+        .map_or_else(|| key.to_string(), |host| host.translate(key));
+    let mut kept = KEPT.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(found) = kept.get(text.as_str()) {
+        return found;
+    }
+    let leaked: &'static str = Box::leak(text.into_boxed_str());
+    kept.insert(leaked);
+    leaked
 }
 
 pub(crate) fn data_dir() -> Option<PathBuf> {

@@ -6,6 +6,8 @@
 #[cfg(windows)]
 pub mod canvas;
 #[cfg(windows)]
+pub mod clock;
+#[cfg(windows)]
 pub mod diag;
 #[cfg(windows)]
 pub mod fileicon;

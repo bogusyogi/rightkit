@@ -294,7 +294,7 @@ pub enum ClearScope {
 
 impl ClearScope {
     /// The launcher row's title (the same words as the Mac's).
-    pub fn title(self) -> String {
+    pub fn title(self) -> &'static str {
         match self {
             ClearScope::All => crate::host::t("Clear clipboard history"),
             ClearScope::LastHour => crate::host::t("Clear clipboard from the last hour"),
