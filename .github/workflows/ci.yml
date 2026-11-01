@@ -487,6 +487,18 @@ jobs:
           SCAN_CRATES: ${{ needs.plan.outputs.scan_crates }}
           SCAN_PACKAGES: ${{ needs.plan.outputs.scan_packages }}
         run: node scripts/ci/secret-scan.mjs --crates "$SCAN_CRATES" --dirs "$SCAN_PACKAGES"
+      # GATE-CONTRACT GC-A03 (Adrian, 2026-10-29): publication admission and the per-unit gate run the workspace scans (cargo-deny, cargo-audit and
+      # its `cargo fetch --locked`, pnpm lockfile install and audit) for the unit's closure only. THIS step is where every workspace is held, on
+      # every push to main and pull request: the gate's whole-commit class A pass covers every Cargo workspace and pnpm root the commit holds
+      # (the crates, e2e-app, desktop-app-template, ...), which the token-selected scans above do not. A red lock or advisory in any of them
+      # fails the push here, never the publication of an unrelated unit.
+      - name: Class A over the whole commit (every Cargo workspace and pnpm root, not a unit's closure)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          pnpm exec rightkit-gate check --repo . --commit "${{ github.sha }}" --rule-tier release
       # Importing an export executes candidate code: this runs only after every file-only class A step (scans, Cargo.lock/rustfmt, secret scan) passed. Hygiene gates every
       # native shard, so a module that runs at import stops the run before any runner starts.
       - name: Fetch every package of the lockfile into the store (the import check installs the exported tree offline from it)

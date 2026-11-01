@@ -8,8 +8,9 @@
 //           the checks below and nothing more.
 //   hosted  no broker exists (a cloud session); request_id must be empty, and the scope is one @rightkit/* npm package.
 // The checks, on the dispatched commit (EXPECTED_SHA == GITHUB_SHA, main of this repository):
-//   1. the full gate: `rightkit-gate check --commit <sha>` from this checkout (app rules, class A over the whole commit, and
-//      RightKit's own rules), exit 0 with its pass lines; a partial view (exit 3) or a red check admits nothing;
+//   1. the gate over what the requested units read: `rightkit-gate check --commit <sha> --scope <unit dir>` from this checkout (app
+//      rules, class A over the unit's dependency closure plus the repository-wide file-only scans, and RightKit's own rules; GC-A03).
+//      Workspaces outside the closure (sample apps, other crates) are whole-repo CI's (ci.yml), never a reason to refuse this unit, exit 0 with its pass lines; a partial view (exit 3) or a red check admits nothing;
 //   2. every unit is exactly one workspace package (npm) or crate (crates/<unit>) at that commit, with a publishable version;
 //   3. that version is not on the registry yet (a version is published once; an unreadable registry is no proof of absence);
 //   4. every allowset entry is granted by the committed exception policy (rk-preflight.mjs exceptionAllowsets, the broker's own).
@@ -97,19 +98,31 @@ function committedVersion(registry, unit, sha, git) {
   return version;
 }
 
-/** The gate's own verdict on the commit: exit 0, the app-check pass line for this commit and the class A pass line for this full commit. */
-export function gateVerdict(result, sha) {
+/**
+ * The directories a unit's admission scans (GATE-CONTRACT GC-A03: a unit is gated on what it reads, not on the whole commit): an npm
+ * package is packages/<name>, a crate crates/<unit>. The gate widens each to the unit's dependency closure (app-closure.mjs: path
+ * dependencies, the unit's own workspace and lock, its pnpm root); the repository-wide file-only scans (secret scan, licences, workflow
+ * lint, ...) run regardless. Every other Cargo workspace and pnpm root (sample apps, other crates) is whole-repo CI's (ci.yml), not this
+ * unit's admission.
+ */
+export function unitScopeDirs(registry, units) {
+  return sorted(units.map((unit) => (registry === "npm" ? `packages/${String(unit).replace(/^@rightkit\//, "")}` : `crates/${unit}`)));
+}
+const gateCommand = (sha, scope = []) => `rightkit-gate check --commit ${sha} --rule-tier release${scope.map((dir) => ` --scope ${dir}`).join("")}`;
+
+/** The gate's own verdict on the commit: exit 0, the app-check pass line for this commit and the class A pass line for this commit. */
+export function gateVerdict(result, sha, scope = []) {
   const out = String(result?.stdout ?? "");
   const rules = new RegExp(`^check: ${sha.slice(0, 12)} passed (\\d+) rules \\(release tier\\) in \\d+(?:\\.\\d+)?s(?: \\(.*\\))?$`, "m").exec(out);
   const classA = new RegExp(`^rightkit-gate: class A content pass: (\\d+) deterministic scan\\(s\\) over (\\d+) file\\(s\\) of ${sha}$`, "m").exec(out);
   requireThat(result?.status === 0 && rules && classA && Number(rules[1]) > 0 && Number(classA[1]) > 0, `rightkit-gate check did not pass at ${sha.slice(0, 12)} (exit ${result?.status}); nothing is admitted`);
-  return { command: `rightkit-gate check --commit ${sha} --rule-tier release`, exit: 0, rules: Number(rules[1]), classAScans: Number(classA[1]), classAFiles: Number(classA[2]) };
+  return { command: gateCommand(sha, scope), exit: 0, rules: Number(rules[1]), classAScans: Number(classA[1]), classAFiles: Number(classA[2]) };
 }
 
 /**
  * Admits the dispatched request inside publish.yml and returns the receipt. `env` is the Actions environment plus the dispatch
  * inputs (ADMISSION, REQUEST_ID, EXPECTED_SHA, REGISTRY, UNITS, ALLOW_*); `git(...args)` reads the dispatched commit; `runGate(sha)`
- * runs `rightkit-gate check --commit <sha> --rule-tier release` on this checkout and returns { status, stdout }.
+ * runs `rightkit-gate check --commit <sha> --rule-tier release --scope <unit dir>...` on this checkout (runGate(sha, scope)) and returns { status, stdout }.
  */
 export async function admit({ env, git, runGate, fetchImpl = fetch, policy }) {
   requireThat(env.GITHUB_ACTIONS === "true" && env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_REF === "refs/heads/main", "admission runs only in Actions on main of the repository");
@@ -127,7 +140,9 @@ export async function admit({ env, git, runGate, fetchImpl = fetch, policy }) {
   const qualification = readQualificationInput(env.QUALIFICATION, { sha, registry, units });
   if (registry === "npm") requireThat(units.every((unit) => HOSTED_UNIT.test(unit)), "npm units must be @rightkit/* packages");
   // The full gate first: a red or partial check admits nothing, whatever the registry says.
-  const gate = gateVerdict(runGate(sha), sha);
+  // The gate covers the requested units' closure only (unitScopeDirs); a red lock or advisory of an unrelated workspace refuses nothing here.
+  const scope = unitScopeDirs(registry, units);
+  const gate = gateVerdict(runGate(sha, scope), sha, scope);
   const versions = {};
   const granted = { hostExclusion: new Set(), noTest: new Set(), ignored: new Set(), missingAssets: new Set() };
   for (const unit of units) {
@@ -262,7 +277,7 @@ export function verifyAdmissionReceipt(receipt, { repository, sourceSha, runId, 
   for (const key of Object.keys(ALLOW_INPUTS)) requireThat(Array.isArray(allow[key]) && same(receipt.allow[key], sorted(allow[key])), `receipt ${key} differs from the verify receipts`);
   requireThat(receipt.versions && same(sorted(Object.keys(receipt.versions)), sorted(names)) && units.every((unit) => receipt.versions[unit.name] === unit.version), "receipt versions differ from the sealed versions");
   const gate = receipt.gate;
-  requireThat(gate && same(Object.keys(gate).sort(), ["classAFiles", "classAScans", "command", "exit", "rules"]) && gate.exit === 0 && gate.command === `rightkit-gate check --commit ${sourceSha} --rule-tier release` && Number.isInteger(gate.rules) && gate.rules > 0 && Number.isInteger(gate.classAScans) && gate.classAScans > 0, "receipt carries no passed gate for this commit");
+  requireThat(gate && same(Object.keys(gate).sort(), ["classAFiles", "classAScans", "command", "exit", "rules"]) && gate.exit === 0 && gate.command === gateCommand(sourceSha, unitScopeDirs(registry, names)) && Number.isInteger(gate.rules) && gate.rules > 0 && Number.isInteger(gate.classAScans) && gate.classAScans > 0, "receipt carries no passed gate for this commit");
   requireThat(receipt.mode === "broker" || receipt.mode === "direct", "unknown admission mode: only broker and direct admission exist");
   if (receipt.mode === "direct") requireThat(receipt.requestId === "", "direct receipt carries a broker request id");
   else requireThat(REQUEST_ID.test(receipt.requestId), "broker receipt carries no valid request id");
@@ -350,8 +365,8 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(file
       requireThat(outDir && rest.length === 2, "usage: publish-admission.mjs admit --out <dir>");
       const git = (...args) => { const r = spawnSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }); if (r.status !== 0) throw new Error(`git ${args[0]} failed`); return r.stdout; };
       const policy = await committedPolicy(root, (file) => git("show", `${process.env.GITHUB_SHA}:${file}`));
-      const runGate = (sha) => spawnSync(process.execPath, [path.join(root, "packages", "release", "bin", "rightkit-gate.mjs"), "check", "--repo", root, "--commit", sha, "--rule-tier", "release"], { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "inherit"] });
-      const receipt = await admit({ env: process.env, git, runGate: (sha) => { const r = runGate(sha); process.stdout.write(r.stdout ?? ""); return r; }, policy });
+      const runGate = (sha, scope) => spawnSync(process.execPath, [path.join(root, "packages", "release", "bin", "rightkit-gate.mjs"), "check", "--repo", root, "--commit", sha, "--rule-tier", "release", ...scope.flatMap((dir) => ["--scope", dir])], { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "inherit"] });
+      const receipt = await admit({ env: process.env, git, runGate: (sha, scope) => { const r = runGate(sha, scope); process.stdout.write(r.stdout ?? ""); return r; }, policy });
       fs.mkdirSync(outDir, { recursive: true });
       fs.writeFileSync(path.join(outDir, ADMISSION_FILE), `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx" });
       process.stdout.write(`admission ${receipt.mode}: ${receipt.registry} ${receipt.units.join(" ")} at ${receipt.sourceSha} (run ${receipt.runId} attempt ${receipt.runAttempt})\n`);
