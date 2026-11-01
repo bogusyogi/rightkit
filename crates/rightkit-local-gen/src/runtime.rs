@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use rightkit_child_process::{
     sweep, AdoptedIdentity, OwnedChild, OwnedCommand, ReapOutcome, StderrTail,
 };
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::machine::MachineLock;
 use crate::provider::{SdCppClient, ValidatedCapabilities};
@@ -147,6 +147,10 @@ impl SdServer {
     /// stdout/stderr log drains, and records `runtime_start`. The OwnedChild
     /// is its process-group leader (unix) / Job Object member (Windows), so
     /// `stop`/Drop cleanup behaves identically to `start`.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "private adopt step: the child, its identity, lock and tail inputs arrive together from the one spawn site"
+    )]
     fn attach(
         cfg: &SdServerConfig,
         port: u16,
@@ -169,7 +173,7 @@ impl SdServer {
         let stderr_tail = backend_tail(stderr, "stderr", &cfg.log_dir, session_id, pid, token);
 
         rightkit_logs::JsonlStore::new(
-            (&cfg.log_dir).join(LOCAL_IMAGE_LOG_FILE),
+            cfg.log_dir.join(LOCAL_IMAGE_LOG_FILE),
             LOCAL_IMAGE_LOG_MAX_BYTES,
         )
         .append_best_effort(
@@ -910,7 +914,7 @@ fn claim_instance_lock(cfg: &SdServerConfig) -> Result<PathBuf, String> {
             "backend_busy: sd-server already managed by a live instance (pid {pid}, owner {owner_pid})"
         )),
         LockCheck::Orphan { pid } => {
-            rightkit_logs::JsonlStore::new((&cfg.log_dir).join(LOCAL_IMAGE_LOG_FILE), LOCAL_IMAGE_LOG_MAX_BYTES).append_best_effort(&rightkit_logs::EventRecord::new(log_now_ms(), rightkit_logs::Level::Info, "instance_orphan_reaped").with_field("pid", serde_json::json!(pid)));
+            rightkit_logs::JsonlStore::new(cfg.log_dir.join(LOCAL_IMAGE_LOG_FILE), LOCAL_IMAGE_LOG_MAX_BYTES).append_best_effort(&rightkit_logs::EventRecord::new(log_now_ms(), rightkit_logs::Level::Info, "instance_orphan_reaped").with_field("pid", serde_json::json!(pid)));
             let gone = kill_recorded_tree(pid);
             let _ = fs::remove_file(&lock_path);
             if gone {
@@ -1041,19 +1045,6 @@ pub fn unload_now(server: &mut Option<SdServer>, log_dir: &Path) -> Result<bool,
     Ok(true)
 }
 
-#[cfg(test)]
-mod unload_now_tests {
-    use super::*;
-
-    #[test]
-    fn unload_with_no_server_stops_nothing() {
-        let dir = std::env::temp_dir();
-        let mut server: Option<SdServer> = None;
-        assert_eq!(unload_now(&mut server, &dir), Ok(false));
-        assert!(server.is_none());
-    }
-}
-
 /// Resident memory of the backend supervisor and its descendants, in MB
 /// (rightkit-child-process `tree_usage`: one process-table snapshot, every member identity-checked).
 pub fn group_rss_mb(pid: u32) -> Option<f64> {
@@ -1077,7 +1068,7 @@ pub fn process_alive(pid: u32) -> bool {
 
 /// Stop a RECORDED sd-server (an orphan this process does not own) and its live descendants.
 /// The caller has already proven the pid is that server. Captures the pid's identity now and
-/// signals only that identity (see [`kill_verified_pid`]). True when the pid is gone (including
+/// signals only that identity (see `kill_verified_pid`). True when the pid is gone (including
 /// when it never existed).
 pub fn kill_recorded_tree(pid: u32) -> bool {
     let Some(nz) = std::num::NonZeroU32::new(pid) else {
@@ -1122,4 +1113,17 @@ fn backend_tail<R: std::io::Read + Send + 'static>(
                 );
         },
     )
+}
+
+#[cfg(test)]
+mod unload_now_tests {
+    use super::*;
+
+    #[test]
+    fn unload_with_no_server_stops_nothing() {
+        let dir = std::env::temp_dir();
+        let mut server: Option<SdServer> = None;
+        assert_eq!(unload_now(&mut server, &dir), Ok(false));
+        assert!(server.is_none());
+    }
 }

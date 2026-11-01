@@ -210,7 +210,7 @@ pub fn recover_finalized(store: &Store, paths: &LocalImagePaths) -> Result<u32, 
                 record.manifest_path = record
                     .manifest_path
                     .as_ref()
-                    .and_then(|_| Some(normalize_fs_path(&target.join("run-manifest.json"))));
+                    .map(|_| normalize_fs_path(&target.join("run-manifest.json")));
             }
         }
         store.recover_finalization(&job.id, &records)?;

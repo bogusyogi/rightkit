@@ -41,7 +41,9 @@ const MAX_POLL_TRANSPORT_ERRORS: u32 = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum RuntimeState {
+    #[default]
     Stopped,
     Starting,
     Ready,
@@ -112,12 +114,6 @@ struct RuntimeSlot {
     last_active: Option<Instant>,
     last_error: Option<String>,
     state: RuntimeState,
-}
-
-impl Default for RuntimeState {
-    fn default() -> Self {
-        RuntimeState::Stopped
-    }
 }
 
 /// Control flags of a profile install in flight.
@@ -335,7 +331,7 @@ impl LocalImageService {
             if let Some(mut server) = runtime.server.take() {
                 if let Err(error) = server.stop(&self.inner.paths.log_dir) {
                     rightkit_logs::JsonlStore::new(
-                        (&self.inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+                        self.inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
                         runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
                     )
                     .append_best_effort(
@@ -353,7 +349,7 @@ impl LocalImageService {
             if self.inner.options.worker_request_prefix.is_none() {
                 if let Err(error) = self.inner.store.lock().unwrap().reconcile_shutdown() {
                     rightkit_logs::JsonlStore::new(
-                        (&self.inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+                        self.inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
                         runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
                     )
                     .append_best_effort(
@@ -633,7 +629,7 @@ fn ensure_owner(inner: &Arc<Inner>) -> bool {
         Ok(None) => return false,
         Err(error) => {
             rightkit_logs::JsonlStore::new(
-                (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+                inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
                 runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
             )
             .append_best_effort(
@@ -678,7 +674,7 @@ fn ensure_owner(inner: &Arc<Inner>) -> bool {
         Err(error) => Err(format!("store lock: {error}")),
     };
     rightkit_logs::JsonlStore::new(
-        (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+        inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
         runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
     )
     .append_best_effort(
@@ -793,7 +789,7 @@ fn worker_loop(inner: Arc<Inner>) {
             }
             Err(error) => {
                 rightkit_logs::JsonlStore::new(
-                    (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+                    inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
                     runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
                 )
                 .append_best_effort(
@@ -862,7 +858,7 @@ fn mark_terminal(
     };
     if let Err(error) = result {
         rightkit_logs::JsonlStore::new(
-            (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+            inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
             runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
         )
         .append_best_effort(
@@ -880,7 +876,7 @@ fn mark_terminal(
     inner.cancel.lock().unwrap().remove(&job.id);
     emit_job_event(inner, &job.id);
     rightkit_logs::JsonlStore::new(
-        (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+        inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
         runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
     )
     .append_best_effort(
@@ -947,7 +943,7 @@ fn ensure_runtime(
         if let Some(mut server) = slot.server.take() {
             if slot.memory.as_ref().map(|m| m.mode) != Some(selection.mode) {
                 rightkit_logs::JsonlStore::new(
-                    (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+                    inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
                     runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
                 )
                 .append_best_effort(
@@ -1085,7 +1081,7 @@ fn ensure_runtime(
                 let _ = inner.store.lock().unwrap().set_state(job_id, &waiting);
                 emit_job_event(inner, job_id);
                 rightkit_logs::JsonlStore::new(
-                    (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+                    inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
                     runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
                 )
                 .append_best_effort(
@@ -1114,7 +1110,7 @@ fn ensure_runtime(
             Err(error) => {
                 let message = error.message();
                 rightkit_logs::JsonlStore::new(
-                    (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+                    inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
                     runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
                 )
                 .append_best_effort(
@@ -1132,7 +1128,7 @@ fn ensure_runtime(
     };
     if let Some(old) = machine.took_over.as_ref() {
         rightkit_logs::JsonlStore::new(
-            (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+            inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
             runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
         )
         .append_best_effort(
@@ -1160,7 +1156,7 @@ fn ensure_runtime(
     published?;
     emit_job_event(inner, job_id);
     rightkit_logs::JsonlStore::new(
-        (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+        inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
         runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
     )
     .append_best_effort(
@@ -1259,7 +1255,7 @@ fn process_job(inner: &Arc<Inner>, job: JobRecord) {
             }
             if let Err(error) = stop_runtime(self.0) {
                 rightkit_logs::JsonlStore::new(
-                    (&self.0.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+                    self.0.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
                     runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
                 )
                 .append_best_effort(
@@ -1443,7 +1439,7 @@ fn process_job_inner(inner: &Arc<Inner>, job: JobRecord) {
         return;
     }
     rightkit_logs::JsonlStore::new(
-        (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+        inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
         runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
     )
     .append_best_effort(
@@ -1686,7 +1682,7 @@ fn yield_to_waiter(inner: &Inner, slot: &mut RuntimeSlot) -> bool {
         match server.stop(&inner.paths.log_dir) {
             Ok(()) => {
                 rightkit_logs::JsonlStore::new(
-                    (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+                    inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
                     runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
                 )
                 .append_best_effort(
@@ -1741,7 +1737,7 @@ fn cancel_active(
     _client: &Arc<SdCppClient>,
 ) {
     rightkit_logs::JsonlStore::new(
-        (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+        inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
         runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
     )
     .append_best_effort(
@@ -1792,7 +1788,7 @@ fn finalize(
                 .chars()
                 .filter(|c| !c.is_ascii_whitespace() && *c != '=')
                 .collect();
-            while t.len() % 4 != 0 {
+            while !t.len().is_multiple_of(4) {
                 t.push('=');
             }
             rightkit_crypto::base64_decode(&t).map_err(|e| format!("decode b64: {e}"))
@@ -1893,7 +1889,7 @@ fn finalize(
                 let _ = inner.store.lock().unwrap().set_state(&job.id, &update);
                 inner.cancel.lock().unwrap().remove(&job.id);
                 rightkit_logs::JsonlStore::new(
-                    (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+                    inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
                     runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
                 )
                 .append_best_effort(
@@ -1910,7 +1906,7 @@ fn finalize(
             }
             let records = prepared.records;
             rightkit_logs::JsonlStore::new(
-                (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+                inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
                 runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
             )
             .append_best_effort(
@@ -1928,7 +1924,7 @@ fn finalize(
             emit_job_event(inner, &job.id);
             inner.cancel.lock().unwrap().remove(&job.id);
             rightkit_logs::JsonlStore::new(
-                (&inner.paths.log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+                inner.paths.log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
                 runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
             )
             .append_best_effort(

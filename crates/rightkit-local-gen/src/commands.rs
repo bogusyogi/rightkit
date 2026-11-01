@@ -439,7 +439,7 @@ pub fn cancel_blocking(
             upd.error_code = Some(Some("user_cancel".to_string()));
             let record = cancel_transition(&upd)?;
             rightkit_logs::JsonlStore::new(
-                (&service.paths().log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+                service.paths().log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
                 runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
             )
             .append_best_effort(
@@ -460,7 +460,7 @@ pub fn cancel_blocking(
             upd.error_code = Some(Some("user_cancel".to_string()));
             let record = cancel_transition(&upd)?;
             rightkit_logs::JsonlStore::new(
-                (&service.paths().log_dir).join(runtime::LOCAL_IMAGE_LOG_FILE),
+                service.paths().log_dir.join(runtime::LOCAL_IMAGE_LOG_FILE),
                 runtime::LOCAL_IMAGE_LOG_MAX_BYTES,
             )
             .append_best_effort(

@@ -146,7 +146,7 @@ impl JobState {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         Some(match value {
             "queued" => JobState::Queued,
             "loading" => JobState::Loading,
@@ -709,7 +709,7 @@ impl Store {
             .map_err(|e| e.to_string())?;
         drop(stmt);
         for (id, state) in rows {
-            let prior = JobState::from_str(&state)
+            let prior = JobState::parse(&state)
                 .ok_or_else(|| format!("unknown job state during shutdown: {state}"))?;
             let update = if prior == JobState::Queued {
                 JobUpdate::transition(JobState::Paused, "paused")
@@ -1187,7 +1187,7 @@ fn json_column<T: serde::de::DeserializeOwned>(text: &str, column: &str) -> rusq
 }
 
 fn state_column(text: &str) -> rusqlite::Result<JobState> {
-    JobState::from_str(text).ok_or_else(|| {
+    JobState::parse(text).ok_or_else(|| {
         rusqlite::Error::FromSqlConversionFailure(
             0,
             rusqlite::types::Type::Text,

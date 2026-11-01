@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0.0",
+  "upstream": {
+    "repo": "leejet/stable-diffusion.cpp",
+    "tag": "master-929-3f8527a",
+    "commit": "3f8527a46c54ecf4cb4ed6003da8e8982283c73c",
+    "license": "MIT",
+    "server_dir": "examples/server"
+  },
+  "access_patch": {
+    "file": "vendor-patches/sdcpp-session-auth.patch",
+    "applies_to": "examples/server/main.cpp",
+    "token_env": "SDCPP_SESSION_TOKEN",
+    "header": "X-SDCPP-Session",
+    "revision": 2,
+    "session_id_env": "SDCPP_SESSION_ID",
+    "session_identity_header": "X-SDCPP-Session-Identity",
+    "sha256": "36b2e57ad02ae82016b3feacb47865ad01d79a983eb4190b650ad1eb637373ef"
+  },
+  "api": {
+    "base": "/sdcpp/v1",
+    "capabilities": "GET /sdcpp/v1/capabilities",
+    "submit": "POST /sdcpp/v1/img_gen",
+    "job": "GET /sdcpp/v1/jobs/{id}",
+    "cancel": "POST /sdcpp/v1/jobs/{id}/cancel",
+    "job_ttl_seconds": 600,
+    "session_identity_header": "X-SDCPP-Session-Identity"
+  },
+  "launch": {
+    "listen_ip": "127.0.0.1",
+    "required_args": [
+      "--diffusion-model",
+      "--vae",
+      "--llm"
+    ],
+    "optional_args": [
+      "--llm_vision",
+      "--lora-model-dir",
+      "--diffusion-fa",
+      "--offload-to-cpu",
+      "--log-level"
+    ],
+    "web_ui": "build without SD_SERVER_BUILD_FRONTEND; index routes remain but sit behind session auth"
+  },
+  "binaries": {
+    "windows-x86_64": {
+      "name": "sd-server.exe",
+      "sha256": "35cb73c74b4cae3ac2e3c283364ca134b612c49c9241e1cff16436978ce26d71",
+      "approval_sha256": "35cb73c74b4cae3ac2e3c283364ca134b612c49c9241e1cff16436978ce26d71",
+      "approval_hash_algorithm": "raw-sha256",
+      "status": "qualified-cpu-t2i-edit-256-auth",
+      "notes": "Native Windows CPU build from pinned source+auth patch. Auth probes pass; CPU-only 20-step T2I at 256x256 completed in 589.89s and reference edit in 626.46s with valid images. Vulkan Qwen inference failed graph-capacity checks and produced invalid output; Windows GPU inference remains unqualified. Active-generation cancellation is not supported.",
+      "backend": "cpu",
+      "launch_args": []
+    },
+    "macos-aarch64": {
+      "name": "sd-server-aarch64-apple-darwin",
+      "sha256": "a2d6bc32bb82013aa66a855edd3907a5b0971c76365c4a40e1a5dfede81faa53",
+      "approval_sha256": "889c2df7501f0c03cf3b301fd0255a8c24267003375bfd193db8c2b6361c6f61",
+      "approval_hash_algorithm": "macho-codesign-strip-linkedit-v1",
+      "status": "qualified-base-q6-t2i-edit-auth",
+      "notes": "Native Apple M6 static Metal build passed authenticated capabilities, T2I, and edit at 512x512; qualification JSON retains timings, process RSS, settings, and image hashes. Other model profiles remain separately qualified.",
+      "backend": "metal"
+    }
+  },
+  "backend_identity": "computed at runtime from binary sha256 + capabilities response; recorded per job"
+}
