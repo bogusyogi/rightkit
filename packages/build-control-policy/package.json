@@ -1,7 +1,8 @@
 {
   "name": "@rightkit/build-control-policy",
   "private": true,
-  "version": "0.1.4-phase1",
+  "version": "0.1.5-phase1",
   "type": "module",
+  "bin": { "rightkit-host-gate": "src/host-gate.mjs" },
   "scripts": { "test": "node --test src/*.test.mjs" }
 }

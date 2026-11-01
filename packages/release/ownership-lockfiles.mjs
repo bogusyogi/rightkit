@@ -285,11 +285,14 @@ function pnpmGraph(text, manifests, lockDir, workspaceBytes) {
     if (typeof ref !== "string") fail("invalid pnpm dependency version");
     if (/^(?:link:|workspace:)/.test(ref)) {
       if (!ref.startsWith("link:")) throw new LockError("lockfile-unresolved-dependency", ref);
-      const importer = node.id.replace(/^importer:/, "");
-      const target = path.posix.normalize(path.posix.join(importer, ref.slice(5)));
-      // A link out of the lock's own workspace (a self-rooted template linking ../packages/<x>) is a local package, not a lock entry.
-      if (!g.nodes.has(`importer:${target}`) && (target === ".." || target.startsWith("../"))) g.add(`importer:${target}`, name, "0.0.0", `path:${target}`, true);
-      return g.nodes.get(`importer:${target}`);
+      const importer = node.id.replace(/^importer:/, ""), target = path.posix.normalize(path.posix.join(importer, ref.slice(5)));
+      const found = g.nodes.get(`importer:${target}`);
+      if (found) return found;
+      // A link to a directory of the scanned repository outside this lock's importers (RightKit's own sample apps link
+      // packages/*) is that repository's own source: a local node, never a gap. A link leaving the repository stays unresolved.
+      const repoRel = path.posix.normalize(path.posix.join(lockDir, target));
+      if (repoRel === ".." || repoRel.startsWith("../") || path.posix.isAbsolute(repoRel)) return undefined;
+      return g.nodes.get(`linked:${repoRel}`) ?? g.add(`linked:${repoRel}`, name, "0.0.0", `path:${repoRel}`, true);
     }
     const candidates = [ref, `${name}@${ref}`, `/${name}@${ref}`];
     const exact = candidates.map((id) => g.nodes.get(id)).find(Boolean);
@@ -299,7 +302,8 @@ function pnpmGraph(text, manifests, lockDir, workspaceBytes) {
     return g.nodes.get(normalized) ?? g.nodes.get(`/${normalized}`);
   };
   for (const node of g.nodes.values()) {
-    const isImporter = node.id.startsWith("importer:"), pkg = isImporter ? lock.importers[node.id.slice(9)] ?? {} : snapshots[node.id];
+    if (node.id.startsWith("linked:")) continue; // its own dependencies belong to its own manifest and lock
+    const isImporter = node.id.startsWith("importer:"), pkg = isImporter ? lock.importers[node.id.slice(9)] : snapshots[node.id];
     for (const section of isImporter ? sections : ["dependencies", "optionalDependencies"]) {
       if (pkg[section] !== undefined && !object(pkg[section])) fail("invalid pnpm dependency map");
       for (const [name, raw] of Object.entries(pkg[section] ?? {})) connect(node, resolve(node, name, raw), name, section === "optionalDependencies");

@@ -1,11 +1,16 @@
 # Changelog
 
+## 0.6.18 (unpublished)
+
+- **`rightkit-linux-setup` (rightkit#1365):** one idempotent command for a Linux host (cloud container, VM, WSL2). From the app root it reads the pins (`.node-version` or `engines.node`, `packageManager`, `rust-toolchain.toml`), installs Node from the official tarball into `~/.local` (checksum verified), pnpm through corepack (npm into `~/.local` when corepack is absent) and Rust through rustup, then runs `pnpm fetch` in every committed lockroot to fill the pnpm store. The fetch uses a throwaway `--virtual-store-dir`, so an existing `node_modules` is never cleared. `--dry-run` prints the plan; `--root <dir>` picks the app. System packages (webkit2gtk and gtk for Tauri) are not installed yet.
+
 ## 0.6.17 (unpublished)
 
 - **A tool's own JSON output is never judged as a broker frame (rightkit#1351):** `drainFrames` judged every captured line starting with `{` against the 1 MiB frame limit, so the one-line `cargo metadata` document of a large workspace (2.28 MB for a Tauri app) failed every carried full-metadata call (cargo-deny) with `RK_CARGO_BROKER_UNVERIFIED` (frame-over-cap) on the Mac and the Dell. Only a JSON object whose `type` is a protocol event type is judged now.
 - **Build ownership: a reused detached group id is not a live straggler:** a recorded group whose leader started after the record was written (the OS reused the pid) no longer holds the host (b0abc2828).
 - **RightKit's own sample apps are built as apps, scoped to their directory** (`ci/sample-apps.json`, fd63966df).
 - **Fixes from tracing the HeardRight source-QA and package path:** cargo contract, QA layout, door ledger and stage-sidecar staging (3a750e8f0).
+- **Ownership scan: a pnpm `link:` into the scanned repository is local source:** a link outside the lock's importers but inside the repository (RightKit's sample apps link `packages/*`) is a local node, not a `lockfile-unresolved-dependency` gap; a link leaving the repository still is one (same rule in rightkit-ownership 0.4.4).
 - **QA admission:** Mac rightkit-qa 0.10.1 runner 14eba841 approved, e7590e12 withdrawn (b1752bf63).
 
 ## 0.6.16 (unpublished)
