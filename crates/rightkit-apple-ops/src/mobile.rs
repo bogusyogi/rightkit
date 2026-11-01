@@ -65,6 +65,8 @@ struct NativeTransport;
 
 struct ChildGuard {
     child: Child,
+    // Read only by the Unix process-group cleanup in terminate_group.
+    #[cfg_attr(not(unix), allow(dead_code))]
     process_group: Option<u32>,
     armed: bool,
 }

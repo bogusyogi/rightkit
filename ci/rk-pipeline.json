@@ -172,6 +172,13 @@
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: editing FFmpeg and ffprobe (RIGHTKIT_FFMPEG, RIGHTKIT_FFPROBE), a talking-head clip (RIGHTKIT_TALKING_HEAD_CLIP) and a font (RIGHTKIT_FONT) for tests/render.rs; missing assets print SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes it fail. tests/llm.rs has one #[ignore]d live-LLM test.; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
+      },
+      "rightkit-evidence-effects": {
+        "version": "0.1.0",
+        "allow": [
+          "allow_missing_assets"
+        ],
+        "reason": "ci/asset-gated.json: the macOS sandbox storage tests need private IPC storage (RIGHTKIT_CI_IPC_STORAGE) the publish workflow does not provision; they print SKIP markers recorded in the receipts, and the crate's compile, clippy, doc and remaining tests still qualify it."
       }
     },
     "watchTimeoutMinutes": 180,
