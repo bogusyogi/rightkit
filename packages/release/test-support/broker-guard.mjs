@@ -269,41 +269,79 @@ function interceptSync(command, args, options) {
   };
 }
 
-// Hosted CI runs the toolchain's cargo, but inside a gate scan the first `cargo` on PATH is the gate's runtime wrapper
-// (cargo-target-shim.mjs), which refuses a workspace its map does not bind: a test's temp-directory fixture always. A `cargo metadata`
-// of such a fixture gets the same stub it gets off CI; every call the wrapper binds still runs for real through it.
-function unboundWrapperMetadata(command, args, options) {
-  if (!hostedCi()) return false;
+// Hosted CI runs the toolchain's cargo, but inside a gate scan the first `cargo` on PATH (and $CARGO) is the gate's runtime wrapper
+// (cargo-target-shim.mjs), which refuses a workspace its map does not bind: a test's temp-directory fixture always, and the gate's
+// ledger then fails the stage even when the test expected or swallowed the refusal. A call that reaches the wrapper for a THROWAWAY
+// fixture (its manifest, or its working directory, under the OS temp directory) through a wrapper that binds no workspace at all is the
+// test's own: a `cargo metadata` gets the same stub it gets off CI, any other command runs the toolchain cargo the wrapper's map records,
+// without the wrapper on PATH (Sage decision B, test-support/toolchain-cargo.mjs). Every call the wrapper binds still runs through it.
+function unboundWrapperCall(command, args, options) {
+  if (!hostedCi()) return null;
   const [argv, opts = {}] = splitArguments(args, options);
   const cargoArgv = cargoArguments(command, argv);
-  if (!cargoArgv || cargoArgv[0] !== "metadata") return false;
+  if (!cargoArgv) return null;
   const text = String(command);
-  const file = /[\\/]/.test(text) ? text : resolveOnPath("cargo");
+  const file = /[\\/]/.test(text) ? text : resolveOnPathOf("cargo", opts.env?.PATH ?? process.env.PATH);
+  if (!file) return null;
   let map;
   try {
     const head = fs.readFileSync(file, "utf8").slice(0, 4096);
     const at = head.startsWith("#!/bin/sh\n") && head.includes("cargo-target-shim.mjs") ? /--map '([^']+)'/.exec(head) : null;
-    if (!at) return false;
+    if (!at) return null;
     map = JSON.parse(fs.readFileSync(at[1], "utf8"));
-  } catch { return false; }
+  } catch { return null; }
+  // Only a wrapper that binds NO workspace: the unit stage of a package with no Rust dependency (the qualify route's outer wrapper). A
+  // wrapper a test installed for its own fixtures binds them, and the refusals it is under test for must stay refusals.
+  if (Object.keys(map.workspaces ?? {}).length) return null;
   const cwd = opts.cwd ?? process.cwd();
   const index = cargoArgv.indexOf("--manifest-path");
   const manifest = index >= 0 ? path.resolve(cwd, cargoArgv[index + 1]) : nearestManifest(cwd);
-  if (!manifest) return false;
   let dir;
-  try { dir = realpathSync(path.dirname(manifest)); } catch { return false; }
-  return !Object.keys(map.workspaces ?? {}).some((w) => { const r = path.relative(w, dir); return r === "" || (!r.startsWith("..") && !path.isAbsolute(r)); });
+  try { dir = realpathSync(manifest ? path.dirname(manifest) : cwd); } catch { return null; }
+  const under = (child, parent) => { const r = path.relative(parent, child); return r === "" || (!r.startsWith("..") && !path.isAbsolute(r)); };
+  let temp;
+  try { temp = realpathSync(os.tmpdir()); } catch { return null; }
+  if (!under(dir, temp)) return null;
+  if (Object.keys(map.workspaces ?? {}).some((w) => under(dir, w))) return null;
+  return { file, map, cargoArgv, argv, opts };
+}
+
+function resolveOnPathOf(name, pathValue) {
+  for (const dir of String(pathValue ?? "").split(path.delimiter)) {
+    if (!dir) continue;
+    const full = path.join(dir, name);
+    try { if (statSync(full).isFile()) return full; } catch { /* keep looking */ }
+  }
+  return null;
+}
+
+/** The toolchain launch for an unbound fixture call: the wrapper's recorded cargo, PATH without the wrapper's directory, no $CARGO. */
+function toolchainLaunch(call) {
+  const real = call.map.realCargo;
+  if (typeof real !== "string" || !path.isAbsolute(real)) return null;
+  const env = { ...(call.opts.env ?? process.env) };
+  delete env.CARGO;
+  const wrapperBin = path.dirname(call.file);
+  env.PATH = String(env.PATH ?? "").split(path.delimiter).filter((d) => d && path.resolve(d) !== path.resolve(wrapperBin)).join(path.delimiter);
+  record({ action: "toolchain", command: String(call.file), args: call.argv, cwd: call.opts.cwd ?? process.cwd() });
+  return { command: real, options: { ...call.opts, env } };
 }
 
 function guardedSpawnSync(command, ...rest) {
-  if (enforcing() && unboundWrapperMetadata(command, ...rest)) return interceptSync(command, ...rest);
+  const call = enforcing() ? unboundWrapperCall(command, ...rest) : null;
+  if (call && call.cargoArgv[0] === "metadata") return interceptSync(command, ...rest);
+  const launch = call ? toolchainLaunch(call) : null;
+  if (launch) return original.spawnSync(launch.command, call.argv, launch.options);
   if (!enforcing() || !brokerLaunch(command)) return original.spawnSync(command, ...rest);
   const [args, options] = rest;
   return interceptSync(command, args, options);
 }
 
 function guardedExecFileSync(file, ...rest) {
-  if (!enforcing() || !(brokerLaunch(file) || unboundWrapperMetadata(file, ...rest))) return original.execFileSync(file, ...rest);
+  const call = enforcing() ? unboundWrapperCall(file, ...rest) : null;
+  const launch = call && call.cargoArgv[0] !== "metadata" ? toolchainLaunch(call) : null;
+  if (launch) return original.execFileSync(launch.command, call.argv, launch.options);
+  if (!enforcing() || !(brokerLaunch(file) || call)) return original.execFileSync(file, ...rest);
   const [args, options] = rest;
   const result = interceptSync(file, args, options);
   if (result.status !== 0) {
@@ -316,6 +354,9 @@ function guardedExecFileSync(file, ...rest) {
 
 // Asynchronous launches of broker-reaching commands have no stub: they are refused outright.
 function guardedSpawn(command, ...rest) {
+  const call = enforcing() ? unboundWrapperCall(command, ...rest) : null;
+  const launch = call ? toolchainLaunch(call) : null;
+  if (launch) return original.spawn(launch.command, call.argv, launch.options);
   if (enforcing() && brokerLaunch(command)) {
     record({ action: "refused", command: String(command), args: splitArguments(rest[0], rest[1])[0] });
     throw refusal(`${path.basename(String(command))} (asynchronous launch)`);
@@ -324,6 +365,12 @@ function guardedSpawn(command, ...rest) {
 }
 
 function guardedExecFile(file, ...rest) {
+  const call = enforcing() ? unboundWrapperCall(file, ...rest) : null;
+  const launch = call ? toolchainLaunch(call) : null;
+  if (launch) {
+    const callback = rest.find((r) => typeof r === "function");
+    return callback ? original.execFile(launch.command, call.argv, launch.options, callback) : original.execFile(launch.command, call.argv, launch.options);
+  }
   if (enforcing() && brokerLaunch(file)) {
     record({ action: "refused", command: String(file), args: splitArguments(rest[0], rest[1])[0] });
     throw refusal(`${path.basename(String(file))} (asynchronous launch)`);
