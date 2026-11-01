@@ -748,6 +748,7 @@ async fn eff002_hook_transform_then_middleware_approval_binds_final_digest() {
 
 #[tokio::test]
 async fn eff002_hook_transform_recomputes_skill_policy_on_effective_call() {
+    crate::test_skill_catalog::install_test_skill_catalog();
     let _guard = eff002_hook_env_guard().await;
     std::env::set_var(
         "RIGHTKIT_HOOKS_JSON",

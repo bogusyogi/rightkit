@@ -396,8 +396,9 @@ mod tests {
     }
 
     #[test]
-    fn abac_precedes_rule_store() {
-        // RuleStore says deny shell, but ABAC allow should win (ABAC first, glob second)
+    fn deny_rule_outranks_an_abac_allow() {
+        // Rule 51: an ABAC match keeps its own verdict, but a persisted or session Deny rule still
+        // wins over an ABAC Allow or Ask.
         let yaml = r#"
 rules:
   - id: allow-shell-abac
@@ -437,9 +438,9 @@ rules:
         let verdict = engine.permission_verdict_for(&call);
         assert_eq!(
             verdict.decision,
-            rightkit_agent_policy::PermissionDecision::Allow
+            rightkit_agent_policy::PermissionDecision::Deny
         );
-        assert_eq!(verdict.policy_source, "abac:allow-shell-abac");
+        assert_eq!(verdict.policy_source, "rule:session:shell");
     }
 
     #[test]

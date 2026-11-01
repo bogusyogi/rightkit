@@ -545,7 +545,8 @@ mod effect_binding_tests {
         let mut engine = SessionEngine::new(llm, tools, conduit.clone(), cfg);
         let approvals = engine.pending_approvals.clone();
         let approval_contexts = engine.pending_approval_contexts.clone();
-        let mut sub = conduit.subscribe();
+        // A human client must be attached, or the request is denied at once as unattended.
+        let mut sub = conduit.subscribe_human();
 
         let engine_task = tokio::spawn(async move { engine.submit_user_message("edit").await });
 
