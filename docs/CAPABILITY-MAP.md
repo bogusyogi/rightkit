@@ -8,7 +8,7 @@ Owners come from `packages/release/rightkit-ownership.json`, which the ownership
 - Detection: `fingerprinted` when the owner declares dependency or source fingerprints; `declaration-only` when it declares ownership without a precise fingerprint. A declared dependency alone does not prove integration.
 - Published availability: `published` means a registry version is recorded. `staged` means a version is prepared and unverified on the registry.
 
-Capabilities: 199 (58 with fingerprints, 141 declaration-only). Internal owners that are not application capabilities are excluded.
+Capabilities: 206 (58 with fingerprints, 148 declaration-only). Internal owners that are not application capabilities are excluded.
 
 | Capability | Owner | Tier | Detection | Fingerprints | Published availability |
 |---|---|---|---|---|---|
@@ -58,7 +58,10 @@ Capabilities: 199 (58 with fingerprints, 141 declaration-only). Internal owners 
 | channel-memory | `rightkit-channel-memory` | none | declaration-only | 0 | rightkit-channel-memory: published 0.2.1 (crates.io) |
 | chat-bridge | `rightkit-chat-bridge` | none | declaration-only | 0 | rightkit-chat-bridge: staged 0.1.0, not published |
 | cloud-sync | `rightkit-sync` | none | declaration-only | 0 | rightkit-sync: published 0.2.2 (crates.io) |
+| code-audit-commands | `rightkit-code-audit-commands` | none | declaration-only | 0 | rightkit-code-audit-commands: staged 0.1.0, not published |
+| code-audit-engine | `rightkit-code-audit-engine` | none | declaration-only | 0 | rightkit-code-audit-engine: staged 0.1.0, not published |
 | code-audit-provider-sdk | `rightkit-code-audit-provider-sdk` | none | declaration-only | 0 | rightkit-code-audit-provider-sdk: staged 0.1.0, not published |
+| code-audit-qualification | `rightkit-code-audit-qualification` | none | declaration-only | 0 | rightkit-code-audit-qualification: staged 0.1.0, not published |
 | composition-model | `rightkit-compose` | none | declaration-only | 0 | rightkit-compose: published 0.2.0 (crates.io) |
 | content-contracts | `rightkit-contracts` | none | declaration-only | 0 | rightkit-contracts: published 0.1.7 (crates.io) |
 | content-plan | `rightkit-content-plan` | none | declaration-only | 0 | rightkit-content-plan: staged 0.1.1, not published |
@@ -85,9 +88,11 @@ Capabilities: 199 (58 with fingerprints, 141 declaration-only). Internal owners 
 | dictation-app-runtime | `rightkit-dictation-app-runtime` | none | declaration-only | 0 | rightkit-dictation-app-runtime: staged 0.1.0, not published |
 | dictation-command-host | `rightkit-dictation-command-host` | none | declaration-only | 0 | rightkit-dictation-command-host: staged 0.1.0, not published |
 | dictation-engine | `rightkit-dictation-engine` | none | declaration-only | 0 | rightkit-dictation-engine: staged 0.1.0, not published |
+| dictation-ffi | `rightkit-dictation-ffi` | none | declaration-only | 0 | rightkit-dictation-ffi: staged 0.1.0, not published |
 | dictation-inference | `rightkit-dictation-inference` | none | declaration-only | 0 | rightkit-dictation-inference: staged 0.1.0, not published |
 | dictation-models | `rightkit-dictation-models` | none | declaration-only | 0 | rightkit-dictation-models: staged 0.1.0, not published |
 | dictation-runtime | `rightkit-dictation-runtime` | none | declaration-only | 0 | rightkit-dictation-runtime: staged 0.1.0, not published |
+| dictation-shell-runtime | `rightkit-dictation-tauri` | none | declaration-only | 0 | rightkit-dictation-tauri: staged 0.1.0, not published |
 | dictation-telemetry | `rightkit-dictation-telemetry` | none | declaration-only | 0 | rightkit-dictation-telemetry: staged 0.1.0, not published |
 | dictation-text-pipeline | `rightkit-dictation-text-pipeline` | none | declaration-only | 0 | rightkit-dictation-text-pipeline: staged 0.1.0, not published |
 | disk-cache | `rightkit-cache` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-cache: published 0.2.3 (crates.io) |
@@ -103,6 +108,8 @@ Capabilities: 199 (58 with fingerprints, 141 declaration-only). Internal owners 
 | embeddings | `rightkit-embed` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-embed: published 0.6.1 (crates.io) |
 | engine-host | `rightkit-engine-host` | none | declaration-only | 0 | rightkit-engine-host: staged 0.1.1, not published |
 | evidence | `rightkit-evidence` | none | declaration-only | 0 | rightkit-evidence: staged 0.1.0, not published |
+| evidence-application | `rightkit-evidence-application` | none | declaration-only | 0 | rightkit-evidence-application: staged 0.1.0, not published |
+| evidence-commands | `rightkit-evidence-commands` | none | declaration-only | 0 | rightkit-evidence-commands: staged 0.1.0, not published |
 | evidence-contracts | `rightkit-evidence-contracts` | none | declaration-only | 0 | rightkit-evidence-contracts: staged 0.1.0, not published |
 | evidence-decisions | `rightkit-evidence-decisions` | none | declaration-only | 0 | rightkit-evidence-decisions: staged 0.1.0, not published |
 | evidence-effects | `rightkit-evidence-effects` | none | declaration-only | 0 | rightkit-evidence-effects: staged 0.1.0, not published |

@@ -2,7 +2,7 @@
   "package": "rightkit-dictation-tauri",
   "capabilities": [
     {
-      "capability": "dictation-runtime",
+      "capability": "dictation-shell-runtime",
       "summary": "Dictation runtime for a desktop shell: recording state machine over the engine sidecar, history sequencing and transcribe watchdog behind a host trait.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",

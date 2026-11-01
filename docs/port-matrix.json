@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T10:37:39Z",
-  "rightkitHead": "74fab49",
+  "generatedAt": "2026-11-01T10:38:05Z",
+  "rightkitHead": "a43ea74",
   "legend": [
     {
       "state": "adopted",
@@ -23393,7 +23393,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "code-audit-commands"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -23458,7 +23460,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "code-audit-engine"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -23590,7 +23594,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "code-audit-qualification"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -25346,7 +25352,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "dictation-ffi"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -25612,7 +25620,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "dictation-shell-runtime"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -26284,7 +26294,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "evidence-application"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -26349,7 +26361,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "evidence-commands"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
