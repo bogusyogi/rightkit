@@ -17,8 +17,8 @@
 //! performance evidence. Findings are bounded, with excess axe output marked
 //! as truncated rather than clean.
 //!
-//! `wf_port::wf064::runtime::ChromeRuntimeDriver` is deliberately not used:
-//! it holds an in-process browser outside the process-receipt path, types
+//! An in-process browser driver is deliberately not used here: it
+//! holds an in-process browser outside the process-receipt path, types
 //! and clicks into the audited app, and injects its instrumentation before
 //! navigation, where it does not survive.
 //!

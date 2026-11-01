@@ -1,13 +1,14 @@
 //! Authenticated native RightKit ownership consumer. No scanner rules or admission live here.
 //!
-//! Host enrollment pins an executable wrapping `rightkit_ownership::Scanner` with its
-//! embedded catalog. Three SDK calls retain real input probes & protected scan output.
+//! Host enrollment pins an executable wrapping the RightKit ownership scanner with its
+//! embedded catalog, plus the host-supplied [`OwnershipPolicy`] that re-checks its output. Three SDK calls retain real input probes & protected scan output.
 //! Production registry has no enrollment by default; its existing denial path remains.
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     io::Read,
     path::{Component, Path, PathBuf},
+    sync::Arc,
 };
 
 use rightkit_code_audit_provider_sdk::{
@@ -27,20 +28,52 @@ const LIMIT: usize = 64 * 1024 * 1024;
 const TOTAL_LIMIT: usize = 256 * 1024 * 1024;
 const PROTOCOL: &str = "legion-rightkit-ownership-native/1";
 
+/// Verdict the host policy computes for an ownership report.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnershipDecision {
+    pub admit: bool,
+    pub code: String,
+    pub problems: Vec<String>,
+}
+
+/// Ownership scanner policy the host supplies, so this crate carries no scanner or
+/// signature-verification code. A host implements it over the RightKit ownership crate:
+/// each method maps to the same-named function there.
+pub trait OwnershipPolicy: Send + Sync + std::fmt::Debug {
+    /// Scanner version the pinned executable embeds.
+    fn scanner_version(&self) -> String;
+    /// Digest of the scanner policy sources the pinned executable embeds.
+    fn scanner_policy_digest(&self) -> String;
+    /// Digest of the embedded ownership catalog.
+    fn catalog_digest(&self) -> String;
+    /// Validate the owner's recorded inputs; the error is a human-readable message.
+    fn validate_inputs(&self, inputs: &Value) -> Result<(), String>;
+    /// Recompute the admission verdict for a report and its trust document.
+    fn verdict(&self, report: &Value, trust: &Value) -> OwnershipDecision;
+    /// Digest of a JSON value, as used for content bindings.
+    fn content_digest(&self, value: &Value) -> String;
+}
+
+const CODE_CLEAN: &str = "RK_OWNERSHIP_CLEAN";
+const CODE_ADVISORY: &str = "RK_OWNERSHIP_ADVISORY";
+const CODE_VIOLATION: &str = "RK_OWNERSHIP_VIOLATION";
+
 /// Host-side binary enrollment, distinct from policy admission. Never read from findings JSON.
 #[derive(Clone, Debug)]
 pub struct NativeOwner {
     executable: PathBuf,
     executable_digest: String,
+    policy: Arc<dyn OwnershipPolicy>,
 }
 
 impl NativeOwner {
-    pub fn pin(executable: &Path) -> Result<Self, String> {
+    pub fn pin(executable: &Path, policy: Arc<dyn OwnershipPolicy>) -> Result<Self, String> {
         let executable = fs::canonicalize(executable).map_err(|e| e.to_string())?;
         let executable_digest = digest_bytes(&read_bounded(&executable, TOTAL_LIMIT)?);
         Ok(Self {
             executable,
             executable_digest,
+            policy,
         })
     }
 
@@ -48,9 +81,9 @@ impl NativeOwner {
     pub fn identity(&self) -> Value {
         json!({"protocol":PROTOCOL,"executable":self.executable,"executableDigest":self.executable_digest,
             "ownerCrate":"rightkit-ownership","ownerVersion":"0.3.1",
-            "scannerVersion":rightkit_ownership::SCANNER_VERSION,
-            "scannerPolicyDigest":rightkit_ownership::scanner_policy_digest(),
-            "catalogDigest":rightkit_ownership::scan::catalog_digest(rightkit_ownership::catalog_value())})
+            "scannerVersion":self.policy.scanner_version(),
+            "scannerPolicyDigest":self.policy.scanner_policy_digest(),
+            "catalogDigest":self.policy.catalog_digest()})
     }
 
     pub fn executable(&self) -> &Path {
@@ -181,8 +214,10 @@ pub fn validate_envelope(
     if document["inputInventory"]["ownerContentDigest"] != inputs["contentDigest"] {
         return Err("ownership-input-content-binding".into());
     }
-    rightkit_ownership::ownership_cache_key(inputs)
-        .map_err(|e| format!("ownership-inputs-invalid:{}", e.message))?;
+    owner
+        .policy
+        .validate_inputs(inputs)
+        .map_err(|e| format!("ownership-inputs-invalid:{e}"))?;
     if inputs["catalogDigest"] != owner.identity()["catalogDigest"]
         || inputs["scannerPolicyDigest"] != owner.identity()["scannerPolicyDigest"]
     {
@@ -205,20 +240,14 @@ pub fn validate_envelope(
     {
         return Err("ownership-evidence-unverified".into());
     }
-    let verdict = rightkit_ownership::ownership_verdict(report, trust);
+    let verdict = owner.policy.verdict(report, trust);
     if envelope["verdict"]["admit"] != verdict.admit
         || envelope["verdict"]["code"] != verdict.code
         || envelope["verdict"]["problems"] != json!(verdict.problems)
     {
         return Err("ownership-verdict-mismatch".into());
     }
-    if ![
-        rightkit_ownership::codes::CLEAN,
-        rightkit_ownership::codes::ADVISORY,
-        rightkit_ownership::codes::VIOLATION,
-    ]
-    .contains(&verdict.code)
-    {
+    if ![CODE_CLEAN, CODE_ADVISORY, CODE_VIOLATION].contains(&verdict.code.as_str()) {
         return Err(format!("ownership-verdict-incomplete:{}", verdict.code));
     }
     for key in [
@@ -246,7 +275,7 @@ pub fn validate_envelope(
     let content = report["metadata"]["contentDigests"]
         .as_array()
         .ok_or("ownership-content-digests-missing")?;
-    if evidence["contentDigest"] != rightkit_ownership::approval::sha256_value(&json!(content)) {
+    if evidence["contentDigest"] != owner.policy.content_digest(&json!(content)) {
         return Err("ownership-evidence-content-drift".into());
     }
     if report["metadata"]["pathBase"] != "repository" || report["metadata"]["pathPrefix"] != "" {

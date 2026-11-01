@@ -5,7 +5,7 @@ use rightkit_code_audit_engine::{
     native_providers::{
         legacy::{
             governance_ownership,
-            ownership_sdk::{validate_envelope, NativeOwner},
+            ownership_sdk::{validate_envelope, NativeOwner, OwnershipPolicy},
         },
         legacy_checks::AuditScratch,
     },
@@ -244,13 +244,27 @@ async fn run(
     json!({"control":control,"root":root,"inventory":inventory,"plan":frozen.plan(),"planDigest":frozen.digest(),"planSignature":frozen.signature(),"result":result})
 }
 
+/// The host policy wraps the RightKit ownership crate, which this crate does not link (its RSA
+/// signature support carries RUSTSEC-2023-0071). A host test build supplies one here.
+fn host_policy() -> Option<std::sync::Arc<dyn OwnershipPolicy>> {
+    None
+}
+
 #[test]
 #[ignore = "requires CI-built native owner + production-authenticated registered committed positive & clean fixtures"]
 fn ownership_native_sdk_known_answers() {
     let _restore_env = EnvRestore(std::env::var_os(governance_ownership::COMMAND_ENV));
-    let owner = NativeOwner::pin(Path::new(
-        &std::env::var_os("RIGHTKIT_OWNERSHIP_NATIVE_OWNER").expect("native owner binary required"),
-    ))
+    let Some(policy) = host_policy() else {
+        eprintln!("SKIP: no host OwnershipPolicy is linked into this test build");
+        return;
+    };
+    let owner = NativeOwner::pin(
+        Path::new(
+            &std::env::var_os("RIGHTKIT_OWNERSHIP_NATIVE_OWNER")
+                .expect("native owner binary required"),
+        ),
+        policy,
+    )
     .unwrap();
     let manifest_path = PathBuf::from(
         std::env::var_os("RIGHTKIT_OWNERSHIP_FIXTURE_IDENTITIES")
