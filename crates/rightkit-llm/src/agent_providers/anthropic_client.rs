@@ -394,17 +394,18 @@ impl AnthropicCompatClient {
             .await
         {
             Ok(turn) => Ok(turn),
-            Err(ProviderError::IncompleteOutput {
-                partial_text,
-                partial_reasoning,
-                partial_tool_calls,
-                prompt_tokens,
-                completion_tokens,
-                cache_read_tokens,
-                cache_creation_tokens,
-                finish_reason,
-                ..
-            }) => {
+            Err(ProviderError::IncompleteOutput(details)) => {
+                let crate::agent_providers::transport::IncompleteOutputDetails {
+                    partial_text,
+                    partial_reasoning,
+                    partial_tool_calls,
+                    prompt_tokens,
+                    completion_tokens,
+                    cache_read_tokens,
+                    cache_creation_tokens,
+                    finish_reason,
+                    ..
+                } = *details;
                 let partial = CompletedTurn {
                     text: partial_text,
                     reasoning: partial_reasoning,
@@ -436,7 +437,7 @@ impl AnthropicCompatClient {
                         Ok(continued) => Ok(crate::agent_providers::client::merge_continuation(
                             partial, continued,
                         )),
-                        Err(ProviderError::IncompleteOutput { .. }) => {
+                        Err(ProviderError::IncompleteOutput(_)) => {
                             Err(crate::agent_providers::client::incomplete_output_error(
                                 &partial, true, None,
                             ))

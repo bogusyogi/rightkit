@@ -73,4 +73,6 @@ pub use subscription_auth::{
     OPENAI_AUTHORIZE_URL, OPENAI_CLIENT_ID, OPENAI_CODEX_BASE_URL, OPENAI_CODEX_DEFAULT_MODEL,
     OPENAI_REDIRECT_URI, OPENAI_SCOPE, OPENAI_TOKEN_URL,
 };
-pub use transport::{CompletionDelta, ProtocolFamily, ProviderError, RateLimitMetadata};
+pub use transport::{
+    CompletionDelta, IncompleteOutputDetails, ProtocolFamily, ProviderError, RateLimitMetadata,
+};

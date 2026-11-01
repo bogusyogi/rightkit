@@ -37,7 +37,7 @@ pub(crate) fn is_breaker_relevant_failure(error: Option<&ProviderError>) -> bool
         | Some(ProviderError::Provider(_))
         | Some(ProviderError::Capacity(_))
         | Some(ProviderError::Authority(_))
-        | Some(ProviderError::IncompleteOutput { .. }) => false,
+        | Some(ProviderError::IncompleteOutput(_)) => false,
     }
 }
 

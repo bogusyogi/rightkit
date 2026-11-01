@@ -5,7 +5,7 @@
 //! new. See `.audit/20260901-daemon-deep-r3/architect/decomposition-plans.md`.
 
 use super::CompletedTurn;
-use crate::agent_providers::transport::ProviderError;
+use crate::agent_providers::transport::{IncompleteOutputDetails, ProviderError};
 use crate::reassembler::ToolCallChunkReassembler;
 use rightkit_agent_engine_protocol::{ToolCall, TranscriptMessage};
 use serde::{Deserialize, Serialize};
@@ -191,7 +191,7 @@ pub(crate) fn incomplete_output_error(
     continuation_attempted: bool,
     continuation_error: Option<String>,
 ) -> ProviderError {
-    ProviderError::IncompleteOutput {
+    ProviderError::IncompleteOutput(Box::new(IncompleteOutputDetails {
         partial_text: turn.text.clone(),
         partial_reasoning: turn.reasoning.clone(),
         partial_tool_calls: turn.tool_calls.clone(),
@@ -205,7 +205,7 @@ pub(crate) fn incomplete_output_error(
             .unwrap_or_else(|| "output_limit".into()),
         continuation_attempted,
         continuation_error,
-    }
+    }))
 }
 
 /// Recovery is allowed only for text-only partial output. A partial tool
@@ -770,15 +770,10 @@ mod incomplete_output_tests {
         );
         assert_eq!(merged.text, "first half second half");
         match incomplete_output_error(&partial, true, Some("second limit".into())) {
-            ProviderError::IncompleteOutput {
-                partial_text,
-                continuation_attempted,
-                continuation_error,
-                ..
-            } => {
-                assert_eq!(partial_text, "first half");
-                assert!(continuation_attempted);
-                assert_eq!(continuation_error.as_deref(), Some("second limit"));
+            ProviderError::IncompleteOutput(details) => {
+                assert_eq!(details.partial_text, "first half");
+                assert!(details.continuation_attempted);
+                assert_eq!(details.continuation_error.as_deref(), Some("second limit"));
             }
             other => panic!("expected typed incomplete output, got {other:?}"),
         }

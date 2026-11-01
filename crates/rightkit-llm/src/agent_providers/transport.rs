@@ -309,19 +309,24 @@ pub enum ProviderError {
     /// The provider stopped because its output ceiling was reached.  Partial
     /// bytes remain available to the runtime for durable evidence and one
     /// bounded continuation; callers must never report this as completion.
-    #[error("provider output incomplete ({finish_reason}); continuation_attempted={continuation_attempted}")]
-    IncompleteOutput {
-        partial_text: String,
-        partial_reasoning: Option<String>,
-        partial_tool_calls: Vec<ToolCall>,
-        prompt_tokens: u32,
-        completion_tokens: u32,
-        cache_read_tokens: u32,
-        cache_creation_tokens: u32,
-        finish_reason: String,
-        continuation_attempted: bool,
-        continuation_error: Option<String>,
-    },
+    #[error("provider output incomplete ({}); continuation_attempted={}", .0.finish_reason, .0.continuation_attempted)]
+    IncompleteOutput(Box<IncompleteOutputDetails>),
+}
+
+/// What an output-ceiling stop carries. Boxed inside [`ProviderError::IncompleteOutput`] so the
+/// error stays small in every `Result` it travels through.
+#[derive(Debug, Clone)]
+pub struct IncompleteOutputDetails {
+    pub partial_text: String,
+    pub partial_reasoning: Option<String>,
+    pub partial_tool_calls: Vec<ToolCall>,
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub cache_read_tokens: u32,
+    pub cache_creation_tokens: u32,
+    pub finish_reason: String,
+    pub continuation_attempted: bool,
+    pub continuation_error: Option<String>,
 }
 
 impl ProviderError {
@@ -443,7 +448,7 @@ pub fn classify_context_overflow(error: &ProviderError) -> bool {
 
 /// Transport-layer request-shaping hooks used by constrained sampling
 /// ([`crate::SchemaConstraint`] via `ChatRequest::with_response_schema`) and explicit prompt-cache breakpoint
-/// placement ([`crate::agent_providers::prompt_cache`]). Optional and additive: a caller that
+/// placement (`crate::agent_providers::prompt_cache`). Optional and additive: a caller that
 /// never populates these fields gets byte-identical wire requests to before
 /// this type existed.
 #[derive(Debug, Clone, Default)]
@@ -460,6 +465,19 @@ impl RequestShaping {
     pub fn is_empty(&self) -> bool {
         self.json_schema_constraint.is_none() && self.cache_breakpoints.is_empty()
     }
+}
+
+/// Maximum time a stream may go without semantic progress (text, reasoning,
+/// tool-argument bytes, or a terminal event). Keepalive comments, empty
+/// frames and unknown events reset the per-chunk idle timer but NOT this one,
+/// so a provider that only pings cannot hold a turn open forever.
+pub(crate) const SEMANTIC_PROGRESS_SECS: u64 = 120;
+
+pub(crate) fn semantic_progress_error(limit: std::time::Duration) -> ProviderError {
+    ProviderError::Network(format!(
+        "stream made no semantic progress for {}s (keepalives do not count)",
+        limit.as_secs_f32()
+    ))
 }
 
 #[cfg(test)]
@@ -835,17 +853,4 @@ mod tests {
         };
         assert!(!shaping.is_empty());
     }
-}
-
-/// Maximum time a stream may go without semantic progress (text, reasoning,
-/// tool-argument bytes, or a terminal event). Keepalive comments, empty
-/// frames and unknown events reset the per-chunk idle timer but NOT this one,
-/// so a provider that only pings cannot hold a turn open forever.
-pub(crate) const SEMANTIC_PROGRESS_SECS: u64 = 120;
-
-pub(crate) fn semantic_progress_error(limit: std::time::Duration) -> ProviderError {
-    ProviderError::Network(format!(
-        "stream made no semantic progress for {}s (keepalives do not count)",
-        limit.as_secs_f32()
-    ))
 }

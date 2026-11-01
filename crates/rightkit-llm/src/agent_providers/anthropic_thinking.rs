@@ -524,7 +524,7 @@ mod tests {
         );
         assert_eq!(p.max_tokens, 4096);
         let budget = p.thinking.unwrap()["budget_tokens"].as_u64().unwrap();
-        assert!(budget < 4096 && budget >= 1024, "{budget}");
+        assert!((1024..4096).contains(&budget), "{budget}");
         // No room for a 1024 budget plus an answer: thinking is skipped.
         let p = plan(
             "claude-opus-4-5-20251101",

@@ -41,6 +41,10 @@ use super::{
 /// `prepared.content_type` — never re-send the original `.json(&body)` call,
 /// which would reserialize and break the measured/digested/sent byte
 /// equality CRA-10 requires.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "every admission input (body, content type, route, model, generations, modality, capacity profile) is a distinct required fact of one prepared request"
+)]
 pub(super) fn prepare_and_admit_chat_request(
     body: &impl serde::Serialize,
     content_type: &'static str,
@@ -568,17 +572,18 @@ impl OpenAiCompatClient {
             .await
         {
             Ok(turn) => Ok(turn),
-            Err(ProviderError::IncompleteOutput {
-                partial_text,
-                partial_reasoning,
-                partial_tool_calls,
-                prompt_tokens,
-                completion_tokens,
-                cache_read_tokens,
-                cache_creation_tokens,
-                finish_reason,
-                ..
-            }) => {
+            Err(ProviderError::IncompleteOutput(details)) => {
+                let crate::agent_providers::transport::IncompleteOutputDetails {
+                    partial_text,
+                    partial_reasoning,
+                    partial_tool_calls,
+                    prompt_tokens,
+                    completion_tokens,
+                    cache_read_tokens,
+                    cache_creation_tokens,
+                    finish_reason,
+                    ..
+                } = *details;
                 let partial = CompletedTurn {
                     text: partial_text,
                     reasoning: partial_reasoning,
@@ -603,7 +608,7 @@ impl OpenAiCompatClient {
                         .await
                     {
                         Ok(continued) => Ok(merge_continuation(partial, continued)),
-                        Err(ProviderError::IncompleteOutput { .. }) => {
+                        Err(ProviderError::IncompleteOutput(_)) => {
                             Err(incomplete_output_error(&partial, true, None))
                         }
                         Err(error @ ProviderError::Authority(_)) => Err(error),

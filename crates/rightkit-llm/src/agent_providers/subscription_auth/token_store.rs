@@ -14,7 +14,7 @@
 //! - `p.refresh` : the refresh token, when the provider issued one
 //! - `p.meta`    : small JSON, `type` / `expires_in` / `scope` / `obtained_at`
 //!
-//! A value longer than [`MAX_CHUNK_UTF16`] UTF-16 units is split on Windows into generation-
+//! A value longer than `MAX_CHUNK_UTF16` UTF-16 units is split on Windows into generation-
 //! tagged chunks (`<account>.c.<generation>.<i>`) behind a manifest stored in the account
 //! itself, so a 4 KB access token fits. The OpenID Connect `id_token` is never stored.
 
@@ -359,16 +359,18 @@ pub fn open_subscription_store() -> Result<Store, KeyStoreError> {
 }
 
 fn oauth_client(config: OAuthConfig) -> Result<OAuthClient, OAuthError> {
-    let mut http = rightkit_http::ClientConfig::default();
-    http.connect_timeout = Some(Duration::from_secs(10));
-    // The retired refresh was bounded at 15 s.
-    http.request_timeout = Duration::from_secs(15);
-    // A token endpoint is a credential boundary: never follow a redirect with a refresh token.
-    http.max_redirects = 0;
-    // One attempt, like the retired reqwest refresh; the caller decides about retrying.
-    http.retry = rightkit_http::RetryPolicy::none();
-    // The same network path as the provider inference client (environment proxy honoured).
-    http.proxy = rightkit_http::ProxyMode::Environment;
+    let http = rightkit_http::ClientConfig {
+        connect_timeout: Some(Duration::from_secs(10)),
+        // The retired refresh was bounded at 15 s.
+        request_timeout: Duration::from_secs(15),
+        // A token endpoint is a credential boundary: never follow a redirect with a refresh token.
+        max_redirects: 0,
+        // One attempt, like the retired reqwest refresh; the caller decides about retrying.
+        retry: rightkit_http::RetryPolicy::none(),
+        // The same network path as the provider inference client (environment proxy honoured).
+        proxy: rightkit_http::ProxyMode::Environment,
+        ..rightkit_http::ClientConfig::default()
+    };
     OAuthClient::new(config, rightkit_http::Client::new(http))
 }
 

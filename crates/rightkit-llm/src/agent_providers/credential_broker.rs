@@ -1675,8 +1675,9 @@ mod tests {
             [
                 CredentialSourceKind::SupportedSubscriptionOAuth,
                 CredentialSourceKind::ApiKey,
-                CredentialSourceKind::Environment,
                 CredentialSourceKind::SecureStore,
+                CredentialSourceKind::Environment,
+                CredentialSourceKind::DotEnvFile,
                 CredentialSourceKind::Command,
                 CredentialSourceKind::Extension,
             ]
