@@ -68,9 +68,12 @@ pub struct InsightSurfaceObservationV1 {
     pub recurrences: u32,
 }
 
+/// `(surface key) -> (opportunities, recurrences, rate)`.
+pub type SurfaceRecurrenceRates = BTreeMap<(String, String, String), (u32, u32, Option<f64>)>;
+
 pub fn insight_recurrence_by_surface(
     observations: &[InsightSurfaceObservationV1],
-) -> BTreeMap<(String, String, String), (u32, u32, Option<f64>)> {
+) -> SurfaceRecurrenceRates {
     let mut totals: BTreeMap<(String, String, String), (u32, u32)> = BTreeMap::new();
     for observation in observations {
         let entry = totals

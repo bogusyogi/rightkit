@@ -2249,6 +2249,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sysinfo",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
