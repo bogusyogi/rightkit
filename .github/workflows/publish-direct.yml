@@ -1,5 +1,5 @@
 name: publish-direct
-run-name: publish-direct ${{ github.event.workflow_run.id }} ${{ github.event.workflow_run.run_attempt }}
+run-name: publish-direct ${{ github.event.workflow_run.id || inputs.run_id }} ${{ github.event.workflow_run.run_attempt || inputs.run_attempt }}
 # Direct publication. Every publish.yml qualification run that completes green on main is uploaded to its registry
 # here, with no committed candidate, approval pin or publish-reviewed dispatch between qualification and upload
 # (Adrian, 2026-10-22: "As soon as the qualification passes on GitHub, GitHub can directly push it to npm and crates").
@@ -11,6 +11,23 @@ on:
     workflows: [publish]
     types: [completed]
     branches: [main]
+  # A publish.yml run dispatched by a workflow token (qualify-direct.yml) raises no workflow_run event, so a maintainer names the
+  # completed run here. The uploader re-reads that run through the API and refuses anything but a green workflow_dispatch run of
+  # publish.yml on main at this sha and attempt, exactly as for the workflow_run event (scripts/ci/reviewed-candidate.mjs prepareQualified).
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Completed publish.yml run id
+        type: string
+        required: true
+      run_attempt:
+        description: Its attempt number
+        type: string
+        required: true
+      head_sha:
+        description: Its head commit SHA
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -22,7 +39,7 @@ concurrency:
 
 jobs:
   upload:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == 'bogusyogi/rightkit' && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == 'bogusyogi/rightkit' && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit') }}
     environment: release
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -33,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || inputs.head_sha }}
           persist-credentials: false
           # rightkit#1285: each crate is its own Cargo workspace; the scan receipt binds each unit to its own crates/<x>/Cargo.lock.
           # RA-21: the packages/release entries are the complete static import closure of `reviewed-candidate.mjs run-qualified`,
@@ -184,17 +201,17 @@ jobs:
         id: qualified
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          PUBLISH_QUALIFIED_RUN_ID: ${{ github.event.workflow_run.id }}
-          PUBLISH_QUALIFIED_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
-          PUBLISH_QUALIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+          PUBLISH_QUALIFIED_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+          PUBLISH_QUALIFIED_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt || inputs.run_attempt }}
+          PUBLISH_QUALIFIED_SHA: ${{ github.event.workflow_run.head_sha || inputs.head_sha }}
         run: node scripts/ci/reviewed-candidate.mjs run-qualified --identify
       - name: Publish the sealed npm archives of the qualified run
         if: ${{ steps.qualified.outputs.registry == 'npm' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          PUBLISH_QUALIFIED_RUN_ID: ${{ github.event.workflow_run.id }}
-          PUBLISH_QUALIFIED_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
-          PUBLISH_QUALIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+          PUBLISH_QUALIFIED_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+          PUBLISH_QUALIFIED_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt || inputs.run_attempt }}
+          PUBLISH_QUALIFIED_SHA: ${{ github.event.workflow_run.head_sha || inputs.head_sha }}
           PUBLISH_REGISTRY: npm
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: node scripts/ci/reviewed-candidate.mjs run-qualified
@@ -202,9 +219,9 @@ jobs:
         if: ${{ steps.qualified.outputs.registry == 'crates' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          PUBLISH_QUALIFIED_RUN_ID: ${{ github.event.workflow_run.id }}
-          PUBLISH_QUALIFIED_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
-          PUBLISH_QUALIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+          PUBLISH_QUALIFIED_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+          PUBLISH_QUALIFIED_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt || inputs.run_attempt }}
+          PUBLISH_QUALIFIED_SHA: ${{ github.event.workflow_run.head_sha || inputs.head_sha }}
           PUBLISH_REGISTRY: crates
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: node scripts/ci/reviewed-candidate.mjs run-qualified
@@ -212,7 +229,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: publication-receipt-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}-${{ github.run_attempt }}
+          name: publication-receipt-${{ github.event.workflow_run.id || inputs.run_id }}-${{ github.event.workflow_run.run_attempt || inputs.run_attempt }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/publication-receipt
           retention-days: 90
           if-no-files-found: ignore
