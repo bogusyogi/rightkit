@@ -116,7 +116,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-github` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-google-apis` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-google-identity` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `rightkit-hooks` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 1 ahead of published |
+| `rightkit-hooks` | crates.io | 0.2.1 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 1 ahead of published |
 | `rightkit-hotkeys` | crates.io | 0.1.2 | 0.1.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-http` | crates.io | 0.3.9 | 0.3.8 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-identity` | crates.io | 0.1.0 | 0.1.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
