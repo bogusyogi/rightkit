@@ -600,6 +600,20 @@ async function getJson(url, fetchImpl, headers = {}) {
 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// crates.io's new-crate rate limit answers 429 with "Please try again after <HTTP date>". The upload waits until that instant
+// (plus a margin) and sends the same PUT again: a 429 publishes nothing, so the retry cannot duplicate. Waiting here instead of
+// failing and being re-dispatched by publish-relay saves the relay's fixed delay and a fresh runner per new crate.
+export const CRATES_RATE_LIMIT_MAX_WAIT_MS = 15 * 60_000;
+export const CRATES_RATE_LIMIT_MAX_WAITS = 4;
+export function cratesRetryAfterMs(status, text, now = Date.now()) {
+  if (status !== 429) return null;
+  const m = /try again after ([^.]+?GMT)/.exec(String(text));
+  const at = m ? Date.parse(m[1]) : NaN;
+  if (!Number.isFinite(at)) return null;
+  const wait = Math.max(0, at - now) + 5_000;
+  return wait <= CRATES_RATE_LIMIT_MAX_WAIT_MS ? wait : null;
+}
+
 export async function waitForNpmBytes({ name, version, sha1, integrity: sri, fetchImpl, attempts = 90, pause = 10_000 }) {
   for (let i = 0; i < attempts; i += 1) {
     const doc = await getJson(`${NPM_REGISTRY_URL}${name.replace("/", "%2F")}/${version}`, fetchImpl, { accept: "application/json" }).catch(() => null);
@@ -750,7 +764,7 @@ export function checkUploadPayloads({ manifest, packDir, registry, spawn = spawn
  * Check everything, then upload (or, with dryRun, describe) each sealed unit in order. Injectable `spawn`
  * and `fetchImpl` let a test intercept every child process and HTTP call. Returns the receipt document.
  */
-export async function executeUpload({ env, packDir, receiptsDir, approvedFile, previousDir = null, outDir, dryRun, candidateContext = null, spawn = spawnSync, fetchImpl = fetch, log = (line) => process.stdout.write(`${line}\n`), pause = 10_000 }) {
+export async function executeUpload({ env, packDir, receiptsDir, approvedFile, previousDir = null, outDir, dryRun, candidateContext = null, spawn = spawnSync, fetchImpl = fetch, log = (line) => process.stdout.write(`${line}\n`), pause = 10_000, wait_ = sleep, now = Date.now }) {
   let archiveScanResolver; let ciProof = null;
   if (candidateContext) {
     const { assertAuthenticatedContext, ciProofOf } = await import("./reviewed-candidate.mjs");
@@ -861,8 +875,15 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
       try {
         receipt.record({ ...base, published: false, registryVerified: false, outcome: "pending" });
         // The token is passed to this one HTTP call. redirect: "error" keeps it from following a redirect elsewhere.
-        const response = await fetchImpl(CRATES_PUBLISH_URL, { method: "PUT", headers: { authorization: token, accept: "application/json", "content-type": "application/octet-stream", "user-agent": USER_AGENT }, body, redirect: "error", signal: AbortSignal.timeout(300_000) });
-        const text = redact(await response.text());
+        let response; let text;
+        for (let waits = 0; ; waits++) {
+          response = await fetchImpl(CRATES_PUBLISH_URL, { method: "PUT", headers: { authorization: token, accept: "application/json", "content-type": "application/octet-stream", "user-agent": USER_AGENT }, body, redirect: "error", signal: AbortSignal.timeout(300_000) });
+          text = redact(await response.text());
+          const wait = waits < CRATES_RATE_LIMIT_MAX_WAITS ? cratesRetryAfterMs(response.status, text, now()) : null;
+          if (wait === null) break;
+          log(`crates.io rate limit for ${unit.name}@${unit.version}: waiting ${Math.round(wait / 1000)} s as it asks, then sending the same upload again (${waits + 1}/${CRATES_RATE_LIMIT_MAX_WAITS})`);
+          await wait_(wait);
+        }
         if (!response.ok) throw new Error(`crates.io refused ${unit.name}@${unit.version}: HTTP ${response.status} ${text.slice(0, 600)}`);
         const answer = parseCratesResponse(text);
         if (answer.errors.length) throw new Error(`crates.io answered HTTP ${response.status} with errors for ${unit.name}@${unit.version}; not recorded as published: ${answer.errors.join("; ").slice(0, 600)}`);

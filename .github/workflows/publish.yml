@@ -660,7 +660,10 @@ jobs:
   pack:
     needs: [guard, plan, build-swap, sign-swap]
     if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.count != '0' && ((needs.plan.outputs.registry == 'npm' && contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ') && needs.build-swap.result == 'success' && needs.sign-swap.result == 'success') || ((needs.plan.outputs.registry != 'npm' || !contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ')) && needs.build-swap.result == 'skipped' && needs.sign-swap.result == 'skipped')) }}
-    runs-on: ${{ needs.plan.outputs.registry == 'crates' && 'xcode-27' || 'ubuntu-24.04' }}
+    # A crate qualified on a direct Linux origin (qualify-direct) is packed on Linux, where it was qualified: the bind step below
+    # refuses any byte that differs from the qualified archive, and the scarce macOS slots stay free for verify. Broker-admitted
+    # crates are packed on macOS as before.
+    runs-on: ${{ needs.plan.outputs.registry == 'crates' && inputs.admission != 'direct' && 'xcode-27' || 'ubuntu-24.04' }}
     timeout-minutes: 120
     permissions:
       contents: read
