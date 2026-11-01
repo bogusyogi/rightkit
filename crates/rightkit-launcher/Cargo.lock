@@ -134,6 +134,8 @@ dependencies = [
  "rightkit-automation",
  "rightkit-child-process",
  "rightkit-clipboard-history",
+ "rightkit-overlay",
+ "rightkit-win-ui",
  "serde",
  "serde_json",
  "windows",

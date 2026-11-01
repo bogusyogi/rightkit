@@ -67,6 +67,34 @@ pub trait Host: Send + Sync + 'static {
         body.to_string()
     }
 
+    /// Whether the always-on agent's engine is running.
+    fn engine_running(&self) -> bool {
+        false
+    }
+
+    /// Asks the engine for a read-only status; `Err` carries the reason when it did not answer.
+    fn engine_poll(
+        &self,
+        _method: &str,
+        _params: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        Err("no engine".to_string())
+    }
+
+    /// Calls an engine method; `Err` carries the reason.
+    fn engine_call(
+        &self,
+        _method: &str,
+        _params: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        Err("no engine".to_string())
+    }
+
+    /// Title given to the application's overlay windows.
+    fn window_title(&self) -> String {
+        "RightKit".to_string()
+    }
+
     /// File name of the per-folder ignore list the file search honours.
     fn ignore_file_name(&self) -> String {
         ".rightkitignore".to_string()
@@ -189,4 +217,42 @@ pub(crate) fn paste() {
 pub(crate) fn snippet_text(body: &str) -> String {
     HOST.get()
         .map_or_else(|| body.to_string(), |host| host.snippet_text(body))
+}
+
+#[cfg(windows)]
+pub(crate) fn log_error(op: &str, error: &windows::core::Error, ctx: &str) {
+    log_info(ctx, &[("operation", op), ("error", &error.message())]);
+}
+
+#[cfg(windows)]
+pub(crate) fn engine_running() -> bool {
+    HOST.get().is_some_and(|host| host.engine_running())
+}
+
+#[cfg(windows)]
+pub(crate) fn engine_poll(
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    HOST.get().map_or_else(
+        || Err("no host".to_string()),
+        |host| host.engine_poll(method, params),
+    )
+}
+
+#[cfg(windows)]
+pub(crate) fn engine_call(
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    HOST.get().map_or_else(
+        || Err("no host".to_string()),
+        |host| host.engine_call(method, params),
+    )
+}
+
+#[cfg(windows)]
+pub(crate) fn window_title() -> String {
+    HOST.get()
+        .map_or_else(|| "RightKit".to_string(), |host| host.window_title())
 }

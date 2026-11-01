@@ -15,4 +15,6 @@ pub mod rates;
 #[cfg(windows)]
 pub mod snippets;
 #[cfg(windows)]
+pub mod spot_takeover;
+#[cfg(windows)]
 pub mod store;

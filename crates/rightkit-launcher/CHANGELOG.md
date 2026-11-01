@@ -4,3 +4,4 @@
 
 - First RightKit release, moved from `pulse-windows` (Pulse): `calc` logic.
 - Added Windows `snippets` (keyword expansion) from `launcher_snippets.rs`.
+- Added Windows `spot_takeover` (owner-side handover overlay).
