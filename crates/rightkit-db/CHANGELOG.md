@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.4 (unpublished)
+
+- Add `gate` (the app-lock gate over a host `GatedState`: gated writer and pooled-reader helpers, transition gate, read-pool close and warm-up, lock order) and `backup_check` (free-space probe and reopen-and-compare of a pre-migration backup), moved from MailRight. Additive.
+
 ## 0.5.3 (unpublished)
 
 - Dependency: `rusqlite` 0.40 -> 0.41 (libsqlite3-sys 0.39). Hook methods such as `progress_handler` now take `&mut Connection`; the `hooks` test opens a `mut` connection. A consumer that names `rusqlite` types directly moves to 0.41 with this release. (rightkit#1284)

@@ -16,7 +16,9 @@ use std::time::{Duration, Instant};
 pub use zeroize::Zeroizing;
 
 mod backup;
+pub mod backup_check;
 mod checkpoint_job;
+pub mod gate;
 #[allow(unsafe_code)]
 mod host;
 pub use host::per_host_path;
