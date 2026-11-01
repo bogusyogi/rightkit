@@ -2,6 +2,7 @@
 
 ## 0.4.2 (unpublished)
 
+- Fixed (macOS): a file reported as existing in an earlier batch and then deleted is reported in `removed`. FSEvents replays the item's accumulated `ItemCreated` flag with `ItemRemoved`, so the coalescer dropped the deletion as a file created and deleted inside one window. `ChangeCoalescer` now remembers the paths it reported. Found by the all-packages app. (rightkit#1348)
 - Dependencies: `notify` 8.2.0 -> 8.2.1 and `tokio` 1.53.3 -> 1.54.1 (minimum versions); no source change. (rightkit#1284)
 
 ## 0.4.1 (2026-10-17)
