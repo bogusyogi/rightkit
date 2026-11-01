@@ -63,7 +63,7 @@ pub const TRANSPORT: CliTransportKind = CliTransportKind::Acp;
 /// resolved (so a non-PATH install location still works).
 pub const CURSOR_BINARY: &str = "cursor-agent";
 
-/// URL of Cursor's browser login. The flow completes outside CodeRight. Authentication
+/// URL of Cursor's browser login. The flow completes outside the host app. Authentication
 /// is subsequently checked only through Cursor's structured CLI status.
 pub const CURSOR_LOGIN_URL: &str = "https://cursor.com/login";
 
