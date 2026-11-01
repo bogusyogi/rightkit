@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/library-ui",
+  "capabilities": [
+    {
+      "capability": "library-ui",
+      "summary": "Library and queue UI for transcripts and downloads: queue board, job cards, library list, detail reader and history.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

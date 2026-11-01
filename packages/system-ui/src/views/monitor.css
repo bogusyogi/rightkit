@@ -1,0 +1,99 @@
+/* Graphs on Overview and Monitor. Tokens come from styles.css and the shell. */
+.chart-spark { display: block; width: 100%; overflow: visible; }
+.chart-line { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.chart-dashed { stroke-dasharray: 4 3; }
+.chart-fill { fill: currentColor; fill-opacity: 0.14; stroke: none; }
+.chart-grid { stroke: var(--rk-hairline); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.chart-base { stroke: var(--rk-ink-3); stroke-opacity: 0.5; }
+
+.chart { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.chart-plot { position: relative; flex: 1; min-width: 0; touch-action: pan-y; }
+.chart-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.chart-row { display: flex; gap: 6px; min-width: 0; }
+.chart-yaxis { flex: none; width: 50px; display: flex; flex-direction: column; justify-content: space-between; text-align: right; font-size: 11px; line-height: 1; color: var(--rk-ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart-rule { position: absolute; top: 0; bottom: 0; width: 1px; margin-left: -0.5px; background: var(--rk-ink-2); pointer-events: none; }
+.chart-tip { position: absolute; top: 4px; z-index: 2; display: flex; flex-direction: column; gap: 1px; padding: 4px 8px; border: 1px solid var(--rk-hairline); border-radius: 6px; background: var(--rk-plane); color: var(--rk-ink); font-size: 12px; line-height: 1.35; white-space: nowrap; pointer-events: none; font-variant-numeric: tabular-nums; }
+.chart-tip-time { color: var(--rk-ink-2); }
+.chart-tip-row { display: inline-flex; align-items: center; gap: 6px; }
+.chart-tip-row i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+.chart-axis { display: flex; justify-content: space-between; padding-left: 56px; font-size: 11px; color: var(--rk-ink-3); }
+
+.monitor-charts { display: flex; flex-direction: column; gap: 10px; flex: none; }
+.monitor-charts-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-width: 0; font-size: 11px; color: var(--rk-ink-3); }
+/* One symmetric row of three compact cards, so the process table stays in view (#415). */
+.monitor-charts-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; min-width: 0; }
+.monitor-chart-card .chart-yaxis { display: none; }
+/* The time axis repeats the caption above the row ("History, last 15 minutes"), so the cards drop it (#415). */
+.monitor-chart-card .chart-axis { display: none; }
+.monitor-chart-card { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px 10px; border: 1px solid var(--rk-hairline); border-radius: 12px; background: var(--rk-panel, var(--rk-fill-2)); }
+.monitor-chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 10px; min-width: 0; font-size: 12px; color: var(--rk-ink-2); }
+.monitor-chart-now { color: var(--rk-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.monitor-legend { display: inline-flex; flex-wrap: wrap; gap: 2px 10px; font-size: 11px; color: var(--rk-ink-2); }
+.monitor-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.monitor-legend i { display: inline-block; width: 12px; height: 0; border-top: 2px solid; }
+.monitor-legend i.dashed { border-top-style: dashed; }
+.monitor-waiting { padding: 8px 0; font-size: 12px; }
+
+/* The page scrolls as a whole once charts sit above the process table. */
+.monitor-view { overflow: auto; flex-wrap: nowrap; }
+.monitor-view .mon-list { flex: none; overflow: visible; }
+
+.monitor-notice { display: flex; flex-direction: column; gap: 2px; flex: none; padding: 10px 12px; border: 1px solid var(--rk-hairline); border-radius: 12px; background: var(--rk-panel, var(--rk-fill-2)); }
+.monitor-notice.warn { border-color: var(--rk-warn); }
+.monitor-notice.bad { border-color: var(--rk-bad); }
+.monitor-notice.calm { flex-direction: row; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; padding: 4px 2px; border: 0; background: none; }
+.monitor-notice.calm h2 { font-size: 13px; }
+.monitor-notice h2 .ok { color: var(--rk-ok); }
+.monitor-notice h2 .warn { color: var(--rk-warn); }
+.monitor-notice h2 .bad { color: var(--rk-bad); }
+.monitor-notice p { margin: 0; font-size: 12px; color: var(--rk-ink-2); overflow-wrap: anywhere; }
+.monitor-h2 { margin: 0; font-size: 15px; line-height: 1.35; font-weight: 650; color: var(--rk-ink); }
+.monitor-charts-head .monitor-h2 { font-size: 15px; }
+.monitor-notice h2 { margin: 0; font-size: 15px; font-weight: 650; color: var(--rk-ink); }
+.monitor-meta { flex: 0 1 auto; white-space: normal; }
+.monitor-view .mon-section { flex-wrap: wrap; }
+.monitor-view .caption { flex: none; margin: 0; }
+
+/* Threads and Started sit between Memory and Actions; Actions also holds Reveal. */
+.monitor-view .mon-cols { grid-template-columns: minmax(0, 1fr) 56px 84px 64px 76px 312px; }
+/* The five fixed columns need about 660px on their own. In a narrower window the name used to
+   shrink to nothing, so there the actions move to their own line under the row and the name
+   keeps the space. */
+.monitor-view .mon-list { container-type: inline-size; }
+@container (max-width: 860px) {
+  .monitor-view .mon-cols { grid-template-columns: minmax(120px, 1fr) 56px 84px 64px 76px; row-gap: 4px; }
+  .monitor-view .mon-cols > .mon-actions { grid-column: 1 / -1; flex-wrap: wrap; }
+  .monitor-view .mon-head > :nth-child(6), .monitor-view .mon-member > :nth-child(6) { display: none; }
+}
+.monitor-view .mon-head [role="columnheader"] { display: flex; min-width: 0; }
+.monitor-view .mon-head [role="columnheader"].mon-num { justify-content: flex-end; }
+.monitor-view .mon-sort {
+  display: inline-flex; align-items: center; gap: 3px; min-width: 0; height: 24px; padding: 0 6px; margin: 0 -6px;
+  border-radius: 6px; color: var(--rk-ink-2); font: inherit; font-size: 11px;
+}
+.monitor-view .mon-sort[aria-current="true"] { color: var(--rk-ink); font-weight: 600; }
+.monitor-view .mon-sort:hover { color: var(--rk-ink); background: var(--rk-fill-2); }
+.monitor-view .mon-sort:active { color: var(--rk-ink); background: var(--rk-plane); box-shadow: inset 0 0 0 1px var(--rk-hairline); }
+
+/* Inspect panel: one process, read when asked. Lists scroll inside the panel; paths stay selectable. */
+.monitor-view .mon-inspect { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 2px 0 6px; padding: 10px 12px; border: 1px solid var(--rk-hairline); border-radius: 10px; background: var(--rk-panel, var(--rk-fill-2)); }
+.monitor-view .mon-inspect-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; min-width: 0; }
+.monitor-view .mon-inspect-title { margin: 0; font-size: 13px; font-weight: 650; color: var(--rk-ink); overflow-wrap: anywhere; }
+.monitor-view .mon-inspect-actions { display: inline-flex; gap: 6px; flex: none; }
+.monitor-view .mon-inspect-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 14px; min-width: 0; }
+.monitor-view .mon-inspect-h { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--rk-ink-2); }
+.monitor-view .mon-inspect-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; max-height: 220px; overflow: auto; list-style: none; font-size: 12px; font-variant-numeric: tabular-nums; }
+.monitor-view .mon-inspect-port { display: grid; grid-template-columns: 56px 48px minmax(0, 1fr); gap: 8px; min-width: 0; }
+.monitor-view .mon-inspect-path { min-width: 0; overflow-wrap: anywhere; color: var(--rk-ink); user-select: text; }
+.monitor-view .mon-inspect-notes { margin: 0; padding-left: 16px; }
+.monitor-view .mon-inspect p { margin: 0; }
+
+/* Per-process history in the Inspect panel: kept only while the Monitor page is open. */
+.monitor-view .mon-history { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.monitor-view .mon-history .mon-inspect-h { margin: 0; }
+.monitor-view .mon-spark-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 14px; min-width: 0; }
+.monitor-view .mon-spark-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.monitor-view .mon-spark-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--rk-ink-2); }
+.monitor-view .mon-spark-now { color: var(--rk-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.monitor-view .mon-spark { height: 32px; color: var(--rk-accent); }
+.monitor-view .mon-spark-range { font-variant-numeric: tabular-nums; }

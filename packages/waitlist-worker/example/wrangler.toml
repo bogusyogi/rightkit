@@ -1,0 +1,19 @@
+name = "example-waitlist"
+main = "worker.ts"
+compatibility_date = "2025-04-01"
+
+# KV bindings: fill the ids in after `wrangler kv namespace create`.
+[[kv_namespaces]]
+binding = "WAITLIST"
+id = "<waitlist-namespace-id>"
+
+[[kv_namespaces]]
+binding = "RATELIMIT"
+id = "<ratelimit-namespace-id>"
+
+[[routes]]
+pattern = "api.example.com"
+custom_domain = true
+
+[observability]
+enabled = true

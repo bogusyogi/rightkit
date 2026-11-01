@@ -1,0 +1,323 @@
+.attachment-sheet-scroll tr:first-child td {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: color-mix(in srgb, var(--panel) 82%, #000 18%);
+  color: var(--paper);
+  font-weight: 700;
+}
+
+.attachment-text-preview {
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px;
+  background: var(--panel-2);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.attachment-preview-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  color: var(--muted);
+}
+
+/* ---- Print: just the open message, not the app chrome ---- */
+
+@media print {
+  body {
+    overflow: visible;
+  }
+  .titlebar,
+  .sidebar,
+  .topbar,
+  .reader-bar,
+  .list-head,
+  .folder-banner,
+  .msg-head-actions {
+    display: none !important;
+  }
+  .root,
+  .app,
+  .main,
+  .content {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .msg {
+    border: none;
+    background: #fff;
+    color: #000;
+    page-break-inside: avoid;
+  }
+  .msg-from,
+  .reader-subject {
+    color: #000;
+  }
+}
+
+/* ── Reading parity: collapsing, recipient details, Meet, custom snooze ── */
+
+.msg.collapsed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  margin-bottom: 0;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.msg.collapsed:hover {
+  background: var(--hover, rgba(0, 0, 0, 0.03));
+}
+
+.msg.collapsed .msg-avatar {
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
+}
+
+.msg.collapsed.unread .msg-from {
+  font-weight: 700;
+}
+
+.msg.collapsed .msg-from {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.msg-collapsed-preview {
+  flex: 1 1 auto;
+  color: var(--muted-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+.msg.collapsed .msg-time {
+  flex: 0 0 auto;
+  color: var(--muted-2);
+  font-size: 12px;
+}
+
+.msg-details-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--muted-2);
+  font: inherit;
+  text-align: left;
+}
+
+.msg-details-toggle .caret {
+  font-size: 9px;
+}
+
+/* Anchor for the details popover (so it overlays instead of pushing layout —
+   which would shift the centered avatar). */
+
+.msg-details-wrap {
+  position: relative;
+}
+
+/* Details content inside the published Popover panel. */
+
+.msg-details {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--muted-2);
+  line-height: 1.7;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.msg-details .md-label {
+  display: inline-block;
+  min-width: 60px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.meet-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--hover, rgba(0, 0, 0, 0.03));
+  font-size: 13px;
+}
+
+.tracker-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.custom-snooze {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 4px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.list-daygroup {
+  border-bottom: 1px solid var(--line);
+}
+
+.ws-inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted-2);
+  margin-left: auto;
+}
+
+.list-mgr {
+  gap: 6px;
+}
+
+.list-mgr-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.list-mgr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid var(--line);
+}
+
+.list-mgr-row .ws-title {
+  flex: 1 1 auto;
+}
+
+.cal-viewtoggle {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.move-filter {
+  width: calc(100% - 16px);
+  margin: 6px 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.data-path {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--hover, rgba(0, 0, 0, 0.04));
+  border-radius: 6px;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.banner.warn {
+  background: color-mix(in srgb, #e0a800 22%, var(--paper, #fff));
+  color: var(--ink, #1a1a1a);
+}
+
+.kbd-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.kbd-label {
+  flex: 1 1 auto;
+  font-size: 13px;
+}
+
+.kbd-key {
+  min-width: 22px;
+  padding: 1px 7px;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--hover, rgba(0, 0, 0, 0.04));
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+}
+
+/* Move-picker + share-manager dialogs. */
+
+.drive-dialog {
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  padding: 14px 16px;
+  max-width: 480px;
+  width: 90%;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+.drive-dialog-list {
+  margin-top: 10px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.drive-pick {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--paper);
+}
+
+.drive-pick:hover {
+  background: var(--panel);
+}
+
+.share-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}

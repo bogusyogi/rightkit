@@ -1,0 +1,79 @@
+Host-owned toolbar for @eigenpal/docx-editor-react (packages/react/src).
+Adds DocxEditorProps.renderToolbar and the DocxHostToolbarContext it receives, so a host renders
+its own toolbar while the editor keeps engine, layout, dialogs and command plumbing. Written
+against the 1.9.0 sources for an upstream pull request; line numbers are indicative.
+
+--- a/packages/react/src/components/DocxEditor.tsx
++++ b/packages/react/src/components/DocxEditor.tsx
+@@ -92,0 +93,31 @@
++/**
++ * Host-owned toolbar bridge. A host uses this to render its own DOCX
++ * toolbar while Eigenpal keeps the document engine, layout, dialogs, command
++ * plumbing, and selection-restoration internals.
++ */
++export interface DocxHostToolbarContext {
++  selectionFormatting: SelectionFormatting;
++  disabled: boolean;
++  canUndo: boolean;
++  canRedo: boolean;
++  editingMode: EditorMode;
++  zoom: number;
++  format: (action: FormattingAction) => void;
++  undo: () => void;
++  redo: () => void;
++  save: () => void | Promise<void>;
++  print: () => void;
++  open: () => void;
++  setEditingMode: (mode: EditorMode) => void;
++  setZoom: (zoom: number) => void;
++  refocusEditor: () => void;
++  insertTable: (rows: number, columns: number) => void;
++  insertImage: () => void;
++  insertPageBreak: () => void;
++  insertTOC: () => void;
++  pageSetup: () => void;
++  /** Data a host-rebuilt toolbar/menus need (eigenpal's own controls had these). */
++  documentStyles: Style[] | undefined;
++  theme: Theme | null | undefined;
++}
++
+@@ -182,0 +184,2 @@
++  /** Host-owned full toolbar renderer. When set, it replaces the built-in toolbar. */
++  renderToolbar?: (context: DocxHostToolbarContext) => ReactNode;
+@@ -500,0 +502,1 @@
++    renderToolbar,
+@@ -1460,1 +1499,29 @@
+-      toolbar={toolbar}
++      toolbar={
++        showToolbar !== false && !readOnlyProp && renderToolbar
++          ? renderToolbar({
++              selectionFormatting: state.selectionFormatting,
++              disabled: readOnly,
++              canUndo: pmState ? undoDepth(pmState) > 0 : false,
++              canRedo: pmState ? redoDepth(pmState) > 0 : false,
++              editingMode,
++              zoom: state.zoom,
++              format: handleFormat,
++              undo: undoActiveEditor,
++              redo: redoActiveEditor,
++              save: handleDownloadDocument,
++              print: handleDirectPrint,
++              open: handleOpenDocument,
++              setEditingMode,
++              setZoom: (zoom: number) => setState((prev) => ({ ...prev, zoom })),
++              refocusEditor: focusActiveEditor,
++              insertTable: handleInsertTable,
++              insertImage: handleInsertImageClick,
++              insertPageBreak: handleInsertPageBreak,
++              insertTOC: handleInsertTOC,
++              pageSetup: handleOpenPageSetup,
++              documentStyles: history.state?.package?.styles?.styles,
++              theme: history.state?.package?.theme ?? theme,
++            })
++          : null
++      }
++      pagedArea={
+--- a/packages/react/src/index.ts
++++ b/packages/react/src/index.ts
+@@ -22,0 +23,1 @@
++  type DocxHostToolbarContext,

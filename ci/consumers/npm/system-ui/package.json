@@ -1,0 +1,21 @@
+{
+  "name": "rightkit-system-ui-root-export-consumer",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.16.1",
+  "scripts": {
+    "qualify": "node consumer.mjs"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "@rightkit/legal-ui": "0.4.1",
+    "@rightkit/logs": "0.1.6",
+    "@rightkit/onboarding": "0.6.3",
+    "@rightkit/platform-ui": "0.4.0",
+    "@rightkit/react-shell": "0.7.2",
+    "@rightkit/settings-ui": "0.7.0",
+    "@rightkit/tauri": "0.3.0",
+    "@rightkit/tauri-shell": "0.1.3"
+  }
+}

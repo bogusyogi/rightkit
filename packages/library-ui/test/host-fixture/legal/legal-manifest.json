@@ -1,0 +1,97 @@
+{
+  "schema": 2,
+  "suite": "right-suite-desktop",
+  "appKey": "app",
+  "productName": "App",
+  "licensor": "Damned Ventures LLC",
+  "effectiveDate": "2026-10-07",
+  "acceptanceVersion": "app-2026-10-07-v1",
+  "documents": [
+    {
+      "role": "license",
+      "id": "right-suite-desktop-license",
+      "title": "Right Suite Desktop License v1.0 Ownership Notice",
+      "version": "1.0",
+      "path": "LICENSE.md",
+      "treatment": "agree",
+      "material": true,
+      "publicUrl": "https://example.com/app/legal/license/",
+      "sha256": "74c91121939a3fc2c66d4471c5aa6d7a7b1d4d57caaf4419dd04c379119fa5b1"
+    },
+    {
+      "role": "eula",
+      "id": "right-suite-desktop-eula",
+      "title": "Right Suite End User License Agreement",
+      "version": "1.1",
+      "path": "EULA.md",
+      "treatment": "agree",
+      "material": true,
+      "publicUrl": "https://example.com/app/legal/eula/",
+      "sha256": "9a5ce62ae250ba9b4859b6831a74d38e2267007965af9ad12dd2c84ff5ed769e"
+    },
+    {
+      "role": "acceptable_use",
+      "id": "right-suite-desktop-acceptable-use",
+      "title": "Right Suite Acceptable Use Policy",
+      "version": "1.0",
+      "path": "ACCEPTABLE_USE.md",
+      "treatment": "agree",
+      "material": true,
+      "publicUrl": "https://example.com/app/legal/acceptable-use/",
+      "sha256": "2fa8470434259ba4ef182999c8ca9212185424991a6dbae16ffd60471baa41c9"
+    },
+    {
+      "role": "product_schedule",
+      "id": "app-product-schedule",
+      "title": "App Product Schedule",
+      "version": "1.0",
+      "path": "PRODUCT_SCHEDULE.md",
+      "treatment": "agree",
+      "material": true,
+      "publicUrl": "https://example.com/app/legal/product-schedule/",
+      "sha256": "c65cfde3e1ed579320578a08ad77b3c80bebbf0907eafb9e65ba601ae02fb05c"
+    },
+    {
+      "role": "privacy_notice",
+      "id": "app-privacy-notice",
+      "title": "App Privacy Notice",
+      "version": "1.0",
+      "path": "PRIVACY_NOTICE.md",
+      "treatment": "acknowledge",
+      "material": false,
+      "publicUrl": "https://example.com/app/legal/privacy/",
+      "sha256": "95ac0e080dfe355a81bee63752ee301e7222541b728fccde5c8ea99cf3033ba4"
+    },
+    {
+      "role": "third_party_notices",
+      "id": "app-third-party-notices",
+      "title": "App Third-Party Notices",
+      "version": "1.0",
+      "path": "THIRD_PARTY_NOTICES.md",
+      "treatment": "notice",
+      "material": false,
+      "publicUrl": "https://example.com/app/legal/third-party/",
+      "sha256": "38c54be0de453d36076d2a4e52b7b46aeb899979a72d11da75e48dc4b87d84ae"
+    }
+  ],
+  "appendices": [
+    {
+      "id": "rust-licenses",
+      "title": "Rust dependency licenses (app)",
+      "path": "THIRD_PARTY_RUST_LICENSES.html",
+      "sha256": "68f012bf925ee4dc2517d81dbbc48e8561bafd260735359b3aaf5845ec4daa52"
+    },
+    {
+      "id": "engine-licenses",
+      "title": "Rust dependency licenses (engine)",
+      "path": "THIRD_PARTY_ENGINE_LICENSES.html",
+      "sha256": "8ce5f0a70ee990e8f25ee2751b974e2fcf275d17aa6bcfbfbbda3eb0290a1301"
+    },
+    {
+      "id": "npm-licenses",
+      "title": "npm dependency licenses",
+      "path": "THIRD_PARTY_NPM_LICENSES.html",
+      "sha256": "fe0107a072bea281c05c86bfeb3c3df30a13577acba928ced9aa63733698ee9b"
+    }
+  ]
+}

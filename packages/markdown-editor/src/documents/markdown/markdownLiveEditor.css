@@ -1,0 +1,78 @@
+/* Scoped live ProseMirror table surface. Keep document tokens local to Markdown. */
+.vr-pm-markdown-doc .vr-pm-table-scroll {
+  max-width: 100%;
+  margin: 1.15em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid var(--reader-line);
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--reader-surface) 92%, var(--reader-line));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--paper) 8%, transparent);
+  scrollbar-color: var(--reader-line) transparent;
+}
+
+.vr-pm-markdown-doc .vr-pm-table {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--doc-fg);
+  font-size: 0.94em;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.vr-pm-markdown-doc .vr-pm-table-cell {
+  min-width: 8rem;
+  border-right: 1px solid var(--reader-line);
+  border-bottom: 1px solid var(--reader-line);
+  padding: 0.55rem 0.72rem;
+  vertical-align: top;
+  background: transparent;
+}
+
+.vr-pm-markdown-doc .vr-pm-table-row:last-child .vr-pm-table-cell {
+  border-bottom: 0;
+}
+
+.vr-pm-markdown-doc .vr-pm-table-cell:last-child {
+  border-right: 0;
+}
+
+/* Sentence-case headers (polish pass): a quiet medium-weight label row, not tracked capitals. */
+.vr-pm-markdown-doc .vr-pm-table-header {
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 0.8em;
+  font-weight: 500;
+  background: color-mix(in srgb, var(--reader-line) 34%, transparent);
+}
+
+.vr-pm-markdown-doc .vr-pm-table-cell:focus-within {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid color-mix(in srgb, var(--copper) 78%, transparent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--copper) 9%, transparent);
+}
+
+.vr-pm-markdown-doc .selectedCell {
+  background: color-mix(in srgb, var(--copper) 18%, transparent);
+}
+
+.vr-pm-markdown-doc.ProseMirror-focused .vr-pm-table-scroll:has(.selectedCell),
+.vr-pm-markdown-doc .vr-pm-table-scroll:focus-within {
+  border-color: color-mix(in srgb, var(--copper) 70%, var(--reader-line));
+}
+
+@media (max-width: 42rem) {
+  .vr-pm-markdown-doc .vr-pm-table-scroll {
+    border-radius: 0.5rem;
+  }
+
+  .vr-pm-markdown-doc .vr-pm-table-cell {
+    min-width: 7rem;
+    padding: 0.48rem 0.58rem;
+  }
+}

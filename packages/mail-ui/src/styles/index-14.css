@@ -1,0 +1,414 @@
+.topbar-compose {
+  flex: 0 0 auto;
+  width: auto;
+  height: 40px;
+  margin: 0;
+  border-radius: 10px;
+  padding: 0 18px;
+  align-self: center;
+}
+
+/* Contextual app nav (Drive/Calendar/Contacts/Tasks bodies). */
+
+.appnav {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  padding-top: 4px;
+}
+
+.nav-hint {
+  padding: 6px 8px;
+  line-height: 1.45;
+}
+
+.nav-new-wrap {
+  position: relative;
+  align-self: flex-start;
+}
+
+.nav-new {
+  align-self: flex-start;
+  margin: 2px 2px 10px;
+}
+
+.nav-shelves {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.nav-shelf {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 0 999px 999px 0;
+  background: transparent;
+  color: var(--paper);
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.nav-shelf .f-ic {
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.nav-shelf .f-name {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-shelf:hover {
+  background: var(--panel-2);
+}
+
+.nav-shelf.active {
+  background: color-mix(in srgb, var(--copper) 18%, transparent);
+  font-weight: 600;
+}
+
+.nav-shelf.active .f-ic {
+  color: var(--copper-hi);
+}
+
+/* Storage meter (Drive nav foot). */
+
+.nav-storage {
+  margin-top: auto;
+  padding: 12px 12px 4px;
+}
+
+.storage-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.storage-fill {
+  display: block;
+  height: 100%;
+  background: var(--copper);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.storage-text {
+  margin-top: 7px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* Calendar nav: mini-month date picker. */
+
+.mini-month {
+  padding: 4px 6px 12px;
+}
+
+.mini-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 8px;
+}
+
+.mini-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--paper);
+}
+
+.mini-nav {
+  display: flex;
+  gap: 2px;
+}
+
+.mini-arrow {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.mini-arrow:hover {
+  background: var(--panel-2);
+  color: var(--paper);
+}
+
+.mini-dow {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 2px;
+}
+
+.mini-dow span {
+  text-align: center;
+  font-size: 10px;
+  color: var(--muted-2);
+}
+
+.mini-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+}
+
+.mini-day {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--paper);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.mini-day:hover {
+  background: var(--panel-2);
+}
+
+.mini-day.out {
+  color: var(--muted-2);
+}
+
+.mini-day.today {
+  color: var(--copper-hi);
+  font-weight: 700;
+}
+
+.mini-day.sel {
+  background: var(--copper);
+  color: var(--accent-contrast);
+}
+
+.mini-day.sel.today {
+  color: var(--accent-contrast);
+}
+
+.cal-swatch-all {
+  background: conic-gradient(from 120deg, #8a5cf6 0 25%, #c46a3d 25% 50%, #0f9d58 50% 75%, #4285f4 75% 100%);
+}
+
+.cal-swatch {
+  display: block;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
+/* Drive grid view. */
+
+.driveview {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.drive-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+/* A little extra breathing room before the account switcher in app bars. */
+
+.drive-bar .acct-switcher,
+.cal-bar .acct-switcher,
+.contacts-bar .acct-switcher {
+  margin-left: 6px;
+}
+
+.drive-title,
+.workspace-title {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.drive-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* NavList (react-shell) rows in the sidebar keep the host app .folder / .nav-shelf look:
+   the row gets those classes via NavList itemProps, and these rules map NavList's
+   rk-item markup onto the old .f-name / .badge / row geometry. */
+.sidebar .rk-nav,
+.appnav .rk-nav {
+  padding: 0;
+  overflow: visible;
+  flex: 0 0 auto;
+}
+
+.sidebar .rk-group,
+.appnav .rk-group {
+  margin-top: 0;
+}
+
+.rk-item.folder,
+.rk-item.nav-shelf {
+  margin: 0;
+  height: auto;
+  border: 0;
+  font: inherit;
+  text-align: left;
+}
+
+.rk-item.folder {
+  width: 100%;
+  padding: 7px 14px;
+  min-height: 34px;
+  font-size: 13.5px;
+  color: var(--muted);
+  background: none;
+  border-radius: 18px;
+}
+
+.rk-item.folder:hover {
+  background: color-mix(in srgb, var(--panel-2) 84%, var(--paper) 4%);
+  color: var(--paper);
+}
+
+.rk-item.folder.active {
+  background: color-mix(in srgb, var(--copper) 16%, transparent);
+  color: var(--copper-hi);
+  font-weight: 600;
+}
+
+.rk-item.nav-shelf {
+  width: 100%;
+  padding: 8px 12px;
+  gap: 12px;
+  font-size: 13.5px;
+  color: var(--paper);
+  border-radius: 0 999px 999px 0;
+  background: transparent;
+}
+
+.rk-item.nav-shelf:hover {
+  background: var(--panel-2);
+}
+
+.rk-item.nav-shelf.active {
+  background: color-mix(in srgb, var(--copper) 18%, transparent);
+  font-weight: 600;
+}
+
+.rk-item.folder > svg:not(.rk-fuse),
+.rk-item.nav-shelf > svg:not(.rk-fuse) {
+  width: auto;
+  height: auto;
+  color: inherit;
+}
+
+.rk-item.nav-shelf > svg:not(.rk-fuse) {
+  color: var(--muted);
+}
+
+.rk-item.nav-shelf.active > svg:not(.rk-fuse) {
+  color: var(--copper-hi);
+}
+
+.rk-item.folder .rk-item__label,
+.rk-item.nav-shelf .rk-item__label {
+  flex: 1;
+  min-width: 0;
+  color: inherit;
+  text-align: left;
+}
+
+.rk-item.folder .rk-item__badge {
+  margin-left: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--copper-hi);
+  min-width: 16px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rk-item.label-row.label-active .rk-item__badge {
+  color: var(--paper);
+}
+
+.rk-item.folder .rk-fuse,
+.rk-item.nav-shelf .rk-fuse {
+  display: none;
+}
+
+/* Label rows: wrapper holds the twisty beside the row and takes the drag/drop + context menu. */
+.label-row-wrap {
+  display: flex;
+  align-items: center;
+}
+
+.label-row-wrap > .rk-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.rk-item.label-row {
+  width: auto;
+  padding-left: 12px;
+}
+
+.rk-item.label-row:hover {
+  border: 1px solid color-mix(in srgb, var(--line-2) 70%, transparent);
+}
+
+.rk-item.label-row.label-active {
+  background: color-mix(in srgb, var(--copper) 20%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--copper) 38%, var(--line-2));
+  color: var(--paper);
+  box-shadow: inset 3px 0 0 var(--copper-hi);
+}
+
+.rk-item.label-row.label-drop-target {
+  background: color-mix(in srgb, var(--success) 18%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--success) 60%, var(--line-2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success) 42%, transparent);
+}
+
+/* Saved searches: the remove button floats over the row's right edge. */
+.saved-search-row-wrap {
+  position: relative;
+}
+
+.saved-search-row-wrap .saved-search-remove {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.saved-search-row-wrap:hover .saved-search-remove {
+  opacity: 1;
+}

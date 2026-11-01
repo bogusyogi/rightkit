@@ -1,0 +1,494 @@
+@import "tailwindcss" source(none);
+@import "./styles/dark-theme.generated.css";
+@source "./";
+
+/* Self-hosted brand fonts. Tanker is the display + wordmark face (Adrian,
+   2026-07-16 — single 400 weight, headings render at 400); General Sans is
+   the friendly prose/UI face; JetBrains Mono is reserved for code surfaces. */
+@font-face {
+  font-family: "Tanker";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/Tanker-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "General Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/GeneralSans-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "General Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./assets/fonts/GeneralSans-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "General Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./assets/fonts/GeneralSans-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "General Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./assets/fonts/GeneralSans-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/JetBrainsMono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./assets/fonts/JetBrainsMono-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./assets/fonts/JetBrainsMono-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./assets/fonts/JetBrainsMono-700.woff2") format("woff2");
+}
+
+@theme {
+  /* The dark colour ramp and its token aliases are generated from
+     src/styles/dark-theme.tokens.json (scripts/gen-dark-theme.mjs) and imported above. */
+  /* One reading measure for the whole transcript. Bubbles used to be a
+     percentage of the window, so a wide display threw assistant and user text
+     to opposite rails and pushed lines far past a comfortable length. 78ch
+     left ~40% of a wide pane empty; 108ch fills the pane like Claude's own
+     transcript while still capping line length on very wide displays. */
+  --cr-measure: 108ch;
+
+  --font-display: "Tanker", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-body: "General Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+
+  --text-display: 22px;
+  --text-heading: 14px;
+  --text-body: 13px;
+  --text-secondary: 12px;
+  --text-caption: 11px;
+  --leading-body: 1.5;
+  --leading-compact: 1.375;
+  --leading-tight: 1.25;
+
+  /* Density — Codex spacing base .25rem, --radius-md-base .5rem × scale 1.25. */
+  --radius-control: 8px;
+  --radius-panel: 10px;
+  --radius-chip: 9999px;
+  --spacing: 4px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+
+  /* Motion — Codex measured 150/300ms + cubic-bezier(0,0,.2,1). */
+  --motion-duration-fast: 100ms;
+  --motion-duration-base: 150ms;
+  --motion-duration-slow: 300ms;
+  --motion-stagger: 40ms;
+  --ease-out: cubic-bezier(0, 0, .2, 1);
+  --ease-in: cubic-bezier(.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    scrollbar-color: color-mix(in srgb, var(--color-line-2) 72%, transparent) transparent;
+    scrollbar-width: thin;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-line-2) 72%, transparent);
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--color-text-3) 58%, transparent);
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  body {
+    overflow: hidden;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: var(--text-body);
+    line-height: var(--leading-body);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
+  }
+
+  /* Display face for titles only; prose and controls use General Sans.
+     Tanker ships a single 400 weight — font-synthesis off so font-bold
+     utilities render true Tanker instead of smeared synthetic bold. */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5 {
+    font-family: var(--font-display);
+    font-synthesis: none;
+    letter-spacing: 0.01em;
+    line-height: var(--leading-compact);
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+  }
+
+  button {
+    color: inherit;
+    transition: background-color 150ms var(--ease-out),
+      border-color 150ms var(--ease-out),
+      color 150ms var(--ease-out),
+      transform 120ms var(--ease-out),
+      opacity 150ms var(--ease-out);
+  }
+
+  .cr-popover,
+  .cr-panel-reveal,
+  .cr-agent-rail {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    transition: opacity 180ms var(--ease-out),
+      transform 180ms var(--ease-out);
+    will-change: opacity, transform;
+  }
+
+  .cr-popover {
+    transform-origin: var(--cr-popover-origin, bottom left);
+  }
+
+  .cr-agent-rail {
+    transform-origin: right center;
+  }
+
+  .cr-composer-shell {
+    transition: border-color 180ms var(--ease-out),
+      background-color 180ms var(--ease-out);
+  }
+
+  .cr-composer-shell:focus-within {
+    border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-line));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 18%, transparent);
+  }
+
+  .cr-control-pill {
+    transition: background-color 160ms var(--ease-out),
+      border-color 160ms var(--ease-out),
+      color 160ms var(--ease-out),
+      transform 120ms var(--ease-out),
+      box-shadow 160ms var(--ease-out);
+  }
+
+  .cr-control-pill[aria-expanded="true"],
+  .cr-control-pill[data-active="true"] {
+    border-color: var(--color-line-2);
+    background: var(--color-panel-2);
+    color: var(--color-text);
+  }
+
+  .cr-popover-row {
+    position: relative;
+    transition: background-color 140ms var(--ease-out),
+      color 140ms var(--ease-out),
+      transform 120ms var(--ease-out);
+  }
+
+  .cr-sidebar-row {
+    position: relative;
+    transition: background-color 150ms var(--ease-out),
+      color 150ms var(--ease-out),
+      transform 120ms var(--ease-out),
+      box-shadow 150ms var(--ease-out);
+  }
+
+  .cr-sidebar-row[aria-current="page"] {
+    color: var(--color-text);
+  }
+
+  .cr-popover-row[aria-selected="true"]::before {
+    position: absolute;
+    inset: 7px auto 7px 0;
+    width: 2px;
+    border-radius: 999px;
+    background: var(--color-accent);
+    content: "";
+  }
+
+  .cr-detail-swap {
+    /* Same hazard as .cr-msg-in — it faded up from opacity 0, so a frozen
+       animation would leave this panel blank. Inert for the same reason. */
+    animation: none;
+  }
+
+  @starting-style {
+    .cr-popover,
+    .cr-panel-reveal {
+      opacity: 0;
+      transform: translate3d(0, 5px, 0) scale(0.985);
+    }
+
+    .cr-agent-rail {
+      opacity: 0;
+      transform: translate3d(10px, 0, 0) scale(0.99);
+    }
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .cr-control-pill:hover,
+    .cr-popover-row:hover,
+    .cr-sidebar-row:hover {
+      transform: translateY(-1px);
+    }
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-focus) 70%, transparent);
+    outline-offset: 2px;
+  }
+
+  /* highlight.js theme mapped onto brand tokens so code blocks follow the
+     active dark/light palette (absorbed from Codex's highlighted code). */
+  .hljs {
+    color: var(--color-text-2);
+    background: transparent;
+  }
+  .hljs-comment,
+  .hljs-quote {
+    color: var(--color-text-3);
+    font-style: italic;
+  }
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-built_in,
+  .hljs-name,
+  .hljs-tag,
+  .hljs-literal,
+  .hljs-type {
+    color: var(--color-accent);
+  }
+  .hljs-string,
+  .hljs-regexp,
+  .hljs-addition {
+    color: var(--color-accent-2);
+  }
+  .hljs-number,
+  .hljs-symbol,
+  .hljs-bullet,
+  .hljs-meta {
+    color: var(--color-warning);
+  }
+  .hljs-title,
+  .hljs-section,
+  .hljs-function .hljs-title,
+  .hljs-attr,
+  .hljs-attribute {
+    color: var(--color-text);
+  }
+  .hljs-variable,
+  .hljs-template-variable,
+  .hljs-params {
+    color: var(--color-text-2);
+  }
+  .hljs-deletion {
+    color: var(--color-danger);
+  }
+  .hljs-emphasis {
+    font-style: italic;
+  }
+  .hljs-strong {
+    font-weight: 600;
+  }
+
+  button:disabled {
+    cursor: default;
+    opacity: 0.42;
+    transform: none;
+  }
+
+  /* Subtle message-enter motion. Transcript items appear with a gentle
+     opacity fade only — no slide-in, matching spec §6 discipline.
+     Auto-disabled below under prefers-reduced-motion. */
+  @keyframes cr-msg-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  /* The transcript fade is GONE, deliberately — do not reintroduce it.
+     It animated opacity 0 -> 1, and a webview freezes animations when its
+     window is occluded or throttled or the display is locked. A frozen
+     animation still reports playState "running" while its clock sits at
+     currentTime 0, so it keeps applying the 0% keyframe: the entire
+     transcript rendered as blank space with the text present in the DOM
+     (measured live — 8 message nodes, up to 10k characters each, every one
+     at computed opacity 0). Dropping animation-fill-mode is NOT enough,
+     because an active-but-frozen animation overrides the base style on its
+     own. The only safe rule is that readable content never animates up from
+     transparent. Messages now appear instantly.
+     `cr-msg-in` is kept as an inert layout hook so its many call sites and
+     the tests that assert it keep working. */
+  .cr-msg-in {
+    animation: none;
+  }
+
+  @keyframes cr-detail-swap {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 4px, 0) scale(0.992);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+      filter: none !important;
+    }
+  }
+}
+
+/* Command and focus accent. Unlayered on purpose: the .cr-* rules above live in
+   @layer base, which Tailwind utilities always outrank, so an element carrying a
+   bg-/border- utility silently swallowed its selected and active state. These are
+   the states a user actually sees standing still — selected session, open control,
+   keyboard focus — and they are the only place the host app red marks the shell. */
+.cr-sidebar-row[aria-current="page"] {
+  background: transparent;
+}
+
+.cr-sidebar-row[aria-current="page"]::before {
+  position: absolute;
+  inset: 6px auto 6px 0;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--color-accent);
+  content: "";
+}
+
+/* Sidebar selection fuses into canvas; 12px masks cut chrome around its edge. */
+.cr-sidebar-row-active {
+  position: relative;
+  border-radius: 0.75rem 0 0 0.75rem;
+}
+
+.cr-sidebar-row-active::before,
+.cr-sidebar-row-active::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  background: var(--color-bg);
+  pointer-events: none;
+}
+
+.cr-sidebar-row-active::before {
+  top: -12px;
+  -webkit-mask: radial-gradient(12px at 0% 0%, transparent 12px, #000 12px);
+  mask: radial-gradient(12px at 0% 0%, transparent 12px, #000 12px);
+}
+
+.cr-sidebar-row-active::after {
+  bottom: -12px;
+  -webkit-mask: radial-gradient(12px at 0% 100%, transparent 12px, #000 12px);
+  mask: radial-gradient(12px at 0% 100%, transparent 12px, #000 12px);
+}
+
+[data-cr-content-plane]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 24px;
+  height: 24px;
+  z-index: 5;
+  background: radial-gradient(
+    24px at 100% 100%,
+    transparent 23.5px,
+    var(--color-sidebar) 24px
+  );
+  pointer-events: none;
+}
+
+.cr-control-pill[aria-expanded="true"],
+.cr-control-pill[data-active="true"] {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-line-2));
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-panel-2));
+}
+
+.cr-sidebar-row:focus-visible,
+.cr-control-pill:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-focus) 70%, transparent);
+  outline-offset: 1px;
+}

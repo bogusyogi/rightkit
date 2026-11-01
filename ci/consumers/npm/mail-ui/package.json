@@ -1,0 +1,22 @@
+{
+  "name": "rightkit-mail-ui-root-export-consumer",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.16.1",
+  "scripts": {
+    "qualify": "node consumer.mjs"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "@rightkit/legal": "0.6.3",
+    "@rightkit/license": "0.3.0",
+    "@rightkit/logs": "0.1.6",
+    "@rightkit/onboarding": "0.6.3",
+    "@rightkit/pdf-ui": "0.2.0",
+    "@rightkit/platform-ui": "0.4.0",
+    "@rightkit/react-shell": "0.7.2",
+    "@rightkit/settings-ui": "0.7.0",
+    "@rightkit/theme": "0.3.1"
+  }
+}

@@ -1,0 +1,263 @@
+.event-when {
+  font-size: 13.5px;
+  color: var(--paper);
+  margin: 4px 0 8px;
+}
+
+.event-desc {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 8px 0;
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.event-title-input {
+  font-size: 18px !important;
+  font-family: var(--serif);
+  padding: 8px 4px !important;
+  border: 0 !important;
+  border-bottom: 2px solid var(--line-2) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.event-title-input:focus {
+  border-bottom-color: var(--copper) !important;
+  outline: none;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Contacts — browsable list (parity surface)
+   ════════════════════════════════════════════════════════════════════════ */
+
+.contactsview {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.contacts-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.contacts-count {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.contacts-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 12px 24px;
+}
+
+.contacts-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.contact-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.contact-row:hover {
+  background: var(--panel-2);
+}
+
+.contact-av {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  object-fit: cover;
+}
+
+.contact-name {
+  flex: 0 0 26%;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contact-email {
+  flex: 1 1 auto;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contact-sub {
+  flex: 0 0 20%;
+  font-size: 12.5px;
+  color: var(--muted-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contact-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.contact-row:hover .contact-actions,
+.contact-row:focus-within .contact-actions {
+  opacity: 1;
+}
+
+.dupe-panel {
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 6px 10px 10px;
+  margin: 6px 0 12px;
+}
+
+.ce-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.ce-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted-2);
+}
+
+.ce-input {
+  width: 100%;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Meet — landing surface (start / join / schedule)
+   ════════════════════════════════════════════════════════════════════════ */
+
+.meetview {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.meet-hero {
+  width: min(560px, 92%);
+  text-align: center;
+}
+
+.meet-mark {
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--copper) 16%, transparent);
+  color: var(--copper-hi);
+}
+
+.meet-title {
+  font-family: var(--serif);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+}
+
+.meet-sub {
+  margin: 12px auto 28px;
+  max-width: 440px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.meet-actions {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.meet-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 48px;
+  padding: 0 22px;
+  border-radius: 12px;
+  font-size: 15px;
+}
+
+.meet-join {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 8px 0 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--panel-2);
+}
+
+.meet-join-ic {
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.meet-code {
+  border: 0;
+  background: transparent;
+  color: var(--paper);
+  font-size: 14px;
+  width: 190px;
+  outline: none;
+}
+
+.meet-join-btn {
+  font-weight: 600;
+}
+
+.meet-secondary {
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+  margin-top: 26px;
+}
+
