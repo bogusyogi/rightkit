@@ -811,6 +811,13 @@ jobs:
       - name: Provision the pinned actionlint for the workflow lint tests
         if: ${{ needs.plan.outputs.registry == 'npm' && contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/ci ') }}
         run: node scripts/ci/provision-actionlint.mjs
+      # @rightkit/release's template-contract test runs the real class A check of a template instance, which runs cargo-deny and
+      # cargo-audit only from an enrolled executable: the verifying host needs the pinned ones (the scans job pins the same versions).
+      - name: Install the pinned Cargo scan tools for the release template contract
+        if: ${{ needs.plan.outputs.registry == 'npm' && contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ') }}
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-deny@0.20.2,cargo-audit@0.22.2
       - name: Cache the pinned Chrome for Testing
         if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa-chrome ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/react-shell ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/settings-ui ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/onboarding '))) || (needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-browser ')) }}
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4

@@ -416,7 +416,7 @@ test("known red: a unit listed for this host is refused before check or compile,
       const s = setup();
       writeKnownRed(s.args.root, { macos: { [key]: "tests fail on macOS (rightkit#1)" }, windows: {} });
       const errs = [];
-      assert.equal(await runUnitGate({ ...s.args, to, err: (l) => errs.push(l) }), 1, `${key} --to ${to}`);
+      assert.equal(await runUnitGate({ ...s.args, platform: "darwin", to, err: (l) => errs.push(l) }), 1, `${key} --to ${to}`);
       assert.deepEqual(s.calls, [], `${key} --to ${to}: nothing ran, not even the class A check`);
       assert.match(errs.join("\n"), /BLOCKED: npm:@rightkit\/demo is listed in ci\/known-red\.json for macos .*tests fail on macOS \(rightkit#1\)/);
     }
@@ -427,7 +427,7 @@ test("known red: a crate is matched by its name and its crates/ directory", asyn
   for (const key of ["rightkit-demo", "rust:rightkit-demo", "cargo:rightkit-demo", "crates/rightkit-demo"]) {
     const s = setup();
     writeKnownRed(s.args.root, { macos: { [key]: "red" } });
-    assert.equal(await runUnitGate({ ...s.args, selector: "cargo:rightkit-demo", resolve: () => ({ kind: "cargo", name: "rightkit-demo", version: "1.0.0" }), err: () => {} }), 1, key);
+    assert.equal(await runUnitGate({ ...s.args, platform: "darwin", selector: "cargo:rightkit-demo", resolve: () => ({ kind: "cargo", name: "rightkit-demo", version: "1.0.0" }), err: () => {} }), 1, key);
     assert.deepEqual(s.calls, []);
   }
 });
@@ -435,8 +435,8 @@ test("known red: a crate is matched by its name and its crates/ directory", asyn
 test("known red: the host table decides compile, package and qualify; a release is barred by either host's entry", async () => {
   const s = setup();
   writeKnownRed(s.args.root, { macos: {}, windows: { "@rightkit/demo": "windows only red" } });
-  // Listed only for Windows: this Mac compiles, packages and qualifies it.
-  assert.equal(await runUnitGate(s.args), 0);
+  // Listed only for Windows: a Mac compiles, packages and qualifies it (the table is read for the platform the gate is given, not the test host's).
+  assert.equal(await runUnitGate({ ...s.args, platform: "darwin" }), 0);
   assert.deepEqual(s.calls, ["check:release", "compile", "package", "qualify", "close"]);
   // The same unit on a Windows host is refused.
   s.calls.length = 0;
