@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-motion"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -27,8 +27,14 @@ encode = ["dep:rightkit-ffmpeg", "dep:image"]
 # Loopback HTTP host for an HTML composition project (`project_server`): serves the project, injects the
 # deterministic runtime and swaps remote GSAP for a caller-supplied copy. Adds `rightkit-http` (path decoding).
 server = ["dep:rightkit-http"]
+# Engine command handlers (`cmd`): `media.thumbnail` and `contactsheet.make` over a video project.
+engine-commands = ["dep:rightkit-engine-host", "dep:rightkit-video-project", "dep:rightkit-ffmpeg", "dep:rightkit-cache", "dep:rightkit-fs"]
 
 [dependencies]
+rightkit-engine-host = { version = "0.1.1", path = "../rightkit-engine-host", features = ["project-cmd"], optional = true }
+rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
+rightkit-cache = { version = "0.2.3", path = "../rightkit-cache", optional = true }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "blake3"], optional = true }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -49,6 +55,10 @@ continuous = false
 continuous_reason = "pure script parsing, beat snapping and sheet layout over caller-provided data, and (feature encode) a bounded per-call render that pipes frames to one ffmpeg child through rightkit-ffmpeg run_with_stdin, which owns the only writer thread and joins it before returning; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
+# Citationberg is pulled by rightkit-typeset through rightkit-captions (video-project); see the vendored fix.
+[patch.crates-io]
+citationberg = { path = "../../vendor/citationberg" }
+
 [workspace]
 
 # Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
