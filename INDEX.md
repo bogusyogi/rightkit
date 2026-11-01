@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 1.
+Flagged mismatches: 0.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -107,7 +107,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-github` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | github | GitHub App authority contracts, forge request specs, App state store, webhook verification, installation tokens and device-flow sign-in |
 | `rightkit-google-apis` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | google-workspace-apis | Async Google Workspace REST clients: Gmail (sync, history, batch fetch, MIME, compose, labels, filters, settings, drafts, attachments), Calendar, Drive, People, Tasks and Meet, with desktop OAuth and shared retry/backoff. |
 | `rightkit-google-identity` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | google-identity | Sign in with Google protocol pieces for Right Suite apps: OAuth PKCE request and redirect handling, token response and ID-token claim checks, and refresh-token storage in rightkit-credentials. |
-| `rightkit-hooks` | crates.io | 0.2.1 | 0.2.0 | 0.2.0 | **MISMATCH staged 0.2.0 != source 0.2.1** | lifecycle-hooks | Typed Claude Code and Codex hook payloads, a deadline-bound exit-0 dispatcher, exact output builders, and delivery receipts. |
+| `rightkit-hooks` | crates.io | 0.2.1 | 0.2.0 | 0.2.1 | staged, not yet published | lifecycle-hooks | Typed Claude Code and Codex hook payloads, a deadline-bound exit-0 dispatcher, exact output builders, and delivery receipts. |
 | `rightkit-hotkeys` | crates.io | 0.1.2 | 0.1.2 | 0.1.2 | ok | global-hotkeys | Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state. |
 | `rightkit-http` | crates.io | 0.3.9 | 0.3.8 | 0.3.9 | staged, not yet published | http-client | Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff with Retry-After, SSE streaming, multipart bodies, redacted secrets, and untrusted web-text wrapping. |
 | `rightkit-identity` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | installation-identity | Installation identity with clone detection and startup claim, device pairing with signed-transcript confirmation and owner approval, per-device bearer tokens with a per-IP rate limit, and shared build identity. |
