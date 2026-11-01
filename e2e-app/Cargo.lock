@@ -6136,7 +6136,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-tools"
-version = "0.3.1"
+version = "0.3.0"
 dependencies = [
  "rightkit-daemon",
  "serde",
@@ -6145,7 +6145,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agents"
-version = "0.2.1"
+version = "0.2.0"
 dependencies = [
  "rightkit-child-process",
  "serde",
@@ -6172,7 +6172,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.1"
+version = "0.3.0"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -6182,7 +6182,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.3.4"
+version = "0.3.1"
 dependencies = [
  "half",
  "hound",
@@ -6222,7 +6222,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.6.4"
+version = "0.6.1"
 dependencies = [
  "windows",
 ]
@@ -6274,7 +6274,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-compose"
-version = "0.2.1"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -6303,7 +6303,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.3"
+version = "0.4.2"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",
@@ -6324,7 +6324,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.1"
+version = "0.5.0"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -6390,7 +6390,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.2.13"
+version = "0.2.11"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -6410,7 +6410,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.9"
+version = "0.4.8"
 dependencies = [
  "libc",
  "serde",
@@ -6442,7 +6442,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hooks"
-version = "0.2.1"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -6507,7 +6507,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-llm"
-version = "0.3.2"
+version = "0.3.1"
 dependencies = [
  "rightkit-http",
  "serde",
@@ -6516,7 +6516,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.7"
+version = "0.3.6"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -6530,7 +6530,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mcp"
-version = "0.7.2"
+version = "0.7.1"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-fs",
@@ -6543,7 +6543,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.5.3"
+version = "0.5.2"
 dependencies = [
  "dirs",
  "flate2",
@@ -6599,7 +6599,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.2.9"
+version = "0.2.8"
 dependencies = [
  "half",
  "ndarray",
@@ -6723,7 +6723,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-review"
-version = "0.4.1"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -6731,7 +6731,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.6.2"
+version = "0.6.1"
 dependencies = [
  "libc",
  "portable-pty",
@@ -6838,7 +6838,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.1"
+version = "0.1.0"
 
 [[package]]
 name = "rightkit-transcript"
@@ -6915,7 +6915,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-workflow"
-version = "0.2.1"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "getrandom 0.4.3",
