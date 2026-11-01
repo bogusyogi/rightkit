@@ -161,7 +161,7 @@ impl FindState {
         }
     }
 
-    pub fn next(&mut self) -> Option<usize> {
+    pub fn next_match(&mut self) -> Option<usize> {
         let len = self.matches.len();
         if len == 0 {
             return None;
@@ -203,11 +203,15 @@ impl FindState {
             }
             KeyCode::Enter => {
                 self.mode = Mode::Navigating;
-                jump(if shift { self.prev() } else { self.next() })
+                jump(if shift {
+                    self.prev()
+                } else {
+                    self.next_match()
+                })
             }
             KeyCode::BackTab => jump(self.prev()),
             KeyCode::Char('N') if self.mode == Mode::Navigating => jump(self.prev()),
-            KeyCode::Char('n') if self.mode == Mode::Navigating => jump(self.next()),
+            KeyCode::Char('n') if self.mode == Mode::Navigating => jump(self.next_match()),
             KeyCode::Char('/') if self.mode == Mode::Navigating => {
                 self.mode = Mode::Editing;
                 FindOutcome::Redraw
@@ -415,7 +419,7 @@ mod tests {
         let mut s = FindState::default();
         s.open();
         typed(&mut s, "beta", &l);
-        s.next();
+        s.next_match();
         let before = *s.current().unwrap();
         s.refresh(&l);
         assert_eq!(*s.current().unwrap(), before);
@@ -459,7 +463,7 @@ mod tests {
         let mut s = FindState::default();
         s.open();
         typed(&mut s, "beta", &l);
-        s.next();
+        s.next_match();
         insta::assert_snapshot!(
             s.bar_text(),
             @"Find: beta  2/4  Enter next  Shift+Enter prev  Esc close"

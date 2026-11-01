@@ -20,7 +20,7 @@ use ratatui::text::{Line, Span};
 use super::Composer;
 use super::ComposerDraft;
 use super::InputResult;
-use super::history::{HistoryEntry, HistorySearchDirection, HistorySearchResult};
+use super::history::{HistorySearchDirection, HistorySearchResult};
 use super::popup_state::ActivePopup;
 use super::vim_history::VimHistory;
 use crate::composer::key_hint::{self, KeyBindingListExt};
@@ -115,6 +115,7 @@ impl Composer {
     /// Apply incoming draft changes behind an active search, preserving its
     /// query and preview — donor `edit_stored_draft`, reduced to the
     /// composer-owned draft/vim state fields.
+    #[cfg(test)]
     pub(super) fn edit_stored_draft(&mut self, edit: impl FnOnce(&mut Self)) {
         let Some(mut search) = self.history_search.take() else {
             edit(self);

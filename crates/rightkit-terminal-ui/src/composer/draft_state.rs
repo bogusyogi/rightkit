@@ -6,7 +6,6 @@
 //! Paste payloads, burst state, and shell (`!`) mode retain donor semantics.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 use crate::composer::paste_burst::PasteBurst;
 use crate::composer::text_element::TextElement;
@@ -57,16 +56,3 @@ impl ComposerDraft {
         bytes
     }
 }
-
-/// One mention (`@`/`$`/`%`) bound to an atomic element id, recorded so the
-/// submission expander can rebind mention ranges after edits. Kept from the
-/// donor shape so [`super::mention_codec`] stays a verbatim lift.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ComposerMentionBinding {
-    pub(crate) sigil: char,
-    pub(crate) mention: String,
-    pub(crate) path: String,
-}
-
-/// Element-id keyed mention bindings for the live draft.
-pub(super) type MentionBindings = HashMap<u64, ComposerMentionBinding>;

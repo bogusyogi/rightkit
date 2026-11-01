@@ -17,7 +17,7 @@ use crossterm::event::PopKeyboardEnhancementFlags;
 use crossterm::event::PushKeyboardEnhancementFlags;
 use ratatui::crossterm::execute;
 
-const DISABLE_KEYBOARD_ENHANCEMENT_ENV_VAR: &str = "CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT";
+const DISABLE_KEYBOARD_ENHANCEMENT_ENV_VAR: &str = "RIGHTKIT_TUI_DISABLE_KEYBOARD_ENHANCEMENT";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum VscodeDetection {
@@ -91,10 +91,6 @@ fn running_in_wsl() -> bool {
     {
         false
     }
-}
-
-pub(super) fn running_in_vscode_terminal() -> bool {
-    detect_vscode_terminal() == VscodeDetection::VsCode
 }
 
 pub(crate) fn detect_vscode_terminal() -> VscodeDetection {

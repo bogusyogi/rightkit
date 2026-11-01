@@ -23,7 +23,6 @@
 
 use std::borrow::Cow;
 use std::collections::VecDeque;
-use std::path::Path;
 use std::time::Duration;
 
 use ratatui::style::{Modifier, Style};
@@ -97,9 +96,11 @@ fn extract_shell_script(command: &[String]) -> Option<&str> {
     let [shell, flag, script] = command else {
         return None;
     };
-    let basename = Path::new(shell)
-        .file_name()
-        .and_then(|name| name.to_str())
+    // Either separator: an argv from a Windows host names its shell with backslashes, and
+    // `Path` only splits those on Windows.
+    let basename = shell
+        .rsplit(['/', '\\'])
+        .next()
         .unwrap_or(shell)
         .to_ascii_lowercase();
     let basename = basename.strip_suffix(".exe").unwrap_or(&basename);
@@ -797,10 +798,10 @@ impl ExecCell {
                         ),
                         Span::raw(row),
                     ];
-                    if i == 0 {
-                        if let Some(note) = exit_note.clone() {
-                            spans.push(note);
-                        }
+                    if i == 0
+                        && let Some(note) = exit_note.clone()
+                    {
+                        spans.push(note);
                     }
                     body.push(Line::from(spans));
                 }

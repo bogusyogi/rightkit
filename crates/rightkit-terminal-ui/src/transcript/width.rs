@@ -41,6 +41,7 @@ pub(crate) fn char_width(ch: char) -> usize {
 /// Treat `None` as "render prefix-only fallback". Coercing it to `0` and still
 /// attempting wrapped rendering often produces empty or unstable output at very
 /// narrow terminal widths.
+#[cfg(test)]
 pub(crate) fn usable_content_width(total_width: usize, reserved_cols: usize) -> Option<usize> {
     total_width
         .checked_sub(reserved_cols)
@@ -51,6 +52,7 @@ pub(crate) fn usable_content_width(total_width: usize, reserved_cols: usize) -> 
 ///
 /// This keeps width math at callsites that receive terminal dimensions as
 /// `u16` while preserving the same `None` contract for exhausted width.
+#[cfg(test)]
 pub(crate) fn usable_content_width_u16(total_width: u16, reserved_cols: u16) -> Option<usize> {
     usable_content_width(usize::from(total_width), usize::from(reserved_cols))
 }

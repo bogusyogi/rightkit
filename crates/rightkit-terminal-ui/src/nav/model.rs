@@ -41,7 +41,7 @@ pub enum AgentState {
 
 impl AgentState {
     /// The semantic role this state paints with. Colour is never the only
-    /// signal -- pair with [`Self::glyph_role`]'s theme glyph.
+    /// signal -- pair with `Self::glyph_role`'s theme glyph.
     pub fn role(&self) -> crate::component::Role {
         match self {
             AgentState::Running => crate::component::Role::Running,

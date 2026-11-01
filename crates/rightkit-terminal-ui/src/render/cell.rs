@@ -146,13 +146,6 @@ pub fn clipped_line(line: Line<'static>, width: u16) -> Line<'static> {
     )
 }
 
-fn line_text(line: &Line<'static>) -> String {
-    line.spans
-        .iter()
-        .map(|span| span.content.as_ref())
-        .collect()
-}
-
 /// Prefix each line of `lines` — `initial_prefix` on the first line,
 /// `subsequent_prefix` on every line after — without changing their styles.
 ///

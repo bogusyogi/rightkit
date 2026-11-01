@@ -73,6 +73,7 @@ impl Composer {
     /// clears timing state without emitting any buffered text, which can leave
     /// a non-empty buffer unable to flush later (because `flush_if_due()`
     /// relies on `last_plain_char_time` to time out).
+    #[cfg(test)]
     pub(crate) fn set_disable_paste_burst(&mut self, disabled: bool) {
         let was_disabled = self.draft.disable_paste_burst;
         self.draft.disable_paste_burst = disabled;

@@ -67,6 +67,7 @@ impl ScrollState {
     /// Page movement intentionally does not wrap. It mirrors terminal list
     /// behavior where repeated page-up/page-down converges at the nearest edge
     /// while still keeping the selected row visible.
+    #[cfg(test)]
     pub fn page_up_clamped(&mut self, len: usize, visible_rows: usize) {
         if self.clear_if_empty(len) {
             return;
@@ -82,6 +83,7 @@ impl ScrollState {
     /// Page movement intentionally does not wrap. It mirrors terminal list
     /// behavior where repeated page-up/page-down converges at the nearest edge
     /// while still keeping the selected row visible.
+    #[cfg(test)]
     pub fn page_down_clamped(&mut self, len: usize, visible_rows: usize) {
         if self.clear_if_empty(len) {
             return;
@@ -93,6 +95,7 @@ impl ScrollState {
     }
 
     /// Jump selection to the first row.
+    #[cfg(test)]
     pub fn jump_top(&mut self, len: usize, visible_rows: usize) {
         if self.clear_if_empty(len) {
             return;
@@ -102,6 +105,7 @@ impl ScrollState {
     }
 
     /// Jump selection to the last row.
+    #[cfg(test)]
     pub fn jump_bottom(&mut self, len: usize, visible_rows: usize) {
         if self.clear_if_empty(len) {
             return;

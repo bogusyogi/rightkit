@@ -12,13 +12,13 @@
 //!   atomic text elements, wrapped-line navigation, Vim state machines (off
 //!   by default — `TextArea::set_vim_enabled` is parent-owned policy), and
 //!   mouse selection.
-//! - [`paste_burst`] + [`paste_input`] carry the donor's non-bracketed paste
+//! - `paste_burst` + `paste_input` carry the donor's non-bracketed paste
 //!   detection verbatim: 60 ms burst timeout, 120 ms Enter suppression,
 //!   retroactive capture, `> ` blockquote continuation, and large-paste
 //!   placeholder elements expanded on submit.
-//! - [`command_popup`], [`file_search_popup`], [`popup_state`],
-//!   [`completion_target`], [`history`], [`history_search`], and
-//!   [`vim_history`] keep the donor state machines; item/query sources are
+//! - `command_popup`, `file_search_popup`, `popup_state`,
+//!   `completion_target`, `history`, `history_search`, and
+//!   `vim_history` keep the donor state machines; item/query sources are
 //!   the host app's shared command catalog and parent-wired file search.
 //!
 //! # What this module does *not* do
@@ -30,7 +30,6 @@
 //! [`Composer::drain_file_search_requests`] for the parent's canonical file
 //! source; results come back via [`Composer::on_file_search_result`].
 
-pub(crate) mod clipboard_copy;
 pub(crate) mod command_popup;
 pub mod completion;
 pub(crate) mod completion_target;
@@ -45,8 +44,6 @@ pub(crate) mod history_store;
 pub mod intent;
 pub(crate) mod key_hint;
 pub(crate) mod keymap;
-pub(crate) mod line_truncation;
-pub(crate) mod line_utils;
 pub(crate) mod mention_codec;
 pub(crate) mod mention_syntax;
 pub(crate) mod paste_burst;
@@ -65,10 +62,10 @@ pub mod textarea;
 pub(crate) mod vim_history;
 pub(crate) mod vim_search;
 pub mod width;
-pub(crate) mod wrapping;
-
-#[cfg(test)]
-pub(crate) mod test_backend;
+// R17: one copy of each shared helper module. The composer reads the same
+// wrapping, truncation and line helpers the transcript and the terminal
+// substrate own.
+pub(crate) use crate::transcript::{line_truncation, wrapping};
 
 #[cfg(test)]
 #[path = "paste_burst_tests.rs"]
@@ -103,7 +100,7 @@ use std::time::{Duration, Instant};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::event::{MouseButton, MouseEventKind};
 use ratatui::layout::Rect;
-use ratatui::style::{Style, Stylize};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::WidgetRef;
 
@@ -292,7 +289,7 @@ impl Composer {
         }
     }
 
-    /// One-shot empty-buffer placeholder (e.g. "Tell <model> what to do
+    /// One-shot empty-buffer placeholder (e.g. "Tell `<model>` what to do
     /// instead" after an approval Esc). Cleared when the next turn starts.
     pub fn set_placeholder_override(&mut self, text: Option<String>) {
         self.placeholder_override = text;
@@ -440,7 +437,6 @@ impl Composer {
         // Replace the `/name` token on the first line, keeping any tail.
         let token_end = text[..first_line_end]
             .find(char::is_whitespace)
-            .map(|i| i)
             .unwrap_or(first_line_end);
         self.draft
             .textarea
@@ -813,19 +809,18 @@ impl Composer {
 
         // S:I5 — the six truthful effects resolve before submission, against
         // the shared grammar.
-        if let Some((name, rest, _)) = slash_input::parse_slash_name(&original_input) {
-            if let Some(effect) = CommandEffect::resolve(name) {
-                if rest.trim().is_empty() {
-                    self.record_submission_history(
-                        original_input.trim().to_string(),
-                        Vec::new(),
-                        Vec::new(),
-                    );
-                    self.clear_draft();
-                    self.intents.push(Intent::CommandEffect(effect));
-                    return (InputResult::Submitted, true);
-                }
-            }
+        if let Some((name, rest, _)) = slash_input::parse_slash_name(&original_input)
+            && let Some(effect) = CommandEffect::resolve(name)
+            && rest.trim().is_empty()
+        {
+            self.record_submission_history(
+                original_input.trim().to_string(),
+                Vec::new(),
+                Vec::new(),
+            );
+            self.clear_draft();
+            self.intents.push(Intent::CommandEffect(effect));
+            return (InputResult::Submitted, true);
         }
 
         // Expand placeholders so element byte ranges stay aligned.
@@ -2190,6 +2185,7 @@ impl Composer {
 
     /// Apply composer-relevant runtime keymap bindings (donor
     /// `set_keymap_bindings`); parent owns config resolution.
+    #[cfg(test)]
     pub(crate) fn set_keymap_bindings(&mut self, keymap: &keymap::RuntimeKeymap) {
         // Donor `from_config` shadow rule, reduced: Vim undo/redo/replace
         // bindings that still hold their built-in defaults yield to a binding
@@ -2263,6 +2259,7 @@ impl Composer {
     /// binding shadows unconfigured Vim defaults even when its value equals
     /// the default; the legacy "vector differs from its built-in default"
     /// inference remains a compatible fallback for unannotated keymaps.
+    #[cfg(test)]
     fn configured_vim_normal_shadowing_bindings(
         keymap: &keymap::RuntimeKeymap,
         defaults: &keymap::RuntimeKeymap,
@@ -2344,6 +2341,7 @@ impl Composer {
 
     /// Donor `set_text_content` reduced to composer-owned fields: fresh draft
     /// content plus atomic elements/pending paste payloads; cursor resets.
+    #[cfg(test)]
     pub(crate) fn set_text_content(
         &mut self,
         text: String,
@@ -2377,6 +2375,7 @@ impl Composer {
     }
 
     /// Snapshot of the editable draft (donor `draft_snapshot`, reduced).
+    #[cfg(test)]
     pub(crate) fn draft_snapshot(&self) -> ComposerDraft {
         self.history_search
             .as_ref()
@@ -2385,6 +2384,7 @@ impl Composer {
 
     /// Drive one key through the full dispatch pipeline — the entry point the
     /// donor test lineage uses and parents may call directly.
+    #[cfg(test)]
     pub(crate) fn handle_key_event(&mut self, key_event: KeyEvent) -> (InputResult, bool) {
         self.handle_key_event_inner(key_event)
     }
@@ -2401,12 +2401,14 @@ impl Composer {
     }
 
     /// Whether a Ctrl+R history-search session is active.
+    #[cfg(test)]
     pub(crate) fn history_search_active(&self) -> bool {
         self.history_search.is_some()
     }
 
     /// Inner (gutter-adjusted, popup-free) textarea area for `area` — the
     /// same geometry `render` uses, shared with mouse/click tests.
+    #[cfg(test)]
     fn text_area_rect(&self, area: Rect) -> Rect {
         Rect {
             x: area.x + PROMPT_GUTTER,
@@ -2418,6 +2420,7 @@ impl Composer {
 
     /// Absolute cursor cell for a composer rendered at `area` (empty popup
     /// and query state assumed; donor `cursor_pos` shape).
+    #[cfg(test)]
     pub(crate) fn cursor_cell(&self, area: Rect) -> Option<(u16, u16)> {
         let state = *self.draft.textarea_state.borrow();
         self.draft
@@ -2447,6 +2450,7 @@ impl Composer {
 
     /// Text with pending paste placeholders expanded — donor
     /// `current_text_with_pending` (submission/draft-save payload view).
+    #[cfg(test)]
     pub(crate) fn current_text_with_pending(&self) -> String {
         self.current_text_expanded()
     }
@@ -2454,6 +2458,7 @@ impl Composer {
     /// Cancel an in-progress Vim search query (donor `cancel_vim_search`):
     /// a canceled operator-search must still finish its undo transaction so
     /// the pending snapshot cannot absorb the next committed edit.
+    #[cfg(test)]
     pub(crate) fn cancel_vim_search(&mut self) -> bool {
         let canceled = self.draft.textarea.cancel_vim_search();
         if canceled {
@@ -2464,6 +2469,7 @@ impl Composer {
 
     /// Enable Vim mode while already in insert mode (donor
     /// `enable_vim_in_insert_mode`; parent-owned policy toggle).
+    #[cfg(test)]
     pub(crate) fn enable_vim_in_insert_mode(&mut self) {
         self.set_vim_enabled(true);
         self.resume_text_entry();
@@ -2471,18 +2477,21 @@ impl Composer {
 
     /// Resume text entry after a parent view takes focus, preserving Vim
     /// undo history (donor `resume_text_entry`).
+    #[cfg(test)]
     pub(crate) fn resume_text_entry(&mut self) {
         self.draft.textarea.enter_vim_insert_mode();
     }
 
     /// Donor `insert_selected_file_path`: replace `range` (the active `@`
     /// token) with `path` as composer text.
+    #[cfg(test)]
     pub(crate) fn insert_selected_file_path(&mut self, range: std::ops::Range<usize>, path: &str) {
         self.insert_selected_path(range, path);
     }
 
     /// Donor `apply_external_edit`, reduced: replace content with externally
     /// imported text, resetting undo history and pending pastes.
+    #[cfg(test)]
     pub(crate) fn apply_external_edit(&mut self, text: String) {
         self.vim_history = VimHistory::default();
         self.draft.pending_pastes.clear();
@@ -2497,6 +2506,7 @@ impl Composer {
     /// Append recovered drafts to the current prompt — donor
     /// `inline_input.rs::append_recovered_drafts`, reduced at the
     /// sparkle/attachment seams.
+    #[cfg(test)]
     pub(crate) fn append_recovered_drafts(&mut self, drafts: &str) {
         self.flush_pending_input();
         if self.draft.textarea.is_vim_operator_pending() {
@@ -2547,6 +2557,219 @@ impl Composer {
     }
 }
 
+impl Component for Composer {
+    fn render(&mut self, frame: &mut dyn crate::component::RenderFrame, area: Rect, theme: &Theme) {
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
+        let text_width = area.width.saturating_sub(PROMPT_GUTTER).max(1);
+        self.last_width = text_width;
+
+        // Popup rows draw above the draft, sharing the composer's own area —
+        // the donor's "suggestions above the composer" layout, reduced to a
+        // top overlay in the inline surface.
+        let popup_height = match &self.popups.active {
+            ActivePopup::Command(popup) => popup
+                .calculate_required_height(area.width)
+                .min(area.height.saturating_sub(1)),
+            ActivePopup::File(popup) => popup
+                .calculate_required_height()
+                .min(area.height.saturating_sub(1)),
+            ActivePopup::None => 0,
+        };
+        let text_area = Rect {
+            x: area.x + PROMPT_GUTTER,
+            y: area.y + popup_height,
+            width: text_width,
+            height: area.height.saturating_sub(popup_height),
+        };
+        let query_row =
+            u16::from(self.history_search.is_some() || self.draft.textarea.vim_query().is_some())
+                .min(text_area.height);
+        let textarea_area = Rect {
+            height: text_area.height.saturating_sub(query_row),
+            ..text_area
+        };
+
+        // Gutter column: prompt marker on the first row, blank continuation.
+        let dim_style = Style::default().fg(theme.color(Role::Dim));
+        for row in 0..textarea_area.height.max(1) {
+            let y = textarea_area.y + row;
+            let span = if row == 0 {
+                Span::styled(
+                    format!("{PROMPT_MARKER} "),
+                    Style::default().fg(theme.accent()),
+                )
+            } else {
+                Span::styled(" ".repeat(PROMPT_GUTTER as usize), dim_style)
+            };
+            ratatui::widgets::Widget::render(
+                Line::from(vec![span]),
+                Rect {
+                    x: area.x,
+                    y,
+                    width: PROMPT_GUTTER,
+                    height: 1,
+                },
+                frame.buffer_mut(),
+            );
+        }
+
+        let highlights: Vec<_> = self
+            .history_search_highlight_ranges()
+            .into_iter()
+            .chain(self.draft.textarea.vim_search_highlights())
+            .map(|range| (range, Style::new().reversed().bold()))
+            .collect();
+        let mut state = self.draft.textarea_state.borrow_mut();
+        self.draft.textarea.render_ref_styled_with_highlights(
+            textarea_area,
+            frame.buffer_mut(),
+            &mut state,
+            Style::default().fg(theme.color(Role::Text)),
+            &highlights,
+        );
+        drop(state);
+        if self.draft.textarea.is_empty() {
+            let hint = match &self.placeholder_override {
+                Some(text) if !self.streaming => text.as_str(),
+                _ if self.streaming => PLACEHOLDER_RUNNING,
+                _ => PLACEHOLDER,
+            };
+            ratatui::widgets::Widget::render(
+                Line::from(Span::styled(hint, dim_style)),
+                Rect {
+                    height: 1,
+                    ..textarea_area
+                },
+                frame.buffer_mut(),
+            );
+        } else if self.streaming && !self.current_text().contains('\n') {
+            // What the keys do right now, on the right of a one-line draft.
+            let used = crate::transcript::wrap::display_width(&self.current_text());
+            let hint_width = crate::transcript::wrap::display_width(RUNNING_HINT);
+            if used + hint_width + 3 <= usize::from(textarea_area.width) {
+                ratatui::widgets::Widget::render(
+                    Line::from(Span::styled(RUNNING_HINT, dim_style)),
+                    Rect {
+                        x: textarea_area.right() - hint_width as u16 - 1,
+                        width: hint_width as u16,
+                        height: 1,
+                        ..textarea_area
+                    },
+                    frame.buffer_mut(),
+                );
+            }
+        }
+        if let Some(query) = self.draft.textarea.vim_query() {
+            query.render(
+                Rect {
+                    y: textarea_area.bottom(),
+                    height: 1,
+                    ..text_area
+                },
+                frame.buffer_mut(),
+            );
+        } else if let Some(line) = self.history_search_footer_line() {
+            ratatui::widgets::Widget::render(
+                line,
+                Rect {
+                    y: textarea_area.bottom(),
+                    height: 1,
+                    ..text_area
+                },
+                frame.buffer_mut(),
+            );
+        }
+        if popup_height > 0 {
+            let popup_area = Rect {
+                x: area.x,
+                y: area.y,
+                width: area.width,
+                height: popup_height,
+            };
+            match &self.popups.active {
+                ActivePopup::Command(popup) => {
+                    popup.render_ref(popup_area, frame.buffer_mut());
+                }
+                ActivePopup::File(popup) => {
+                    popup.render_ref(popup_area, frame.buffer_mut());
+                }
+                ActivePopup::None => {}
+            }
+        }
+
+        // Hardware cursor follows the textarea's wrap-aware position; the
+        // query line takes the footer position while a search is active.
+        if query_row == 1 {
+            let query_area = Rect {
+                y: textarea_area.bottom(),
+                height: 1,
+                ..text_area
+            };
+            if let Some(query) = self.draft.textarea.vim_query() {
+                if let Some((x, y)) = query.cursor_pos(query_area) {
+                    frame.set_cursor_position((x, y));
+                }
+                return;
+            }
+            if let Some((x, y)) = self.history_search_query_cursor_pos(query_area) {
+                frame.set_cursor_position((x, y));
+            }
+            return;
+        }
+        let state = *self.draft.textarea_state.borrow();
+        if let Some((x, y)) = self
+            .draft
+            .textarea
+            .cursor_pos_with_state(textarea_area, state)
+        {
+            frame.set_cursor_position((x, y));
+        }
+    }
+
+    fn handle(&mut self, event: &Event) -> Outcome {
+        match event {
+            Event::Key(key) => self.handle_key(key),
+            Event::Paste(text) => {
+                self.handle_paste(text.clone());
+                Outcome::Redraw
+            }
+            Event::Resize { width, height } => {
+                self.terminal_rows = *height;
+                self.last_width = width.saturating_sub(PROMPT_GUTTER);
+                Outcome::Redraw
+            }
+            Event::Mouse(mouse) => {
+                if self.handle_mouse(*mouse) {
+                    Outcome::Redraw
+                } else {
+                    Outcome::Ignored
+                }
+            }
+            Event::Focus(_) => Outcome::Redraw,
+            Event::Resume => Outcome::Redraw,
+        }
+    }
+
+    fn desired_height(&self, width: u16, available: u16) -> u16 {
+        // Donor `desired_height`: textarea rows + popup rows + footer query
+        // row, capped by the host's bound and the composer maximum.
+        let text_width = width.saturating_sub(PROMPT_GUTTER).max(1);
+        let content = self.draft.textarea.desired_height(text_width).max(1);
+        let popup = match &self.popups.active {
+            ActivePopup::Command(popup) => popup.calculate_required_height(width),
+            ActivePopup::File(popup) => popup.calculate_required_height(),
+            ActivePopup::None => 0,
+        };
+        let query =
+            u16::from(self.history_search.is_some() || self.draft.textarea.vim_query().is_some());
+        (content + popup + query)
+            .min(self.max_height())
+            .min(available.max(1))
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -2557,7 +2780,20 @@ pub(crate) mod tests {
     /// preserved from the donor's `(composer, app_event_rx)` shape so lifted
     /// tests keep their `let (mut composer, _rx) = ...` bindings.
     pub(crate) fn new_test_composer() -> (Composer, ()) {
-        (Composer::new(), ())
+        let mut composer = Composer::new();
+        // The host adds its own catalog commands to the defaults; tests stand in for it with the
+        // two they type.
+        let mut catalog = default_completion_catalog();
+        for (name, summary) in [
+            ("plan", "Switch to plan mode"),
+            ("diff", "Ask the agent for a git diff review."),
+        ] {
+            if !catalog.iter().any(|entry| entry.name == name) {
+                catalog.push(CompletionCandidate::new(name, summary));
+            }
+        }
+        composer.set_completion_catalog(catalog);
+        (composer, ())
     }
 
     #[test]
@@ -2867,218 +3103,5 @@ pub(crate) mod tests {
         let mut frame = BufferFrame::new(area);
         render_composer(&mut composer, area, &mut frame);
         insta::assert_snapshot!(name, format!("{:?}", frame.buf));
-    }
-}
-
-impl Component for Composer {
-    fn render(&mut self, frame: &mut dyn crate::component::RenderFrame, area: Rect, theme: &Theme) {
-        if area.width == 0 || area.height == 0 {
-            return;
-        }
-        let text_width = area.width.saturating_sub(PROMPT_GUTTER).max(1);
-        self.last_width = text_width;
-
-        // Popup rows draw above the draft, sharing the composer's own area —
-        // the donor's "suggestions above the composer" layout, reduced to a
-        // top overlay in the inline surface.
-        let popup_height = match &self.popups.active {
-            ActivePopup::Command(popup) => popup
-                .calculate_required_height(area.width)
-                .min(area.height.saturating_sub(1)),
-            ActivePopup::File(popup) => popup
-                .calculate_required_height()
-                .min(area.height.saturating_sub(1)),
-            ActivePopup::None => 0,
-        };
-        let text_area = Rect {
-            x: area.x + PROMPT_GUTTER,
-            y: area.y + popup_height,
-            width: text_width,
-            height: area.height.saturating_sub(popup_height),
-        };
-        let query_row =
-            u16::from(self.history_search.is_some() || self.draft.textarea.vim_query().is_some())
-                .min(text_area.height);
-        let textarea_area = Rect {
-            height: text_area.height.saturating_sub(query_row),
-            ..text_area
-        };
-
-        // Gutter column: prompt marker on the first row, blank continuation.
-        let dim_style = Style::default().fg(theme.color(Role::Dim));
-        for row in 0..textarea_area.height.max(1) {
-            let y = textarea_area.y + row;
-            let span = if row == 0 {
-                Span::styled(
-                    format!("{PROMPT_MARKER} "),
-                    Style::default().fg(theme.accent()),
-                )
-            } else {
-                Span::styled(" ".repeat(PROMPT_GUTTER as usize), dim_style)
-            };
-            ratatui::widgets::Widget::render(
-                Line::from(vec![span]),
-                Rect {
-                    x: area.x,
-                    y,
-                    width: PROMPT_GUTTER,
-                    height: 1,
-                },
-                frame.buffer_mut(),
-            );
-        }
-
-        let highlights: Vec<_> = self
-            .history_search_highlight_ranges()
-            .into_iter()
-            .chain(self.draft.textarea.vim_search_highlights())
-            .map(|range| (range, Style::new().reversed().bold()))
-            .collect();
-        let mut state = self.draft.textarea_state.borrow_mut();
-        self.draft.textarea.render_ref_styled_with_highlights(
-            textarea_area,
-            frame.buffer_mut(),
-            &mut state,
-            Style::default().fg(theme.color(Role::Text)),
-            &highlights,
-        );
-        drop(state);
-        if self.draft.textarea.is_empty() {
-            let hint = match &self.placeholder_override {
-                Some(text) if !self.streaming => text.as_str(),
-                _ if self.streaming => PLACEHOLDER_RUNNING,
-                _ => PLACEHOLDER,
-            };
-            ratatui::widgets::Widget::render(
-                Line::from(Span::styled(hint, dim_style)),
-                Rect {
-                    height: 1,
-                    ..textarea_area
-                },
-                frame.buffer_mut(),
-            );
-        } else if self.streaming && !self.current_text().contains('\n') {
-            // What the keys do right now, on the right of a one-line draft.
-            let used = crate::transcript::wrap::display_width(&self.current_text());
-            let hint_width = crate::transcript::wrap::display_width(RUNNING_HINT);
-            if used + hint_width + 3 <= usize::from(textarea_area.width) {
-                ratatui::widgets::Widget::render(
-                    Line::from(Span::styled(RUNNING_HINT, dim_style)),
-                    Rect {
-                        x: textarea_area.right() - hint_width as u16 - 1,
-                        width: hint_width as u16,
-                        height: 1,
-                        ..textarea_area
-                    },
-                    frame.buffer_mut(),
-                );
-            }
-        }
-        if let Some(query) = self.draft.textarea.vim_query() {
-            query.render(
-                Rect {
-                    y: textarea_area.bottom(),
-                    height: 1,
-                    ..text_area
-                },
-                frame.buffer_mut(),
-            );
-        } else if let Some(line) = self.history_search_footer_line() {
-            ratatui::widgets::Widget::render(
-                line,
-                Rect {
-                    y: textarea_area.bottom(),
-                    height: 1,
-                    ..text_area
-                },
-                frame.buffer_mut(),
-            );
-        }
-        if popup_height > 0 {
-            let popup_area = Rect {
-                x: area.x,
-                y: area.y,
-                width: area.width,
-                height: popup_height,
-            };
-            match &self.popups.active {
-                ActivePopup::Command(popup) => {
-                    popup.render_ref(popup_area, frame.buffer_mut());
-                }
-                ActivePopup::File(popup) => {
-                    popup.render_ref(popup_area, frame.buffer_mut());
-                }
-                ActivePopup::None => {}
-            }
-        }
-
-        // Hardware cursor follows the textarea's wrap-aware position; the
-        // query line takes the footer position while a search is active.
-        if query_row == 1 {
-            let query_area = Rect {
-                y: textarea_area.bottom(),
-                height: 1,
-                ..text_area
-            };
-            if let Some(query) = self.draft.textarea.vim_query() {
-                if let Some((x, y)) = query.cursor_pos(query_area) {
-                    frame.set_cursor_position((x, y));
-                }
-                return;
-            }
-            if let Some((x, y)) = self.history_search_query_cursor_pos(query_area) {
-                frame.set_cursor_position((x, y));
-            }
-            return;
-        }
-        let state = *self.draft.textarea_state.borrow();
-        if let Some((x, y)) = self
-            .draft
-            .textarea
-            .cursor_pos_with_state(textarea_area, state)
-        {
-            frame.set_cursor_position((x, y));
-        }
-    }
-
-    fn handle(&mut self, event: &Event) -> Outcome {
-        match event {
-            Event::Key(key) => self.handle_key(key),
-            Event::Paste(text) => {
-                self.handle_paste(text.clone());
-                Outcome::Redraw
-            }
-            Event::Resize { width, height } => {
-                self.terminal_rows = *height;
-                self.last_width = width.saturating_sub(PROMPT_GUTTER);
-                Outcome::Redraw
-            }
-            Event::Mouse(mouse) => {
-                if self.handle_mouse(*mouse) {
-                    Outcome::Redraw
-                } else {
-                    Outcome::Ignored
-                }
-            }
-            Event::Focus(_) => Outcome::Redraw,
-            Event::Resume => Outcome::Redraw,
-        }
-    }
-
-    fn desired_height(&self, width: u16, available: u16) -> u16 {
-        // Donor `desired_height`: textarea rows + popup rows + footer query
-        // row, capped by the host's bound and the composer maximum.
-        let text_width = width.saturating_sub(PROMPT_GUTTER).max(1);
-        let content = self.draft.textarea.desired_height(text_width).max(1);
-        let popup = match &self.popups.active {
-            ActivePopup::Command(popup) => popup.calculate_required_height(width),
-            ActivePopup::File(popup) => popup.calculate_required_height(),
-            ActivePopup::None => 0,
-        };
-        let query =
-            u16::from(self.history_search.is_some() || self.draft.textarea.vim_query().is_some());
-        (content + popup + query)
-            .min(self.max_height())
-            .min(available.max(1))
     }
 }

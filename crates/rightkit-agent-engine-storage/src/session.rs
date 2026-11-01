@@ -680,7 +680,7 @@ impl Storage {
     /// cascade — the explicit SQL makes the cascade order auditable and
     /// not dependent on `PRAGMA foreign_keys`.
     ///
-    /// Returns the [`DeleteOutcome`] so the caller can report what was
+    /// Returns the `DeleteOutcome` so the caller can report what was
     /// removed (used by the API handler and by the integration tests).
     pub fn delete_session_tree(&mut self, root_id: &str) -> Result<DeleteOutcome> {
         let tx = rightkit_db::write_txn(&mut self.conn)?;

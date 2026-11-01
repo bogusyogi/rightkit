@@ -140,9 +140,9 @@ mod tests {
         assert_eq!(count_entries_with(&root, "SKILL.md"), 1);
         assert_eq!(count_files_with_extension(&root, "md"), 1);
         std::fs::write(root.join("b").join("trace.jsonl"), "x").unwrap();
-        let (path, _) = newest_named_file(&[root.clone()], &["trace.jsonl"]).unwrap();
+        let (path, _) = newest_named_file(std::slice::from_ref(&root), &["trace.jsonl"]).unwrap();
         assert!(path.ends_with("b/trace.jsonl") || path.ends_with("b\\trace.jsonl"));
-        assert!(newest_named_file(&[root.clone()], &["absent.jsonl"]).is_none());
+        assert!(newest_named_file(std::slice::from_ref(&root), &["absent.jsonl"]).is_none());
         let _ = std::fs::remove_dir_all(&root);
     }
 

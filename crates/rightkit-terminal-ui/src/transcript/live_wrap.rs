@@ -1,15 +1,20 @@
+#[cfg(test)]
 use crate::transcript::width::display_width;
+#[cfg(test)]
 use unicode_segmentation::UnicodeSegmentation;
 
 /// A single visual row produced by RowBuilder.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(test)]
 pub struct Row {
     pub text: String,
     /// True if this row ends with an explicit line break (as opposed to a hard wrap).
     pub explicit_break: bool,
 }
 
+#[cfg(test)]
 impl Row {
+    #[cfg(test)]
     pub fn width(&self) -> usize {
         display_width(&self.text)
     }
@@ -18,6 +23,7 @@ impl Row {
 /// Incrementally wraps input text into visual rows of at most `width` cells.
 ///
 /// Step 1: plain-text only. ANSI-carry and styled spans will be added later.
+#[cfg(test)]
 pub struct RowBuilder {
     target_width: usize,
     /// Buffer for the current logical line (until a '\n' is seen).
@@ -26,7 +32,9 @@ pub struct RowBuilder {
     rows: Vec<Row>,
 }
 
+#[cfg(test)]
 impl RowBuilder {
+    #[cfg(test)]
     pub fn new(target_width: usize) -> Self {
         Self {
             target_width: target_width.max(1),
@@ -35,6 +43,7 @@ impl RowBuilder {
         }
     }
 
+    #[cfg(test)]
     pub fn set_width(&mut self, width: usize) {
         self.target_width = width.max(1);
         // Rewrap everything we have (simple approach for Step 1).
@@ -51,6 +60,7 @@ impl RowBuilder {
     }
 
     /// Push an input fragment. May contain newlines.
+    #[cfg(test)]
     pub fn push_fragment(&mut self, fragment: &str) {
         if fragment.is_empty() {
             return;
@@ -73,11 +83,13 @@ impl RowBuilder {
     }
 
     /// Return a snapshot of produced rows (non-draining).
+    #[cfg(test)]
     pub fn rows(&self) -> &[Row] {
         &self.rows
     }
 
     /// Rows suitable for display, including the current partial line if any.
+    #[cfg(test)]
     pub fn display_rows(&self) -> Vec<Row> {
         let mut out = self.rows.clone();
         if !self.current_line.is_empty() {
@@ -89,22 +101,7 @@ impl RowBuilder {
         out
     }
 
-    /// Drain the oldest rows that exceed `max_keep` display rows (including the
-    /// current partial line, if any). Returns the drained rows in order.
-    pub fn drain_commit_ready(&mut self, max_keep: usize) -> Vec<Row> {
-        let display_count = self.rows.len() + if self.current_line.is_empty() { 0 } else { 1 };
-        if display_count <= max_keep {
-            return Vec::new();
-        }
-        let to_commit = display_count - max_keep;
-        let commit_count = to_commit.min(self.rows.len());
-        let mut drained = Vec::with_capacity(commit_count);
-        for _ in 0..commit_count {
-            drained.push(self.rows.remove(0));
-        }
-        drained
-    }
-
+    #[cfg(test)]
     fn flush_current_line(&mut self, explicit_break: bool) {
         // Wrap any remaining content in the current line and then finalize with explicit_break.
         self.wrap_current_line();
@@ -131,6 +128,7 @@ impl RowBuilder {
         self.current_line.clear();
     }
 
+    #[cfg(test)]
     fn wrap_current_line(&mut self) {
         // While the current_line exceeds width, cut a prefix.
         loop {
@@ -170,6 +168,7 @@ impl RowBuilder {
 
 /// Take a prefix of `text` whose visible width is at most `max_cols`.
 /// Returns (prefix, suffix, prefix_width).
+#[cfg(test)]
 pub fn take_prefix_by_width(text: &str, max_cols: usize) -> (String, &str, usize) {
     if max_cols == 0 || text.is_empty() {
         return (String::new(), text, 0);

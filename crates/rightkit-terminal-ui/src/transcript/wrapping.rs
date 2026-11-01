@@ -27,6 +27,7 @@
 
 use ratatui::text::Line;
 use ratatui::text::Span;
+#[cfg(test)]
 use std::borrow::Cow;
 use std::ops::Range;
 use textwrap::Options;
@@ -35,6 +36,7 @@ use textwrap::core::Word;
 use textwrap::word_splitters::split_words;
 use unicode_segmentation::UnicodeSegmentation;
 
+#[cfg(test)]
 use crate::terminal::line_utils::push_owned_lines;
 use crate::transcript::line_truncation::line_width;
 use crate::transcript::width::display_width;
@@ -752,26 +754,6 @@ pub(crate) fn adaptive_wrap_line_with_source<'a>(
     }
 }
 
-/// Preserve fitting URL tokens while splitting oversized tokens within the requested width.
-/// Source ranges and hanging indents survive the fallback, without terminal autowrap.
-pub(crate) fn adaptive_wrap_line_to_width<'a>(
-    line: &'a Line<'a>,
-    options: RtOptions<'a>,
-) -> Vec<WrappedLine<'a>> {
-    let wrapped = adaptive_wrap_line_with_source(line, options.clone());
-    if wrapped
-        .iter()
-        .any(|row| line_width(&row.line) > options.width)
-    {
-        word_wrap_line_with_source(
-            line,
-            url_preserving_wrap_options(options).break_words(/*break_words*/ true),
-        )
-    } else {
-        wrapped
-    }
-}
-
 /// Wraps multiple input lines with URL-aware heuristics, applying
 /// `initial_indent` to the first line and `subsequent_indent` to the
 /// rest. Each line is independently checked for URLs; URL detection on
@@ -780,6 +762,7 @@ pub(crate) fn adaptive_wrap_line_to_width<'a>(
 /// This is the multi-line counterpart to [`adaptive_wrap_line`] and is
 /// the primary wrapping entry point for most history-cell rendering.
 #[allow(private_bounds)]
+#[cfg(test)]
 pub(crate) fn adaptive_wrap_lines<'a, I, L>(
     lines: I,
     width_or_options: RtOptions<'a>,
@@ -883,6 +866,7 @@ impl<'a> RtOptions<'a> {
         }
     }
 
+    #[cfg(test)]
     pub fn wrap_algorithm(self, wrap_algorithm: textwrap::WrapAlgorithm) -> RtOptions<'a> {
         RtOptions {
             wrap_algorithm,
@@ -1259,12 +1243,15 @@ fn flatten_line(line: &Line<'_>) -> (String, Vec<(Range<usize>, ratatui::style::
 
 /// Utilities to allow wrapping either borrowed or owned lines.
 #[derive(Debug)]
+#[cfg(test)]
 enum LineInput<'a> {
     Borrowed(&'a Line<'a>),
     Owned(Line<'a>),
 }
 
+#[cfg(test)]
 impl<'a> LineInput<'a> {
+    #[cfg(test)]
     fn as_ref(&self) -> &Line<'a> {
         match self {
             LineInput::Borrowed(line) => line,
@@ -1274,52 +1261,61 @@ impl<'a> LineInput<'a> {
 }
 
 /// This trait makes it easier to pass whatever we need into word_wrap_lines.
+#[cfg(test)]
 trait IntoLineInput<'a> {
     fn into_line_input(self) -> LineInput<'a>;
 }
 
+#[cfg(test)]
 impl<'a> IntoLineInput<'a> for &'a Line<'a> {
     fn into_line_input(self) -> LineInput<'a> {
         LineInput::Borrowed(self)
     }
 }
 
+#[cfg(test)]
 impl<'a> IntoLineInput<'a> for &'a mut Line<'a> {
     fn into_line_input(self) -> LineInput<'a> {
         LineInput::Borrowed(self)
     }
 }
 
+#[cfg(test)]
 impl<'a> IntoLineInput<'a> for Line<'a> {
     fn into_line_input(self) -> LineInput<'a> {
         LineInput::Owned(self)
     }
 }
 
+#[cfg(test)]
 impl<'a> IntoLineInput<'a> for String {
     fn into_line_input(self) -> LineInput<'a> {
         LineInput::Owned(Line::from(self))
     }
 }
 
+#[cfg(test)]
 impl<'a> IntoLineInput<'a> for &'a str {
     fn into_line_input(self) -> LineInput<'a> {
         LineInput::Owned(Line::from(self))
     }
 }
 
+#[cfg(test)]
 impl<'a> IntoLineInput<'a> for Cow<'a, str> {
     fn into_line_input(self) -> LineInput<'a> {
         LineInput::Owned(Line::from(self))
     }
 }
 
+#[cfg(test)]
 impl<'a> IntoLineInput<'a> for Span<'a> {
     fn into_line_input(self) -> LineInput<'a> {
         LineInput::Owned(Line::from(self))
     }
 }
 
+#[cfg(test)]
 impl<'a> IntoLineInput<'a> for Vec<Span<'a>> {
     fn into_line_input(self) -> LineInput<'a> {
         LineInput::Owned(Line::from(self))
@@ -1329,6 +1325,7 @@ impl<'a> IntoLineInput<'a> for Vec<Span<'a>> {
 /// Wrap a sequence of lines, applying the initial indent only to the very first
 /// output line, and using the subsequent indent for all later wrapped pieces.
 #[allow(private_bounds)] // IntoLineInput isn't public, but it doesn't really need to be.
+#[cfg(test)]
 pub(crate) fn word_wrap_lines<'a, I, O, L>(lines: I, width_or_options: O) -> Vec<Line<'static>>
 where
     I: IntoIterator<Item = L>,

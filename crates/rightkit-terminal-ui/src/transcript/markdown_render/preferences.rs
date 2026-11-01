@@ -42,6 +42,7 @@ thread_local! {
     static RENDERING: std::cell::Cell<TuiRendering> = std::cell::Cell::new(TuiRendering::default());
 }
 
+#[cfg(test)]
 pub(crate) fn init(rendering: TuiRendering) {
     #[cfg(not(test))]
     {

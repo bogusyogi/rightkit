@@ -9,6 +9,7 @@ pub(crate) enum ListSpacing {
     #[default]
     AfterMultiline,
     /// Do not add separators between siblings while an owned transcript streams.
+    #[cfg(test)]
     Compact,
     /// Separate every sibling if any item occupies multiple rendered rows.
     Uniform,

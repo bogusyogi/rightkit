@@ -7,7 +7,6 @@
 //! it is supposedly next to -- "shearing" -- on emoji, tabs, or paste
 //! markers.
 
-use unicode_width::UnicodeWidthChar;
 use unicode_width::UnicodeWidthStr;
 
 /// Columns a tab advances the cursor by. Terminals disagree on real tab
@@ -17,14 +16,14 @@ pub const TAB_WIDTH: usize = 4;
 
 /// Width of one grapheme cluster as it will occupy on screen.
 ///
-/// Paste placeholders are donor atomic [`TextElement`]s rendered as labels,
+/// Paste placeholders are donor atomic `TextElement`s rendered as labels,
 /// so no private-use marker resolution is needed here — the old
 /// `PasteRegistry` marker path is superseded by `textarea` elements.
 pub fn grapheme_width(g: &str) -> usize {
-    if let Some(c) = single_char(g) {
-        if c == '\t' {
-            return TAB_WIDTH;
-        }
+    if let Some(c) = single_char(g)
+        && c == '\t'
+    {
+        return TAB_WIDTH;
     }
     // unicode-width returns 0 for combining marks and control characters;
     // a lone unprintable grapheme still occupies a cell when rendered as a
@@ -44,25 +43,6 @@ pub(crate) fn display_width(text: &str) -> usize {
             .chars()
             .filter(|ch| matches!(ch, '\u{FF9E}' | '\u{FF9F}'))
             .count()
-}
-
-/// Returns a scalar's terminal width, treating halfwidth sound marks as visible cells.
-pub(crate) fn char_width(ch: char) -> usize {
-    if matches!(ch, '\u{FF9E}' | '\u{FF9F}') {
-        1
-    } else {
-        UnicodeWidthChar::width(ch).unwrap_or(0)
-    }
-}
-
-/// Returns usable content width after reserving fixed columns.
-///
-/// Guarantees a strict positive width (`Some(n)` where `n > 0`) or `None` when
-/// the reserved columns consume the full width.
-pub(crate) fn usable_content_width(total_width: usize, reserved_cols: usize) -> Option<usize> {
-    total_width
-        .checked_sub(reserved_cols)
-        .filter(|remaining| *remaining > 0)
 }
 
 fn single_char(g: &str) -> Option<char> {

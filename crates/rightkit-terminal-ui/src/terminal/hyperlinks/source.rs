@@ -2,6 +2,7 @@
 
 use ratatui::style::Style;
 use ratatui::text::Line;
+#[cfg(test)]
 use ratatui::text::Span;
 use std::ops::Range;
 use std::sync::Arc;
@@ -11,9 +12,6 @@ use std::sync::Arc;
 pub(crate) enum LineWrapPolicy {
     #[default]
     Word,
-    /// Keep fitting URL tokens intact and split oversized tokens to fit the viewport.
-    UrlAware,
-    Hard,
 }
 
 /// A displayed line's contiguous fragment of one original logical line.
@@ -80,6 +78,7 @@ impl LogicalLineSource {
         source
     }
 
+    #[cfg(test)]
     pub(crate) fn styled_range(&self, range: Range<usize>) -> Line<'static> {
         Line::from(
             self.styles

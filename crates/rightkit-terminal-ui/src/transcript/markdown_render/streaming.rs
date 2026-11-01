@@ -21,14 +21,13 @@ pub(crate) struct StreamingMarkdownRender {
     /// Styled output produced by the same parser pass that collected the metadata below.
     pub(crate) lines: Vec<HyperlinkLine>,
     /// Source line containing an unfinished display equation, which must not enter scrollback.
+    #[cfg(test)]
     pub(crate) pending_math_start: Option<usize>,
     /// Byte offset of the final top-level block when at least one earlier block exists.
+    #[cfg(test)]
     pub(crate) last_top_level_block_start: Option<usize>,
-    /// Whether a reference definition can retroactively change another block's rendering.
-    pub(crate) has_reference_link_definition: bool,
-    /// Whether the first block is raw HTML, which joins a retained prefix without a separator.
-    pub(crate) first_top_level_block_is_html: bool,
     /// Transformable fences in the final block stay mutable, including within a list or quote.
+    #[cfg(test)]
     pub(crate) mutable_fence_start: Option<usize>,
 }
 
@@ -53,7 +52,6 @@ pub(crate) fn render_streaming_markdown_lines_with_width_and_cwd(
     let directives = InlineDirectives::new(input, options);
     let math = MathMarkdown::new(&directives.markdown, options, width);
     let parser = Parser::new_ext(&math.markdown, options);
-    let has_reference_link_definition = parser.reference_definitions().iter().next().is_some();
     let parser = TopLevelBlockTracker {
         iter: DecodedTextMerge::new(super::source_tables::preserve(
             input,
@@ -72,7 +70,9 @@ pub(crate) fn render_streaming_markdown_lines_with_width_and_cwd(
     writer.run(&mut parser);
     StreamingMarkdownRender {
         lines: writer.text,
+        #[cfg(test)]
         pending_math_start: math.pending_start,
+        #[cfg(test)]
         last_top_level_block_start: (parser.block_count > 1)
             .then_some(parser.last_start)
             .filter(|start| math.pending_start.is_none_or(|pending| *start <= pending))
@@ -82,8 +82,7 @@ pub(crate) fn render_streaming_markdown_lines_with_width_and_cwd(
                     .iter()
                     .any(|range| range.start < *start && *start < range.end)
             }),
-        has_reference_link_definition,
-        first_top_level_block_is_html: parser.first_is_html,
+        #[cfg(test)]
         mutable_fence_start: parser.mutable_fence_start,
     }
 }

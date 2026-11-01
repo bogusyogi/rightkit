@@ -300,14 +300,12 @@ impl StreamingMarkdownBuffer {
         while pos < len {
             let at_line_start = pos == 0 || bytes[pos - 1] == b'\n';
 
-            if at_line_start {
-                if let Some(new_pos) = self.process_line_start(&mut state, pos) {
-                    pos = new_pos;
-                    if state.is_clean() {
-                        last_safe = pos;
-                    }
-                    continue;
+            if at_line_start && let Some(new_pos) = self.process_line_start(&mut state, pos) {
+                pos = new_pos;
+                if state.is_clean() {
+                    last_safe = pos;
                 }
+                continue;
             }
 
             if state.in_code_block {
@@ -721,6 +719,7 @@ use pulldown_cmark::CodeBlockKind;
 use pulldown_cmark::Event;
 use pulldown_cmark::Tag;
 use pulldown_cmark::TagEnd;
+#[cfg(test)]
 use ratatui::text::Line;
 use std::borrow::Cow;
 use std::ops::Range;
@@ -737,6 +736,7 @@ use crate::transcript::table_detect;
 ///
 /// Callers that already know the session working directory should pass it here so streamed and
 /// non-streamed rendering show the same relative path text even if the process cwd differs.
+#[cfg(test)]
 pub(crate) fn append_markdown(
     markdown_source: &str,
     width: Option<usize>,
@@ -822,6 +822,7 @@ pub(crate) fn render_markdown_agent_with_list_spacing(
 /// Block offsets are mapped back to `markdown_source` after Markdown table fences are unwrapped.
 /// If a normalized boundary cannot be expressed as a raw-source suffix, it is discarded so the
 /// transformed block remains mutable.
+#[cfg(test)]
 pub(crate) fn render_streaming_markdown_agent_with_links_and_cwd(
     markdown_source: &str,
     width: Option<usize>,
