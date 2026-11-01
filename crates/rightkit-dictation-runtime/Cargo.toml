@@ -1,0 +1,100 @@
+[package]
+name = "rightkit-dictation-runtime"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Dictation engine runtime: the JSON-RPC sidecar worker (recording, finalize, polish, delivery decisions), speech service, IPC, crash capture and engine paths for a push-to-talk dictation engine."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "data/**", "examples/**", "build.rs", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_dictation_runtime"
+path = "src/lib.rs"
+
+[features]
+rust-kws = ["rightkit-dictation-inference/rust-kws"]
+test-mode = ["rightkit-daemon/test-mode", "rightkit-dictation-core/test-mode", "rightkit-dictation-inference/test-mode", "rightkit-dictation-text-pipeline/test-mode", "rightkit-dictation-command-host/test-mode", "rightkit-dictation-models/test-mode", "rightkit-onnx/dev-overrides"]
+
+[dependencies]
+rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
+rightkit-text-polish = { version = "0.1.0", path = "../rightkit-text-polish" }
+rightkit-voice-commands = { version = "0.1.0", path = "../rightkit-voice-commands" }
+rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
+rightkit-dictation-models = { version = "0.1.0", path = "../rightkit-dictation-models" }
+rightkit-dictation-text-pipeline = { version = "0.1.0", path = "../rightkit-dictation-text-pipeline" }
+rightkit-dictation-inference = { version = "0.1.0", path = "../rightkit-dictation-inference" }
+rightkit-dictation-command-host = { version = "0.1.0", path = "../rightkit-dictation-command-host" }
+rightkit-automation = { version = "0.6.4", path = "../rightkit-automation", features = ["desktop-context"] }
+rightkit-speech-client = { version = "0.4.1", path = "../rightkit-speech-client" }
+rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon" }
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
+rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
+rightkit-job-queue = { version = "0.5.1", default-features = false, features = ["protocol"], path = "../rightkit-job-queue" }
+rightkit-crash = { version = "0.3.6", default-features = false, path = "../rightkit-crash" }
+rightkit-logs = { version = "0.3.7", default-features = false, features = ["tracing"], path = "../rightkit-logs" }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs"], path = "../rightkit-fs" }
+rightkit-audio = { version = "0.3.1", default-features = false, features = ["capture"], path = "../rightkit-audio" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+tracing = { version = "0.1" }
+parking_lot = { version = "0.13" }
+sys-locale = { version = "0.3" }
+libloading = { version = "0.9" }
+anyhow = { version = "1" }
+rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session"], path = "../rightkit-onnx" }
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3.7", default-features = false }
+core-foundation = { version = "0.10" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_Security_Cryptography_Catalog", "Win32_Security_Cryptography_Sip", "Win32_Security_WinTrust", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_Debug", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_Threading"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Power", "Win32_UI_WindowsAndMessaging"] }
+windows-core = { version = "0.62.2" }
+windows-implement = { version = "0.60" }
+
+[[example]]
+name = "ai_off_finalize_replay"
+required-features = ["test-mode"]
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-evidence-governance",
+  "capabilities": [
+    {
+      "capability": "evidence-governance",
+      "summary": "Evidence governance: certification, judgment dispatch and lifecycle receipts over evidence contracts; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

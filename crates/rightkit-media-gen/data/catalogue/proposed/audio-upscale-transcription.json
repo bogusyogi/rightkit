@@ -1,0 +1,579 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "provider": "fal",
+      "model": "google/gemini-3.8-flash-tts",
+      "kind": "voice",
+      "label": "Gemini 3.8 Flash TTS on fal ($0.045 per 1000 characters; caller states thousand_chars)",
+      "endpoint": "google/gemini-3.8-flash-tts",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "style_instructions",
+          "json_key": "style_instructions",
+          "type": "string"
+        },
+        {
+          "param": "voice",
+          "json_key": "voice",
+          "type": "string",
+          "enum": [
+            "Achernar",
+            "Achird",
+            "Algenib",
+            "Algieba",
+            "Alnilam",
+            "Aoede",
+            "Autonoe",
+            "Callirrhoe",
+            "Charon",
+            "Despina",
+            "Enceladus",
+            "Erinome",
+            "Fenrir",
+            "Gacrux",
+            "Iapetus",
+            "Kore",
+            "Laomedeia",
+            "Leda",
+            "Orus",
+            "Pulcherrima",
+            "Puck",
+            "Rasalgethi",
+            "Sadachbia",
+            "Sadaltager",
+            "Schedar",
+            "Sulafat",
+            "Umbriel",
+            "Vindemiatrix",
+            "Zephyr",
+            "Zubenelgenubi"
+          ],
+          "default": "Kore"
+        },
+        {
+          "param": "thousand_chars",
+          "type": "number",
+          "send": false,
+          "required": true,
+          "min": 0.001
+        }
+      ],
+      "pricing": {
+        "kind": "per_item",
+        "usd": 0.045,
+        "count_param": "thousand_chars"
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://fal.ai/models/google/gemini-3.8-flash-tts"
+    },
+    {
+      "provider": "fal",
+      "model": "fal-ai/inworld-tts-2",
+      "kind": "voice",
+      "label": "Inworld TTS-2 on fal ($0.01 per 1000 characters, 2000 characters max; caller states thousand_chars)",
+      "endpoint": "fal-ai/inworld-tts-2",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "text",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "voice",
+          "json_key": "voice",
+          "type": "string",
+          "enum": [
+            "Loretta (en)",
+            "Darlene (en)",
+            "Marlene (en)",
+            "Hank (en)",
+            "Evelyn (en)",
+            "Celeste (en)",
+            "Pippa (en)",
+            "Tessa (en)",
+            "Liam (en)",
+            "Callum (en)",
+            "Hamish (en)",
+            "Abby (en)",
+            "Graham (en)",
+            "Rupert (en)",
+            "Mortimer (en)",
+            "Snik (en)",
+            "Anjali (en)",
+            "Saanvi (en)",
+            "Arjun (en)",
+            "Claire (en)",
+            "Oliver (en)",
+            "Simon (en)",
+            "Elliot (en)",
+            "James (en)",
+            "Serena (en)",
+            "Gareth (en)",
+            "Vinny (en)",
+            "Lauren (en)",
+            "Jessica (en)",
+            "Ethan (en)",
+            "Tyler (en)",
+            "Jason (en)",
+            "Chloe (en)",
+            "Veronica (en)",
+            "Victoria (en)",
+            "Miranda (en)",
+            "Sebastian (en)",
+            "Victor (en)",
+            "Malcolm (en)",
+            "Kayla (en)",
+            "Nate (en)",
+            "Jake (en)",
+            "Brian (en)",
+            "Amina (en)",
+            "Kelsey (en)",
+            "Derek (en)",
+            "Grant (en)",
+            "Evan (en)",
+            "Alex (en)",
+            "Ashley (en)",
+            "Craig (en)",
+            "Deborah (en)",
+            "Dennis (en)",
+            "Edward (en)",
+            "Elizabeth (en)",
+            "Hades (en)",
+            "Julia (en)",
+            "Pixie (en)",
+            "Mark (en)",
+            "Olivia (en)",
+            "Priya (en)",
+            "Ronald (en)",
+            "Sarah (en)",
+            "Shaun (en)",
+            "Theodore (en)",
+            "Timothy (en)",
+            "Wendy (en)",
+            "Dominus (en)",
+            "Hana (en)",
+            "Clive (en)",
+            "Carter (en)",
+            "Blake (en)",
+            "Luna (en)",
+            "Yichen (zh)",
+            "Xiaoyin (zh)",
+            "Xinyi (zh)",
+            "Jing (zh)",
+            "Erik (nl)",
+            "Katrien (nl)",
+            "Lennart (nl)",
+            "Lore (nl)",
+            "Alain (fr)",
+            "Hélène (fr)",
+            "Mathieu (fr)",
+            "Étienne (fr)",
+            "Johanna (de)",
+            "Josef (de)",
+            "Gianni (it)",
+            "Orietta (it)",
+            "Asuka (ja)",
+            "Satoshi (ja)",
+            "Hyunwoo (ko)",
+            "Minji (ko)",
+            "Seojun (ko)",
+            "Yoona (ko)",
+            "Szymon (pl)",
+            "Wojciech (pl)",
+            "Heitor (pt)",
+            "Maitê (pt)",
+            "Diego (es)",
+            "Lupita (es)",
+            "Miguel (es)",
+            "Rafael (es)",
+            "Svetlana (ru)",
+            "Elena (ru)",
+            "Dmitry (ru)",
+            "Nikolai (ru)",
+            "Riya (hi)",
+            "Manoj (hi)",
+            "Yael (he)",
+            "Oren (he)",
+            "Nour (ar)",
+            "Omar (ar)"
+          ],
+          "default": "Craig (en)"
+        },
+        {
+          "param": "audio_encoding",
+          "json_key": "audio_encoding",
+          "type": "string",
+          "enum": [
+            "MP3",
+            "LINEAR16",
+            "OGG_OPUS",
+            "FLAC",
+            "PCM",
+            "WAV"
+          ],
+          "default": "MP3"
+        },
+        {
+          "param": "speed",
+          "json_key": "speed",
+          "type": "number",
+          "min": 0.5,
+          "max": 1.5,
+          "default": 1
+        },
+        {
+          "param": "apply_text_normalization",
+          "json_key": "apply_text_normalization",
+          "type": "string",
+          "enum": [
+            "ON",
+            "OFF"
+          ],
+          "default": "ON"
+        },
+        {
+          "param": "thousand_chars",
+          "type": "number",
+          "send": false,
+          "required": true,
+          "min": 0.001,
+          "max": 2
+        }
+      ],
+      "pricing": {
+        "kind": "per_item",
+        "usd": 0.01,
+        "count_param": "thousand_chars"
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://fal.ai/models/fal-ai/inworld-tts-2"
+    },
+    {
+      "provider": "wavespeed",
+      "model": "inworld/realtime-tts-2",
+      "kind": "voice",
+      "label": "Inworld Realtime TTS 2 on WaveSpeed ($0.05 per 1000 characters, 2000 characters max; caller states thousand_chars)",
+      "endpoint": "inworld/realtime-tts-2",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "text",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "voice_id",
+          "json_key": "voice_id",
+          "type": "string",
+          "enum": [
+            "Alex",
+            "Ashley",
+            "Craig",
+            "Deborah",
+            "Dennis",
+            "Edward",
+            "Elizabeth",
+            "Hades",
+            "Julia",
+            "Pixie",
+            "Mark",
+            "Olivia",
+            "Priya",
+            "Ronald",
+            "Sarah",
+            "Shaun",
+            "Theodore",
+            "Timothy",
+            "Wendy",
+            "Dominus",
+            "Hana",
+            "Clive",
+            "Carter",
+            "Blake",
+            "Luna",
+            "Yichen",
+            "Xiaoyin",
+            "Xinyi",
+            "Jing",
+            "Erik",
+            "Katrien",
+            "Lennart",
+            "Lore",
+            "Alain",
+            "Hélène",
+            "Mathieu",
+            "Étienne",
+            "Johanna",
+            "Josef",
+            "Gianni",
+            "Orietta",
+            "Asuka",
+            "Satoshi",
+            "Hyunwoo",
+            "Minji",
+            "Seojun",
+            "Yoona",
+            "Szymon",
+            "Wojciech",
+            "Heitor",
+            "Maitê",
+            "Diego",
+            "Lupita",
+            "Miguel",
+            "Rafael",
+            "Svetlana",
+            "Elena",
+            "Dmitry",
+            "Nikolai",
+            "Riya",
+            "Manoj",
+            "Yael",
+            "Oren",
+            "Nour",
+            "Omar"
+          ],
+          "default": "Dennis"
+        },
+        {
+          "param": "speaking_rate",
+          "json_key": "speaking_rate",
+          "type": "number",
+          "min": 0.5,
+          "max": 1.5,
+          "default": 1
+        },
+        {
+          "param": "temperature",
+          "json_key": "temperature",
+          "type": "number",
+          "min": 0.7,
+          "max": 1.5,
+          "default": 1
+        },
+        {
+          "param": "output_format",
+          "json_key": "output_format",
+          "type": "string",
+          "enum": [
+            "MP3",
+            "LINEAR16",
+            "OGG_OPUS",
+            "FLAC",
+            "WAV"
+          ],
+          "default": "MP3"
+        },
+        {
+          "param": "thousand_chars",
+          "type": "number",
+          "send": false,
+          "required": true,
+          "min": 0.001,
+          "max": 2
+        }
+      ],
+      "pricing": {
+        "kind": "per_item",
+        "usd": 0.05,
+        "count_param": "thousand_chars"
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://wavespeed.ai/models/inworld/realtime-tts-2"
+    },
+    {
+      "provider": "fal",
+      "model": "fal-ai/lyria3",
+      "kind": "music",
+      "label": "Lyria 3 on fal (30-second clip with optional vocals, $0.04 per audio)",
+      "endpoint": "fal-ai/lyria3",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "image_url",
+          "json_key": "image_url",
+          "type": "url",
+          "role": "reference"
+        }
+      ],
+      "pricing": {
+        "kind": "flat",
+        "usd": 0.04
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://fal.ai/models/fal-ai/lyria3",
+      "durations": {
+        "durations_s": [
+          30
+        ],
+        "default_duration_s": 30
+      }
+    },
+    {
+      "provider": "wavespeed",
+      "model": "google/lyria-3.5/music",
+      "kind": "music",
+      "label": "Lyria 3.5 on WaveSpeed ($0.10 per run)",
+      "endpoint": "google/lyria-3.5/music",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "image",
+          "json_key": "image",
+          "type": "url",
+          "role": "reference"
+        }
+      ],
+      "pricing": {
+        "kind": "flat",
+        "usd": 0.1
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://wavespeed.ai/models/google/lyria-3.5/music"
+    },
+    {
+      "provider": "wavespeed",
+      "model": "google/lyria-3-pro/music",
+      "kind": "music",
+      "label": "Lyria 3 Pro on WaveSpeed ($0.08 per run)",
+      "endpoint": "google/lyria-3-pro/music",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "image",
+          "json_key": "image",
+          "type": "url",
+          "role": "reference"
+        }
+      ],
+      "pricing": {
+        "kind": "flat",
+        "usd": 0.08
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://wavespeed.ai/models/google/lyria-3-pro/music"
+    },
+    {
+      "provider": "wavespeed",
+      "model": "google/lyria-3-clip/music",
+      "kind": "music",
+      "label": "Lyria 3 Clip on WaveSpeed ($0.04 per run)",
+      "endpoint": "google/lyria-3-clip/music",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "image",
+          "json_key": "image",
+          "type": "url",
+          "role": "reference"
+        }
+      ],
+      "pricing": {
+        "kind": "flat",
+        "usd": 0.04
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://wavespeed.ai/models/google/lyria-3-clip/music"
+    },
+    {
+      "provider": "fal",
+      "model": "fal-ai/stable-audio-3/small/sfx/text-to-audio",
+      "kind": "sfx",
+      "label": "Stable Audio 3 Small SFX on fal (1-120 s, $0.0206 per audio)",
+      "endpoint": "fal-ai/stable-audio-3/small/sfx/text-to-audio",
+      "inputs": [
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string",
+          "required": true
+        },
+        {
+          "param": "negative_prompt",
+          "json_key": "negative_prompt",
+          "type": "string"
+        },
+        {
+          "param": "duration",
+          "json_key": "duration",
+          "type": "number",
+          "min": 1,
+          "max": 120,
+          "default": 30
+        },
+        {
+          "param": "num_inference_steps",
+          "json_key": "num_inference_steps",
+          "type": "integer",
+          "min": 1,
+          "max": 100,
+          "default": 8
+        },
+        {
+          "param": "seed",
+          "json_key": "seed",
+          "type": "integer"
+        },
+        {
+          "param": "output_format",
+          "json_key": "output_format",
+          "type": "string",
+          "enum": [
+            "mp3",
+            "wav",
+            "flac",
+            "ogg",
+            "opus",
+            "m4a",
+            "aac"
+          ],
+          "default": "mp3"
+        },
+        {
+          "param": "bitrate",
+          "json_key": "bitrate",
+          "type": "string",
+          "default": "192k"
+        }
+      ],
+      "pricing": {
+        "kind": "flat",
+        "usd": 0.0206
+      },
+      "priced_at": "2026-10-12",
+      "price_source": "https://fal.ai/models/fal-ai/stable-audio-3/small/sfx/text-to-audio",
+      "durations": {
+        "min_duration_s": 1,
+        "max_duration_s": 120,
+        "default_duration_s": 30
+      }
+    }
+  ]
+}

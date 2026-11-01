@@ -1,0 +1,26 @@
+# Classification cases shared by both layers. Consumers:
+#   - src-tauri/src/documents_tests.rs (format_of, cargo test)
+#   - scripts/qa-document-io-e2e.mjs (runDocumentFormatClassification, real open path)
+#   - scripts/check-format-taxonomy.mjs (fixture agrees with shared/document_formats.tsv)
+# path<TAB>expected format
+notes.md	md
+NOTES.MD	md
+doc.mdx	mdx
+readme.txt	txt
+data.JSON	txt
+photo.PNG	image
+scan.jpeg	image
+report.pdf	pdf
+page.htm	html
+letter.docx	docx
+archive.tar.gz	unknown
+binary.exe	unknown
+trailing.	unknown
+README	txt
+Makefile	txt
+Dockerfile	txt
+.env	txt
+.gitignore	txt
+dir.v2/README	txt
+dir.v2/.env	txt
+x/.hidden.txt	txt

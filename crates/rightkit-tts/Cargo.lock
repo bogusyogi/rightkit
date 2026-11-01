@@ -334,14 +334,14 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "sha2",
 ]
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "ort",
  "serde",

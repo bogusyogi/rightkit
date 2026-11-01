@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.9 (unreleased)
+
+- Feature `agent_ort`: shared ONNX Runtime session helpers for agent hosts, moved from CodeRight `coderight-ort-common`.
+
 ## 0.2.8 — unpublished staging
 
 - SUITE PIN: `ort` =2.0.0-rc.14 -> =2.0.0-rc.15 (ndarray stays 0.17, `api-24` unchanged); no source change in this crate. (rightkit#1284)

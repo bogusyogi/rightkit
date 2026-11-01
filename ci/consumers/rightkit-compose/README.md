@@ -1,6 +1,6 @@
-# rightkit-compose 0.2.0 registry consumer
+# rightkit-compose 0.2.1 registry consumer
 
-Standalone consumer, outside the workspace, pinning `rightkit-compose =0.2.0` exactly. The crate has
+Standalone consumer, outside the workspace, pinning `rightkit-compose =0.2.1` exactly. The crate has
 no features, so the dependency uses the default (empty) set. It also depends on `serde_json = "1"` to
 write composition documents and to check the wire form of `SignedTicks`, `Opacity` and `Easing`.
 The crate is pure Rust with no platform-specific code, so the same recipe runs on Windows and macOS

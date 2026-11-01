@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-dictation-inference",
+  "capabilities": [
+    {
+      "capability": "dictation-inference",
+      "summary": "Dictation inference: Parakeet TDT on CoreML and ONNX Runtime, Whisper, keyword spotting, VAD, calibration, file transcription and the ASR timeline, for a push-to-talk dictation engine.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

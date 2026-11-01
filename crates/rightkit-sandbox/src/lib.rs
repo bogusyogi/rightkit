@@ -43,6 +43,8 @@ mod resources;
 mod seccomp;
 mod spawn;
 
+#[cfg(feature = "execution")]
+pub mod execution;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]

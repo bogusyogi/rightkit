@@ -1025,6 +1025,12 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
       recorded.push({ group: entry.group, command: entry.command });
       let snapshot;
       try { snapshot = probe.groupSnapshot(entry.group); } catch (e) { throw new Error(`detached process group ${entry.group} cannot be listed (${e.message})`); }
+      // The entry is written after the spawn returns, so the group's own leader (pid == group) started before the file's mtime. A
+      // leader that started later is a new process that took the id: the kernel reuses a group id only once that group is empty.
+      let writtenMs = NaN;
+      try { writtenMs = fs.statSync(path.join(registry, name)).mtimeMs; } catch { /* unknown: judged as before */ }
+      const leader = snapshot.members.find((m) => m.pid === entry.group);
+      if (leader && Number.isFinite(writtenMs) && leader.startedMs > writtenMs + START_SLACK_MS) continue;
       const live = snapshot.members.filter((m) => m.pid !== selfPid && m.startedMs >= entry.startedMs - START_SLACK_MS).map((m) => m.pid);
       if (live.length) throw new Error(`detached process group ${entry.group} (${entry.command}) still has ${live.length} member(s): ${live.join(", ")}`);
     }

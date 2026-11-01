@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 (unreleased)
+
+- New, additive (feature `still-finish`, off by default): `still_finish`, keyless still finishing. `still_finish::run(input, dry_run)` composites a PNG logo onto each input PNG at a corner and writes every result under a naming template (`{stem}`, `{index}`, date parts); inputs and the logo are only read, an existing output is refused, a template may not carry path separators, drive prefixes, `..` or Windows reserved names, and every output is composited before the first write. Errors are `StillFinishError { code, message }`. Donor: GenRight `genright-engine/src/still_finish.rs`. The default build and the existing API are unchanged.
+
 ## 0.2.0 (2026-10-17)
 
 - Added `opacity` module (rightkit#351): validated `Opacity` (`new`, `clamped`, `as_f64`, `as_f32`, `constant_track`), a `FrameFade` primitive with `opacity_at` and `opacity_track`, and `OpacityError`. `ClipVisual` opacity is validated through it.

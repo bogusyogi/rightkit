@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-credentials"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager / Linux Secret Service / Android Keystore, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration."
@@ -37,8 +37,8 @@ serde_json = "1.0.154"
 thiserror = "2"
 getrandom = "0.4"
 zeroize = "1.9"
-rightkit-app-settings = { version = "0.3.0", path = "../rightkit-app-settings", optional = true }
-rightkit-db = { version = "0.5.1", path = "../rightkit-db", optional = true, default-features = false }
+rightkit-app-settings = { version = "0.3.1", path = "../rightkit-app-settings", optional = true }
+rightkit-db = { version = "0.5.3", path = "../rightkit-db", optional = true, default-features = false }
 sha2 = { version = "0.11.1", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]

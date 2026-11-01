@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3 (unreleased)
+
+- Added the `secure_prompt` module (every OS, no feature): `ask(target, caption, message)` opens the system credential dialog (Windows `CredUIPromptForCredentialsW`, nothing persisted, buffers wiped) and returns `Entered { visible, masked }` with the masked box zeroized on drop; other systems answer an error. Moved from Pulse's hub. Additive.
+
 ## 0.4.2 — 2026-10-22
 
 - Astra review hardening (hand-off): duplicate-name detection is set-based (linear, was quadratic with permissive `Limits`); `expect_reply` refuses a directly constructed strict reply that carries Absent or ReadFailed entries; the docs no longer claim stale-reply rejection beyond the id check (callers use unique ids and accept one reply; the transport owns replay protection). Two regression tests added.

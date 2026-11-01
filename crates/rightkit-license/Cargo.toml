@@ -41,14 +41,14 @@ ed25519-dalek = "3"
 base64 = "0.23"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rightkit-http = { version = "0.3.6", path = "../rightkit-http", optional = true }
-rightkit-credentials = { version = "0.4.2", path = "../rightkit-credentials", optional = true }
+rightkit-http = { version = "0.3.9", path = "../rightkit-http", optional = true }
+rightkit-credentials = { version = "0.4.3", path = "../rightkit-credentials", optional = true }
 zeroize = { version = "1.9", optional = true }
 url = { version = "2", optional = true }
 
 [dev-dependencies]
 # Loopback mock server for tests/subject_entitlement.rs and tests/client_*.rs (gated on the features above).
-rightkit-http = { version = "0.3.6", path = "../rightkit-http", features = ["testing"] }
+rightkit-http = { version = "0.3.9", path = "../rightkit-http", features = ["testing"] }
 tempfile = "3"
 
 [package.metadata.rightkit]

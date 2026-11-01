@@ -7,7 +7,7 @@
 //! a path created and gone again inside one batch (an atomic-save temp file) is dropped, and a
 //! rename chain `a -> b -> c` collapses to a single `a -> c`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use notify::event::{ModifyKind, RenameMode};
@@ -51,6 +51,10 @@ struct Touch {
 pub struct ChangeCoalescer {
     touched: BTreeMap<PathBuf, Touch>,
     renames: Vec<(PathBuf, PathBuf)>,
+    /// Paths an earlier drain reported as existing. FSEvents re-reports an item's accumulated
+    /// `ItemCreated` flag with its `ItemRemoved`, so a file created in an earlier batch can look
+    /// created-and-deleted inside one window; a path in this set is still a removal (#1348).
+    reported: BTreeSet<PathBuf>,
 }
 
 impl ChangeCoalescer {
@@ -134,7 +138,9 @@ impl ChangeCoalescer {
         for (path, touch) in &touched {
             if exists(path) {
                 batch.changed.push(path.clone());
-            } else if touch.first != First::Created {
+                self.reported.insert(path.clone());
+            } else if touch.first != First::Created || self.reported.remove(path) {
+                self.reported.remove(path);
                 batch.removed.push(path.clone());
             }
         }
@@ -142,6 +148,8 @@ impl ChangeCoalescer {
             if from == to || ephemeral(&from, &touched) || !exists(&to) || exists(&from) {
                 continue;
             }
+            self.reported.remove(&from);
+            self.reported.insert(to.clone());
             batch.renamed.push(Rename { from, to });
         }
         batch.renamed.sort_by(|a, b| a.from.cmp(&b.from));
@@ -238,5 +246,40 @@ mod tests {
         assert_eq!(batch.removed, vec![from.clone()]);
         assert_eq!(batch.renamed, vec![Rename { from, to }]);
         assert!(coalescer.is_empty());
+    }
+
+    #[test]
+    fn a_file_reported_earlier_is_removed_even_when_its_create_flag_is_replayed() {
+        // FSEvents replays ItemCreated with ItemRemoved: notify emits Create then Remove for a
+        // file that already existed in an earlier batch (#1348).
+        let dir = std::env::temp_dir().join(format!("rk-coalesce-1348-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("b.txt");
+        std::fs::write(&file, "two").unwrap();
+        let mut coalescer = ChangeCoalescer::new();
+        coalescer
+            .push_watch_event(&WatchEvent::Create(file.clone()))
+            .unwrap();
+        assert_eq!(coalescer.drain().changed, vec![file.clone()]);
+        std::fs::remove_file(&file).unwrap();
+        coalescer
+            .push_watch_event(&WatchEvent::Create(file.clone()))
+            .unwrap();
+        coalescer
+            .push_watch_event(&WatchEvent::Delete(file.clone()))
+            .unwrap();
+        let batch = coalescer.drain();
+        assert_eq!(batch.removed, vec![file.clone()]);
+        assert!(batch.changed.is_empty());
+        // A file created and deleted inside one window, never reported, stays invisible.
+        let ghost = dir.join("ghost.txt");
+        coalescer
+            .push_watch_event(&WatchEvent::Create(ghost.clone()))
+            .unwrap();
+        coalescer
+            .push_watch_event(&WatchEvent::Delete(ghost))
+            .unwrap();
+        assert!(coalescer.drain().is_empty());
+        let _ = std::fs::remove_dir(&dir);
     }
 }

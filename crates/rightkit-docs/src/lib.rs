@@ -29,6 +29,10 @@
 mod detect;
 mod docx;
 mod error;
+/// Document file IO for a viewer (feature `files`): format table, encoding-faithful text read and
+/// save, binary read limits, fingerprints and conflict-checked atomic writes.
+#[cfg(feature = "files")]
+pub mod files;
 mod limits;
 mod model;
 mod package;

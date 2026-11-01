@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-evidence",
+  "capabilities": [
+    {
+      "capability": "evidence",
+      "summary": "Evidence and spec records: requirement specs, acceptance evidence and verification status for agent work; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

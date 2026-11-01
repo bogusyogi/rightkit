@@ -1,0 +1,139 @@
+# Reference workflow: document onboarding.
+# - Triggered manually when an operator drags a document into the
+#   desktop onboarding surface.
+# - Reads the document, classifies it, transforms it to the requested
+#   target format, and offers to save the result as a workspace draft.
+# - No dangerous capabilities; the only effect is a workspace draft.
+
+kind: coderight-workflow/v1
+schema_version: 1
+id: wfd-document-onboarding
+name: Document onboarding
+description: >
+  Read a document the operator supplies, classify its structure,
+  transform it into the requested target format (json or markdown),
+  and offer to save the result as a workspace draft. Never publish,
+  never send, never overwrite existing files without an explicit
+  approval gate.
+
+trigger:
+  manual:
+    initiator_kinds: ["user", "desktop"]
+
+inputs:
+  source_path:
+    type: string
+    required: true
+    description: "Absolute path to the document the operator wants to onboard."
+  target_format:
+    type: string
+    required: true
+    description: "Target format. One of: json | markdown."
+
+capabilities:
+  - Capability::ReadFiles
+
+nodes:
+  - id: read-document
+    kind: Agent
+    label: Read the source document
+    capabilities:
+      - Capability::ReadFiles
+    attempt:
+      max_attempts: 2
+      backoff:
+        kind: exponential
+        base_ms: 250
+        max_ms: 4000
+        jitter: 0.1
+      retry_on:
+        - TransientNetwork
+    payload:
+      role: document_reader
+      output_schema: schema://document-onboarding/raw-v1
+      spec: |
+        Read the document at `inputs.source_path`. Return a structured
+        document including the raw content, a content hash, the detected
+        mime type, and any encoding hints. Do not modify the source.
+
+  - id: classify-document
+    kind: Agent
+    label: Classify the document
+    capabilities:
+      - Capability::ReadFiles
+    attempt:
+      max_attempts: 2
+      backoff:
+        kind: exponential
+        base_ms: 250
+        max_ms: 4000
+        jitter: 0.1
+      retry_on:
+        - TransientNetwork
+    payload:
+      role: document_classifier
+      output_schema: schema://document-onboarding/classification-v1
+      spec: |
+        Classify the document into one of: notes | transcript | report |
+        research | other. Return the classification, the confidence, the
+        inferred audience, and any detected sections.
+
+  - id: transform-document
+    kind: Transform
+    label: Transform document into target format
+    capabilities:
+      - Capability::ReadFiles
+    attempt:
+      max_attempts: 2
+      backoff:
+        kind: exponential
+        base_ms: 250
+        max_ms: 4000
+        jitter: 0.1
+      retry_on:
+        - TransientNetwork
+    payload:
+      transform: format-converter
+      source: read-document.output.document
+      classification: classify-document.output
+      target_format: inputs.target_format
+      template: |
+        Render the source document into the target format using the
+        classification hints. Preserve heading hierarchy, code blocks,
+        and citations where possible.
+
+  - id: offer-to-save
+    kind: Effect
+    label: Stage the transformed document as a workspace draft
+    capabilities: []
+    attempt:
+      max_attempts: 2
+      backoff:
+        kind: exponential
+        base_ms: 250
+        max_ms: 4000
+        jitter: 0.1
+      retry_on:
+        - TransientNetwork
+        - LeaseLost
+    when: "transform-document.output.document != ''"
+    effects:
+      - kind: draft
+        destination: coderight://workspace-draft
+        idempotency_key: "doc-onboarding:${hash(inputs.source_path)}:${inputs.target_format}:${transform-document.output.content_hash}"
+        payload: transform-document.output.document
+        approval_required: true
+        reconcile: lookup workspace draft by idempotency key before retry
+
+edges:
+  - { from: start,                 to: read-document }
+  - { from: read-document,         to: classify-document }
+  - { from: classify-document,     to: transform-document }
+  - { from: transform-document,    to: offer-to-save }
+  - { from: offer-to-save,         to: end }
+
+budgets:
+  cost_usd: 0.30
+  tokens: 6000
+  wall_time_seconds: 180
+  depth: 2

@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-repo-graph-grammars",
+  "capabilities": [
+    {
+      "capability": "repo-graph-grammars",
+      "summary": "Vendored tree-sitter grammars (ql, systemrdl, vue) for the repository graph, with no crates.io equivalent for tree-sitter-language 0.1.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

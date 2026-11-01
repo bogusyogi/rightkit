@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-agent-engine-cli-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-agent-engine-cli = { version = "=0.1.0" }
+clap = { version = "4", features = ["derive"] }

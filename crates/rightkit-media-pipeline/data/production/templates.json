@@ -1,0 +1,341 @@
+{
+  "schema_version": "1.0.0",
+  "brands": [
+    "DD",
+    "RH",
+    "TS",
+    "HR",
+    "DV",
+    "KDP",
+    "NA"
+  ],
+  "default_brand": "DD",
+  "default_channels": [
+    "instagram-reels",
+    "meta-feed"
+  ],
+  "channels": [
+    {
+      "id": "instagram-reels",
+      "label": "Instagram Reels",
+      "short": "Reels",
+      "aspect": "9:16",
+      "duration_s": 10,
+      "caption_style": "clean creator captions",
+      "cta": "Save this"
+    },
+    {
+      "id": "tiktok",
+      "label": "TikTok",
+      "short": "TikTok",
+      "aspect": "9:16",
+      "duration_s": 9,
+      "caption_style": "native short punch captions",
+      "cta": "Tap through"
+    },
+    {
+      "id": "youtube-shorts",
+      "label": "YouTube Shorts",
+      "short": "Shorts",
+      "aspect": "9:16",
+      "duration_s": 12,
+      "caption_style": "large readable captions",
+      "cta": "Watch the full breakdown"
+    },
+    {
+      "id": "meta-feed",
+      "label": "Meta Feed",
+      "short": "Meta Feed",
+      "aspect": "1:1",
+      "duration_s": 8,
+      "caption_style": "quiet product captions",
+      "cta": "Shop now"
+    },
+    {
+      "id": "meta-story",
+      "label": "Meta Story",
+      "short": "Story",
+      "aspect": "9:16",
+      "duration_s": 7,
+      "caption_style": "minimal story captions",
+      "cta": "Swipe"
+    },
+    {
+      "id": "linkedin-feed",
+      "label": "LinkedIn Feed",
+      "short": "LinkedIn",
+      "aspect": "4:5",
+      "duration_s": 15,
+      "caption_style": "professional proof captions",
+      "cta": "See the details"
+    }
+  ],
+  "aspects": [
+    "9:16",
+    "1:1",
+    "16:9",
+    "4:5"
+  ],
+  "audio_modes": [
+    "silent",
+    "voiceover",
+    "music"
+  ],
+  "camera_profiles": [
+    "controlled-product",
+    "macro-product"
+  ],
+  "lenses": [
+    "50mm product lens",
+    "85mm macro"
+  ],
+  "movements": [
+    "slow push-in",
+    "slow push with half-orbit"
+  ],
+  "defaults": {
+    "project_slug": "campaign-session",
+    "product_name": "Obsidian deck box",
+    "offer": "Launch bundle with free inserts",
+    "audience": "trading card collectors",
+    "promise": "protect rare cards without looking childish",
+    "style_notes": "product silhouette, material detail, logo placement",
+    "director": {
+      "camera_profile": "macro-product",
+      "lens": "85mm macro",
+      "movement": "slow push with half-orbit",
+      "duration": 8,
+      "aspect": "9:16",
+      "audio_mode": "silent"
+    },
+    "post": {
+      "captions": true,
+      "music": false,
+      "watermark": true
+    }
+  },
+  "fallbacks": {
+    "product_name": "approved product",
+    "offer": "the current offer",
+    "audience": "the target buyer",
+    "project_slug": "campaign-factory",
+    "director_subject": "approved product or character",
+    "camera_profile": "controlled-product",
+    "lens": "50mm product lens",
+    "movement": "slow push-in",
+    "aspect": "9:16",
+    "continuity_locks": [
+      "subject silhouette",
+      "material detail"
+    ],
+    "duration": 6,
+    "duration_min": 1,
+    "duration_max": 12
+  },
+  "locks": {
+    "product_ref": {
+      "label": "Product reference",
+      "required": true,
+      "note": "Required for product fidelity"
+    },
+    "logo": {
+      "label": "Logo / mark",
+      "required": true,
+      "note": "Required for final campaign export"
+    },
+    "character": {
+      "label": "Character / host",
+      "required": false,
+      "note": "Optional unless the ad uses a person or recurring host"
+    },
+    "voice": {
+      "label": "Voice",
+      "required": false,
+      "note": "Optional for silent drafts; ready for VO handoff when set"
+    }
+  },
+  "hooks": [
+    {
+      "id": "hook-problem",
+      "label": "Problem",
+      "angle": "pain-open",
+      "line": "{audience} keep settling for gear that does not fit the job."
+    },
+    {
+      "id": "hook-product",
+      "label": "Product Reveal",
+      "angle": "show-the-object",
+      "line": "{product} makes the upgrade obvious in the first three seconds."
+    },
+    {
+      "id": "hook-promise",
+      "label": "Promise",
+      "angle": "desired-state",
+      "line": "{promise}."
+    },
+    {
+      "id": "hook-offer",
+      "label": "Offer",
+      "angle": "offer-close",
+      "line": "{offer}, built for {audience}."
+    }
+  ],
+  "scenes": [
+    {
+      "id": "scene-1",
+      "label": "Hook Frame",
+      "duration_s": 2,
+      "visual_role": "attention",
+      "needs_ref": null,
+      "prompt": "Fast clean opener for {audience}: frame the problem before revealing {product}.",
+      "voiceover": "{audience} notice this immediately."
+    },
+    {
+      "id": "scene-2",
+      "label": "Product Lock",
+      "duration_s": 3,
+      "visual_role": "identity",
+      "needs_ref": "product_ref",
+      "prompt": "Hero product frame of {product}. Preserve shape, materials, logo placement, and scale.",
+      "voiceover": "{product} keeps the promise: {promise}."
+    },
+    {
+      "id": "scene-3",
+      "label": "Use Moment",
+      "duration_s": 3,
+      "visual_role": "proof",
+      "needs_ref": "product_ref",
+      "prompt": "Show {product} in a realistic use moment for {audience}; no extra text artifacts.",
+      "voiceover": "The useful part is visible, not explained."
+    },
+    {
+      "id": "scene-4",
+      "label": "Offer Close",
+      "duration_s": 2,
+      "visual_role": "conversion",
+      "needs_ref": "logo",
+      "prompt": "Resolve into a clean final lockup for {offer}. Keep negative space for captions and CTA.",
+      "voiceover": "{offer}."
+    }
+  ],
+  "handoff": {
+    "image_prompt": "{product} hero frame for {audience}. {promise}. Clean brand-safe composition, no unreadable text.",
+    "video_prompt": "{product} campaign for {audience}. Open with: {hook0}. Show {offer}. Resolve with a clear product lock and CTA.",
+    "tts_script": "{hook0} {offer}. {promise}.",
+    "image": {
+      "provider": "nanobanana",
+      "model": "nano-banana-2",
+      "resolution": "2K",
+      "notes": "Campaign hero/start frame from the Production stack",
+      "aspects": [
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4",
+        "3:2",
+        "2:3",
+        "21:9"
+      ]
+    },
+    "video": {
+      "provider": "wavespeed",
+      "model": "seedance-2-fast",
+      "resolution": "720p",
+      "min_duration_s": 4,
+      "max_duration_s": 5,
+      "aspects": [
+        "9:16",
+        "16:9"
+      ],
+      "mood": "clean campaign motion"
+    },
+    "voice": {
+      "provider": "elevenlabs",
+      "model": "eleven_v4_turbo",
+      "emotion_tags": [
+        "campaign",
+        "clear"
+      ]
+    },
+    "reasons": {
+      "image_no_ref": "No product reference set; image handoff will start from text and may drift.",
+      "video_no_ref": "Seedance video handoff requires a product reference/start frame.",
+      "video_aspect": "Seedance renders 16:9 or 9:16; {aspect} is sent as {sent} and cropped in post.",
+      "voice_no_script": "Voice handoff requires a generated script.",
+      "image_aspect": "{aspect} is not a native image ratio; the hero frame is generated at {sent}."
+    },
+    "source_frame_read_ok": "the product reference image defines product identity, shape, materials, and scale",
+    "source_frame_read_missing": "start frame required before video generation; use image handoff to create one first"
+  },
+  "director": {
+    "prompt_addendum": "{profile} direction, {lens}, {movement}. Preserve {locks}.",
+    "checklist": [
+      "Start frame identity is readable before motion begins",
+      "No synthetic text appears unless supplied as a reference",
+      "Subject stays inside the central safe area",
+      "End frame resolves cleanly for crop and captions"
+    ],
+    "primary_action": "{subject} holds a single coherent hero action while the camera performs {movement}",
+    "motion_budget": "one readable motion idea; avoid chaotic secondary movement",
+    "lighting_lock": "stable motivated light with no flicker or exposure pumping",
+    "negative_prompt": [
+      "warped identity",
+      "extra objects",
+      "unreadable text",
+      "flicker",
+      "broken product geometry"
+    ],
+    "segments": [
+      {
+        "from": 0.0,
+        "to": 0.3,
+        "camera": "establish the subject before {movement}",
+        "action": "{subject} is readable and stable",
+        "forbidden_zone": "no immediate morphing, crop loss, or text artifacts"
+      },
+      {
+        "from": 0.3,
+        "to": 0.7,
+        "camera": "{movement}",
+        "action": "main motion beat",
+        "forbidden_zone": "no secondary chaos, duplicate objects, or warped identity"
+      },
+      {
+        "from": 0.7,
+        "to": 1.0,
+        "camera": "settle into final lock",
+        "action": "hold a clean exportable end frame",
+        "forbidden_zone": "no late new props, no logo smearing, no exposure pump"
+      }
+    ]
+  },
+  "post": {
+    "steps": [
+      {
+        "text": "crop {aspect}",
+        "when": null
+      },
+      {
+        "text": "trim to {duration_s}s",
+        "when": null
+      },
+      {
+        "text": "burn captions",
+        "when": "captions"
+      },
+      {
+        "text": "mix music bed",
+        "when": "music"
+      },
+      {
+        "text": "apply brand/logo bug",
+        "when": "watermark"
+      },
+      {
+        "text": "write metadata sidecar",
+        "when": null
+      }
+    ]
+  }
+}

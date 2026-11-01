@@ -1,0 +1,10 @@
+{
+  "profile": "desktop",
+  "M22": {
+    "role": "host",
+    "entrypoints": [
+      "crates/engine/src/main.rs#contract",
+      "crates/engine/src/main.rs#main"
+    ]
+  }
+}

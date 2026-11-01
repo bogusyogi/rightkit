@@ -1,5 +1,7 @@
 //! Versioned per-app settings persistence. See README.md.
 
+#[cfg(feature = "agent_config")]
+pub mod agent_config;
 mod atomic;
 mod backend;
 mod document;

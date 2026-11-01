@@ -6,6 +6,8 @@
 //! A "slide count" is not a property of a media container; the nearest is `frame_count`
 //! (GIF image frames). Deck formats (PDF, PPTX) are not probed here.
 
+use std::io::{Read, Seek, SeekFrom};
+
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Probe {
     pub width: Option<u32>,
@@ -476,6 +478,157 @@ pub fn probe_path(path: &std::path::Path) -> std::io::Result<Probe> {
     Ok(probe(&std::fs::read(path)?))
 }
 
+// Bounded file probing and media-type sniffing.
+
+/// Leading bytes read from a file for `probe_prefix`.
+pub const PROBE_PREFIX_BYTES: usize = 1 << 20;
+
+/// Probe a file from its first bytes (`prefix`) when its full length is `total_len`.
+/// Dimensions come from headers inside the prefix, so an MP4 whose `moov` box sits
+/// past the prefix yields nulls here; use [`probe_media`] for a file on disk, which
+/// seeks to `moov`. FLAC and MP4 durations come from headers and stay
+/// exact. WAV and MP3 durations sum the bytes present, so they are dropped when the
+/// prefix is not the whole file.
+pub fn probe_prefix(prefix: &[u8], total_len: u64) -> Probe {
+    let mut p = probe(prefix);
+    p.size_bytes = total_len;
+    let whole = prefix.len() as u64 >= total_len;
+    let sums_bytes =
+        prefix.starts_with(b"RIFF") || prefix.starts_with(b"ID3") || mp3_sync(prefix, 0);
+    if !whole && sums_bytes {
+        p.duration_s = None;
+    }
+    p
+}
+
+/// Largest file [`probe_file`] reads whole (WAV and MP3 durations sum the bytes present).
+pub const PROBE_FILE_MAX_BYTES: u64 = 512 << 20;
+/// Largest `moov` box [`probe_file`] reads from an MP4/MOV.
+const PROBE_MOOV_MAX_BYTES: u64 = 64 << 20;
+
+fn read_up_to<R: Read>(f: &mut R, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut got = 0;
+    while got < buf.len() {
+        match f.read(&mut buf[got..])? {
+            0 => break,
+            n => got += n,
+        }
+    }
+    Ok(got)
+}
+
+/// Probe a local file for its real dimensions and duration, which price a request whose billed
+/// seconds come from this media. An MP4/MOV is read box by box, so only its `ftyp` and `moov`
+/// boxes are loaded wherever the `moov` sits; any other format is read whole up to
+/// [`PROBE_FILE_MAX_BYTES`]. A format or file the probe cannot read yields nulls, never a guess.
+pub fn probe_file(path: &std::path::Path) -> std::io::Result<Probe> {
+    let mut f = std::fs::File::open(path)?;
+    let len = f.metadata()?.len();
+    let mut head = [0u8; 12];
+    let n = read_up_to(&mut f, &mut head)?;
+    if n >= 12 && &head[4..8] == b"ftyp" {
+        return mp4_from_reader(&mut f, len);
+    }
+    f.seek(SeekFrom::Start(0))?;
+    if len <= PROBE_FILE_MAX_BYTES {
+        let mut all = Vec::with_capacity(len as usize);
+        f.read_to_end(&mut all)?;
+        let mut p = probe(&all);
+        p.size_bytes = len;
+        return Ok(p);
+    }
+    let mut prefix = vec![0u8; PROBE_PREFIX_BYTES];
+    let got = read_up_to(&mut f, &mut prefix)?;
+    prefix.truncate(got);
+    Ok(probe_prefix(&prefix, len))
+}
+
+/// Walk the top-level boxes of an MP4/MOV of `len` bytes read from `r`, by size, and join the
+/// `ftyp` and `moov` boxes wherever they sit. Every other box is skipped by seeking past its
+/// payload, `mdat` included, so media data is never read. A 64-bit `largesize` header and a
+/// size of 0 (the box runs to end of file) are both honored.
+fn mp4_from_reader<R: Read + Seek>(r: &mut R, len: u64) -> std::io::Result<Probe> {
+    let mut joined: Vec<u8> = Vec::new();
+    let mut at = 0u64;
+    while at + 8 <= len {
+        r.seek(SeekFrom::Start(at))?;
+        let mut h = [0u8; 16];
+        let got = read_up_to(r, &mut h)?;
+        if got < 8 {
+            break;
+        }
+        let size32 = u64::from(u32::from_be_bytes([h[0], h[1], h[2], h[3]]));
+        let size = match size32 {
+            0 => len - at,
+            1 if got >= 16 => {
+                u64::from_be_bytes([h[8], h[9], h[10], h[11], h[12], h[13], h[14], h[15]])
+            }
+            1 => break,
+            s => s,
+        };
+        if size < 8 || (size32 == 1 && size < 16) {
+            break;
+        }
+        let end = at.saturating_add(size).min(len);
+        if &h[4..8] == b"ftyp" || &h[4..8] == b"moov" {
+            if end - at > PROBE_MOOV_MAX_BYTES {
+                break;
+            }
+            r.seek(SeekFrom::Start(at))?;
+            let mut boxed = vec![0u8; (end - at) as usize];
+            r.read_exact(&mut boxed)?;
+            joined.extend_from_slice(&boxed);
+        }
+        at = end;
+    }
+    let mut p = probe(&joined);
+    p.size_bytes = len;
+    Ok(p)
+}
+
+/// Probe a file whose leading bytes are already in memory (`prefix`, of a file `total_len`
+/// long). An MP4/MOV is re-read from disk through [`probe_file`], so a `moov` box past the
+/// prefix is still found; any other format is probed from `prefix` by [`probe_prefix`].
+pub fn probe_media(
+    path: &std::path::Path,
+    prefix: &[u8],
+    total_len: u64,
+) -> std::io::Result<Probe> {
+    if prefix.len() >= 12 && &prefix[4..8] == b"ftyp" {
+        return probe_file(path);
+    }
+    Ok(probe_prefix(prefix, total_len))
+}
+
+/// Media type of `data` by magic bytes, for exactly the formats [`probe`] reads (PNG, JPEG, GIF,
+/// WebP, WAV, FLAC, MP4/MOV/M4A, MP3). `None` for anything else; the declared extension is never
+/// trusted. Lets an importer refuse unsupported files.
+pub fn sniff_mime(data: &[u8]) -> Option<&'static str> {
+    if data.starts_with(&[0x89, b'P', b'N', b'G']) {
+        Some("image/png")
+    } else if data.starts_with(&[0xFF, 0xD8]) {
+        Some("image/jpeg")
+    } else if data.starts_with(b"GIF8") {
+        Some("image/gif")
+    } else if data.len() >= 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else if data.len() >= 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"WAVE" {
+        Some("audio/wav")
+    } else if data.starts_with(b"fLaC") {
+        Some("audio/flac")
+    } else if data.len() >= 12 && &data[4..8] == b"ftyp" {
+        Some(match &data[8..12] {
+            b"qt  " => "video/quicktime",
+            b"M4A " | b"M4B " => "audio/mp4",
+            _ => "video/mp4",
+        })
+    } else if data.starts_with(b"ID3") || (mp3_sync(data, 0) && mp3(data).is_some()) {
+        Some("audio/mpeg")
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod size_codec_tests {
     use super::*;
@@ -516,5 +669,36 @@ mod size_codec_tests {
     fn wav_codec_from_format_tag() {
         assert_eq!(wav_codec(1, 16), "pcm_s16le");
         assert_eq!(wav_codec(3, 32), "pcm_f32le");
+    }
+}
+
+#[cfg(test)]
+mod file_probe_tests {
+    use super::*;
+
+    #[test]
+    fn sniff_mime_reads_magic_bytes() {
+        assert_eq!(
+            sniff_mime(&[0x89, b'P', b'N', b'G', 0, 0]),
+            Some("image/png")
+        );
+        assert_eq!(sniff_mime(b"fLaC...."), Some("audio/flac"));
+        assert_eq!(sniff_mime(b"plain text"), None);
+    }
+
+    #[test]
+    fn probe_prefix_keeps_the_total_length() {
+        let p = probe_prefix(b"not media", 1000);
+        assert_eq!(p.size_bytes, 1000);
+        assert_eq!(p.duration_s, None);
+    }
+
+    #[test]
+    fn probe_file_reports_size() {
+        let path = std::env::temp_dir().join(format!("rk-quickprobe-{}.bin", std::process::id()));
+        std::fs::write(&path, b"0123456789").unwrap();
+        let p = probe_file(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(p.size_bytes, 10);
     }
 }

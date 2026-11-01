@@ -1,0 +1,87 @@
+[package]
+name = "rightkit-terminal-ui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.0"
+description = "Terminal UI for agent sessions: ratatui chat transcript, composer, approvals, diffs and status widgets"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "assets/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_terminal_ui"
+path = "src/lib.rs"
+
+[dependencies]
+rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
+rightkit-fs = { version = "0.4.9", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs" }
+rightkit-child-process = { version = "0.5.7", features = ["tokio"], path = "../rightkit-child-process" }
+ratatui = { version = "0.30", default-features = false, features = ["crossterm", "unstable-widget-ref", "unstable-rendered-line-info", "unstable-backend-writer", "scrolling-regions"] }
+crossterm = { version = "0.29" }
+tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
+unicode-width = { version = "0.2" }
+unicode-segmentation = { version = "1" }
+regex = { version = "1" }
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+itertools = { version = "0.15" }
+textwrap = { version = "0.16" }
+url = { version = "2" }
+urlencoding = { version = "2" }
+regex-lite = { version = "0.1" }
+syntect = { version = "5", default-features = false, features = ["parsing", "plist-load", "regex-onig"] }
+two-face = { version = "0.5", default-features = false, features = ["syntect-onig"] }
+tracing = { version = "0.1", features = ["log"] }
+diffy = { version = "0.5" }
+supports-color = { version = "3" }
+serde_json = { version = "1", features = ["preserve_order"] }
+vt100 = { version = "0.16" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros", "sync", "time", "test-util"] }
+pretty_assertions = { version = "1" }
+insta = { version = "1" }
+rand = { version = "0.10" }
+tempfile = { version = "3" }
+chrono = { version = "0.4" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_Threading"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2" }
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

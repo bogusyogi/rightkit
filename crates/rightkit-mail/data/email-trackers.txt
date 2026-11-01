@@ -1,0 +1,114 @@
+# Curated host-suffix blocklist for known email/marketing tracking-pixel
+# services. One registrable-ish host per line; comments start with '#' and
+# blank lines are ignored. Matching is suffix-on-host (see rightkit-mail images::trackers):
+# "track.mixmax.com" blocks that host AND any subdomain of it, never a
+# substring match against the full URL.
+#
+# Source: JannikArndt/EMailTrackerBlocker (HOSTS.txt), a hosts-file blocklist
+# of domains used by email open/click trackers (Mixmax, Yesware, Sidekick,
+# Mailchimp, SendGrid, Mandrill, Intercom, Mixpanel, etc.). Same list backs
+# the MailTrackerBlocker plugin for Apple Mail.
+#   https://github.com/JannikArndt/EMailTrackerBlocker/blob/master/HOSTS.txt
+# License: Apache License 2.0.
+#   https://github.com/JannikArndt/EMailTrackerBlocker/blob/master/LICENSE
+# Retrieved: 2026-07-04. Deduplicated + trailing whitespace trimmed from the
+# upstream file; entries otherwise verbatim. 98 entries.
+
+api.mixpanel.com
+app.mixmax.com
+app.outreach.io
+app.relateiq.com
+app.yesware.com
+bl-1.com
+cl.exct.net
+click.icptrack.com
+click.mailer.atlassian.com
+cmail1.com
+constantcontact.com
+doubleclick.net
+elaine-asp.de
+emailtracking.azure.com
+go.rjmetrics.com
+go.toutapp.com
+google-analytics.com
+icptrack.com
+ihrgeld2016.com
+infusionsoft.com
+launchbit.com
+links.mixmax.com
+list-manage.com
+list-manage1.com
+mailchimp.com
+maileon.com
+mailfoogae.appspot.com
+mailstat.us
+mailtrack.io
+mandrillapp.com
+marketing.intercom-mail-200.com
+mixpanel.com
+mkt4477.com
+mkto-k0023.com
+ping.answerbook.com
+pstmrk.it
+securepubads.g.doubleclick.net
+sendgrid.net
+t.hsms06.com
+t.senalcinco.com
+t.senaldos.com
+t.senalquatro.com
+t.senaltres.com
+t.senaluno.com
+t.sidekickopen01.com
+t.sidekickopen02.com
+t.sidekickopen03.com
+t.sidekickopen04.com
+t.sidekickopen05.com
+t.sidekickopen06.com
+t.sidekickopen07.com
+t.sidekickopen08.com
+t.sidekickopen09.com
+t.sidekickopen10.com
+t.sidekickopen11.com
+t.sidekickopen12.com
+t.signalecinque.com
+t.signaledue.com
+t.signalequattro.com
+t.signaletre.com
+t.signaleuna.com
+t.signauxcinq.com
+t.signauxdeux.com
+t.signauxdix.com
+t.signauxhuit.com
+t.signauxneuf.com
+t.signauxquatre.com
+t.signauxsept.com
+t.signauxsix.com
+t.signauxtrois.com
+t.signauxun.com
+t.sigopn01.com
+t.sigopn02.com
+t.sigopn03.com
+t.sigopn04.com
+t.sigopn05.com
+t.strk01.email
+t.strk02.email
+t.strk03.email
+t.strk04.email
+t.strk05.email
+t.strk06.email
+t.strk07.email
+t.strk08.email
+t.strk09.email
+t.strk10.email
+t.strk11.email
+t.strk12.email
+t.strk13.email
+t.yesware.com
+track.getsidekick.com
+track.mixmax.com
+tracking.cirrusinsight.com
+trker1.azalead.com
+via.intercom.io
+web.frontapp.com
+webtrekk.net
+xqueue.de

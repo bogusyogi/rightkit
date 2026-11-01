@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-repo-graph-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-repo-graph = { version = "=0.1.0" }
+

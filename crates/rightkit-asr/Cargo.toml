@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-asr"
-version = "0.3.1"
+version = "0.3.4"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -35,18 +35,22 @@ ndarray = "0.17"
 realfft = "3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.6", features = ["ndarray", "half"] }
+rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.9", features = ["ndarray", "half"] }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
-rightkit-vad = { version = "0.1.0", path = "../rightkit-vad", default-features = false }
+rightkit-vad = { version = "0.1.2", path = "../rightkit-vad", default-features = false }
 # Optional since 0.2.0: only the `whisper-tokenizers` feature pulls the HF tokenizers
 # crate (and its C regex build). Parakeet CoreML and ONNX TDT paths do not need it.
+tracing = { version = "0.1", optional = true }
 tokenizers = { version = "0.23.2", default-features = false, features = ["onig"], optional = true }
 
 # whisper.cpp is bound through dlopen; it is not compiled for Android (see `src/whisper/cpp_android.rs`).
 [target.'cfg(not(target_os = "android"))'.dependencies]
 libloading = "0.9"
 # `WhisperCpp::load_verified` checks the library set against the native-library catalog before dlopen.
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.11" }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.13" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_System_SystemInformation"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 ={ version = "0.6", features = ["exception"] }
@@ -55,13 +59,19 @@ objc2-foundation = "0.3"
 
 [dev-dependencies]
 # The e2e_whisper test drives the Silero scorer, which rightkit-vad now gates behind `silero`.
-rightkit-vad = { version = "0.1.0", path = "../rightkit-vad", features = ["silero"] }
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.3" }
-rightkit-speech-client = { path = "../rightkit-speech-client", version = "0.4.0" }
+rightkit-vad = { version = "0.1.2", path = "../rightkit-vad", features = ["silero"] }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.13" }
+rightkit-speech-client = { path = "../rightkit-speech-client", version = "0.4.1" }
 
 [features]
 default = ["cpu", "ort-defaults", "whisper-tokenizers"]
 cpu = []
+# Compiles this crate's test-only environment switches (`RIGHTKIT_ASR_*`, `RIGHTKIT_ONNX_*`,
+# `RIGHTKIT_CONTROL_ALIGN_ENCODER_REUSE`). Never in a release build.
+test-mode = []
+# `onnx_tdt`: ONNX Runtime execution for Parakeet TDT (mel, encoder, decoder-joint sessions with
+# per-stage threading, DirectML adapter choice and batched decoder runs).
+onnx-tdt = ["dep:tracing", "dep:windows-sys"]
 # HF tokenizers for the Whisper CoreML decoder, the CTC and EOU Parakeet decoders
 # and Cohere. Off: the Parakeet CoreML and ONNX TDT paths build without the C
 # tokenizers dependency (use `default-features = false`).

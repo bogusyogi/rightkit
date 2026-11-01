@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-voice-commands-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-voice-commands = { version = "=0.1.0" }

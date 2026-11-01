@@ -1,0 +1,58 @@
+[package]
+name = "rightkit-repo-graph-grammars"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Vendored tree-sitter grammars (ql, systemrdl, vue) for the repository graph, with no crates.io equivalent for tree-sitter-language 0.1."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE", "grammars/**", "build.rs", "VENDORED.md"]
+
+[lib]
+name = "rightkit_repo_graph_grammars"
+path = "src/lib.rs"
+
+[dependencies]
+tree-sitter-language = { version = "0.1" }
+
+[dev-dependencies]
+tree-sitter = { version = "0.27" }
+
+[build-dependencies]
+cc = { version = "1" }
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

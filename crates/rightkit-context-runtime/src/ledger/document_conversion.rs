@@ -1,0 +1,895 @@
+//! Explicitly granted, deterministic non-Markdown conversion into hash-bound Markdown.
+//!
+//! Conversion retains raw input in its result. Media never enters document text. Ledger owns
+//! this rebuildable normalization receipt, not source truth or durable storage.
+
+use flate2::{Decompress, FlushDecompress, Status};
+use rightkit_fs::digest::sha256_bytes;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentInputFormatV1 {
+    PlainText,
+    Html,
+    Json,
+    Docx,
+    Pdf,
+    Media(String),
+    Other(String),
+}
+
+impl DocumentInputFormatV1 {
+    pub fn storage_name(&self) -> String {
+        match self {
+            Self::PlainText => "plain_text".to_owned(),
+            Self::Html => "html".to_owned(),
+            Self::Json => "json".to_owned(),
+            Self::Docx => "docx".to_owned(),
+            Self::Pdf => "pdf".to_owned(),
+            Self::Media(media_type) => format!("media:{media_type}"),
+            Self::Other(format) => format!("other:{format}"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct DocumentConversionGrantV1 {
+    allowed_formats: BTreeSet<DocumentInputFormatV1>,
+    max_raw_bytes: usize,
+}
+
+impl DocumentConversionGrantV1 {
+    /// Construct an explicit host grant. Empty format sets remain fail-closed.
+    pub fn new(
+        allowed_formats: impl IntoIterator<Item = DocumentInputFormatV1>,
+        max_raw_bytes: usize,
+    ) -> Self {
+        Self {
+            allowed_formats: allowed_formats.into_iter().collect(),
+            max_raw_bytes,
+        }
+    }
+
+    pub fn denied() -> Self {
+        Self {
+            allowed_formats: BTreeSet::new(),
+            max_raw_bytes: 0,
+        }
+    }
+
+    pub fn config_digest(&self) -> String {
+        let formats = self
+            .allowed_formats
+            .iter()
+            .map(|format| format!("{format:?}"))
+            .collect::<Vec<_>>()
+            .join("\0");
+        digest(
+            format!(
+                "ledger.document-conversion.v2\0{formats}\0{}",
+                self.max_raw_bytes
+            )
+            .as_bytes(),
+        )
+    }
+}
+
+impl Default for DocumentConversionGrantV1 {
+    fn default() -> Self {
+        Self::denied()
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct DocumentConversionInputV1 {
+    pub source_ref: String,
+    pub format: DocumentInputFormatV1,
+    pub raw_input: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct ConverterProvenanceV1 {
+    pub converter: String,
+    pub version: String,
+    pub config_digest: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConversionLossV1 {
+    Utf8Replacement { replacement_count: usize },
+    FormattingFlattened,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConversionOmissionV1 {
+    EmbeddedMediaExcluded { count: usize },
+    CompressedPdfStreamExcluded { count: usize },
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct ConvertedDocumentV1 {
+    pub schema_version: String,
+    pub source_ref: String,
+    pub format: DocumentInputFormatV1,
+    /// Exact raw input retained for source resolution or deterministic replay.
+    pub raw_input: Vec<u8>,
+    pub raw_sha256: String,
+    pub markdown: String,
+    pub markdown_sha256: String,
+    pub converter: ConverterProvenanceV1,
+    pub losses: Vec<ConversionLossV1>,
+    pub omissions: Vec<ConversionOmissionV1>,
+}
+
+#[derive(Clone, Debug, thiserror::Error, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentConversionErrorV1 {
+    #[error("conversion_not_granted")]
+    NotGranted,
+    #[error("conversion_input_too_large")]
+    InputTooLarge { actual: usize, maximum: usize },
+    #[error("media_excluded")]
+    MediaExcluded { media_type: String },
+    #[error("unsupported_format")]
+    UnsupportedFormat { format: String },
+    #[error("invalid_input")]
+    InvalidInput { detail: String },
+    #[error("converter_unavailable")]
+    ConverterUnavailable { converter: String },
+    #[error("conversion_output_too_large")]
+    OutputTooLarge { actual: usize, maximum: usize },
+}
+
+/// Convert one explicitly granted input; default grant denies every format.
+pub fn convert_granted_document(
+    grant: &DocumentConversionGrantV1,
+    input: DocumentConversionInputV1,
+) -> Result<ConvertedDocumentV1, DocumentConversionErrorV1> {
+    if matches!(&input.format, DocumentInputFormatV1::Media(_)) {
+        let DocumentInputFormatV1::Media(media_type) = &input.format else {
+            unreachable!()
+        };
+        return Err(DocumentConversionErrorV1::MediaExcluded {
+            media_type: media_type.clone(),
+        });
+    }
+    if !grant.allowed_formats.contains(&input.format) {
+        return Err(DocumentConversionErrorV1::NotGranted);
+    }
+    if input.raw_input.len() > grant.max_raw_bytes {
+        return Err(DocumentConversionErrorV1::InputTooLarge {
+            actual: input.raw_input.len(),
+            maximum: grant.max_raw_bytes,
+        });
+    }
+    let raw_sha256 = digest(&input.raw_input);
+    let (text, utf8_replacements) = decode_utf8(&input.raw_input);
+    let mut losses = Vec::new();
+    if utf8_replacements > 0 {
+        losses.push(ConversionLossV1::Utf8Replacement {
+            replacement_count: utf8_replacements,
+        });
+    }
+    let mut omissions = Vec::new();
+    let (markdown, converter, version) = match &input.format {
+        DocumentInputFormatV1::PlainText => (text, "ledger.plain-text".to_owned(), "1".to_owned()),
+        DocumentInputFormatV1::Json => {
+            let value: serde_json::Value = serde_json::from_str(&text).map_err(|error| {
+                DocumentConversionErrorV1::InvalidInput {
+                    detail: format!("json:{error}"),
+                }
+            })?;
+            let normalized = serde_json::to_string_pretty(&value).map_err(|error| {
+                DocumentConversionErrorV1::InvalidInput {
+                    detail: format!("json:{error}"),
+                }
+            })?;
+            (
+                format!("```json\n{normalized}\n```\n"),
+                "ledger.json".to_owned(),
+                "1".to_owned(),
+            )
+        }
+        DocumentInputFormatV1::Html => {
+            let (normalized, media_count, had_markup) = normalize_html(&text);
+            if had_markup {
+                losses.push(ConversionLossV1::FormattingFlattened);
+            }
+            if media_count > 0 {
+                omissions.push(ConversionOmissionV1::EmbeddedMediaExcluded { count: media_count });
+            }
+            (normalized, "ledger.html-text".to_owned(), "1".to_owned())
+        }
+        DocumentInputFormatV1::Pdf => {
+            let (normalized, media_count, compressed_count) = normalize_pdf(&input.raw_input)?;
+            losses.push(ConversionLossV1::FormattingFlattened);
+            if media_count > 0 {
+                omissions.push(ConversionOmissionV1::EmbeddedMediaExcluded { count: media_count });
+            }
+            if compressed_count > 0 {
+                omissions.push(ConversionOmissionV1::CompressedPdfStreamExcluded {
+                    count: compressed_count,
+                });
+            }
+            (
+                normalized,
+                "ledger.pdf-literal-text".to_owned(),
+                "1".to_owned(),
+            )
+        }
+        DocumentInputFormatV1::Docx => {
+            let output_limit = grant.max_raw_bytes.saturating_mul(8).min(16 * 1024 * 1024);
+            let (normalized, media_count, converter_version) =
+                normalize_docx(&input.raw_input, output_limit)?;
+            losses.push(ConversionLossV1::FormattingFlattened);
+            if media_count > 0 {
+                omissions.push(ConversionOmissionV1::EmbeddedMediaExcluded { count: media_count });
+            }
+            (
+                normalized,
+                "ledger.docx-wordprocessingml".to_owned(),
+                converter_version,
+            )
+        }
+        DocumentInputFormatV1::Other(format) => {
+            return Err(DocumentConversionErrorV1::UnsupportedFormat {
+                format: format.clone(),
+            });
+        }
+        DocumentInputFormatV1::Media(_) => unreachable!(),
+    };
+    let markdown_sha256 = digest(markdown.as_bytes());
+    Ok(ConvertedDocumentV1 {
+        schema_version: "ledger.converted-document.v2".to_owned(),
+        source_ref: input.source_ref,
+        format: input.format,
+        raw_input: input.raw_input,
+        raw_sha256,
+        markdown,
+        markdown_sha256,
+        converter: ConverterProvenanceV1 {
+            converter,
+            version,
+            config_digest: grant.config_digest(),
+        },
+        losses,
+        omissions,
+    })
+}
+
+fn decode_utf8(raw: &[u8]) -> (String, usize) {
+    match std::str::from_utf8(raw) {
+        Ok(text) => (text.to_owned(), 0),
+        Err(_) => {
+            let text = String::from_utf8_lossy(raw).into_owned();
+            let replacements = text.matches('\u{fffd}').count();
+            (text, replacements)
+        }
+    }
+}
+
+fn normalize_html(html: &str) -> (String, usize, bool) {
+    let lower = html.to_ascii_lowercase();
+    let media_count = ["<img", "<video", "<audio", "<source"]
+        .iter()
+        .map(|needle| lower.match_indices(needle).count())
+        .sum();
+    let mut output = String::with_capacity(html.len());
+    let mut tag = String::new();
+    let mut in_tag = false;
+    let mut had_markup = false;
+    for character in html.chars() {
+        if character == '<' {
+            in_tag = true;
+            had_markup = true;
+            tag.clear();
+            continue;
+        }
+        if in_tag && character == '>' {
+            in_tag = false;
+            let name = tag
+                .trim()
+                .trim_start_matches('/')
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if matches!(
+                name.as_str(),
+                "p" | "div" | "br" | "li" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+            ) && !output.ends_with('\n')
+            {
+                output.push('\n');
+            }
+            continue;
+        }
+        if in_tag {
+            tag.push(character);
+        } else {
+            output.push(character);
+        }
+    }
+    let output = decode_entities_single_pass(&output);
+    let normalized = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    (format!("{normalized}\n"), media_count, had_markup)
+}
+
+fn normalize_pdf(raw: &[u8]) -> Result<(String, usize, usize), DocumentConversionErrorV1> {
+    if !raw.starts_with(b"%PDF-") {
+        return Err(DocumentConversionErrorV1::InvalidInput {
+            detail: "pdf_header_missing".to_owned(),
+        });
+    }
+    let text = String::from_utf8_lossy(raw);
+    let media_count = text.match_indices("/Subtype /Image").count();
+    let compressed_count = text.match_indices("/FlateDecode").count();
+    let bytes = text.as_bytes();
+    let mut fragments = Vec::new();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        if bytes[index] != b'(' {
+            index += 1;
+            continue;
+        }
+        let mut value = String::new();
+        let mut cursor = index + 1;
+        let mut depth = 1usize;
+        while cursor < bytes.len() && depth > 0 {
+            match bytes[cursor] {
+                b'\\' if cursor + 1 < bytes.len() => {
+                    cursor += 1;
+                    value.push(match bytes[cursor] {
+                        b'n' => '\n',
+                        b'r' => '\r',
+                        b't' => '\t',
+                        byte => byte as char,
+                    });
+                }
+                b'(' => {
+                    depth += 1;
+                    value.push('(');
+                }
+                b')' => {
+                    depth -= 1;
+                    if depth > 0 {
+                        value.push(')');
+                    }
+                }
+                byte => value.push(byte as char),
+            }
+            cursor += 1;
+        }
+        let operator = String::from_utf8_lossy(&bytes[cursor..bytes.len().min(cursor + 16)]);
+        let operator = operator.trim_start();
+        if depth == 0 && (operator.starts_with("Tj") || operator.starts_with("TJ")) {
+            let value = value.trim();
+            if !value.is_empty() {
+                fragments.push(value.to_owned());
+            }
+        }
+        index = cursor.max(index + 1);
+    }
+    if fragments.is_empty() {
+        return Err(DocumentConversionErrorV1::InvalidInput {
+            detail: "pdf_no_extractable_literal_text".to_owned(),
+        });
+    }
+    Ok((
+        format!("{}\n", fragments.join("\n\n")),
+        media_count,
+        compressed_count,
+    ))
+}
+
+fn normalize_docx(
+    raw: &[u8],
+    output_limit: usize,
+) -> Result<(String, usize, String), DocumentConversionErrorV1> {
+    if raw.len() < 4 || &raw[..4] != b"PK\x03\x04" {
+        return Err(DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_zip_header_missing".to_owned(),
+        });
+    }
+    let xml = extract_zip_entry(raw, b"word/document.xml", output_limit)?;
+    let xml = String::from_utf8(xml).map_err(|error| DocumentConversionErrorV1::InvalidInput {
+        detail: format!("docx_xml_utf8:{error}"),
+    })?;
+    let markdown = wordprocessingml_text(&xml);
+    if markdown.trim().is_empty() {
+        return Err(DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_no_text".to_owned(),
+        });
+    }
+    let media_occurrences = String::from_utf8_lossy(raw)
+        .match_indices("word/media/")
+        .count();
+    Ok((
+        markdown,
+        media_occurrences.div_ceil(2),
+        "zip-wordprocessingml-v1".to_owned(),
+    ))
+}
+
+fn extract_zip_entry(
+    archive: &[u8],
+    wanted_name: &[u8],
+    output_limit: usize,
+) -> Result<Vec<u8>, DocumentConversionErrorV1> {
+    #[derive(Clone, Copy)]
+    struct CentralEntry {
+        flags: u16,
+        method: u16,
+        crc: u32,
+        compressed_size: usize,
+        uncompressed_size: usize,
+        local_offset: usize,
+    }
+
+    const EOCD_SIGNATURE: &[u8; 4] = b"PK\x05\x06";
+    const CENTRAL_SIGNATURE: &[u8; 4] = b"PK\x01\x02";
+    const LOCAL_SIGNATURE: &[u8; 4] = b"PK\x03\x04";
+    const DATA_DESCRIPTOR_SIGNATURE: &[u8; 4] = b"PK\x07\x08";
+    let search_start = archive.len().saturating_sub(65_557);
+    let eocd = (search_start..archive.len().saturating_sub(3))
+        .rev()
+        .find(|offset| archive.get(*offset..offset + 4) == Some(EOCD_SIGNATURE.as_slice()))
+        .ok_or_else(|| DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_end_of_central_directory_missing".to_owned(),
+        })?;
+    if eocd + 22 > archive.len()
+        || read_u16(archive, eocd + 4)? != 0
+        || read_u16(archive, eocd + 6)? != 0
+        || read_u16(archive, eocd + 8)? != read_u16(archive, eocd + 10)?
+        || eocd + 22 + usize::from(read_u16(archive, eocd + 20)?) != archive.len()
+    {
+        return Err(DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_multidisk_zip_unsupported".to_owned(),
+        });
+    }
+    let entry_count = usize::from(read_u16(archive, eocd + 10)?);
+    let central_size = usize::try_from(read_u32(archive, eocd + 12)?).unwrap_or(usize::MAX);
+    let mut cursor = usize::try_from(read_u32(archive, eocd + 16)?).unwrap_or(usize::MAX);
+    let central_end = cursor
+        .checked_add(central_size)
+        .filter(|end| *end <= archive.len())
+        .ok_or_else(|| DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_central_directory_out_of_bounds".to_owned(),
+        })?;
+    if central_end != eocd {
+        return Err(DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_central_directory_eocd_mismatch".to_owned(),
+        });
+    }
+    let mut wanted = None;
+    for _ in 0..entry_count {
+        if cursor + 46 > central_end
+            || archive.get(cursor..cursor + 4) != Some(CENTRAL_SIGNATURE.as_slice())
+        {
+            return Err(DocumentConversionErrorV1::InvalidInput {
+                detail: "docx_central_directory_invalid".to_owned(),
+            });
+        }
+        let flags = read_u16(archive, cursor + 8)?;
+        let method = read_u16(archive, cursor + 10)?;
+        let expected_crc = read_u32(archive, cursor + 16)?;
+        let compressed_size =
+            usize::try_from(read_u32(archive, cursor + 20)?).unwrap_or(usize::MAX);
+        let uncompressed_size =
+            usize::try_from(read_u32(archive, cursor + 24)?).unwrap_or(usize::MAX);
+        let name_len = usize::from(read_u16(archive, cursor + 28)?);
+        let extra_len = usize::from(read_u16(archive, cursor + 30)?);
+        let comment_len = usize::from(read_u16(archive, cursor + 32)?);
+        let local_offset = usize::try_from(read_u32(archive, cursor + 42)?).unwrap_or(usize::MAX);
+        let name_start = cursor + 46;
+        let next = name_start
+            .checked_add(name_len)
+            .and_then(|value| value.checked_add(extra_len))
+            .and_then(|value| value.checked_add(comment_len))
+            .filter(|value| *value <= central_end)
+            .ok_or_else(|| DocumentConversionErrorV1::InvalidInput {
+                detail: "docx_central_entry_out_of_bounds".to_owned(),
+            })?;
+        if archive.get(name_start..name_start + name_len) == Some(wanted_name) {
+            if wanted.is_some() {
+                return Err(DocumentConversionErrorV1::InvalidInput {
+                    detail: "docx_duplicate_document_xml".to_owned(),
+                });
+            }
+            if flags & 0x0001 != 0 {
+                return Err(DocumentConversionErrorV1::InvalidInput {
+                    detail: "docx_encrypted_entry_unsupported".to_owned(),
+                });
+            }
+            if flags & !0x080e != 0 {
+                return Err(DocumentConversionErrorV1::InvalidInput {
+                    detail: format!("docx_zip_flags_unsupported:{flags:#06x}"),
+                });
+            }
+            wanted = Some(CentralEntry {
+                flags,
+                method,
+                crc: expected_crc,
+                compressed_size,
+                uncompressed_size,
+                local_offset,
+            });
+        }
+        cursor = next;
+    }
+    if cursor != central_end {
+        return Err(DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_central_entry_count_mismatch".to_owned(),
+        });
+    }
+    let entry = wanted.ok_or_else(|| DocumentConversionErrorV1::InvalidInput {
+        detail: "docx_document_xml_missing".to_owned(),
+    })?;
+    if entry.uncompressed_size > output_limit {
+        return Err(DocumentConversionErrorV1::OutputTooLarge {
+            actual: entry.uncompressed_size,
+            maximum: output_limit,
+        });
+    }
+    let local_header_end = entry.local_offset.checked_add(30).ok_or_else(|| {
+        DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_local_entry_out_of_bounds".to_owned(),
+        }
+    })?;
+    if local_header_end > archive.len()
+        || archive.get(entry.local_offset..entry.local_offset + 4)
+            != Some(LOCAL_SIGNATURE.as_slice())
+    {
+        return Err(DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_local_entry_invalid".to_owned(),
+        });
+    }
+    let local_flags = read_u16(archive, entry.local_offset + 6)?;
+    let local_method = read_u16(archive, entry.local_offset + 8)?;
+    if local_flags != entry.flags || local_method != entry.method {
+        return Err(DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_local_central_method_or_flags_mismatch".to_owned(),
+        });
+    }
+    let local_crc = read_u32(archive, entry.local_offset + 14)?;
+    let local_compressed_size = read_u32(archive, entry.local_offset + 18)?;
+    let local_uncompressed_size = read_u32(archive, entry.local_offset + 22)?;
+    let descriptor = entry.flags & 0x0008 != 0;
+    if (!descriptor
+        && (local_crc != entry.crc
+            || usize::try_from(local_compressed_size).unwrap_or(usize::MAX)
+                != entry.compressed_size
+            || usize::try_from(local_uncompressed_size).unwrap_or(usize::MAX)
+                != entry.uncompressed_size))
+        || (descriptor
+            && ((local_crc != 0 && local_crc != entry.crc)
+                || (local_compressed_size != 0
+                    && usize::try_from(local_compressed_size).unwrap_or(usize::MAX)
+                        != entry.compressed_size)
+                || (local_uncompressed_size != 0
+                    && usize::try_from(local_uncompressed_size).unwrap_or(usize::MAX)
+                        != entry.uncompressed_size)))
+    {
+        return Err(DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_local_central_size_or_crc_mismatch".to_owned(),
+        });
+    }
+    let local_name_len = usize::from(read_u16(archive, entry.local_offset + 26)?);
+    let local_extra_len = usize::from(read_u16(archive, entry.local_offset + 28)?);
+    let local_name_start = entry.local_offset + 30;
+    let data_start = local_name_start
+        .checked_add(local_name_len)
+        .and_then(|value| value.checked_add(local_extra_len))
+        .ok_or_else(|| DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_local_entry_out_of_bounds".to_owned(),
+        })?;
+    if archive.get(local_name_start..local_name_start + local_name_len) != Some(wanted_name) {
+        return Err(DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_local_central_name_mismatch".to_owned(),
+        });
+    }
+    let data_end = data_start
+        .checked_add(entry.compressed_size)
+        .filter(|end| *end <= central_end)
+        .ok_or_else(|| DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_compressed_entry_out_of_bounds".to_owned(),
+        })?;
+    if descriptor {
+        let descriptor_start =
+            if archive.get(data_end..data_end + 4) == Some(DATA_DESCRIPTOR_SIGNATURE.as_slice()) {
+                data_end + 4
+            } else {
+                data_end
+            };
+        let descriptor_end = descriptor_start
+            .checked_add(12)
+            .filter(|end| *end <= central_end)
+            .ok_or_else(|| DocumentConversionErrorV1::InvalidInput {
+                detail: "docx_data_descriptor_out_of_bounds".to_owned(),
+            })?;
+        if read_u32(archive, descriptor_start)? != entry.crc
+            || usize::try_from(read_u32(archive, descriptor_start + 4)?).unwrap_or(usize::MAX)
+                != entry.compressed_size
+            || usize::try_from(read_u32(archive, descriptor_start + 8)?).unwrap_or(usize::MAX)
+                != entry.uncompressed_size
+            || descriptor_end > central_end
+        {
+            return Err(DocumentConversionErrorV1::InvalidInput {
+                detail: "docx_data_descriptor_mismatch".to_owned(),
+            });
+        }
+    }
+    let compressed = &archive[data_start..data_end];
+    let mut output = Vec::with_capacity(entry.uncompressed_size.min(output_limit));
+    let mut compressed_consumed = None;
+    match entry.method {
+        0 if compressed.len() <= output_limit => output.extend_from_slice(compressed),
+        0 => {
+            return Err(DocumentConversionErrorV1::OutputTooLarge {
+                actual: compressed.len(),
+                maximum: output_limit,
+            });
+        }
+        8 => {
+            let mut decoder = Decompress::new(false);
+            let mut input_offset = 0usize;
+            let mut chunk = [0u8; 8192];
+            loop {
+                let before_in = decoder.total_in();
+                let before_out = decoder.total_out();
+                let status = decoder
+                    .decompress(
+                        &compressed[input_offset..],
+                        &mut chunk,
+                        FlushDecompress::Finish,
+                    )
+                    .map_err(|error| DocumentConversionErrorV1::InvalidInput {
+                        detail: format!("docx_deflate:{error}"),
+                    })?;
+                let consumed = usize::try_from(decoder.total_in() - before_in).map_err(|_| {
+                    DocumentConversionErrorV1::InvalidInput {
+                        detail: "docx_deflate_input_count_overflow".to_owned(),
+                    }
+                })?;
+                let produced = usize::try_from(decoder.total_out() - before_out).map_err(|_| {
+                    DocumentConversionErrorV1::InvalidInput {
+                        detail: "docx_deflate_output_count_overflow".to_owned(),
+                    }
+                })?;
+                input_offset = input_offset.saturating_add(consumed);
+                output.extend_from_slice(&chunk[..produced]);
+                if output.len() > output_limit {
+                    return Err(DocumentConversionErrorV1::OutputTooLarge {
+                        actual: output.len(),
+                        maximum: output_limit,
+                    });
+                }
+                if status == Status::StreamEnd {
+                    break;
+                }
+                if consumed == 0 && produced == 0 {
+                    return Err(DocumentConversionErrorV1::InvalidInput {
+                        detail: "docx_deflate_incomplete".to_owned(),
+                    });
+                }
+            }
+            compressed_consumed = Some(input_offset);
+        }
+        unsupported => {
+            return Err(DocumentConversionErrorV1::InvalidInput {
+                detail: format!("docx_compression_unsupported:{unsupported}"),
+            });
+        }
+    }
+    if output.len() > output_limit {
+        return Err(DocumentConversionErrorV1::OutputTooLarge {
+            actual: output.len(),
+            maximum: output_limit,
+        });
+    }
+    if compressed_consumed.is_some_and(|consumed| consumed != compressed.len()) {
+        return Err(DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_deflate_trailing_data".to_owned(),
+        });
+    }
+    if output.len() != entry.uncompressed_size {
+        return Err(DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_uncompressed_size_mismatch".to_owned(),
+        });
+    }
+    if zip_crc32(&output) != entry.crc {
+        return Err(DocumentConversionErrorV1::InvalidInput {
+            detail: "docx_crc_mismatch".to_owned(),
+        });
+    }
+    Ok(output)
+}
+
+fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, DocumentConversionErrorV1> {
+    let value =
+        bytes
+            .get(offset..offset + 2)
+            .ok_or_else(|| DocumentConversionErrorV1::InvalidInput {
+                detail: "docx_zip_field_out_of_bounds".to_owned(),
+            })?;
+    Ok(u16::from_le_bytes([value[0], value[1]]))
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, DocumentConversionErrorV1> {
+    let value =
+        bytes
+            .get(offset..offset + 4)
+            .ok_or_else(|| DocumentConversionErrorV1::InvalidInput {
+                detail: "docx_zip_field_out_of_bounds".to_owned(),
+            })?;
+    Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
+}
+
+fn zip_crc32(bytes: &[u8]) -> u32 {
+    let mut crc = 0xffff_ffffu32;
+    for byte in bytes {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            crc = (crc >> 1) ^ (0xedb8_8320u32 & 0u32.wrapping_sub(crc & 1));
+        }
+    }
+    !crc
+}
+
+/// Walk WordprocessingML in document order, preserving contiguous styled text runs
+/// (adjacent `<w:t>` elements within one paragraph are concatenated verbatim, never
+/// joined with a synthetic space that would split a word across a formatting boundary),
+/// converting `<w:tab/>` to literal tabs, `<w:br/>`/`<w:cr/>` to line breaks, and
+/// rendering `<w:tbl>` rows/cells as `|`-delimited lines so table content and any
+/// embedded identifiers/URLs survive intact rather than being flattened into running text.
+fn wordprocessingml_text(xml: &str) -> String {
+    let mut output = String::new();
+    let mut cursor = 0usize;
+    let len = xml.len();
+    // Table cells contain their own <w:p> paragraphs; nesting depth prevents the
+    // paragraph-close handling from injecting a blank-line break inside a cell,
+    // which would otherwise split the "cell | cell" delimiter across lines.
+    let mut table_cell_depth = 0usize;
+    while cursor < len {
+        let Some(lt_relative) = xml[cursor..].find('<') else {
+            break;
+        };
+        cursor += lt_relative;
+        let remainder = &xml[cursor..];
+        if remainder.starts_with("<w:tc")
+            && !remainder[5..].starts_with(|c: char| c.is_ascii_alphabetic())
+        {
+            table_cell_depth += 1;
+            let Some(end_relative) = remainder.find('>') else {
+                break;
+            };
+            cursor += end_relative + 1;
+        } else if remainder.starts_with("<w:t")
+            && !remainder[4..].starts_with(|c: char| c.is_ascii_alphabetic())
+        {
+            let Some(open_end_relative) = remainder.find('>') else {
+                break;
+            };
+            let tag_source = &remainder[..open_end_relative + 1];
+            let open_end = cursor + open_end_relative + 1;
+            if tag_source.ends_with("/>") {
+                cursor = open_end;
+                continue;
+            }
+            let Some(close_relative) = xml[open_end..].find("</w:t>") else {
+                break;
+            };
+            let close = open_end + close_relative;
+            output.push_str(&decode_entities_single_pass(&xml[open_end..close]));
+            cursor = close + "</w:t>".len();
+        } else if remainder.starts_with("<w:tab") {
+            output.push('\t');
+            let Some(end_relative) = remainder.find('>') else {
+                break;
+            };
+            cursor += end_relative + 1;
+        } else if remainder.starts_with("<w:br") || remainder.starts_with("<w:cr") {
+            output.push('\n');
+            let Some(end_relative) = remainder.find('>') else {
+                break;
+            };
+            cursor += end_relative + 1;
+        } else if remainder.starts_with("</w:p>") {
+            while output.ends_with(' ') || output.ends_with('\t') {
+                output.pop();
+            }
+            if table_cell_depth == 0 && !output.ends_with("\n\n") {
+                output.push_str("\n\n");
+            }
+            cursor += "</w:p>".len();
+        } else if remainder.starts_with("</w:tc>") {
+            table_cell_depth = table_cell_depth.saturating_sub(1);
+            while output.ends_with(' ') {
+                output.pop();
+            }
+            output.push_str(" | ");
+            cursor += "</w:tc>".len();
+        } else if remainder.starts_with("</w:tr>") {
+            while output.ends_with(" | ") {
+                let trimmed = output.len() - 3;
+                output.truncate(trimmed);
+            }
+            output.push('\n');
+            cursor += "</w:tr>".len();
+        } else {
+            cursor += 1;
+        }
+    }
+    format!("{}\n", output.trim())
+}
+
+/// Decode XML/HTML character references in a single forward pass so a literal escaped
+/// entity (for example `&amp;lt;`, which must remain the two characters `&lt;`) is never
+/// re-scanned and re-decoded into `<`. Handles the five named XML entities plus decimal
+/// and hexadecimal numeric character references.
+fn decode_entities_single_pass(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut cursor = 0usize;
+    while cursor < value.len() {
+        let remainder = &value[cursor..];
+        if !remainder.starts_with('&') {
+            let next_amp = remainder.find('&').unwrap_or(remainder.len());
+            output.push_str(&remainder[..next_amp]);
+            cursor += next_amp;
+            continue;
+        }
+        if let Some(after_hash) = remainder.strip_prefix("&#") {
+            let (digits_source, is_hex) = match after_hash.strip_prefix(['x', 'X']) {
+                Some(hex_digits) => (hex_digits, true),
+                None => (after_hash, false),
+            };
+            if let Some(semicolon_relative) = digits_source.find(';') {
+                let digits = &digits_source[..semicolon_relative];
+                let parsed = if is_hex {
+                    u32::from_str_radix(digits, 16).ok()
+                } else {
+                    digits.parse::<u32>().ok()
+                };
+                if let Some(code_point) = parsed.and_then(char::from_u32) {
+                    output.push(code_point);
+                    let prefix_len = if is_hex { 3 } else { 2 };
+                    cursor += prefix_len + digits.len() + 1;
+                    continue;
+                }
+            }
+        }
+        const NAMED: [(&str, char); 5] = [
+            ("amp;", '&'),
+            ("lt;", '<'),
+            ("gt;", '>'),
+            ("quot;", '"'),
+            ("apos;", '\''),
+        ];
+        let mut matched = false;
+        for (name, replacement) in NAMED {
+            if remainder[1..].starts_with(name) {
+                output.push(replacement);
+                cursor += 1 + name.len();
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            output.push('&');
+            cursor += 1;
+        }
+    }
+    output
+}
+
+fn digest(bytes: &[u8]) -> String {
+    sha256_bytes(bytes)
+}

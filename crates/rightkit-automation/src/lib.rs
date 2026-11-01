@@ -39,6 +39,8 @@ pub mod admission;
 pub mod capture_safety;
 pub mod control;
 pub mod delivery;
+#[cfg(feature = "desktop-context")]
+pub mod desktop;
 pub mod engine;
 pub mod events;
 pub mod focus;

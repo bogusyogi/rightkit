@@ -234,3 +234,27 @@ test("[7.05a command / cmake / remote] the other kinds keep their trees and cach
   assert.equal(fetched, 1);
   assert.ok(result.files.some((f) => f.name === "tls") && result.files.some((f) => f.name === "ffmpeg-win"));
 });
+
+test("staging the same target again with the same results keeps the receipt bytes (no new stagedAt); a changed file is restaged and the receipt rewritten", async (t) => {
+  const { dir, snapshot, checkout } = roots(t);
+  const fx = nativeFixture(dir, { target: MAC, version: "1.30.0", rows: [{ library: "onnxruntime", fileName: "libonnxruntime.1.30.0.dylib", url: "https://example.test/ort-1.30.0.tgz" }] });
+  const manifest = [{ kind: "onnxruntime", version: "1.30.0", catalog: { crate: "rightkit-ffmpeg" }, as: "libonnxruntime.dylib", platforms: ["mac"] }];
+  let clock = 0;
+  const deps = { ...fx.deps, now: () => `2026-11-01T00:00:0${clock++}.000Z` };
+  const first = await stageSidecars({ appRoot: snapshot, cacheRoot: checkout, manifest, target: MAC, deps });
+  const receiptBytes = fs.readFileSync(first.receiptPath);
+  const again = await stageSidecars({ appRoot: snapshot, cacheRoot: checkout, manifest, target: MAC, deps });
+  assert.equal(again.unchanged, true);
+  assert.deepEqual(fs.readFileSync(first.receiptPath), receiptBytes, "the receipt (stagedAt) is not rewritten");
+  assert.deepEqual(again.files, first.files);
+  // A staged file that changed is staged again: its verified bytes come back, so the receipt (which records those digests) is still the same one.
+  fs.writeFileSync(path.join(snapshot, "src-tauri/resources/runtime/libonnxruntime.dylib"), "tampered");
+  await stageSidecars({ appRoot: snapshot, cacheRoot: checkout, manifest, target: MAC, deps });
+  assert.equal(fs.readFileSync(path.join(snapshot, "src-tauri/resources/runtime/libonnxruntime.dylib")).toString(), fx.bytes.toString());
+  assert.deepEqual(fs.readFileSync(first.receiptPath), receiptBytes);
+  // A receipt whose content differs (here: no files) is rewritten.
+  const other = JSON.parse(fs.readFileSync(first.receiptPath, "utf8"));
+  fs.writeFileSync(first.receiptPath, JSON.stringify({ ...other, files: [] }));
+  const rewritten = await stageSidecars({ appRoot: snapshot, cacheRoot: checkout, manifest, target: MAC, deps });
+  assert.notEqual(rewritten.unchanged, true, "a receipt whose content differs is rewritten");
+});

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+target/
+.cache/
+.right-release/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+src-tauri/gen/
+.rightkit-qa-bin/
+.rightkit-qa-app-binary
+# Staging outputs of right-release stage-sidecar (ffmpeg notices, ONNX Runtime): generated, never committed.
+src-tauri/resources/runtime/
+src-tauri/resources/third-party/

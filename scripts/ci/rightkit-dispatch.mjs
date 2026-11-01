@@ -338,7 +338,7 @@ const NPM_VERSION_PINS_SHA256 = "5f490eb13c11dab32bb57a0d4b95eea94564e75ec1d853a
 const ADMISSION_DEPENDENCIES = {
   "scripts/ci/rk-consumer-stage.mjs": "f111d02dbc77b917f4560585020746daee5ae4f6e2256a5865bd3bcbc95f5b8f",
   "scripts/ci/rk-routing.mjs": "6b3c6350a653c5284146c98dcd7df306c5ce8b96d5a5dd14c2e8f39c0dfb29c1",
-  "scripts/ci/consumer-recipes.mjs": "919a1f28d6b005ea963d7e1f9958aebdb34c0ca2a9696ba3eecee475b426bcb8",
+  "scripts/ci/consumer-recipes.mjs": "d39545663620aba16e236b83f357d52260298f30015f034915128c88dcc2f22a",
   "scripts/ci/workflow-yaml.mjs": "c9e6fe758036e9e246915b2205d520e7ffc8e9f0e0a1a4117c2affc96dd015f5",
   "packages/release/workflow-yaml.mjs": "13491a0cbebe60575f459be004333d4782c1dbe66fe18963c1b1eba0410f4ced",
   "packages/release/broker-client.mjs": "0beb5d9b953fe9048944c594dc91c61f5edcc1f4fad2fa8c56eeedff8e434198",

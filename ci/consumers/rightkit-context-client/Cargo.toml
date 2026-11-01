@@ -1,0 +1,12 @@
+[package]
+name = "rightkit-context-client-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-context-client = { version = "=0.1.0" }
+serde_json = "1"
+rightkit-context-protocol = { version = "=0.1.0" }

@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-web-extract",
+  "capabilities": [
+    {
+      "capability": "article-extraction",
+      "summary": "Article extraction without transport: readable-text parsing, title and redirect resolution, blocked-page detection, BM25 fit filtering, and extraction-ladder decisions.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

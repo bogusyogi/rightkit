@@ -162,3 +162,43 @@ test("stage with a sign step's copies: the shell and every built entry are the s
   assert.throws(() => stage(ctx, { signed: { "debug/shell": signed["debug/shell"] } }), /RK_QA_LAYOUT_UNSIGNED.*debug\/engine/);
   assert.throws(() => stage(ctx, { signed: {} }), /RK_QA_LAYOUT_UNSIGNED.*debug\/shell/);
 }));
+
+test("a resource entry is staged into the app's resource directory: Resources/ beside the macOS shell (the bundle's Contents/Resources), the shell's own directory on Windows", () => withFixture((ctx) => {
+  const layout = { binary: "shell", beside: [{ built: "engine" }, { from: "src-tauri/resources", to: ".", resource: true }] };
+  assert.deepEqual(validateQaLayout(layout), []);
+  assert.ok(validateQaLayout({ binary: "shell", beside: [{ built: "engine", resource: true }] }).some((p) => p.includes(".resource")));
+  const mac = stageQaLayout({ layout, snapshotAppRoot: ctx.app, qaConfigFile: ctx.config, runsRoot: ctx.runsRoot, dirs: [ctx.built], platform: "mac" });
+  try {
+    const beside = path.dirname(mac.binary);
+    assert.equal(readFileSync(path.join(beside, "Resources", "a.txt"), "utf8"), "resource-a");
+    assert.equal(readFileSync(path.join(beside, "Resources", "ffmpeg", "ffmpeg"), "utf8"), "ffmpeg-bytes");
+    assert.ok(existsSync(path.join(beside, "engine")));
+  } finally { mac.cleanup(); }
+  writeFileSync(path.join(ctx.built, "debug", "shell.exe"), readFileSync(path.join(ctx.built, "debug", "shell")));
+  writeFileSync(path.join(ctx.built, "debug", "engine.exe"), "engine-bytes");
+  const win = stageQaLayout({ layout, snapshotAppRoot: ctx.app, qaConfigFile: ctx.config, runsRoot: ctx.runsRoot, dirs: [ctx.built], platform: "win" });
+  try {
+    assert.equal(readFileSync(path.join(path.dirname(win.binary), "a.txt"), "utf8"), "resource-a");
+  } finally { win.cleanup(); }
+}));
+
+test("platforms limits an entry to its hosts; two from entries may fill one directory, but not write one file with other bytes", () => withFixture((ctx) => {
+  mkdirSync(path.join(ctx.app, "src-tauri", "native-sources", "more"), { recursive: true });
+  writeFileSync(path.join(ctx.app, "src-tauri", "native-sources", "more", "libextra.dylib"), "extra");
+  const layout = { binary: "shell", beside: [
+    { from: "src-tauri/native-sources", to: "runtime", resource: true, platforms: ["mac"] },
+    { from: "src-tauri/resources/ffmpeg", to: "runtime", resource: true },
+    { from: "src-tauri/native-sources", to: "resources/runtime", resource: true, platforms: ["win"] },
+  ] };
+  assert.deepEqual(validateQaLayout(layout), []);
+  assert.ok(validateQaLayout({ binary: "shell", beside: [{ from: "x", to: "y", platforms: ["linux"] }] }).some((p) => p.includes(".platforms")));
+  const mac = stageQaLayout({ layout, snapshotAppRoot: ctx.app, qaConfigFile: ctx.config, runsRoot: ctx.runsRoot, dirs: [ctx.built], platform: "mac" });
+  try {
+    const res = path.join(path.dirname(mac.binary), "Resources");
+    assert.equal(readFileSync(path.join(res, "runtime", "libort.dylib"), "utf8"), "ort");
+    assert.equal(readFileSync(path.join(res, "runtime", "ffmpeg"), "utf8"), "ffmpeg-bytes", "a second entry fills the same directory");
+    assert.ok(!existsSync(path.join(res, "resources")), "the win-only entry is not staged on mac");
+  } finally { mac.cleanup(); }
+  writeFileSync(path.join(ctx.app, "src-tauri", "resources", "ffmpeg", "libort.dylib"), "other");
+  assert.throws(() => stageQaLayout({ layout, snapshotAppRoot: ctx.app, qaConfigFile: ctx.config, runsRoot: ctx.runsRoot, dirs: [ctx.built], platform: "mac" }), /RK_QA_LAYOUT_COLLISION/);
+}));

@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "workflow_id": "wfd-overnight-pr-triage",
+  "trace_kind": "escalated",
+  "description": "Expected journal sequence when the PR does not carry the trusted 'safe' label. The condition node routes the run down the escalate branch, the escalation agent composes a message, and a desktop draft is staged for the on-call operator. The run still terminates succeeded because the only side effect is a draft.",
+  "trigger": {
+    "kind": "event",
+    "event_kind": "vendor.pr_opened",
+    "filter": "input.labels includes 'auto-triage'",
+    "payload_summary": {
+      "pr": {
+        "id": 4711,
+        "head_sha": "deadbeef",
+        "labels": ["auto-triage"]
+      }
+    }
+  },
+  "journal_sequence": [
+    { "event_kind": "run_started",            "node_id": null,                  "expected_seq": 1,  "note": "Trigger normalized; LongLived capability granted for overnight run." },
+    { "event_kind": "node_started",           "node_id": "inspect-labels",      "expected_seq": 2,  "note": "Inspect PR labels, head/base SHAs, trust classification." },
+    { "event_kind": "node_completed",         "node_id": "inspect-labels",      "expected_seq": 3,  "note": "Return: { safe: false, requires_review: true, denied: false, provenance: 'github_delivery_id=...'}." },
+    { "event_kind": "node_started",           "node_id": "cond-look-safe?",     "expected_seq": 4,  "note": "Condition node evaluates input.labels includes 'safe' against the inspected labels." },
+    { "event_kind": "condition_evaluated",    "node_id": "cond-look-safe?",     "expected_seq": 5,  "note": "Result: false. Edge with when: 'false' is taken." },
+    { "event_kind": "node_started",           "node_id": "escalate",            "expected_seq": 6,  "note": "PR body content treated as data; escalation message produced." },
+    { "event_kind": "node_completed",         "node_id": "escalate",            "expected_seq": 7,  "note": "Escalation message includes PR id, reason, trust class, suggested action." },
+    { "event_kind": "node_started",           "node_id": "send-escalation-draft","expected_seq": 8,  "note": "Effect node dispatched; capability SendUnattendedMessage used; destination is desktop-draft only." },
+    { "event_kind": "node_completed",         "node_id": "send-escalation-draft","expected_seq": 9,  "note": "Draft confirmed; idempotency key recorded." },
+    { "event_kind": "delivery_recorded",      "node_id": "send-escalation-draft","expected_seq": 10, "note": "Attention item 'approval-needed' created." },
+    { "event_kind": "run_succeeded",          "node_id": null,                  "expected_seq": 11, "note": "Reducer advances phase to Succeeded." }
+  ],
+  "expected_final_lifecycle_revision": 11,
+  "expected_terminal_phase": "succeeded",
+  "expected_cost_usd": 1.00,
+  "expected_token_count": 16000,
+  "expected_lifecycle": {
+    "workflow_id": "wfd-overnight-pr-triage",
+    "version_id": "wfv_<see-compile-output>",
+    "phase": "Succeeded",
+    "revision": 11
+  },
+  "expected_projection_final_state": {
+    "nodes": {
+      "inspect-labels":        { "state": "succeeded", "attempts": 1, "output_safe": false },
+      "cond-look-safe?":       { "state": "succeeded", "evaluated": false, "routing": "false" },
+      "escalate":              { "state": "succeeded", "attempts": 1 },
+      "send-escalation-draft": { "state": "succeeded", "effect_receipt_state": "confirmed" },
+      "summarize-and-suggest": { "state": "skipped",   "reason": "condition-false" },
+      "suggest-to-desktop":    { "state": "skipped",   "reason": "upstream-skipped" }
+    },
+    "attention_items": [
+      {
+        "kind": "approval-needed",
+        "deep_link": "coderight://automations/wfd-overnight-pr-triage/runs/<run-id>",
+        "node_id": "send-escalation-draft"
+      }
+    ],
+    "deliveries": [
+      {
+        "channel": "desktop-draft",
+        "destination": "coderight://desktop-draft",
+        "kind": "pr-escalation",
+        "state": "confirmed"
+      }
+    ]
+  },
+  "cost_audit": {
+    "expected_wall_time_seconds_max": 1800,
+    "expected_depth_max": 3,
+    "actual_run_cost_estimate_usd": 0.62,
+    "actual_run_token_estimate": 9800,
+    "actual_run_wall_time_seconds": 312,
+    "actual_run_depth_used": 3
+  },
+  "expected_terminal_node": "send-escalation-draft",
+  "compile_assertions": {
+    "schema_version": 1,
+    "expected_node_count": 6,
+    "expected_entry_node": "inspect-labels",
+    "expected_capabilities_in_workflow_ceiling": [
+      "Capability::LongLived",
+      "Capability::NetworkEgress",
+      "Capability::ReadFiles"
+    ],
+    "expected_capabilities_in_effective_set": [
+      "Capability::LongLived",
+      "Capability::NetworkEgress",
+      "Capability::ReadFiles",
+      "Capability::SendUnattendedMessage"
+    ],
+    "expected_node_ids": [
+      "inspect-labels",
+      "cond-look-safe?",
+      "summarize-and-suggest",
+      "suggest-to-desktop",
+      "escalate",
+      "send-escalation-draft"
+    ]
+  }
+}
