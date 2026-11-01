@@ -8,15 +8,23 @@
 //!   is too thin and the browser rung should run ([`static_text_needs_browser`]), and which
 //!   of two extracts wins ([`browser_beats_static`]).
 //!
-//! Fetching (HTTP, TLS-fingerprint client, headless browser) stays with the caller, which
-//! owns its network policy; this crate only decides and parses.
+//! The fetch tiers ([`fetch`]) run over the host's network policy ([`net::ArticleNet`]) and
+//! browser ([`browser::BrowserHost`]); the optional TLS-fingerprint tier ([`tls`]) loads a
+//! tls-client shared library the host locates and trusts. The host owns its network policy;
+//! this crate only decides, parses and drives the tiers.
 
 use serde::Serialize;
 use std::time::Duration;
 
+pub mod browser;
+pub mod fetch;
 pub mod filters;
+pub mod net;
 pub mod parse;
+pub mod tls;
+pub mod tls_ffi;
 
+pub use fetch::{ArticleFetcher, ThreadsScrapeError};
 pub use parse::{article_extract_from_html, readable_text};
 
 /// Prefix of an address-policy refusal message. Such a failure is final: a refused

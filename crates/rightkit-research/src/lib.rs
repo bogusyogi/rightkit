@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod budget;
+pub mod command;
 pub mod error;
 pub mod evidence;
 pub mod receipt;

@@ -9,6 +9,10 @@
 
 pub mod cli;
 pub mod daemon;
+#[cfg(feature = "observer")]
+pub mod delivery_observer;
+#[cfg(feature = "observer")]
+pub mod engineering;
 pub mod file_store;
 pub mod forge;
 pub mod forge_client;

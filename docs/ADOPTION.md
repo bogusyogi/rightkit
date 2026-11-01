@@ -15,7 +15,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 190 (164 crates, 26 npm packages).
+- Packages in RightKit: 198 (172 crates, 26 npm packages).
 - Packages with at least one app pin: 151.
 - App pins: 1920. Stale: 40. Ahead of published: 103. Unpublished: 114. Local: 1234. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 476.
@@ -27,6 +27,7 @@ Status values compare each pin with the latest published version (registry-recor
 |---|---|---|---|---|---|---|
 | `rightkit-adapt` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-adapt-taste` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-agent-demo` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-agent-engine-api-integrations` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-agent-engine-api-platform` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-agent-engine-api-sessions` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
@@ -41,6 +42,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-agent-engine-runtime-resources` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-agent-engine-storage` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-agent-engine-tasks` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-agent-gateway` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-agent-host-traits` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-agent-orchestration` | crates.io | 0.1.1 | none recorded | 2 | coderight, legion | 2 vendored copies |
 | `rightkit-agent-orchestration-handoff` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
@@ -56,11 +58,11 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-app-host` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-app-manager` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-app-settings` | crates.io | 0.3.1 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `rightkit-apple-ops` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
+| `rightkit-apple-ops` | crates.io | 0.1.1 | none recorded | 1 | legion | 1 vendored copy |
 | `rightkit-approvals` | crates.io | 0.1.0 | none recorded | 1 | genright | 1 vendored copy |
 | `rightkit-asr` | crates.io | 0.3.4 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-audio` | crates.io | 0.3.1 | 0.3.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `rightkit-autoedit` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-autoedit` | crates.io | 0.1.1 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-automation` | crates.io | 0.6.4 | 0.6.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-bench` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-bot-messaging` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
@@ -68,12 +70,13 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-cache` | crates.io | 0.2.3 | 0.2.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-captions` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-channel-memory` | crates.io | 0.2.2 | 0.2.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
+| `rightkit-chat-bridge` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-child-process` | crates.io | 0.5.7 | 0.5.7 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-code-audit-provider-sdk` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
 | `rightkit-color` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `rightkit-compose` | crates.io | 0.2.1 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 1 ahead of published |
+| `rightkit-compose` | crates.io | 0.2.2 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 1 ahead of published |
 | `rightkit-compositor` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `rightkit-content-plan` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-content-plan` | crates.io | 0.1.1 | none recorded | 0 | none | - |
 | `rightkit-content-proof` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-client` | crates.io | 0.1.0 | none recorded | 0 | none | - |
@@ -89,6 +92,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-daemon` | crates.io | 0.5.1 | 0.4.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale; 4 ahead of published |
 | `rightkit-db` | crates.io | 0.5.3 | 0.5.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-device` | crates.io | 0.4.0 | 0.4.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-device-link-types` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-dictation-app-runtime` | crates.io | 0.1.0 | none recorded | 1 | heardright | 1 vendored copy |
 | `rightkit-dictation-command-host` | crates.io | 0.1.0 | none recorded | 1 | heardright | 1 vendored copy |
 | `rightkit-dictation-core` | crates.io | 0.2.0 | none recorded | 1 | heardright | 1 vendored copy |
@@ -100,9 +104,10 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-dictation-text-pipeline` | crates.io | 0.1.0 | none recorded | 1 | heardright | 1 vendored copy |
 | `rightkit-disk-cleanup` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-docs` | crates.io | 0.1.3 | 0.1.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
-| `rightkit-document-workspace` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-doctor` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-document-workspace` | crates.io | 0.1.1 | none recorded | 0 | none | - |
 | `rightkit-embed` | crates.io | 0.6.2 | 0.6.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
-| `rightkit-engine-host` | crates.io | 0.1.0 | none recorded | 1 | genright | 1 vendored copy |
+| `rightkit-engine-host` | crates.io | 0.1.1 | none recorded | 1 | genright | 1 vendored copy |
 | `rightkit-evidence` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-evidence-contracts` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
 | `rightkit-evidence-decisions` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
@@ -113,7 +118,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-file-watch` | crates.io | 0.4.2 | 0.4.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-fs` | crates.io | 0.4.9 | 0.4.7 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale; 4 ahead of published |
 | `rightkit-fsindex` | crates.io | 0.6.0 | 0.5.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
-| `rightkit-github` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
+| `rightkit-github` | crates.io | 0.1.1 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-google-apis` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-google-identity` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-hooks` | crates.io | 0.2.1 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 1 ahead of published |
@@ -121,30 +126,31 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-http` | crates.io | 0.3.9 | 0.3.8 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-identity` | crates.io | 0.1.0 | 0.1.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-job-queue` | crates.io | 0.5.1 | 0.5.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
-| `rightkit-library` | crates.io | 0.1.0 | none recorded | 1 | genright | 1 vendored copy |
+| `rightkit-library` | crates.io | 0.1.1 | none recorded | 1 | genright | 1 vendored copy |
 | `rightkit-license` | crates.io | 0.2.6 | 0.2.5 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-llm` | crates.io | 0.3.2 | 0.3.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-local-gen` | crates.io | 0.1.0 | none recorded | 1 | genright | 1 vendored copy |
 | `rightkit-logs` | crates.io | 0.3.7 | 0.3.5 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
-| `rightkit-mail` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-mail` | crates.io | 0.1.1 | none recorded | 0 | none | - |
 | `rightkit-mcp` | crates.io | 0.7.2 | 0.7.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
-| `rightkit-media-fetch` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-media-fetch` | crates.io | 0.1.1 | none recorded | 0 | none | - |
 | `rightkit-media-gen` | crates.io | 0.1.0 | none recorded | 1 | genright | 1 vendored copy |
 | `rightkit-media-pipeline` | crates.io | 0.1.0 | none recorded | 1 | genright | 1 vendored copy |
 | `rightkit-memory` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-memory-core` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-memory-store` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-mesh` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-mesh` | crates.io | 0.1.1 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-models` | crates.io | 0.5.3 | 0.5.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
-| `rightkit-motion` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-motion` | crates.io | 0.2.1 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-oauth` | crates.io | 0.10.0 | 0.10.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-ocr` | crates.io | 0.2.3 | 0.2.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-onnx` | crates.io | 0.2.9 | 0.2.7 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-overlay` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-overlay-win` | crates.io | 0.1.0 | 0.1.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-owner-approvals` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-ownership` | crates.io | 0.4.3 | 0.4.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-pdf` | crates.io | 0.3.4 | 0.3.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
-| `rightkit-pipeline` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-pipeline` | crates.io | 0.1.1 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-platform-rules` | crates.io | 0.1.0 | 0.1.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-playback` | crates.io | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-policy-rules` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
@@ -154,19 +160,20 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-record` | crates.io | 0.3.3 | 0.3.3 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-reframe` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-remote-compute` | crates.io | 0.1.0 | none recorded | 1 | genright | 1 vendored copy |
+| `rightkit-remote-gateway` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-repo-graph` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-repo-graph-grammars` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-research` | crates.io | 0.1.0 | none recorded | 1 | legion | 1 vendored copy |
+| `rightkit-research` | crates.io | 0.1.1 | none recorded | 1 | legion | 1 vendored copy |
 | `rightkit-review` | crates.io | 0.4.1 | 0.4.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 1 ahead of published |
 | `rightkit-sandbox` | crates.io | 0.6.2 | 0.6.1 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-scheduler` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
 | `rightkit-search` | crates.io | 0.4.1 | 0.4.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-send` | crates.io | 0.3.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
-| `rightkit-shorts` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
+| `rightkit-shorts` | crates.io | 0.1.1 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-sidecar` | crates.io | 0.3.0 | 0.3.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
-| `rightkit-social-analytics` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-social-inbox` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-social-publish` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-social-analytics` | crates.io | 0.1.1 | none recorded | 0 | none | - |
+| `rightkit-social-inbox` | crates.io | 0.1.1 | none recorded | 0 | none | - |
+| `rightkit-social-publish` | crates.io | 0.1.1 | none recorded | 0 | none | - |
 | `rightkit-speech-client` | crates.io | 0.4.1 | 0.4.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 ahead of published |
 | `rightkit-spend` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-sync` | crates.io | 0.2.2 | 0.2.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
@@ -187,7 +194,8 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-vault` | crates.io | 0.2.0 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-video-project` | crates.io | 0.1.0 | none recorded | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `rightkit-voice-commands` | crates.io | 0.1.0 | none recorded | 1 | heardright | 1 vendored copy |
-| `rightkit-web-extract` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-web-extract` | crates.io | 0.1.1 | none recorded | 0 | none | - |
+| `rightkit-web-session` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-workflow` | crates.io | 0.2.1 | 0.2.0 | 4 | coderight, genright, heardright, legion | 4 vendored copies |
 | `@rightkit/app-update` | npm | 0.4.2 | 0.4.2 | 4 | coderight, genright, heardright, legion | 4 vendored copies; 4 stale |
 | `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 0 | none | 4 vendored copies |

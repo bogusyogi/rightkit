@@ -2,7 +2,7 @@
   "package": "rightkit-content-proof",
   "capabilities": [
     {
-      "capability": "content-proof",
+      "capability": "content proof",
       "summary": "Exact claim-number reading for content proof review: currency, thousands separators, k/m/bn suffixes, percentages and number words as exact decimals, with tokenization.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",

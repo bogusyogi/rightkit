@@ -14,12 +14,16 @@
 //! with no renderer attached. CutRight's native compositor and its typed FFmpeg
 //! export both consume that description, so preview and export agree.
 //!
-//! No rendering, codec or I/O lives here.
+//! No rendering, codec or I/O lives in the default build. The optional `native` feature adds `native`, the
+//! adapter from an evaluated timeline snapshot to the wgpu compositor, with frame scheduling, ffmpeg decode and
+//! streamed audio.
 
 pub mod error;
 pub mod eval;
 mod legacy;
 pub mod model;
+#[cfg(feature = "native")]
+pub mod native;
 pub mod opacity;
 pub mod retime;
 #[cfg(feature = "still-finish")]

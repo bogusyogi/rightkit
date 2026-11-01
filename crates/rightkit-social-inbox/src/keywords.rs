@@ -1,7 +1,7 @@
 //! Whole-word keyword matching for comment-to-DM automation rules.
 
-/// Lower-case alphanumeric words of a text. Everything else separates words.
-fn words(text: &str) -> Vec<String> {
+/// Lower-case alphanumeric words of a text (see [`keyword_matches`]).
+pub fn words(text: &str) -> Vec<String> {
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
         .map(|w| w.to_lowercase())

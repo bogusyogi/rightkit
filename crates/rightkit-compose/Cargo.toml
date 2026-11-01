@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-compose"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -20,6 +20,10 @@ default = []
 # Keyless still finishing: composite a PNG logo onto PNG stills and write them under a naming
 # template (`still_finish`). Adds `image` (PNG only) and `rightkit-crypto` (output digests).
 still-finish = ["dep:image", "dep:rightkit-crypto"]
+# Native adapter (`native`): the immutable evaluated timeline snapshot, the frame mapper onto the wgpu compositor, frame
+# cache/scheduler/identity, ffmpeg frame decode and streamed PCM audio. Adds the compositor, timeline, video-project,
+# ffmpeg and fs crates; the pure composition model above stays dependency-light without it.
+native = ["dep:rightkit-compositor", "dep:rightkit-timeline", "dep:rightkit-video-project", "dep:rightkit-ffmpeg", "dep:rightkit-fs"]
 
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png"], optional = true }
@@ -27,7 +31,40 @@ rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto", optional = t
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2"
+rightkit-compositor = { version = "0.1.0", path = "../rightkit-compositor", optional = true }
+rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline", optional = true }
+rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
+rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, optional = true }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["blake3"], optional = true }
 
+[dev-dependencies]
+rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, features = ["dev-overrides"] }
+tempfile = "3"
+
+# Citationberg is pulled by rightkit-typeset through rightkit-captions (video-project); see the vendored fix.
+[patch.crates-io]
+citationberg = { path = "../../vendor/citationberg" }
+
+
+[[test]]
+name = "native_audio_stream"
+path = "tests/native_audio_stream.rs"
+required-features = ["native"]
+
+[[test]]
+name = "native_frame_infra_tests"
+path = "tests/native_frame_infra_tests.rs"
+required-features = ["native"]
+
+[[test]]
+name = "native_mapper_tests"
+path = "tests/native_mapper_tests.rs"
+required-features = ["native"]
+
+[[test]]
+name = "native_visual_keyframes_e2e"
+path = "tests/native_visual_keyframes_e2e.rs"
+required-features = ["native"]
 
 [package.metadata.rightkit]
 continuous = false

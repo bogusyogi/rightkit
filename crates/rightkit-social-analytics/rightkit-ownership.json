@@ -2,7 +2,7 @@
   "package": "rightkit-social-analytics",
   "capabilities": [
     {
-      "capability": "social-analytics",
+      "capability": "social analytics",
       "summary": "Store-free social campaign analytics pieces: tracked short links with public-https destination checks, UTM tagging, deterministic link ids and redirect-route rules.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",

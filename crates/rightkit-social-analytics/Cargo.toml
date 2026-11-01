@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-social-analytics"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Store-free social campaign analytics pieces: tracked short links with public-https destination checks, UTM tagging, deterministic link ids and redirect-route rules."
@@ -13,10 +13,25 @@ include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENS
 name = "rightkit_social_analytics"
 path = "src/lib.rs"
 
+[features]
+default = []
+# Engine command handlers (`cmd`): retention feedback import, listing, proposals and apply, over a video project.
+engine-commands = ["dep:rightkit-engine-host", "dep:rightkit-video-project", "dep:rightkit-timeline", "dep:rightkit-transcript"]
+
 [dependencies]
+rightkit-engine-host = { version = "0.1.1", path = "../rightkit-engine-host", features = ["project-cmd"], optional = true }
+rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
+rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline", optional = true }
+rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript", optional = true }
 serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+rightkit-social-publish = { version = "0.1.1", path = "../rightkit-social-publish" }
 rightkit-http = { version = "0.3.9", path = "../rightkit-http" }
-rightkit-fs = { version = "0.4.9", default-features = false, features = ["digest"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.4.8", default-features = false, features = ["digest"], path = "../rightkit-fs" }
+
+# Citationberg is pulled by rightkit-typeset through rightkit-captions (video-project); see the vendored fix.
+[patch.crates-io]
+citationberg = { path = "../../vendor/citationberg" }
 
 [workspace]
 

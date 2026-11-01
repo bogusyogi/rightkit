@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T09:57:34Z",
-  "rightkitHead": "21982d6",
+  "generatedAt": "2026-11-01T10:15:44Z",
+  "rightkitHead": "1569dda",
   "legend": [
     {
       "state": "adopted",
@@ -127,7 +127,7 @@
     {
       "id": "other",
       "name": "Other (no domain assigned)",
-      "packages": 95
+      "packages": 103
     }
   ],
   "triage": null,
@@ -1271,9 +1271,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-autoedit",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-automation",
@@ -1596,9 +1596,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-github",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-github (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-github (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-google-identity",
@@ -1752,9 +1752,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-mesh",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-mesh (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-mesh (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-models",
@@ -1882,9 +1882,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-pipeline",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-platform-rules",
@@ -2051,9 +2051,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-shorts",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-shorts (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-shorts (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-sidecar",
@@ -2662,9 +2662,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-autoedit",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-automation",
@@ -2987,9 +2987,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-github",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-github (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-github (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-google-identity",
@@ -3143,9 +3143,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-mesh",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-mesh (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-mesh (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-models",
@@ -3273,9 +3273,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-pipeline",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-platform-rules",
@@ -3455,9 +3455,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-shorts",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-shorts (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-shorts (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-sidecar",
@@ -4999,9 +4999,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-autoedit",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-automation",
@@ -5246,9 +5246,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-engine-host",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-engine-host (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-engine-host (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-ffmpeg",
@@ -5389,9 +5389,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-library",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-library (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-library (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-license",
@@ -5493,9 +5493,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-mesh",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-mesh (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-mesh (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-models",
@@ -5623,9 +5623,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-pipeline",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-platform-rules",
@@ -5779,9 +5779,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-shorts",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-shorts (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-shorts (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-sidecar",
@@ -6117,9 +6117,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-autoedit",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-automation",
@@ -6364,9 +6364,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-engine-host",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-engine-host (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-engine-host (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-ffmpeg",
@@ -6507,9 +6507,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-library",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-library (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-library (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-license",
@@ -6611,9 +6611,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-mesh",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-mesh (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-mesh (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-models",
@@ -6741,9 +6741,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-pipeline",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-platform-rules",
@@ -6910,9 +6910,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-shorts",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-shorts (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-shorts (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-sidecar",
@@ -8394,9 +8394,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-autoedit",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-automation",
@@ -8940,9 +8940,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-mesh",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-mesh (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-mesh (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-models",
@@ -9070,9 +9070,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-pipeline",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-platform-rules",
@@ -9213,9 +9213,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-shorts",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-shorts (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-shorts (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-sidecar",
@@ -9577,9 +9577,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-autoedit",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-automation",
@@ -10123,9 +10123,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-mesh",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-mesh (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-mesh (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-models",
@@ -10253,9 +10253,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-pipeline",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-platform-rules",
@@ -10409,9 +10409,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-shorts",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-shorts (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-shorts (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-sidecar",
@@ -12031,9 +12031,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-autoedit",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-automation",
@@ -12590,9 +12590,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-mesh",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-mesh (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-mesh (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-models",
@@ -12720,9 +12720,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-pipeline",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-platform-rules",
@@ -12902,9 +12902,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-shorts",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-shorts (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-shorts (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-sidecar",
@@ -13305,9 +13305,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-autoedit",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-automation",
@@ -13864,9 +13864,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-mesh",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-mesh (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-mesh (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-models",
@@ -13994,9 +13994,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-pipeline",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-platform-rules",
@@ -14189,9 +14189,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-shorts",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-shorts (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-shorts (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-sidecar",
@@ -15407,9 +15407,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-apple-ops",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-apple-ops (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-apple-ops (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-asr",
@@ -15446,9 +15446,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-autoedit",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-automation",
@@ -16005,9 +16005,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-mesh",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-mesh (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-mesh (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-models",
@@ -16135,9 +16135,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-pipeline",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-platform-rules",
@@ -16239,9 +16239,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-research",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-research (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-research (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-review",
@@ -16304,9 +16304,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-shorts",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-shorts (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-shorts (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-sidecar",
@@ -16629,9 +16629,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-apple-ops",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-apple-ops (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-apple-ops (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-asr",
@@ -16668,9 +16668,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-autoedit",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-autoedit (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-automation",
@@ -17227,9 +17227,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-mesh",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-mesh (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-mesh (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-models",
@@ -17357,9 +17357,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-pipeline",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-pipeline (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-platform-rules",
@@ -17474,9 +17474,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-research",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-research (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-research (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-review",
@@ -17539,9 +17539,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-shorts",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-shorts (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-shorts (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-sidecar",
@@ -20325,6 +20325,71 @@
       }
     },
     {
+      "name": "rightkit-agent-demo",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "",
+      "dir": "crates/rightkit-agent-demo",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "postright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "not present",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-agent-engine-api-integrations",
       "kind": "cargo",
       "class": "tool",
@@ -21215,6 +21280,71 @@
         "coderight": {
           "state": "local",
           "detail": "path, 2 pins; also 1 ahead"
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "postright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "not present",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-gateway",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "",
+      "dir": "crates/rightkit-agent-gateway",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
         },
         "cutright": {
           "state": "not present",
@@ -22306,7 +22436,7 @@
         "apple-ops"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-apple-ops",
@@ -22574,7 +22704,7 @@
         "video-autoedit"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-autoedit",
@@ -23100,6 +23230,71 @@
       }
     },
     {
+      "name": "rightkit-chat-bridge",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "",
+      "dir": "crates/rightkit-chat-bridge",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "postright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "not present",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-child-process",
       "kind": "cargo",
       "class": "foundation",
@@ -23330,7 +23525,7 @@
         "composition-model"
       ],
       "private": false,
-      "source": "0.2.1",
+      "source": "0.2.2",
       "registry": "0.2.0",
       "staged": "0.2.1",
       "dir": "crates/rightkit-compose",
@@ -23464,7 +23659,7 @@
         "content-plan"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-content-plan",
@@ -24609,6 +24804,71 @@
       }
     },
     {
+      "name": "rightkit-device-link-types",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "",
+      "dir": "crates/rightkit-device-link-types",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "postright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "not present",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-dictation-app-runtime",
       "kind": "cargo",
       "class": "tool",
@@ -25350,6 +25610,71 @@
       }
     },
     {
+      "name": "rightkit-doctor",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "",
+      "dir": "crates/rightkit-doctor",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "postright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "not present",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-document-workspace",
       "kind": "cargo",
       "class": "tool",
@@ -25360,7 +25685,7 @@
         "document-workspace"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-document-workspace",
@@ -25494,7 +25819,7 @@
         "engine-host"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-engine-host",
@@ -26247,7 +26572,7 @@
         "github"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-github",
@@ -26816,7 +27141,7 @@
         "local-artifact-library"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-library",
@@ -27185,7 +27510,7 @@
         "mail-client-core"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-mail",
@@ -27319,7 +27644,7 @@
         "media-fetch"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-media-fetch",
@@ -27721,7 +28046,7 @@
         "device-mesh"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-mesh",
@@ -27857,7 +28182,7 @@
         "motion-takes"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "0.2.0",
       "staged": "0.2.0",
       "dir": "crates/rightkit-motion",
@@ -28249,6 +28574,71 @@
       }
     },
     {
+      "name": "rightkit-owner-approvals",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "",
+      "dir": "crates/rightkit-owner-approvals",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "postright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "not present",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-ownership",
       "kind": "cargo",
       "class": "add-on",
@@ -28395,7 +28785,7 @@
         "generation-pipeline"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-pipeline",
@@ -29072,6 +29462,71 @@
       }
     },
     {
+      "name": "rightkit-remote-gateway",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "",
+      "dir": "crates/rightkit-remote-gateway",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "postright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "not present",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-repo-graph",
       "kind": "cargo",
       "class": "tool",
@@ -29216,7 +29671,7 @@
         "research"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-research",
@@ -29618,7 +30073,7 @@
         "video-shorts"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-shorts",
@@ -29766,7 +30221,7 @@
         "social-analytics"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-social-analytics",
@@ -29833,7 +30288,7 @@
         "social-inbox"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-social-inbox",
@@ -29900,7 +30355,7 @@
         "social-publish"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-social-publish",
@@ -31321,10 +31776,75 @@
         "article-extraction"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-web-extract",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "postright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "not present",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-web-session",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "",
+      "dir": "crates/rightkit-web-session",
       "toMoveFrom": {},
       "cells": {
         "coderight": {

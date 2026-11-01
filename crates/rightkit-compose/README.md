@@ -121,3 +121,7 @@ phase when titles start before frame zero or end beyond visible interval.
 Overlapping fades & one-frame ramps preserve CutRight's `f32` bits. For incoming
 cross-fades, set only fade-in & multiply returned key values by validated static
 opacity in `f64`, then cast evaluated result to `f32`, matching CutRight.
+
+## Native adapter (feature `native`)
+
+`rightkit_compose::native` turns an evaluated timeline snapshot into compositor frames: `ComposeSnapshot`, `compose_frame`, `audio_descriptor`, `FrameCache`, `FrameScheduler`, `TimelineClock`, `FfmpegDecoder` and `AudioStreamer`. Tests that need ffmpeg read `RIGHTKIT_FFMPEG` and print `SKIP` when it is unset.

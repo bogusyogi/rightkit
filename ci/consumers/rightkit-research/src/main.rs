@@ -30,4 +30,18 @@ fn main() {
         account.remaining().calls == limits.max_calls,
         "fresh budget has every call remaining",
     );
+    let options = rightkit_research::command::ResearchOptions {
+        step: Some("no-such-step".into()),
+        ..Default::default()
+    };
+    let refused = rightkit_research::command::run(options, rightkit_research::Cancellation::new());
+    check(
+        matches!(&refused, Err(e) if e.code == 4),
+        "unknown step is a usage error",
+    );
+    let options = rightkit_research::command::ResearchOptions::default();
+    check(
+        rightkit_research::command::run(options, rightkit_research::Cancellation::new()).is_err(),
+        "a search needs a query",
+    );
 }

@@ -45,10 +45,19 @@
 //! ```
 
 mod args;
+pub mod carousel;
 pub mod detect;
+pub mod extraction;
 pub mod playlist;
+pub mod playlist_batch;
 pub mod process;
+pub mod profile_batch;
+pub mod protocol;
+pub mod source_auth;
 mod spec;
+pub mod tiktok;
+pub mod web;
+pub mod x_post;
 mod ytdlp;
 
 use std::{

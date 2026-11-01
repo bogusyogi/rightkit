@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "demo",
+  "description": "Agent demo mode: the always-visible badge window. It listens for demo state events and calls the demo_status and demo_kill app commands. It has no window controls, no dialog and no file access. The window exists only in builds with the demo feature; in any other build this capability names a window that is never created.",
+  "windows": [
+    "demo-badge"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}
