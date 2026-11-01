@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T04:54:48Z",
-  "rightkitHead": "2eb4755",
+  "generatedAt": "2026-11-01T08:27:07Z",
+  "rightkitHead": "dd9df6e",
   "legend": [
     {
       "state": "adopted",
@@ -127,7 +127,7 @@
     {
       "id": "other",
       "name": "Other (no domain assigned)",
-      "packages": 9
+      "packages": 10
     }
   ],
   "triage": null,
@@ -2271,7 +2271,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/pulse",
       "present": true,
-      "head": "d086863",
+      "head": "db079d2",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -10777,6 +10777,73 @@
         "viewright": {
           "state": "adopted",
           "detail": "=0.3.3, 2 pins"
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-pipeline",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "generation-pipeline"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-pipeline",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
         },
         "sellright": {
           "state": "not present",

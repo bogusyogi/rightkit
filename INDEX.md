@@ -12,7 +12,7 @@ Flagged mismatches: 0.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (78)
+## Rust crates (79)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -66,6 +66,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-overlay-win` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | windows-native-overlay-renderer | Native Win32 layered-window overlays for Right Suite apps: software painter, DWM-paced animation, hover and hit regions, per-monitor DPI, no WebView. |
 | `rightkit-ownership` | crates.io | 0.4.3 | 0.4.2 | 0.4.3 | staged, not yet published | appkit-autorelease-pool, ownership-scanner | RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links. |
 | `rightkit-pdf` | crates.io | 0.3.4 | 0.3.3 | 0.3.4 | staged, not yet published | pdf, pdf-engine | Product-neutral PDF engine: inspect, compose (source-text replace / add text / OCR correction), font subsetting, staged atomic save, plus optional page merge/select and text extraction |
+| `rightkit-pipeline` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | generation-pipeline | Generation pipeline client: drive an installed generation engine (submit, follow, import), crash-safe journal and recovery, model catalog checks. |
 | `rightkit-platform-rules` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | platform-rules | Versioned catalog of per-platform limits and rules with a stable rule-revision hash and a check of planned values against sourced rules. |
 | `rightkit-playback` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | media-playback | Source-preserving FFmpeg compatibility playback preparation for Right Suite media apps. |
 | `rightkit-qa` | crates.io | 0.10.1 | 0.9.1 | 0.10.1 | staged, not yet published | desktop-qa | Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving (the in-app control server is the dev-only `control` feature), Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence. |

@@ -504,6 +504,7 @@
     "rightkit-overlay-win": "0.1.0",
     "rightkit-ownership": "0.4.3",
     "rightkit-pdf": "0.3.4",
+    "rightkit-pipeline": "0.1.0",
     "rightkit-platform-rules": "0.1.0",
     "rightkit-playback": "0.3.0",
     "rightkit-qa": "0.10.1",
