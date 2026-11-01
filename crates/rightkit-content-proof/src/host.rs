@@ -31,7 +31,7 @@ pub fn set_engine_name(name: &str) -> bool {
     ENGINE_NAME.set(name.to_string()).is_ok()
 }
 
-pub(crate) fn open_channels(root: &Path) -> Result<Connection, Fail> {
+pub fn open_channels(root: &Path) -> Result<Connection, Fail> {
     match OPENER.get() {
         Some(open) => open(root),
         None => Err((
@@ -41,16 +41,16 @@ pub(crate) fn open_channels(root: &Path) -> Result<Connection, Fail> {
     }
 }
 
-pub(crate) fn approver() -> &'static str {
+pub fn approver() -> &'static str {
     APPROVER.get().map(String::as_str).unwrap_or("owner")
 }
 
-pub(crate) fn engine_name() -> &'static str {
+pub fn engine_name() -> &'static str {
     ENGINE_NAME.get().map(String::as_str).unwrap_or("rightkit")
 }
 
 /// `sha256:` plus the hex digest of the text: the hash recorded for reviewed copy.
-pub(crate) fn text_hash(text: &str) -> String {
+pub fn text_hash(text: &str) -> String {
     format!(
         "sha256:{}",
         rightkit_fs::digest::sha256_bytes(text.as_bytes())

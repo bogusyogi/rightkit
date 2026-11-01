@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 (unreleased)
+
+- Add `content` (reusable content records with occurrences, cooldowns, expiry, variants and experiment summaries over the host channel store) and its `content_protocol` shapes, moved from PostRight. The channel store is opened through `rightkit_content_proof::host`.
+
 ## 0.1.2 (unreleased)
 
 - Declare the `artifacts` module (gallery indexing, sidecars, brand-code catalogue) that was present but not compiled; `serde_json` is now a normal dependency and `rightkit-fs` uses its `digest` feature.

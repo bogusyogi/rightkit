@@ -35,6 +35,8 @@
 //! ```
 
 pub mod artifacts;
+pub mod content;
+pub mod content_protocol;
 pub mod enrichment;
 pub mod history;
 pub mod history_types;
