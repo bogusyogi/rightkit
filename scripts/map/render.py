@@ -74,7 +74,7 @@ def main():
     w("")
     w(f"| | count |\n|---|---|\n| Rust crates | {len(crates)} |\n| npm packages | {len(npms)} |\n| RightKit-internal dependency edges (a unit's dev-dependency on itself not counted) | {sum(1 for e in d['edges'] if e['kind'] != 'app-pin' and e['from'] != e['to'])} |\n"
       f"| Product apps scanned | {len(d['apps'])} |\n| App pins on RightKit units | {sum(1 for e in d['edges'] if e['kind'] == 'app-pin')} |\n| Environment variables | {len(env)} |\n"
-      f"| ... shared across units | {sum(v['cross_unit'] for v in env.values())} |\n| Named files | {len(d['files'])} |\n| Sockets / pipes | {len(d['sockets'])} |\n| Spawned programs | {len(d['spawns'])} |\n"
+      f"| ... shared across units | {sum(v['cross_unit'] for v in env.values())} |\n| Named files (production; test-only not counted) | {sum('test_only' not in v for v in d['files'].values())} |\n| Sockets / pipes (production) | {sum('test_only' not in v for v in d['sockets'].values())} |\n| Spawned programs (production) | {sum('test_only' not in v for v in d['spawns'].values())} |\n"
       f"| Source lines (crates + packages) | {sum(u['loc'] for u in units):,} |")
     w("")
     w("## Findings")
@@ -104,7 +104,7 @@ def main():
     ao = sorted(k for k, v in env.items() if v.get("read_by_apps_only"))
     w(f"- **Set by RightKit, read by nothing scanned ({len(sn)}):** a hand-off to an app or tool outside the scan, or a dead value. " + ", ".join(f"`{k}`" for k in sn))
     w(f"- **Set by RightKit, read only by product apps ({len(ao)}):** " + (", ".join(f"`{k}`" for k in ao) or "none"))
-    w(f"- **Read by RightKit, set by nothing in RightKit ({len(rn)}):** operator or host inputs (paths, keys, tuning knobs); each is a value a run depends on that RightKit itself never provides. " + ", ".join(f"`{k}`" for k in rn))
+    w(f"- **Read by RightKit, set by no production code in RightKit ({len(rn)}; tests may set them):** operator or host inputs (paths, keys, tuning knobs); each is a value a run depends on that RightKit itself never provides. " + ", ".join(f"`{k}`" for k in rn))
     w("")
     w("### App pins against RightKit source")
     w("")
@@ -164,9 +164,11 @@ def main():
             if rt.get("env_set"):
                 w(f"- **Sets env:** {', '.join(f'`{x}`' for x in rt['env_set'][:30])}{' …' if len(rt['env_set']) > 30 else ''}")
             if rt.get("spawns"):
-                w(f"- **Spawns:** {', '.join(f'`{x}`' for x in rt['spawns'][:20])}")
+                w(f"- **Spawns:** {', '.join(f'`{x}`' for x in rt['spawns'][:20])}{f' … ({len(rt[chr(115)+chr(112)+chr(97)+chr(119)+chr(110)+chr(115)])} in all)' if len(rt['spawns']) > 20 else ''}")
             if rt.get("sockets"):
-                w(f"- **Sockets/pipes:** {', '.join(f'`{x}`' for x in rt['sockets'][:10])}")
+                w(f"- **Sockets/pipes:** {', '.join(f'`{x}`' for x in rt['sockets'][:10])}{f' … ({len(rt[chr(115)+chr(111)+chr(99)+chr(107)+chr(101)+chr(116)+chr(115)])} in all)' if len(rt['sockets']) > 10 else ''}")
+            if rt.get("files"):
+                w(f"- **Files named:** {', '.join(f'`{x}`' for x in rt['files'][:20])}{' …' if len(rt['files']) > 20 else ''}")
             w(f"- **Size:** {u['loc']:,} lines in {u['files']} files" + (f", {u['tests']} tests" if kind == "crate" else f", {u['test_files']} test files"))
             w("")
     with open(os.path.join(MAP, "RIGHTKIT-MAP.md"), "w", encoding="utf-8") as fh:
@@ -182,7 +184,7 @@ def main():
             "tests": u.get("tests", u.get("test_files", 0)), "features": sorted(u.get("features", {}).keys()) if u["kind"] == "crate" else [],
             "modules": u.get("modules", []), "exports": u.get("exports", []), "bins": u.get("bins", []),
             "env_read": rt.get("env_read", []), "env_set": rt.get("env_set", []), "spawns": rt.get("spawns", []), "sockets": rt.get("sockets", []),
-            "files_named": rt.get("files", [])[:60],
+            "files_named": rt.get("files", []),
             "findings": {k: u.get(k, []) for k in ("declared_unused", "used_undeclared", "used_only_in_tests_but_normal_dep", "unknown_rightkit_refs")},
             "dir": u["dir"], "pins": app_pins.get(u["name"], {}),
         })

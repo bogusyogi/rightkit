@@ -33,7 +33,7 @@ main{position:relative;overflow:hidden}svg{width:100%;height:100%;display:block}
 #detail h3{margin:4px 0;font-size:15px;word-break:break-all}#detail .k{color:var(--muted);font-size:11px;text-transform:uppercase;margin-top:12px}
 #detail ul{margin:4px 0;padding-left:16px}#detail li{margin:1px 0;word-break:break-all}code{font-family:ui-monospace,Menlo,monospace;font-size:11px}
 .chip{display:inline-block;margin:2px 3px 2px 0;padding:1px 6px;border-radius:9px;background:var(--bg);border:1px solid var(--line);font-family:ui-monospace,Menlo,monospace;font-size:11px;cursor:pointer}
-.chip.behind{border-color:var(--warn);color:var(--warn)}.chip.ahead{border-color:var(--hl)}.find{color:var(--warn)}
+.chip.ext{cursor:default;opacity:.65;border-style:dashed}.chip.behind{border-color:var(--warn);color:var(--warn)}.chip.ahead{border-color:var(--hl)}.find{color:var(--warn)}
 .hint{color:var(--muted);font-size:12px}
 @media (max-width:900px){body{grid-template-columns:1fr;grid-template-rows:auto 40vh 1fr auto;overflow:auto;height:auto}aside{border:0}#detail{order:4}}
 </style>
@@ -47,7 +47,7 @@ main{position:relative;overflow:hidden}svg{width:100%;height:100%;display:block}
 <label><input type="checkbox" id="f-crate" checked> Rust crates</label>
 <label><input type="checkbox" id="f-npm" checked> npm packages</label>
 <label><input type="checkbox" id="f-app"> Product apps (pins)</label>
-<label><input type="checkbox" id="f-dev"> Dev/test dependencies</label>
+<label><input type="checkbox" id="f-dev"> Dev and peer dependencies</label>
 <label><input type="checkbox" id="f-warn"> Only units with findings</label>
 <div class="legend"><h2>Legend</h2>
 <div><span style="background:var(--crate)"></span>crate</div><div><span style="background:var(--npm)"></span>npm package</div><div><span style="background:var(--app)"></span>app</div>
@@ -85,7 +85,7 @@ function visible() {
     nodes = nodes.filter((n) => hit.has(n.id)); }
   const ids = new Set(nodes.map((n) => n.id));
   const links = DATA.links.filter((l) => { const s = l.source.id ?? l.source, t = l.target.id ?? l.target;
-    if (!ids.has(s) || !ids.has(t)) return false; if (l.kind === "dev" && !f("f-dev")) return false; return true; });
+    if (!ids.has(s) || !ids.has(t)) return false; if ((l.kind === "dev" || l.kind === "peer") && !f("f-dev")) return false; return true; });
   return { nodes, links };
 }
 function f(id) { return document.getElementById(id).checked; }
@@ -122,7 +122,8 @@ function highlight(n) {
   g.selectAll(".link").classed("dim", (l) => nb && !(l.source.id === n.id || l.target.id === n.id)).classed("hl", (l) => n && (l.source.id === n.id || l.target.id === n.id));
 }
 function select(n) { selected = n; highlight(n); showUnit(n); }
-const chip = (id, cls = "") => `<span class="chip ${cls}" data-id="${esc(id)}">${esc(id)}</span>`;
+// A name that is not a node (github-workflows: RightKit's own CI) is shown but not clickable.
+const chip = (id, cls = "") => `<span class="chip ${cls}${byId.has(id) ? "" : " ext"}" data-id="${esc(id)}"${byId.has(id) ? "" : ' title="not a unit"'}>${esc(id)}</span>`;
 function list(title, arr, fmt = (x) => `<code>${esc(x)}</code>`) { return arr && arr.length ? `<div class="k">${title} (${arr.length})</div><ul>${arr.map((x) => `<li>${fmt(x)}</li>`).join("")}</ul>` : ""; }
 
 function showUnit(n) {
@@ -140,7 +141,7 @@ function showUnit(n) {
     h += `<div class="k">RightKit pins (${n.pinlist.length})</div>` + ["behind", "ahead", "current", "path", "unknown"].filter((s) => by[s].length)
       .map((s) => `<div class="hint">${s} (${by[s].length})</div>` + by[s].map((p) => `<span class="chip ${s}" data-id="${esc(p.name)}" title="${esc(p.pin)}">${esc(p.name.replace(/^rightkit-/, ""))} ${esc(p.pin)}</span>`).join("")).join("");
   } else {
-    h += deps.length ? `<div class="k">Depends on (${deps.length})</div>` + deps.map((l) => chip(l.target.id ?? l.target, l.kind === "undeclared" ? "behind" : "") + (l.kind !== "normal" ? `<span class="hint">${esc(l.kind)}${l.target_cfg ? " " + esc(l.target_cfg) : ""}</span> ` : "")).join("") : "";
+    h += deps.length ? `<div class="k">Depends on (${deps.length})</div>` + deps.map((l) => chip(l.target.id ?? l.target, l.kind === "undeclared" ? "behind" : "") + (l.kind !== "normal" || l.optional ? `<span class="hint">${esc(l.kind)}${l.optional ? " optional" : ""}${l.target_cfg ? " " + esc(l.target_cfg) : ""}</span> ` : "")).join("") : "";
     h += users.length ? `<div class="k">Used by (${users.length})</div>` + users.map((l) => chip(l.source.id ?? l.source)).join("") : "";
     if (apps.length) h += `<div class="k">Apps pinning it (${apps.length})</div>` + apps.map((l) => { const st = (n.pins[l.source.id ?? l.source] || {}).status; return `<span class="chip ${st}" data-id="${esc(l.source.id ?? l.source)}">${esc(l.source.id ?? l.source)} ${esc(l.version)}</span>`; }).join("");
   }

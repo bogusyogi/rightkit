@@ -242,7 +242,7 @@ RS_ENV_SET_ID = re.compile(r"\.(?:env|insert|set_var)\s*\(\s*&?" + IDENT + r"(?:
 JS_ENV_READ_ID = re.compile(r"(?:process\.env|\benv|\bo\.env|options\.env|deps\.env)(?:\?\.)?\[\s*([A-Z][A-Z0-9_]+)\s*\]")
 JS_ENV_SET_ID = re.compile(r"\[\s*([A-Z][A-Z0-9_]+)\s*\]\s*:|(?:process\.env|\benv)\[\s*([A-Z][A-Z0-9_]+)\s*\]\s*=(?!=)")
 ENV_PREFIXES = ("RIGHTKIT_", "RIGHT_RELEASE_", "RK_", "RUSTRIGHT_", "RIGHTSUITE_", "RIGHTAPP", "CARGO_", "TAURI_", "WEBVIEW2_", "TMPDIR", "XDG_")
-FILE_LIT = re.compile(r"[\"']([A-Za-z0-9_.\-]+\.(?:json|toml|token|sock|lock|jsonl|sqlite|db))[\"']")
+FILE_LIT = re.compile(r"[\"']([A-Za-z0-9_.\-]+\.(?:json|toml|token|lock|jsonl|sqlite|db))[\"']")
 SOCK_LIT = re.compile(r"[\"'](\\\\\\\\\.\\\\pipe\\\\[^\"']*|[^\"'\s]*\.sock)[\"']")
 RS_SPAWN = re.compile(r"Command::new\s*\(\s*\"([^\"]+)\"|OwnedCommand::new\s*\(\s*\"([^\"]+)\"")
 JS_SPAWN = re.compile(r"\b(?:spawn|spawnSync|execFile|execFileSync|spawnInherit|spawnCapture)\s*\(\s*[\"']([^\"']+)[\"']")
@@ -287,14 +287,14 @@ def runtime_scan(unit):
                 env[m.group(1) or m.group(2)]["read"].append(loc(name_start(m)))
             for m in RS_ENV_SET.finditer(t):
                 env[m.group(1) or m.group(2)]["set"].append(loc(name_start(m)))
-            for m in RS_ENV_PAIR.finditer(t):
-                env[m.group(1)]["set"].append({**loc(name_start(m)), "pair": True, "objkey": True})
             for m in RS_ENV_REMOVE.finditer(t):
                 env[m.group(1)]["removed"].append(loc(name_start(m)))
             for m in RS_CONST.finditer(t):
                 env[m.group(2)]["const"].append({**loc(name_start(m)), "ident": m.group(1)})
+            rcode = code_only(t)
             for m in RS_SPAWN.finditer(t):
-                spawns[m.group(1) or m.group(2)].append(loc(m.start()))
+                if rcode[m.start()] == t[m.start()]:
+                    spawns[m.group(1) or m.group(2)].append(loc(m.start()))
             for m in RS_ENV_HELPER.finditer(t):
                 if m.group(1):
                     env[m.group(1)]["read"].append({**loc(name_start(m)), "via": "helper"})
@@ -320,7 +320,8 @@ def runtime_scan(unit):
             for m in JS_CONST.finditer(t):
                 env[m.group(2)]["const"].append({**loc(name_start(m)), "ident": m.group(1)})
             for m in JS_SPAWN.finditer(t):
-                spawns[m.group(1)].append(loc(m.start()))
+                if code[m.start()] == t[m.start()]:
+                    spawns[m.group(1)].append(loc(m.start()))
         for m in SCRIPT_ENV_READ.finditer(t):
             n = m.group(1) or m.group(2)
             if interesting_env(n):
@@ -347,7 +348,7 @@ def ident_access(unit):
                 ident = next(g for g in m.groups() if g)
                 site = {"file": rel(f), "line": line_of(code, m.start()), "test": is_test or in_spans(m.start(), spans)}
                 if role == "set" and re.match(r"\(|pair\s*\(", m.group(0)):
-                    site.update(pair=True, objkey=True)
+                    continue  # a (NAME, value) tuple, not an environment write
                 hits.append((role, ident, site))
         if unit["kind"] == "crate":
             for m in RS_ENV_HELPER.finditer(code):
@@ -492,8 +493,10 @@ def main():
             continue
         env, files_named, socks, spawns = scans[u["name"]]
         # only names some unit actually reads or sets through the environment are environment variables (error codes are not)
-        u["runtime"] = {"env_read": sorted(k for k, v in env.items() if v["read"]), "env_set": sorted(k for k, v in env.items() if v["set"]),
-                        "files": sorted(files_named), "sockets": sorted(socks), "spawns": sorted(spawns)}
+        prod = lambda sites: any(not x["test"] for x in sites)  # noqa: E731
+        u["runtime"] = {"env_read": sorted(k for k, v in env.items() if prod(v["read"])), "env_set": sorted(k for k, v in env.items() if prod(v["set"])),
+                        "files": sorted(k for k, s in files_named.items() if prod(s)), "sockets": sorted(k for k, s in socks.items() if prod(s)),
+                        "spawns": sorted(k for k, s in spawns.items() if prod(s))}
         for k, v in env.items():
             for role, key in (("read", "readers"), ("set", "setters"), ("removed", "removers"), ("const", "consts")):
                 if v[role]:
@@ -513,6 +516,9 @@ def main():
     def explicit_set(v):
         return any(not s.get("objkey") for ss in v["setters"].values() for s in ss)
     env_index = {k: v for k, v in env_index.items() if interesting_env(k) and (v["readers"] or explicit_set(v))}
+    for u in units:
+        u["runtime"]["env_set"] = [k for k in u["runtime"]["env_set"] if k in env_index]
+        u["runtime"]["env_read"] = [k for k in u["runtime"]["env_read"] if k in env_index or not interesting_env(k)]
     # Mentions: any non-test code naming the variable (its literal, or a constant holding it) — loops over names, (NAME, value) pairs,
     # forwarding lists. A role the patterns above cannot classify is still a connection.
     ident_of = defaultdict(set)
@@ -568,7 +574,12 @@ def main():
         }
 
     def flat(idx):
-        return {k: {n: [f"{s['file']}:{s['line']}" for s in ss[:4]] for n, ss in v.items()} for k, v in sorted(idx.items())}
+        """name -> unit -> sites, `(test)` marking test sites; a name only tests use is kept under `test_only`."""
+        out = {}
+        for k, v in sorted(idx.items()):
+            row = {n: [f"{s['file']}:{s['line']}{' (test)' if s['test'] else ''}" for s in ss[:4]] for n, ss in v.items()}
+            out[k] = row if any(not s["test"] for ss in v.values() for s in ss) else {"test_only": row}
+        return out
 
     edges = []
     for u in units:
