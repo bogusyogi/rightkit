@@ -14,6 +14,7 @@
 //! - [`quota`]: per-account pacing and the `publish.next` selector over a host-implemented
 //!   [`quota::PublishQuotaStore`].
 //! - [`jobs`]: the [`jobs::PublishJobStore`] trait the host implements over its job table.
+//! - [`accounts`]: connected platform accounts, readiness, pause and disconnect over an [`accounts::AccountStore`].
 //! - [`resolve`]: a person closes an `outcome_unknown` job by hand.
 //! - [`calendar_time`]: UTC instants and local-time conversion for the supported zones.
 //! - [`util`]: error constructors, input checks and the channel lookup the store-bound modules share.
@@ -21,6 +22,7 @@
 //! The durable job store and its schema belong to the host app; it implements the store traits.
 //! Errors are [`Fail`]: a stable machine code plus a human message.
 
+pub mod accounts;
 pub mod api_versions;
 pub mod calendar_time;
 pub mod http;

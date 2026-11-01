@@ -3,7 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod accounts;
 pub mod publish;
+pub use accounts::*;
 pub use publish::*;
 
 /// The exact key of a channel: venture, channel and account.

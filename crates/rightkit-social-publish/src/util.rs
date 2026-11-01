@@ -113,3 +113,9 @@ pub fn require_channel<S: ChannelLookup + ?Sized>(store: &S, scope: &Scope) -> R
     }
     Ok(())
 }
+
+/// A host database that can run a body in one write transaction.
+pub trait WriteTxn: ChannelLookup {
+    /// Runs `body` in one write transaction: commit on `Ok`, roll back on `Err`.
+    fn write_txn(&self, body: &mut dyn FnMut() -> Result<(), Fail>) -> Result<(), Fail>;
+}
