@@ -140,9 +140,9 @@ let package = Package(
         // Platform-specific bodies are guarded by `#if os(...)`, so the other platforms build an empty module.
         .target(name: "RightKitMedia"),
         .testTarget(name: "RightKitMediaTests", dependencies: ["RightKitMedia"]),
-        .target(name: "RightKitDictation", dependencies: ["RightKitImportQueue"]),
+        .target(name: "RightKitDictation", dependencies: ["RightKitImportQueue", "RightKitLiveActivity", "RightKitSpeech"]),
         .testTarget(name: "RightKitDictationTests", dependencies: ["RightKitDictation"]),
-        .target(name: "RightKitLibrary"),
+        .target(name: "RightKitLibrary", dependencies: ["RightKitCloudSync"]),
         .testTarget(name: "RightKitLibraryTests", dependencies: ["RightKitLibrary"]),
         .target(name: "RightKitAgent", dependencies: ["RightKitCloudSync", "RightKitCredentials", "RightKitLiveActivity", "RightKitSpeech", "RightKitUI"]),
         .testTarget(name: "RightKitAgentTests", dependencies: ["RightKitAgent"]),
