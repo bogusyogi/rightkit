@@ -52,8 +52,8 @@ serde_json = "1.0.154"
 tauri-utils = { version = ">=2.9.3, <2.10" }
 
 [target.'cfg(windows)'.dependencies]
-windows_061 = { package = "windows", version = "0.62", optional = true }
-webview2_com_038 = { package = "webview2-com", version = "0.39", optional = true }
+windows_061 = { package = "windows", version = "0.61", optional = true }
+webview2_com_038 = { package = "webview2-com", version = "0.38", optional = true }
 windows_062 = { package = "windows", version = "0.62", optional = true }
 webview2_com_039 = { package = "webview2-com", version = "0.39", optional = true }
 

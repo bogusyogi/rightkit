@@ -3662,6 +3662,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
+ "webview2-com 0.38.2",
  "webview2-com 0.39.1",
  "windows 0.61.3",
  "windows 0.62.2",

@@ -91,7 +91,7 @@ windows_061 = { package = "windows", version = "0.61", optional = true, features
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
-webview2_com_038 = { package = "webview2-com", version = "0.39", optional = true }
+webview2_com_038 = { package = "webview2-com", version = "0.38", optional = true }
 windows_062 = { package = "windows", version = "0.62", optional = true, features = [
   "Win32_Foundation",
   "Win32_Graphics_Dwm",
