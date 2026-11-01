@@ -2538,6 +2538,17 @@
       ]
     },
     {
+      "package": "rightkit-pipeline",
+      "capability": "generation-pipeline",
+      "summary": "Generation pipeline client: drive an installed generation engine (submit, follow, import), crash-safe journal and recovery, model catalog checks.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-platform-rules",
       "capability": "platform-rules",
       "summary": "Versioned catalog of per-platform limits and rules with a stable rule-revision hash and a check of planned values against sourced rules",
