@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 1.
+Flagged mismatches: 0.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -51,7 +51,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-app-settings` | crates.io | 0.3.1 | 0.3.0 | 0.3.1 | staged, not yet published | settings-persistence | Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events. |
 | `rightkit-apple-ops` | crates.io | 0.1.1 | none recorded | 0.1.1 | staged, never published | apple-ops | Apple ops: App Store Connect API and upload, build analysis, preflight, profiling and SwiftUI traces |
 | `rightkit-approvals` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | approvals | In-app approval of paid drafts and deliveries: single-use challenges, launch-secret tokens minted by the shell and verified by the engine, parent binding, host-registered draft kinds |
-| `rightkit-asr` | crates.io | 0.3.5 | 0.3.0 | 0.3.4 | **MISMATCH staged 0.3.4 != source 0.3.5** | speech-recognition | Parakeet ONNX + Whisper (CoreML / whisper.cpp) speech decoding runtime for Right Suite applications |
+| `rightkit-asr` | crates.io | 0.3.5 | 0.3.0 | 0.3.5 | staged, not yet published | speech-recognition | Parakeet ONNX + Whisper (CoreML / whisper.cpp) speech decoding runtime for Right Suite applications |
 | `rightkit-audio` | crates.io | 0.3.1 | 0.3.1 | 0.3.1 | ok | audio | Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery. |
 | `rightkit-autoedit` | crates.io | 0.1.1 | none recorded | 0.1.1 | staged, never published | video-autoedit | Automatic editing for Right Suite video apps: transcript-driven cut engine (retakes, fillers, silences), editorial engine, named cut variants, and scoped editing rules with their resolution matrix. |
 | `rightkit-automation` | crates.io | 0.6.4 | 0.6.1 | 0.6.4 | staged, not yet published | desktop-automation | Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts. |

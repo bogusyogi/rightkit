@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T10:37:20Z",
-  "rightkitHead": "5db47f6",
+  "generatedAt": "2026-11-01T10:37:39Z",
+  "rightkitHead": "74fab49",
   "legend": [
     {
       "state": "adopted",
@@ -22576,7 +22576,7 @@
       "private": false,
       "source": "0.3.5",
       "registry": "0.3.0",
-      "staged": "0.3.4",
+      "staged": "0.3.5",
       "dir": "crates/rightkit-asr",
       "toMoveFrom": {},
       "cells": {

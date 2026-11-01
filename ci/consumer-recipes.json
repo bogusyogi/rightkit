@@ -1071,7 +1071,7 @@
         "serde_json = \"1\""
       ],
       "files": {
-        "Cargo.toml": "1307dcac65f6c21319f6aaf412a650643cfb609d4f1425ea0214dd7b50368f15",
+        "Cargo.toml": "b70e7cbb836f0fb0a7b2bde6032dee06bc7044aafcbd7f10d5a696a220e3775b",
         "README.md": "5e12707d11b0b88c7f82541808ee5260136e5aad4ec3a74bfb958568988e73e0",
         "src/main.rs": "77a1fdae68ad0faca0ff96168d26c4a24ebcc33100724b4db7443408ecbae07e"
       },
