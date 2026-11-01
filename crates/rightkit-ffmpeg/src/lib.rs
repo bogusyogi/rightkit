@@ -1324,6 +1324,8 @@ fn run_owned_process(
     }
 }
 
+#[cfg(feature = "agent_media")]
+pub mod agent_media;
 #[cfg(test)]
 mod test_support;
 

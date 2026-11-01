@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0 (unreleased)
+
+- Feature `agent_media`: agent media capture/transcode helpers gated by agent policy, moved from CodeRight `coderight-media`.
+
 ## 0.2.11 — unpublished staging
 
 - New: optional `archive` (`native::ArchiveRef`: `url`, `sha256`, `member`) on an artifact row, the pinned place its retained bytes can be fetched. The three approved ffmpeg 7.1.5 `decode` rows now carry one, pointing at deterministic `tar.gz` archives committed under `artifacts/` (outside the published crate) at a fixed commit, so a gate build fetches them by digest through the stage-sidecar `sources` route instead of a machine-local vendor path. `Artifact::validate` refuses an `archive` without https, without a row `sha256`, or whose `member` is not the tool's file name for the row's OS (new `MediaError::InvalidArchive { id, reason }`; the enum is non-exhaustive). `Artifact` is a public struct without `#[non_exhaustive]`, so a struct literal must now name `archive`; nothing outside this crate builds one.

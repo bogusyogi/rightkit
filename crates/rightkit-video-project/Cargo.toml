@@ -26,10 +26,10 @@ thiserror = { version = "2.0" }
 rightkit-fs = { version = "0.4.7", default-features = false, features = ["fs", "lock", "json", "blake3"], path = "../rightkit-fs" }
 rightkit-child-process = { version = "0.5.6", default-features = false, path = "../rightkit-child-process" }
 rightkit-audio = { version = "0.3.1", default-features = false, path = "../rightkit-audio" }
-rightkit-ffmpeg = { version = "0.2.10", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
+rightkit-ffmpeg = { version = "0.3.0", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
 
 [dev-dependencies]
-rightkit-ffmpeg = { version = "0.2.10", default-features = false, features = ["dev-overrides"], path = "../rightkit-ffmpeg" }
+rightkit-ffmpeg = { version = "0.3.0", default-features = false, features = ["dev-overrides"], path = "../rightkit-ffmpeg" }
 tempfile = { version = "3" }
 
 # rightkit-typeset's citationberg 0.7.0 pins quick-xml 0.38.4 (RUSTSEC-2026-0194, RUSTSEC-2026-0195); a [patch] does not reach

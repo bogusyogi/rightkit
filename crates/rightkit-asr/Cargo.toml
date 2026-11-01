@@ -46,7 +46,7 @@ tokenizers = { version = "0.23.2", default-features = false, features = ["onig"]
 [target.'cfg(not(target_os = "android"))'.dependencies]
 libloading = "0.9"
 # `WhisperCpp::load_verified` checks the library set against the native-library catalog before dlopen.
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.11" }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.3.0" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 ={ version = "0.6", features = ["exception"] }
@@ -56,7 +56,7 @@ objc2-foundation = "0.3"
 [dev-dependencies]
 # The e2e_whisper test drives the Silero scorer, which rightkit-vad now gates behind `silero`.
 rightkit-vad = { version = "0.1.0", path = "../rightkit-vad", features = ["silero"] }
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.3" }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.3.0" }
 rightkit-speech-client = { path = "../rightkit-speech-client", version = "0.4.0" }
 
 [features]
