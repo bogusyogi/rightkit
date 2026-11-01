@@ -799,7 +799,7 @@ mod tests {
 
     #[test]
     fn execution_observation_fixture_is_causal_and_covers_runtime_sources() {
-        let rows = include_str!("../../../fixtures/observability/execution-observations.jsonl")
+        let rows = include_str!("../tests/fixtures/execution-observations.jsonl")
             .lines()
             .map(|line| serde_json::from_str::<Value>(line).expect("fixture JSON"))
             .collect::<Vec<_>>();
