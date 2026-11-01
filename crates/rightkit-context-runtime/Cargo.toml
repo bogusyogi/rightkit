@@ -37,7 +37,7 @@ rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process"
 rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon" }
 rightkit-sync = { version = "0.2.2", path = "../rightkit-sync" }
 rightkit-file-watch = { version = "0.4.2", path = "../rightkit-file-watch" }
-rightkit-hooks = { version = "0.2.1", path = "../rightkit-hooks" }
+rightkit-hooks = { version = "0.2.0", path = "../rightkit-hooks" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }

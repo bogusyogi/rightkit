@@ -933,28 +933,6 @@
       ]
     },
     {
-      "package": "rightkit-code-audit-commands",
-      "capability": "code-audit-commands",
-      "summary": "Code audit command logic; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
-      ]
-    },
-    {
-      "package": "rightkit-code-audit-engine",
-      "capability": "code-audit-engine",
-      "summary": "Repository code audit engine: native providers, DAG and scheduler, evidence issuers, findings history and review runtime; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
-      ]
-    },
-    {
       "package": "rightkit-code-audit-provider-sdk",
       "capability": "code-audit-provider-sdk",
       "summary": "Code audit provider SDK: provider registry, source and effect interfaces for audit providers; declaration-only detection (no precise implementation fingerprint)",
@@ -1725,28 +1703,6 @@
       "package": "rightkit-evidence",
       "capability": "evidence",
       "summary": "Evidence and spec records: requirement specs, acceptance evidence and verification status for agent work; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
-      ]
-    },
-    {
-      "package": "rightkit-evidence-application",
-      "capability": "evidence-application",
-      "summary": "In-process evidence application composition; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
-      "policyNotes": [
-        "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
-      ]
-    },
-    {
-      "package": "rightkit-evidence-commands",
-      "capability": "evidence-commands",
-      "summary": "Evidence and run command logic; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

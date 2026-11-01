@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.9
+
+- `profile_home` (feature `app-dirs`) and `private_cached` (feature `fs`) from Pulse.
+
 ## 0.4.8 (unpublished)
 
 - Added (feature `fs`): `private_cached` module, moved from Pulse's store: `ensure_dir` and `ensure_private_dir_repairing` (owner-only folders behind a 5-minute per-process trust cache keyed by folder identity; an elevated-run folder on Windows is moved aside and recreated), plus `private_dir_verified`, `note_private_dir`, `forget_private_dir`. Additive.

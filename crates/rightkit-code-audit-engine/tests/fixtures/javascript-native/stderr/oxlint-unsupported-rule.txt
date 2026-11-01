@@ -1,1 +1,0 @@
-Rule not found: eslint/no-such-rule

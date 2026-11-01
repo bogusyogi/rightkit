@@ -2389,42 +2389,6 @@
         "src/main.rs": "482c0be836ad062e0927d34f055d1d8e060eea3fe0afc69c4223056aa9d5a9a8"
       }
     },
-    "rightkit-code-audit-commands": {
-      "pkId": "PK157",
-      "id": "ci/consumers/rightkit-code-audit-commands/src/main.rs",
-      "files": {
-        "Cargo.toml": "512f36b109b3b9b8088325af80fed5fcecdfba529949843d0cdf8b1e29ea1765",
-        "README.md": "160612f1d8c07622568b6e92d81d774cbc802c02fdde11423de203faea986f6d",
-        "src/main.rs": "48832600fb80929db2569c0b5427b329635da9c36a72e4395beb7092682fa9ca"
-      }
-    },
-    "rightkit-evidence-application": {
-      "pkId": "PK158",
-      "id": "ci/consumers/rightkit-evidence-application/src/main.rs",
-      "files": {
-        "Cargo.toml": "ccb2f57628179c759a20d1e206d5a6ee50c179878ae42318f64bc9e7164668c0",
-        "README.md": "4f0a90a1ad4c12a681f0508f8a0dc1fe33f1606729c6147462c991b75ccb7c03",
-        "src/main.rs": "f831e4a1a77f77a8cc409589b37954e79f9e7cd2e24eafb4627cbc64c3496677"
-      }
-    },
-    "rightkit-evidence-commands": {
-      "pkId": "PK159",
-      "id": "ci/consumers/rightkit-evidence-commands/src/main.rs",
-      "files": {
-        "Cargo.toml": "31a41cbbdfe1d3e72cc687bc9236874ac541cdefd705d1d6664e7d1892db6732",
-        "README.md": "710d657261e186431a26ecdca482947fd67525a64737c99ebe6ef24a90b45d37",
-        "src/main.rs": "916f09d569e886ca00e90b7bea4c80dd95b2e3149b5dbfbb3246af486cdedd5b"
-      }
-    },
-    "rightkit-code-audit-engine": {
-      "pkId": "PK160",
-      "id": "ci/consumers/rightkit-code-audit-engine/src/main.rs",
-      "files": {
-        "Cargo.toml": "fc81af44f8722b810a305171e3e2a8581d23e7452ad91fdffc80680c605baadd",
-        "README.md": "9e14378fef71844b8c512459721533b926f34a4131f4d3e42167250a4a912b31",
-        "src/main.rs": "44c2259c2c8ce4b600dd46566fe5a0fffcb126b39d2b31586941a0cfca7b341d"
-      }
-    },
     "rightkit-context-runtime": {
       "pkId": "PK161",
       "id": "ci/consumers/rightkit-context-runtime/src/main.rs",

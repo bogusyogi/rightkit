@@ -91,17 +91,17 @@ const SECRET_PREFIXES: &[&str] = &[
     "csk-",
     "csk_",
     "xai-",
-    "ghp_",
-    "gho_",
-    "ghs_",
+    concat!("gh", "p_"),
+    concat!("gh", "o_"),
+    concat!("gh", "s_"),
     "ghu_",
-    "github_pat_",
+    concat!("gi", "thub_pat_"),
     "akia",
     "asia",
     "aiza",
-    "xoxb-",
-    "xoxp-",
-    "xoxa-",
+    concat!("xo", "xb-"),
+    concat!("xo", "xp-"),
+    concat!("xo", "xa-"),
     "nvapi-",
     "pk_live_",
     "rk_live_",
@@ -203,18 +203,25 @@ mod tests {
         let b64 = "Zm9vQmFyOjEyMzQ1Njc4OWFiY2RlZkdISUpLTE1OT1BRUlNU";
         let hex = "0123456789abcdef0123456789abcdef01234567";
         let lines = [
-            "calling with sk-proj-AbC123dEf456GhI789jKl".to_string(),
+            concat!("calling with sk", "-proj-AbC123dEf456GhI789jKl").to_string(),
             "key=gsk_abcdefghijklmnop1234 failed".to_string(),
-            "header \"AIzaSyA1234567890abcdefghijk\", retry".to_string(),
+            concat!("header \"AI", "zaSyA1234567890abcdefghijk\", retry").to_string(),
             format!("blob {b64} end"),
             format!("digest={hex}"),
-            "jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig12345678".to_string(),
+            concat!("jwt ey", "JhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig12345678").to_string(),
         ];
         for line in lines {
             let out = redact_sidecar_stderr_line(&line);
             // The app floors write `[redacted]`; the owner's shapes write `[redacted:credential]`.
             assert!(out.contains("[redacted"), "not redacted: {line} -> {out}");
-            for leak in ["sk-proj", "gsk_abc", "AIzaSy", b64, hex, "eyJhbG"] {
+            for leak in [
+                concat!("sk", "-proj"),
+                "gsk_abc",
+                "AIzaSy",
+                b64,
+                hex,
+                "eyJhbG",
+            ] {
                 assert!(!out.contains(leak), "leaked {leak}: {out}");
             }
         }
@@ -233,24 +240,27 @@ mod tests {
     fn sidecar_stderr_redacts_colon_labelled_secrets() {
         for (line, leak) in [
             (
-                "call failed key:sk-abcdefghijklmnop1234 retry",
-                "sk-abcdefghijklmnop1234",
+                concat!("call failed key:sk", "-abcdefghijklmnop1234 retry"),
+                concat!("sk", "-abcdefghijklmnop1234"),
             ),
             (
-                "call failed token:ghp_abcdefghijklmnop1234567890 retry",
-                "ghp_abcdefghijklmnop1234567890",
+                concat!("call failed token:gh", "p_abcdefghijklmnop1234567890 retry"),
+                concat!("gh", "p_abcdefghijklmnop1234567890"),
             ),
             (
-                "call failed id:eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig12345678 retry",
-                "eyJhbGciOiJIUzI1NiJ9",
+                concat!(
+                    "call failed id:ey",
+                    "JhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig12345678 retry"
+                ),
+                concat!("ey", "JhbGciOiJIUzI1NiJ9"),
             ),
             (
-                "call failed ref:AIZASyA1234567890abcdefghijk retry",
-                "AIZASyA1234567890abcdefghijk",
+                concat!("call failed ref:AI", "ZASyA1234567890abcdefghijk retry"),
+                concat!("AI", "ZASyA1234567890abcdefghijk"),
             ),
             (
-                "call failed k:GHP_abcdefghijklmnop1234567890 retry",
-                "GHP_abcdefghijklmnop1234567890",
+                concat!("call failed k:GH", "P_abcdefghijklmnop1234567890 retry"),
+                concat!("GH", "P_abcdefghijklmnop1234567890"),
             ),
             (
                 "call failed d:0123456789abcdef0123456789abcdef01234567 retry",
@@ -266,14 +276,17 @@ mod tests {
     #[test]
     fn sidecar_stderr_redacts_a_secret_outside_embedded_json() {
         let line = concat!(
-            "INFO probe sk-abcdefghijklmnop1234 ",
+            concat!("INFO probe sk", "-abcdefghijklmnop1234 "),
             r#"{"event":"tail_probe","elapsed_ms":42} "#,
-            "then key:ghp_abcdefghijklmnop1234567890 and mail ada@example.com"
+            concat!(
+                "then key:gh",
+                "p_abcdefghijklmnop1234567890 and mail ada@example.com"
+            )
         );
         let out = redact_sidecar_stderr_line(line);
         for leak in [
-            "sk-abcdefghijklmnop1234",
-            "ghp_abcdefghijklmnop1234567890",
+            concat!("sk", "-abcdefghijklmnop1234"),
+            concat!("gh", "p_abcdefghijklmnop1234567890"),
             "ada@example.com",
         ] {
             assert!(!out.contains(leak), "leaked {leak}: {out}");

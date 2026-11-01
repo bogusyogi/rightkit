@@ -8,11 +8,11 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 0.
+Flagged mismatches: 1.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (168)
+## Rust crates (164)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -60,8 +60,6 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-captions` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | video-captions | Captions for Right Suite video apps: caption styles, per-language caption sets, cue layout and placement, font measurement, and swatch rendering through rightkit-typeset. |
 | `rightkit-channel-memory` | crates.io | 0.2.2 | 0.2.1 | 0.2.2 | staged, not yet published | channel-memory | Channel memory for the content pipeline: the channel-memory.v1 schema with serde types, validation, version gate, proof citation rules, and scope checks for PostRight P3 and GenRight G7. |
 | `rightkit-child-process` | crates.io | 0.5.7 | 0.5.7 | 0.5.7 | ok | owned-processes | Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps. |
-| `rightkit-code-audit-commands` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | code-audit-commands | Code audit command logic (audit, assurance, coverage, minimize, report, review, rules, verify) as library modules for a host CLI |
-| `rightkit-code-audit-engine` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | code-audit-engine | Repository code audit engine: native providers, DAG and scheduler, evidence issuers, findings history and review runtime |
 | `rightkit-code-audit-provider-sdk` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | code-audit-provider-sdk | Code audit provider SDK: provider registry, source and effect interfaces for audit providers |
 | `rightkit-color` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | video-color | Colour grading for Right Suite video apps: grade parameters, LUTs and FFmpeg filter rendering, and video scopes (waveform, vectorscope, histogram). |
 | `rightkit-compose` | crates.io | 0.2.1 | 0.2.0 | 0.2.1 | staged, not yet published | composition-model | Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export |
@@ -97,8 +95,6 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-embed` | crates.io | 0.6.2 | 0.6.1 | 0.6.2 | staged, not yet published | embeddings | Product-neutral local text embeddings and persistent cosine vector store. |
 | `rightkit-engine-host` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | engine-host | Engine binary framework: one command registry served as a headless JSON CLI and as a stdio sidecar, shared wire types, contract and TypeScript export, isolated-data-folder rule |
 | `rightkit-evidence` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | evidence | Evidence and spec records: requirement specs, acceptance evidence and verification status for agent work |
-| `rightkit-evidence-application` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | evidence-application | In-process evidence application: composes audit, orchestration, policy and report crates behind host-supplied catalog, report and run sources |
-| `rightkit-evidence-commands` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | evidence-commands | Evidence, freeze, contract, decision, governance, key, state and run command logic as library modules for a host CLI |
 | `rightkit-evidence-contracts` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | evidence-contracts | Evidence contracts: plans, providers, findings reports, receipts, traces, source anchors and canonical JSON digests |
 | `rightkit-evidence-decisions` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | evidence-decisions | Evidence decision store: recorded decisions with SQLite persistence and validation |
 | `rightkit-evidence-effects` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | evidence-effects | Effect execution with sandboxed child processes and receipts |
@@ -111,7 +107,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-github` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | github | GitHub App authority contracts, forge request specs, App state store, webhook verification, installation tokens and device-flow sign-in |
 | `rightkit-google-apis` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | google-workspace-apis | Async Google Workspace REST clients: Gmail (sync, history, batch fetch, MIME, compose, labels, filters, settings, drafts, attachments), Calendar, Drive, People, Tasks and Meet, with desktop OAuth and shared retry/backoff. |
 | `rightkit-google-identity` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | google-identity | Sign in with Google protocol pieces for Right Suite apps: OAuth PKCE request and redirect handling, token response and ID-token claim checks, and refresh-token storage in rightkit-credentials. |
-| `rightkit-hooks` | crates.io | 0.2.1 | 0.2.0 | 0.2.1 | staged, not yet published | lifecycle-hooks | Typed Claude Code and Codex hook payloads, a deadline-bound exit-0 dispatcher, exact output builders, and delivery receipts. |
+| `rightkit-hooks` | crates.io | 0.2.0 | 0.2.0 | 0.2.1 | **MISMATCH staged 0.2.1 != source 0.2.0** | lifecycle-hooks | Typed Claude Code and Codex hook payloads, a deadline-bound exit-0 dispatcher, exact output builders, and delivery receipts. |
 | `rightkit-hotkeys` | crates.io | 0.1.2 | 0.1.2 | 0.1.2 | ok | global-hotkeys | Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state. |
 | `rightkit-http` | crates.io | 0.3.9 | 0.3.8 | 0.3.9 | staged, not yet published | http-client | Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff with Retry-After, SSE streaming, multipart bodies, redacted secrets, and untrusted web-text wrapping. |
 | `rightkit-identity` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | installation-identity | Installation identity with clone detection and startup claim, device pairing with signed-transcript confirmation and owner approval, per-device bearer tokens with a per-IP rate limit, and shared build identity. |

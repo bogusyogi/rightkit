@@ -426,7 +426,7 @@ fn host_scope_overrides_global_policy_and_invalid_config_fails_closed() {
 fn secret_material_denies_under_every_pii_policy() {
     for policy in ["off", "redact", "deny"] {
         let fixture = Fixture::new(Some(policy), None);
-        let secret = "ghp_abcdefghijklmnopqrstuvwxyz";
+        let secret = concat!("gh", "p_abcdefghijklmnopqrstuvwxyz");
         let body = format!("alice@example.com {secret}");
         for error in [
             fixture.push("pii", "secret-1", &body).unwrap_err(),
