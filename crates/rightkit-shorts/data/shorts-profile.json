@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "profile_version": 4,
+  "primary_platform": "vertical-short",
+  "platforms": [
+    { "id": "vertical-short", "label": "Generic vertical short", "aspect": "9:16", "min_duration_ms": 5000, "ideal_min_ms": 15000, "ideal_max_ms": 45000, "max_duration_ms": 90000 },
+    { "id": "tiktok", "label": "TikTok", "aspect": "9:16", "min_duration_ms": 5000, "ideal_min_ms": 15000, "ideal_max_ms": 60000, "max_duration_ms": 180000 },
+    { "id": "instagram-reels", "label": "Instagram Reels", "aspect": "9:16", "min_duration_ms": 5000, "ideal_min_ms": 15000, "ideal_max_ms": 45000, "max_duration_ms": 90000 },
+    { "id": "youtube-shorts", "label": "YouTube Shorts", "aspect": "9:16", "min_duration_ms": 5000, "ideal_min_ms": 15000, "ideal_max_ms": 50000, "max_duration_ms": 180000 }
+  ],
+  "weights": {
+    "hook": 0.20,
+    "payoff": 0.15,
+    "proof": 0.10,
+    "value": 0.20,
+    "duration_fit": 0.15,
+    "visual_support": 0.05,
+    "platform_fit": 0.10,
+    "brand_fit": 0.05
+  },
+  "signal_weights": {
+    "hook_question": 0.4,
+    "hook_cue": 0.4,
+    "hook_labeled": 0.2,
+    "payoff_terminal": 0.4,
+    "payoff_cue": 0.4,
+    "payoff_no_trailing_conjunction": 0.2,
+    "proof_digit": 0.5,
+    "proof_cue": 0.5,
+    "value_unique_ratio": 0.3,
+    "value_confidence": 0.3,
+    "value_pacing": 0.25,
+    "value_filler": 0.15
+  },
+  "pacing": {
+    "ideal_min_wps": 2.0,
+    "ideal_max_wps": 3.3,
+    "decay_span_wps": 3.0
+  },
+  "windows": {
+    "pause_boundary_ms": 600,
+    "max_internal_pause_ms": 3000,
+    "pad_ms": 120,
+    "max_windows": 20000
+  },
+  "dedupe": {
+    "diversity_similarity_threshold": 0.6,
+    "max_overlap_fraction": 0.3
+  },
+  "title": { "max_chars": 60 },
+  "llm": { "max_sentences_per_request": 400, "max_moments_per_request": 12, "blend": 0.5, "max_tokens": 4096 },
+  "assumed_word_confidence": 0.85,
+  "max_reported_rejections": 200,
+  "fillers": ["um", "umm", "uh", "uhh", "uhm", "erm", "er", "err", "ah", "ahh", "hmm", "hmmm", "hm", "mm"],
+  "dangling_openers": ["and", "but", "so", "also", "then", "because", "which", "this", "that", "it", "he", "she", "they", "therefore", "however", "plus", "meanwhile", "otherwise", "anyway", "besides"],
+  "hook_cues": ["never", "always", "secret", "mistake", "stop", "wait", "here's", "imagine", "what if", "did you know", "nobody tells you", "truth is", "biggest", "worst", "best", "no one"],
+  "payoff_cues": ["so", "that's how", "that's why", "which means", "the result", "in the end", "here's why", "bottom line", "turns out"],
+  "proof_cues": ["because", "study", "data", "results", "for example", "case", "percent", "research", "proven", "tested", "measured"],
+  "brand_banned_terms": [],
+  "visual_support": {
+    "confidence_weight": 0.4,
+    "coverage_weight": 0.3,
+    "variety_weight": 0.15,
+    "motion_weight": 0.15,
+    "min_points_for_high_confidence": 6,
+    "variety_target_shot_interval_ms": 20000,
+    "motion_target_avg_step": 0.01
+  }
+}

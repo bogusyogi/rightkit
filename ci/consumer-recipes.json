@@ -1623,6 +1623,15 @@
         "README.md": "375309718b38c6fac678d543e50013cc1b6cd598a4f1c9124912ef70063957a0",
         "src/main.rs": "d496b52275c2f1d8ff2e810bf8061672f337e100d751165486932271395ba5c7"
       }
+    },
+    "rightkit-shorts": {
+      "pkId": "PK59",
+      "id": "ci/consumers/rightkit-shorts/src/main.rs",
+      "files": {
+        "Cargo.toml": "fc355f2714d24d56d582638c94ec04d8654c7d528981d00d93ed6690ac8c3373",
+        "README.md": "66ebdb971f0abd4fc4e4bca0e67c6264bd6e9ee1c0873568c73744c694f91c77",
+        "src/main.rs": "b5c4e08aa4ac47506bf22eac31a70e4aa049b2c40fe7d2ef21ef079fb72a33d8"
+      }
     }
   }
 }

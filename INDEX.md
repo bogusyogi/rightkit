@@ -12,7 +12,7 @@ Flagged mismatches: 0.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (77)
+## Rust crates (78)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -76,6 +76,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-sandbox` | crates.io | 0.6.1 | 0.6.1 | 0.6.1 | ok | os-sandbox | Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps. |
 | `rightkit-search` | crates.io | 0.4.1 | 0.4.0 | 0.4.1 | staged, not yet published | search | Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index. |
 | `rightkit-send` | crates.io | 0.3.0 | 0.2.0 | 0.3.0 | staged, not yet published | nearby-sharing | Nearby file and text sharing over the open LocalSend v2 protocol, with Pulse extensions: TLS identity pinning, per-device trust, and macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy. |
+| `rightkit-shorts` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Shorts finder for Right Suite video apps: candidate moments from a long video's transcript, scored and ranked (heuristics plus an optional BYOK LLM pass), with hooks, captions and edit plans per short. |
 | `rightkit-sidecar` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | framed-sidecar | Bounded JSON-lines transport primitives for Right Suite sidecars. |
 | `rightkit-speech-client` | crates.io | 0.4.1 | 0.4.0 | 0.4.1 | staged, not yet published | shared-speech-service | Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-daemon. Wire-compatible with HeardRight's v1 host. |
 | `rightkit-spend` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | spend-ledger | Spend reservation, allowance and compare-and-swap ledger on SQLite: integer micro-units, idempotent reserve, atomic multi-cap reserve, carry-over, budgets, reconciliation, cap audit. |

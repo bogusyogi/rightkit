@@ -1,0 +1,48 @@
+{
+  "id": "delayed_payoff_several_openings",
+  "preset": "vertical-short",
+  "description": "Synthetic explainer where the answer arrives several sentences after the question, with several plausible openings. Timings are synthetic; the labels are the moments a reviewer would cut.",
+  "sentences": [
+    { "start_ms": 1000, "end_ms": 7500, "text": "Everyone says you should save ten percent, but nobody explains the first step." },
+    { "start_ms": 8700, "end_ms": 15200, "text": "Here is a question I got from a viewer named Sam last week." },
+    { "start_ms": 16400, "end_ms": 22900, "text": "Sam asked whether a debt snowball beats paying the highest interest first." },
+    { "start_ms": 24100, "end_ms": 30600, "text": "Most advice on this skips the one number that actually decides it." },
+    { "start_ms": 31800, "end_ms": 38300, "text": "So let me walk you through the math, slowly, with real numbers." },
+    { "start_ms": 39500, "end_ms": 46000, "text": "Sam owed four cards, with balances of 2400, 900, 6100 and 300 dollars." },
+    { "start_ms": 47200, "end_ms": 53700, "text": "The interest rates were 24, 19, 31 and 9 percent." },
+    { "start_ms": 54900, "end_ms": 61400, "text": "If you pay the smallest balance first, you clear a card quickly and feel progress." },
+    { "start_ms": 62600, "end_ms": 69100, "text": "But that feeling costs real money, and the numbers below show exactly how much." },
+    { "start_ms": 70300, "end_ms": 76800, "text": "Paying the 31 percent card first saves about nine hundred dollars over two years." },
+    { "start_ms": 78000, "end_ms": 84500, "text": "Here is the part nobody mentions, the order matters less than the monthly total." },
+    { "start_ms": 85700, "end_ms": 92200, "text": "Once you know that, the snowball versus avalanche debate mostly disappears." },
+    { "start_ms": 93400, "end_ms": 99900, "text": "So the answer to Sam's question is avalanche, and the reason is the interest rate." },
+    { "start_ms": 101100, "end_ms": 107600, "text": "Drop a comment if you want the spreadsheet I used for this." }
+  ],
+  "labels": [
+    { "start_ms": 70300, "end_ms": 99900, "note": "The 31 percent card result and the explanation that delivers the answer." },
+    { "start_ms": 8700, "end_ms": 22900, "note": "The viewer question and the setup for it." }
+  ],
+  "recorded_llm": [
+    {
+      "start_sentence": "s0010",
+      "end_sentence": "s0013",
+      "hook_text": "Paying the 31 percent card first saves about nine hundred dollars over two years.",
+      "reason": "Concrete number first, then the reason it matters.",
+      "score": 0.9
+    },
+    {
+      "start_sentence": "s0002",
+      "end_sentence": "s0003",
+      "hook_text": "Here is a question I got from a viewer named Sam last week.",
+      "reason": "Question opener with the setup in the next line.",
+      "score": 0.7
+    },
+    {
+      "start_sentence": "s0009",
+      "end_sentence": "s0010",
+      "hook_text": "But that feeling costs real money, and the numbers below show exactly how much.",
+      "reason": "Opens on a dangling but; does not stand alone.",
+      "score": 0.6
+    }
+  ]
+}

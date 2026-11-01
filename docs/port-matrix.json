@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T02:41:26Z",
-  "rightkitHead": "afb42b9",
+  "generatedAt": "2026-11-01T02:47:58Z",
+  "rightkitHead": "157fdc7",
   "legend": [
     {
       "state": "adopted",
@@ -127,7 +127,7 @@
     {
       "id": "other",
       "name": "Other (no domain assigned)",
-      "packages": 8
+      "packages": 9
     }
   ],
   "triage": null,
@@ -11511,6 +11511,71 @@
         "pulse": {
           "state": "adopted",
           "detail": "=0.2.0, 3 pins"
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-shorts",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-shorts",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
         },
         "scraperight": {
           "state": "unused",

@@ -1,0 +1,48 @@
+{
+  "id": "faceless_misleading_fragments",
+  "preset": "vertical-short",
+  "description": "Synthetic faceless narration with dangling openers, a misleading fragment that promises a payoff it does not deliver, and two separated moments. Timings are synthetic; the labels are the moments a reviewer would cut.",
+  "sentences": [
+    { "start_ms": 1000, "end_ms": 7500, "text": "This channel has covered slow-cooked ramen for three years now." },
+    { "start_ms": 8700, "end_ms": 15200, "text": "And then the broth turned into something nobody expected." },
+    { "start_ms": 16400, "end_ms": 22900, "text": "Here's the secret most ramen shops will never tell you." },
+    { "start_ms": 24100, "end_ms": 30600, "text": "They simmer pork bones for twelve hours before adding any salt." },
+    { "start_ms": 31800, "end_ms": 38300, "text": "Because collagen only releases when the temperature stays low and steady." },
+    { "start_ms": 39500, "end_ms": 46000, "text": "The result is a broth with a body that thins out if you rush it." },
+    { "start_ms": 47200, "end_ms": 53700, "text": "Stop boiling it hard, because a rolling boil emulsifies the fat into a cloudy mess." },
+    { "start_ms": 54900, "end_ms": 61400, "text": "Turns out the fix takes four minutes and one wooden spoon." },
+    { "start_ms": 62600, "end_ms": 69100, "text": "Which is why the best shops keep one pot going for decades." },
+    { "start_ms": 70300, "end_ms": 76800, "text": "Let's look at the chashu next, since it has its own problems." },
+    { "start_ms": 78000, "end_ms": 84500, "text": "Did you know that a cheap cut can beat a premium one if you braise it slowly?" },
+    { "start_ms": 85700, "end_ms": 92200, "text": "In tests, the chuck roast came out juicier than the brisket every single time." },
+    { "start_ms": 93400, "end_ms": 99900, "text": "That is the whole trick, and it is worth a try this weekend." },
+    { "start_ms": 101100, "end_ms": 107600, "text": "Subscribe for part two, where we tackle the egg." }
+  ],
+  "labels": [
+    { "start_ms": 39500, "end_ms": 61400, "note": "Result, the rule to follow, and the four-minute fix that pays it off." },
+    { "start_ms": 78000, "end_ms": 99900, "note": "Hook question, the test that backs it, and the whole trick." }
+  ],
+  "recorded_llm": [
+    {
+      "start_sentence": "s0006",
+      "end_sentence": "s0008",
+      "hook_text": "Stop boiling it hard, because a rolling boil emulsifies the fat into a cloudy mess.",
+      "reason": "Concrete rule with a payoff in the next line.",
+      "score": 0.8
+    },
+    {
+      "start_sentence": "s0011",
+      "end_sentence": "s0013",
+      "hook_text": "Did you know that a cheap cut can beat a premium one if you braise it slowly?",
+      "reason": "Question, a test that backs it, and a closing takeaway.",
+      "score": 0.88
+    },
+    {
+      "start_sentence": "s0003",
+      "end_sentence": "s0004",
+      "hook_text": "Here's the secret most ramen shops will never tell you.",
+      "reason": "Hook with no payoff inside the window.",
+      "score": 0.4
+    }
+  ]
+}
