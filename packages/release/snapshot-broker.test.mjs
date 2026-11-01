@@ -524,7 +524,8 @@ test("data: [7.24] the broker wrapper resolves workspaces from the files alone (
   const other = installCargoShim({ base: path.join(h.fx.root, "shim2"), snapshotRoot: h.fx.snapshot, realCargo: null, broker: { checkoutDirs: { ".": h.fx.checkout, native: path.join(h.fx.checkout, "native") }, section: { ...brokerSection(h.fx.sb), handle: "other" } } });
   assert.notEqual(other.identity, h.installed.identity);
   assert.throws(() => installCargoShim({ base: path.join(h.fx.root, "shim3"), snapshotRoot: h.fx.snapshot, realCargo: null, broker: {} }), /needs the gate's checkout map and broker section/);
-  assert.throws(() => installCargoShim({ base: path.join(h.fx.root, "shim4"), snapshotRoot: h.fx.snapshot, realCargo: null, broker: { checkoutDirs: {}, section: {} }, platform: "win32" }), /needs a POSIX host/);
+  // A Windows broker wrapper is the RustRight client in gate-trampoline mode (rightkit#1350): without an absolute client it is refused before anything is written.
+  assert.throws(() => installCargoShim({ base: path.join(h.fx.root, "shim4"), snapshotRoot: h.fx.snapshot, realCargo: null, broker: { checkoutDirs: {}, section: {} }, platform: "win32" }), /needs the absolute RustRight client/);
 });
 
 test("data: [7.24] broker-mode decisions: the workspace's counterpart in the checkout, no output variable, and --manifest-path, --target-dir, redirects and unbound commands refused with their codes", (t) => {

@@ -233,34 +233,36 @@ export function compileKeyOf(env = {}) {
 /** The profile directory a gate compile writes (the dev profile; the install route reads its binaries there). */
 export const COMPILE_PROFILE_DIR = "debug";
 
+/** How `binaries` was chosen: only the bin targets the compile built in that directory (a consumer requires this marker). */
+export const BUILT_BINARIES_SCHEMA = "built-bin-targets/1";
+
 /**
- * The sha256 of every executable file directly in `<dir>/debug/` of each output directory (rustright#209 item 5): the binaries this compile
- * produced, by their bytes. A census proves nothing once it is truncated (a broker workspace target is tens of GB, past OUTPUT_CENSUS_LIMIT),
- * but a consumer that installs a binary needs only that binary's bytes to be the compile's. Executable: a regular file with an execute bit on
- * POSIX, a `.exe` on Windows. Sorted by directory, then name.
+ * The sha256 of each binary this compile built (rustright#209 item 5): for every output directory, the files `<dir>/debug/<bin>[.exe]` of the
+ * bin targets the compile built there (`builtBins`, { [dir]: [bin target name] }: the units whose scans ran `cargo build -p <crate>` in that
+ * directory's workspace, so each binary was rebuilt or proven fresh by Cargo for this commit). Any other file in `debug/`, a stale binary of a
+ * removed or renamed target or of a package this run did not build, is never recorded. A census proves nothing once truncated (a broker
+ * workspace target is tens of GB, past OUTPUT_CENSUS_LIMIT); a consumer that installs a binary needs only that binary's bytes to be the compile's.
+ * A target whose file is missing is recorded with `sha256: null`. Sorted by directory, then name.
  */
-export function compiledBinaries(dirs = [], { platform = process.platform, readdir = (d) => fs.readdirSync(d, { withFileTypes: true }), stat = (f) => fs.statSync(f), readFile = (f) => fs.readFileSync(f) } = {}) {
+export function compiledBinaries(builtBins = {}, { platform = process.platform, stat = (f) => fs.statSync(f), readFile = (f) => fs.readFileSync(f) } = {}) {
   const out = [];
-  for (const dir of [...new Set(dirs.filter((d) => typeof d === "string" && d))].sort()) {
-    const profile = path.join(dir, COMPILE_PROFILE_DIR);
-    let entries;
-    try { entries = readdir(profile); } catch { continue; }
-    for (const e of entries) {
-      if (!e.isFile()) continue;
-      const file = path.join(profile, e.name);
-      let info;
-      try { info = stat(file); } catch { continue; }
-      if (platform === "win32" ? !/\.exe$/i.test(e.name) : (info.mode & 0o111) === 0) continue;
-      out.push({ dir, name: e.name, size: info.size, sha256: sha256(readFile(file)) });
+  for (const dir of Object.keys(builtBins ?? {}).filter((d) => typeof d === "string" && d).sort()) {
+    for (const bin of [...new Set(builtBins[dir] ?? [])].sort()) {
+      const name = `${bin}${platform === "win32" ? ".exe" : ""}`;
+      const file = path.join(dir, COMPILE_PROFILE_DIR, name);
+      let info = null;
+      try { info = stat(file); } catch { info = null; }
+      out.push(info?.isFile?.() ? { dir, name, size: info.size, sha256: sha256(readFile(file)) } : { dir, name, size: null, sha256: null });
     }
   }
-  return out.sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir.localeCompare(b.dir)));
+  return out;
 }
 
-/** What a passed compile stage records about its outputs: the directories, their census, the binaries' digests and the key of the compile environment. */
-export function compileOutputsRecord({ dirs = [], env = {}, census = outputCensus, binaries = compiledBinaries }) {
+/** What a passed compile stage records about its outputs: the directories, their census, the built binaries' digests and the key of the compile environment. */
+export function compileOutputsRecord({ dirs = [], env = {}, builtBins = null, census = outputCensus, binaries = compiledBinaries }) {
   const c = census(dirs);
-  return { dirs: c.dirs, entries: c.entries, digest: c.digest, truncated: c.truncated, binaries: binaries(c.dirs), key: compileKeyOf(env) };
+  const known = builtBins && typeof builtBins === "object" ? Object.fromEntries(Object.entries(builtBins).filter(([dir]) => c.dirs.includes(dir))) : null;
+  return { dirs: c.dirs, entries: c.entries, digest: c.digest, truncated: c.truncated, ...(known ? { binaries: binaries(known), binariesOf: BUILT_BINARIES_SCHEMA } : {}), key: compileKeyOf(env) };
 }
 
 /**

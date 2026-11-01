@@ -2,12 +2,15 @@
 // directory, or refuses it (GATE-CONTRACT §1 "Broker interface", output directory; row E16).
 import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
-import { SHIM_REFUSAL_STATUS, decideCargoInvocation, installCargoShim, shimScanEnv } from "./cargo-target-shim.mjs";
+
+const createHashOf = (bytes) => createHash("sha256").update(bytes).digest("hex");
+import { SHIM_REFUSAL_STATUS, TRAMPOLINE_SCHEMA, decideCargoInvocation, installCargoShim, shimScanEnv } from "./cargo-target-shim.mjs";
 import { UNOBSERVED_NESTED_CARGO_NOTE, inheritedEnvDigest, planScans, runScans, scanCacheKey } from "./deterministic-scans.mjs";
 import { verifySnapshotDir } from "./snapshot-check.mjs";
 
@@ -656,4 +659,46 @@ test("a reinstalled wrapper (same identity, a killed run's directory left behind
   assert.notEqual(second.ledgerDir, first.ledgerDir);
   assert.deepEqual(fs.readdirSync(second.ledgerDir), [], "the new run's ledger starts empty");
   assert.equal(JSON.parse(fs.readFileSync(second.mapFile, "utf8")).ledgerDir, second.ledgerDir, "the map names this install's ledger");
+});
+
+test("[rightkit#1350] a Windows broker host's wrapper is a copy of the RustRight client as bin/cargo.exe with a hash-pinned gate-trampoline sidecar", (t) => {
+  const dir = tmp(t);
+  const snap = path.join(dir, "snap"); write(snap, { "Cargo.toml": "[workspace]\n" });
+  const client = "C:\\rr\\runtime\\rustright.exe";
+  const real = (f) => createHashOf(fs.readFileSync(f));
+  const install = ({ clientSha = "c".repeat(64), copySha = clientSha, answer = TRAMPOLINE_SCHEMA, onDir = () => {} } = {}) => {
+    const copied = [];
+    const probed = [];
+    const installed = installCargoShim({
+      base: path.join(dir, "shim"), snapshotRoot: snap, targetDirs: {}, platform: "win32", realCargo: null, onDir,
+      broker: { checkoutDirs: { ".": path.join(dir, "checkout") }, section: { client, platform: "win32" } },
+      copyFile: (from, to) => { copied.push([from, to]); fs.writeFileSync(to, "client bytes"); },
+      hashFile: (f) => (f === client ? clientSha : f.endsWith("cargo.exe") ? copySha : real(f)),
+      probe: (exe) => { probed.push(exe); return answer; },
+    });
+    return { installed, copied, probed };
+  };
+  const { installed, copied, probed } = install();
+  assert.equal(installed.mode, "broker");
+  assert.equal(path.basename(installed.shim), "cargo.exe");
+  assert.deepEqual(copied, [[client, installed.shim]], "the live client is copied, never linked");
+  assert.deepEqual(probed, [installed.shim], "the copy is probed for gate-trampoline mode before the sidecar exists");
+  const sidecar = JSON.parse(fs.readFileSync(path.join(installed.bin, "gate-trampoline.json"), "utf8"));
+  assert.deepEqual(Object.keys(sidecar), ["schema", "node", "module", "map"]);
+  assert.equal(sidecar.schema, TRAMPOLINE_SCHEMA);
+  assert.equal(sidecar.map.path, installed.mapFile);
+  assert.equal(sidecar.map.sha256, real(installed.mapFile), "the sidecar pins the map as written");
+  assert.equal(sidecar.module.sha256, real(sidecar.module.path));
+  assert.equal(sidecar.node.path, process.execPath);
+  assert.notEqual(install({ clientSha: "d".repeat(64) }).installed.identity, installed.identity, "another client is another wrapper");
+
+  for (const [why, opts, pattern] of [
+    ["a copy that does not hash to the client", { copySha: "e".repeat(64) }, /hashes to e+, not the client's c+/],
+    ["a client without gate-trampoline mode", { answer: "exit 2" }, /has no gate-trampoline mode/],
+  ]) {
+    let told = null;
+    assert.throws(() => install({ ...opts, onDir: (d) => { told = d; } }), (e) => e.code === "RK_CARGO_SHIM_UNSUPPORTED" && pattern.test(e.message), why);
+    assert.equal(fs.existsSync(told), false, `${why}: nothing is left behind`);
+  }
+  assert.throws(() => installCargoShim({ base: path.join(dir, "shim"), snapshotRoot: snap, targetDirs: { ".": path.join(dir, "t") }, platform: "win32", realCargo: "C:\\cargo.exe" }), (e) => e.code === "RK_CARGO_SHIM_UNSUPPORTED", "a direct Windows host still has no wrapper");
 });

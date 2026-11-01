@@ -158,9 +158,24 @@ export function decideCargoInvocation({ args, cwd, env, map, locate, realpath = 
  * Broker mode (`broker: { checkoutDirs, section }`, the Mac): `checkoutDirs` is the gate's { [cargoDir]: absolute path of that
  * workspace in the primary checkout } (the snapshot-to-checkout map, the only source of a request's primaryCwd) and `section` the
  * public part of the gate's snapshot broker (brokerSection). `realCargo` then only runs `version` and `help`; it may be null.
+ *
+ * Windows, broker mode only (rightkit#1350, rustright#215): a child started without a shell finds only an .exe, so `bin/cargo.exe` is a
+ * byte copy of the live RustRight client (`broker.section.client`) and `bin/gate-trampoline.json` beside it pins node, this module and the
+ * map by path and sha256. The client finds that sidecar beside its own executable and runs `node <module> --map <map> -- <args>` and
+ * nothing else (gate-trampoline mode). The copy must hash to the client and answer `trampoline-capability` with the schema before the
+ * sidecar is written; the client's digest is part of the identity. A direct Windows host still has no wrapper.
  */
-export function installCargoShim({ base, snapshotRoot, targetDirs, broker = null, realCargo, node = process.execPath, platform = process.platform, realpath = (p) => fs.realpathSync.native(p), onDir = () => {}, write = (file, text, mode) => fs.writeFileSync(file, text, { mode }) }) {
-  if (platform === "win32") throw Object.assign(new Error("the runtime cargo wrapper needs a POSIX host: a Windows child finds only an .exe on PATH"), { code: "RK_CARGO_SHIM_UNSUPPORTED" });
+export const TRAMPOLINE_SCHEMA = "rustright.gate-trampoline/1";
+const sha256File = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+const probeTrampoline = (exe) => {
+  const r = spawnSync(exe, ["trampoline-capability"], { encoding: "utf8", windowsHide: true });
+  return r.status === 0 ? String(r.stdout ?? "").trim() : `exit ${r.status ?? r.signal ?? r.error?.message}`;
+};
+export function installCargoShim({ base, snapshotRoot, targetDirs, broker = null, realCargo, node = process.execPath, platform = process.platform, realpath = (p) => fs.realpathSync.native(p), onDir = () => {}, write = (file, text, mode) => fs.writeFileSync(file, text, { mode }), copyFile = (from, to) => fs.copyFileSync(from, to), hashFile = sha256File, probe = probeTrampoline }) {
+  if (platform === "win32" && !broker) throw Object.assign(new Error("the runtime cargo wrapper needs a POSIX host or a Windows broker host: a Windows child finds only an .exe on PATH"), { code: "RK_CARGO_SHIM_UNSUPPORTED" });
+  const trampoline = platform === "win32";
+  if (trampoline && (typeof broker.section?.client !== "string" || !path.win32.isAbsolute(broker.section.client))) throw Object.assign(new Error(`a Windows broker wrapper needs the absolute RustRight client (${JSON.stringify(broker.section?.client)})`), { code: "RK_CARGO_SHIM_UNSUPPORTED" });
+  const clientSha256 = trampoline ? hashFile(broker.section.client) : null;
   const mode = broker ? "broker" : "direct";
   if (mode === "direct" && (typeof realCargo !== "string" || !path.isAbsolute(realCargo))) throw Object.assign(new Error(`no absolute cargo to wrap (${JSON.stringify(realCargo)})`), { code: "RK_CARGO_SHIM_UNSUPPORTED" });
   if (mode === "broker" && ((realCargo !== null && realCargo !== undefined && !path.isAbsolute(realCargo)) || !broker.section || !broker.checkoutDirs)) throw Object.assign(new Error("a broker wrapper needs the gate's checkout map and broker section"), { code: "RK_CARGO_SHIM_UNSUPPORTED" });
@@ -171,10 +186,11 @@ export function installCargoShim({ base, snapshotRoot, targetDirs, broker = null
   const identityHash = createHash("sha256").update(JSON.stringify({ realCargo: realCargo ?? null, node, workspaces: sorted, ...(broker ? { mode, section: broker.section } : {}) })).update(fs.readFileSync(self));
   // The broker half of the wrapper is part of its identity: any change to the code that carries and verifies a call is another wrapper.
   if (broker) for (const name of ["snapshot-broker.mjs", "snapshot-request.mjs", "snapshot-metadata.mjs", "provenance-verify.mjs", "cargo-ledger.mjs"]) identityHash.update(fs.readFileSync(new URL(`./${name}`, import.meta.url)));
+  if (trampoline) identityHash.update(`\0client:${clientSha256}`);
   const identity = identityHash.digest("hex");
   const dir = path.join(base, `rk-cargo-shim-${identity.slice(0, 16)}`);
   const bin = path.join(dir, "bin");
-  const shim = path.join(bin, "cargo");
+  const shim = path.join(bin, trampoline ? "cargo.exe" : "cargo");
   const mapFile = path.join(dir, "cargo-target-map.json");
   // The wrapper directory is identity-keyed and outlives a killed run, so each install gets its own ledger: a dead run's
   // pending record is never read as this run's call.
@@ -190,7 +206,15 @@ export function installCargoShim({ base, snapshotRoot, targetDirs, broker = null
     const sentinel = mode === "broker" || Object.keys(sorted).length > 1 ? path.join(dir, "unbound") : null;
     const section = broker ? { ...broker.section, sentinel } : null;
     put(mapFile, `${JSON.stringify({ schema: SHIM_MAP_SCHEMA, mode, identity, realCargo: realCargo ?? null, shim, ledgerDir, workspaces: sorted, ...(section ? { broker: section } : {}) }, null, 2)}\n`, 0o644);
-    put(shim, `#!/bin/sh\nexec ${quote(node)} ${quote(self)} --map ${quote(mapFile)} -- "$@"\n`, 0o755);
+    if (trampoline) {
+      copyFile(broker.section.client, shim);
+      const copied = hashFile(shim);
+      if (copied !== clientSha256) throw Object.assign(new Error(`the copy ${shim} hashes to ${copied}, not the client's ${clientSha256}`), { code: "RK_CARGO_SHIM_UNSUPPORTED" });
+      const answer = probe(shim);
+      if (answer !== TRAMPOLINE_SCHEMA) throw Object.assign(new Error(`the RustRight client ${broker.section.client} has no gate-trampoline mode (trampoline-capability answered ${JSON.stringify(answer)}, not ${TRAMPOLINE_SCHEMA}); install a RustRight runtime with rustright#215`), { code: "RK_CARGO_SHIM_UNSUPPORTED" });
+      const pin = (file) => ({ path: file, sha256: hashFile(file) });
+      put(path.join(bin, "gate-trampoline.json"), `${JSON.stringify({ schema: TRAMPOLINE_SCHEMA, node: pin(node), module: pin(self), map: pin(mapFile) }, null, 2)}\n`, 0o644);
+    } else put(shim, `#!/bin/sh\nexec ${quote(node)} ${quote(self)} --map ${quote(mapFile)} -- "$@"\n`, 0o755);
     return { dir, bin, shim, mapFile, ledgerDir, mode, workspaces: sorted, identity, sentinel };
   } catch (error) {
     fs.rmSync(dir, { recursive: true, force: true });

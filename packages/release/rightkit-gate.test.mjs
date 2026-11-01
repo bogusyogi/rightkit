@@ -2873,3 +2873,15 @@ test("data: scoped scans keep every file-only row, keep only the closure's execu
   assert.throws(() => scopeScans([{ id: "mystery", class: "A", executes: true }], closure, { rustUnits: CLOSURE_RUST }), /RK_SCOPE_CLOSURE: executing scan mystery has no exact scope owner/);
   assert.throws(() => scopeScans([{ id: "check:stranger", class: "A" }], closure, { rustUnits: CLOSURE_RUST }), /RK_SCOPE_CLOSURE: scan check:stranger has no known Rust owner/);
 });
+
+test("[rustright#209 item 5] a Rust unit carries the bin targets `cargo build -p` builds: required-features bins and libs are not counted", (t) => {
+  const root = mkRepo({ "Cargo.toml": "[workspace]\n", "crates/a/Cargo.toml": pkg("a") }, t);
+  const body = JSON.stringify({
+    workspace_root: root, target_directory: path.join(root, "target"),
+    packages: [{ name: "a", manifest_path: path.join(root, "crates", "a", "Cargo.toml"), publish: null, targets: [
+      { name: "a", kind: ["lib"] }, { name: "a-cli", kind: ["bin"] }, { name: "a-tool", kind: ["bin"], "required-features": ["tool"] }, { name: "a-broker", kind: ["bin"] },
+    ] }],
+  });
+  const found = discoverRustWorkspaces({ root, spawn: () => ok(body), cargoCommand: ["cargo"], tracked: (name) => (name === "Cargo.lock" ? ["Cargo.lock"] : ["Cargo.toml", "crates/a/Cargo.toml"]) });
+  assert.deepEqual(found.units.map((u) => [u.name, u.bins]), [["a", ["a-broker", "a-cli"]]]);
+});

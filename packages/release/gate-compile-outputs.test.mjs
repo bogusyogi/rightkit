@@ -104,31 +104,29 @@ test("[GB-13] census and reuse helpers: missing directory is not empty; truncate
   assert.notEqual(compileKeyOf({ CARGO_BUILD_TARGET: "x" }), compileKeyOf({}));
 });
 
-test("[rustright#209 item 5] a passed compile records the sha256 of each executable in <dir>/debug, also when its census is truncated", (t) => {
+test("[rustright#209 item 5] a passed compile records the sha256 of the bin targets it built, and nothing else in debug/, also when its census is truncated", (t) => {
   const out = path.join(tmpDir(t, "rk-bins-"), "target");
   fs.mkdirSync(path.join(out, "debug", "deps"), { recursive: true });
   const exe = process.platform === "win32" ? ".exe" : "";
   fs.writeFileSync(path.join(out, "debug", `rustright${exe}`), "client-bytes", { mode: 0o755 });
   fs.writeFileSync(path.join(out, "debug", `rustright-broker${exe}`), "broker-bytes", { mode: 0o755 });
+  fs.writeFileSync(path.join(out, "debug", `old-renamed-bin${exe}`), "stale bytes of a target this commit no longer has", { mode: 0o755 });
   fs.writeFileSync(path.join(out, "debug", "rustright.d"), "dep-info", { mode: 0o644 });
-  fs.writeFileSync(path.join(out, "debug", "deps", `inner${exe}`), "not top level", { mode: 0o755 });
   const sha = (text) => createHash("sha256").update(text).digest("hex");
-  assert.deepEqual(compiledBinaries([out, out]), [
+  assert.deepEqual(compiledBinaries({ [out]: ["rustright-broker", "rustright", "rustright", "not-built-here"] }), [
+    { dir: out, name: `not-built-here${exe}`, size: null, sha256: null },
     { dir: out, name: `rustright${exe}`, size: 12, sha256: sha("client-bytes") },
     { dir: out, name: `rustright-broker${exe}`, size: 12, sha256: sha("broker-bytes") },
-  ], "top-level executables only: no dep-info, nothing under deps/, each directory once");
-  assert.deepEqual(compiledBinaries([path.join(out, "missing")]), [], "a directory with no debug/ records nothing");
+  ], "only the built bin targets, each once; a missing one is recorded as missing; the stale executable is never recorded");
 
-  const truncated = compileOutputsRecord({ dirs: [out], census: (dirs) => ({ dirs, entries: 250001, digest: "d", truncated: true, missing: [] }) });
+  const truncated = compileOutputsRecord({ dirs: [out], builtBins: { [out]: ["rustright"], "/elsewhere/target": ["x"] }, census: (dirs) => ({ dirs, entries: 250001, digest: "d", truncated: true, missing: [] }) });
   assert.equal(truncated.truncated, true);
-  assert.deepEqual(truncated.binaries.map((b) => b.name), [`rustright${exe}`, `rustright-broker${exe}`], "the binaries are recorded even when the census proves nothing");
+  assert.equal(truncated.binariesOf, "built-bin-targets/1");
+  assert.deepEqual(truncated.binaries.map((b) => b.name), [`rustright${exe}`], "recorded even when the census proves nothing; only directories the compile reported");
+  assert.equal(compileOutputsRecord({ dirs: [out] }).binaries, undefined, "a compile that reported no built targets records no binaries and no marker");
 });
 
-test("[rustright#209 item 5] on Windows only a .exe is a binary; on POSIX only a file with an execute bit", () => {
-  const entry = (name) => ({ name, isFile: () => true });
-  const read = () => Buffer.from("x");
-  const win = compiledBinaries(["T"], { platform: "win32", readdir: () => [entry("a.exe"), entry("a.pdb"), entry("b")], stat: () => ({ mode: 0o644, size: 1 }), readFile: read });
-  assert.deepEqual(win.map((b) => b.name), ["a.exe"]);
-  const posix = compiledBinaries(["T"], { platform: "linux", readdir: () => [entry("a"), entry("b.d")], stat: (f) => ({ mode: f.endsWith("a") ? 0o755 : 0o644, size: 1 }), readFile: read });
-  assert.deepEqual(posix.map((b) => b.name), ["a"]);
+test("[rustright#209 item 5] a Windows built target is <bin>.exe", () => {
+  const rows = compiledBinaries({ T: ["a"] }, { platform: "win32", stat: () => ({ isFile: () => true, size: 1 }), readFile: () => Buffer.from("x") });
+  assert.deepEqual(rows.map((b) => b.name), ["a.exe"]);
 });

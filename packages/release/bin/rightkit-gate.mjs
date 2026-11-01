@@ -240,7 +240,9 @@ function workspaceMetadata({ root, spawn, cargoCommand, dir, realpath }) {
   const members = (meta.packages ?? []).map((p) => {
     const pkgDir = rel(path.dirname(p.manifest_path));
     if (pkgDir === ".." || pkgDir.startsWith("../")) throw new Error(`workspace member ${p.name} lives outside the repository (${pkgDir})`);
-    return { name: p.name, dir: pkgDir, manifest: pkgDir === "." ? "Cargo.toml" : `${pkgDir}/Cargo.toml`, publish: !(Array.isArray(p.publish) && p.publish.length === 0) };
+    // Bin targets a plain `cargo build -p <name>` builds (rustright#209 item 5): one with required-features is skipped unless they are on, so it is not counted.
+    const bins = (p.targets ?? []).filter((t) => Array.isArray(t.kind) && t.kind.includes("bin") && !(t["required-features"] ?? t.required_features ?? []).length).map((t) => t.name).sort();
+    return { name: p.name, dir: pkgDir, manifest: pkgDir === "." ? "Cargo.toml" : `${pkgDir}/Cargo.toml`, publish: !(Array.isArray(p.publish) && p.publish.length === 0), bins };
   }).sort((a, b) => (a.name < b.name ? -1 : 1));
   return { cargoDir, members };
 }
@@ -672,7 +674,7 @@ export function discoverRustWorkspaces({ root, spawn, cargoCommand, tracked, unt
     for (const member of found.members) {
       covered.add(member.manifest);
       if (!trackedSet.has(member.manifest)) { skipped.push({ manifest: member.manifest, why: "a workspace member that is untracked or ignored, so it is not part of the gated commit" }); continue; }
-      units.push({ name: rustUnitName(found.cargoDir, member.name), crate: member.name, dir: member.dir, publish: member.publish, cargoDir: found.cargoDir });
+      units.push({ name: rustUnitName(found.cargoDir, member.name), crate: member.name, dir: member.dir, publish: member.publish, cargoDir: found.cargoDir, bins: member.bins ?? [] });
     }
     workspaces.push({ cargoDir: found.cargoDir, units });
   }
@@ -1606,14 +1608,14 @@ async function runStages(o, args, root, git, io) {
       if (ok && ds) ok = await stageWebBuildOnce({ o, ds, root, git, appDir, cli, commonDir, commit, tree, stage, executor });
       // The Windows package-identity MSIX a Tauri app bundles (its release config's windows.identity), produced in the snapshot on Windows only.
       if (ok && ds) ok = await stageWindowsIdentityOnce({ o, ds, root, git, appDir, cli, commonDir, commit, tree, stage, executor });
-      let compiledDirs = []; let qualifyOwed = [];
-      const reportOutputs = (dirs) => { compiledDirs = [...dirs]; };
+      let compiledDirs = []; let compiledBins = null; let qualifyOwed = [];
+      const reportOutputs = (dirs, bins = null) => { compiledDirs = [...dirs]; compiledBins = bins; };
       if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own, classAEarlier: true, snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs, onQualifyOwed: (list) => { qualifyOwed = list; } } : {}) })))({ reportOutputs })) === 0;
       if (directReceipt) extra = { ...extra, direct: directReceipt };
       // What the plan left to the qualify stage is recorded with the compile, so qualification can prove it is not lost (rightkit#1332, #1333).
       if (qualifyOwed.length) extra = { ...extra, qualifyOwed };
       // What this compile produced, recorded with its result so a later run can prove the outputs are still there (GB-13).
-      if (ok) extra = { ...extra, outputs: compileOutputsRecord({ dirs: compiledDirs, env: o.env }) };
+      if (ok) extra = { ...extra, outputs: compileOutputsRecord({ dirs: compiledDirs, env: o.env, builtBins: compiledBins }) };
       // The cross-check with `.rightkit/compile-inputs.json`: a declared input that covers ledger entries must carry the digest of those
       // very bytes in the compile receipt (the broker digests declared inputs in place in the snapshot, BC:39).
       if (ok && ds && directReceipt?.declaredInputDigests) {
@@ -4030,7 +4032,16 @@ export async function main(argv, io = {}) {
       // A broker host's evidence is the broker's own signed receipts (each carried scan's row.snapshotEvidence, verified above); the
       // gate writes no receipt that says `executor: direct` for it.
       // The output directories this compile's evidence names (GB-13): the broker's signed receipts' `outputDir`, or the direct host's resolved targets.
-      o.onCompileOutputs?.(snapshotBroker ? scanResult.scans.map((r) => r.snapshotEvidence?.outputDir).filter(Boolean) : Object.values(targetDirs ?? {}).filter(Boolean));
+      // With them, per output directory, the bin targets of the units this compile built there (rustright#209 item 5): each unit's scans run
+      // `cargo build -p <crate>` in its workspace, so these binaries are this compile's, rebuilt or proven fresh. Nothing else in that directory is.
+      const builtUnits = rust.units.filter((u) => !closure || closure.rust.has(u.name));
+      const binsOfWorkspace = (cargoDir) => [...new Set(builtUnits.filter((u) => (u.cargoDir ?? ".") === cargoDir).flatMap((u) => u.bins ?? []))].sort();
+      const outputWorkspaces = snapshotBroker
+        ? scanResult.scans.filter((r) => r.snapshotEvidence?.outputDir).map((r) => [r.snapshotEvidence.outputDir, r.snapshotEvidence.cargoDir ?? "."])
+        : Object.entries(targetDirs ?? {}).filter(([, dir]) => dir).map(([cargoDir, dir]) => [dir, cargoDir]);
+      const builtBins = {};
+      for (const [dir, cargoDir] of outputWorkspaces) builtBins[dir] = [...new Set([...(builtBins[dir] ?? []), ...binsOfWorkspace(cargoDir)])].sort();
+      o.onCompileOutputs?.(outputWorkspaces.map(([dir]) => dir), builtBins);
       if (snapshotBroker) o.out(`${tag} broker compile: ${scanResult.scans.filter((r) => r.snapshotEvidence).length} carried request(s) with verified signed receipts; no direct receipt on a broker host`);
       else {
         // The direct host's own receipt (GATE-CONTRACT "Broker interface", row 7.18): the contract's returned-evidence names minus the
