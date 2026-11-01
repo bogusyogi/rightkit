@@ -33,6 +33,7 @@ pub mod media_commands;
 pub mod provenance;
 pub mod providers;
 pub mod qts;
+pub mod reference;
 pub mod routing;
 pub mod runner;
 pub mod search;
