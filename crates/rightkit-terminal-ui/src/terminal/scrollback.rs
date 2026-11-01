@@ -5,13 +5,17 @@
 //! protocol. This module keeps only the *decision* logic; insertion and
 //! viewport growth run through [`super::history`].
 
+#[cfg(test)]
 use std::io::{self, Write};
 
+#[cfg(test)]
 use super::capability::{TerminalInfo, TerminalName};
+#[cfg(test)]
 use super::history::{self, HistoryLineWrapPolicy, InsertMode};
 
 /// How this terminal safely moves rows into native scrollback.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(test)]
 pub(crate) enum ScrollbackStrategy {
     /// Scroll regions above the viewport plus newline scrolling at the
     /// region boundary.
@@ -25,8 +29,10 @@ pub(crate) enum ScrollbackStrategy {
     FullScreen,
 }
 
+#[cfg(test)]
 impl ScrollbackStrategy {
     /// Donor `ScrollbackStrategy::detect`.
+    #[cfg(test)]
     pub(crate) fn detect(terminal: &TerminalInfo) -> Self {
         if terminal.is_zellij() {
             Self::Zellij
@@ -41,6 +47,7 @@ impl ScrollbackStrategy {
 
     /// Donor `ScrollbackStrategy::history_insertion_mode`, mapped onto our
     /// `InsertMode` (`Standard` == `ScrollRegion`).
+    #[cfg(test)]
     pub(crate) fn history_insertion_mode(self, wrap_policy: HistoryLineWrapPolicy) -> InsertMode {
         match self {
             Self::FullScreen => InsertMode::FullScreen,
@@ -57,6 +64,7 @@ impl ScrollbackStrategy {
     /// whole screen, and `Zellij` uses CSI S over the region (the donor's
     /// `backend.scroll_region_up`, emitted as raw ANSI so no ratatui
     /// `scrolling-regions` feature is needed).
+    #[cfg(test)]
     pub(crate) fn grow_viewport(
         self,
         writer: &mut impl Write,

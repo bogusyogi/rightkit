@@ -3,6 +3,7 @@
 //! and user-defined ANSI palettes retain the terminal's default foreground.
 
 use crate::transcript::color::blend;
+#[cfg(test)]
 use crate::transcript::color::is_light;
 use crate::transcript::color::perceptual_distance;
 use crate::transcript::terminal_palette::StdoutColorLevel;
@@ -11,6 +12,7 @@ use crate::transcript::terminal_palette::best_color_for_level;
 use crate::transcript::terminal_palette::indexed_color;
 use crate::transcript::terminal_palette::rgb_color;
 use ratatui::style::Color;
+#[cfg(test)]
 use ratatui::style::Style;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -32,6 +34,7 @@ thread_local! {
     static FOREGROUNDS: RefCell<HashMap<ForegroundKey, Color>> = RefCell::default();
 }
 
+#[cfg(test)]
 pub(super) fn selection_style(background: Option<(u8, u8, u8)>, level: StdoutColorLevel) -> Style {
     let fallback = Style::default()
         .fg(Color::Reset)

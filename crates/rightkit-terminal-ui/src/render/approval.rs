@@ -316,11 +316,11 @@ impl ApprovalOverlay {
         if session_id != self.session_id {
             return false;
         }
-        if let Some(current) = &self.current {
-            if current.request_id == request_id {
-                self.advance();
-                return true;
-            }
+        if let Some(current) = &self.current
+            && current.request_id == request_id
+        {
+            self.advance();
+            return true;
         }
         let before = self.queue.len();
         self.queue.retain(|r| r.request_id != request_id);

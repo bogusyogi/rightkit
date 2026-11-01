@@ -298,8 +298,8 @@ mod tests {
 
         // Pending is least identifying: it is the first casualty of a
         // narrower strip, while the committed attribution survives.
-        // (full is 41 display columns; the no-pending form is 30.)
-        let tight = strip.line_at_width(40);
+        // (full is 38 display columns; the no-pending form is 27.)
+        let tight = strip.line_at_width(34);
         assert_eq!(tight, "myrepo · legion/sonnet·high");
         assert!(!tight.contains('→'));
     }

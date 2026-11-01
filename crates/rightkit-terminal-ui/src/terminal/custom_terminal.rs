@@ -113,7 +113,7 @@ impl Frame<'_> {
     /// Render a [`Widget`] to the current buffer using [`Widget::render`].
     ///
     /// Usually the area argument is the size of the current frame or a sub-area of the current
-    /// frame (which can be obtained using [`Layout`] to split the total area).
+    /// frame (which can be obtained using `Layout` to split the total area).
     #[allow(clippy::needless_pass_by_value)]
     pub fn render_widget<W: Widget>(&mut self, widget: W, area: Rect) {
         widget.render(area, self.buffer);
@@ -133,7 +133,7 @@ impl Frame<'_> {
     /// Render a [`WidgetRef`] to the current buffer using [`WidgetRef::render_ref`].
     ///
     /// Usually the area argument is the size of the current frame or a sub-area of the current
-    /// frame (which can be obtained using [`Layout`] to split the total area).
+    /// frame (which can be obtained using `Layout` to split the total area).
     #[allow(clippy::needless_pass_by_value)]
     pub fn render_widget_ref<W: WidgetRef>(&mut self, widget: W, area: Rect) {
         widget.render_ref(area, self.buffer);
@@ -146,9 +146,6 @@ impl Frame<'_> {
     /// [`Terminal::show_cursor`], and [`Terminal::set_cursor_position`]. Pick one of the APIs and
     /// stick with it.
     ///
-    /// [`Terminal::hide_cursor`]: crate::Terminal::hide_cursor
-    /// [`Terminal::show_cursor`]: crate::Terminal::show_cursor
-    /// [`Terminal::set_cursor_position`]: crate::Terminal::set_cursor_position
     pub fn set_cursor_position<P: Into<Position>>(&mut self, position: P) {
         self.cursor_position = Some(position.into());
     }
@@ -218,7 +215,7 @@ where
     B: Backend<Error = io::Error>,
     B: Write,
 {
-    /// Creates a new [`Terminal`] with the given [`Backend`] and [`TerminalOptions`].
+    /// Creates a new [`Terminal`] with the given [`Backend`] and `TerminalOptions`.
     pub fn with_options(mut backend: B) -> io::Result<Self> {
         let screen_size = backend.size()?;
         let cursor_pos = backend.get_cursor_position().unwrap_or_else(|err| {
@@ -272,18 +269,6 @@ where
             #[cfg(test)]
             screen_size_override: None,
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn with_screen_size_and_cursor_position_for_test(
-        backend: B,
-        screen_size: Size,
-        cursor_pos: Position,
-    ) -> Self {
-        let mut terminal =
-            Self::with_screen_size_and_cursor_position(backend, screen_size, cursor_pos);
-        terminal.screen_size_override = Some(screen_size);
-        terminal
     }
 
     /// Get a Frame object which provides a consistent view into the terminal state for rendering.
@@ -390,7 +375,7 @@ where
 
     /// Draws a single frame to the terminal.
     ///
-    /// Returns a [`CompletedFrame`] if successful, otherwise a [`std::io::Error`].
+    /// Returns a `CompletedFrame` if successful, otherwise a [`std::io::Error`].
     ///
     /// If the render callback passed to this method can fail, use [`try_draw`] instead.
     ///
@@ -435,7 +420,7 @@ where
 
     /// Tries to draw a single frame to the terminal.
     ///
-    /// Returns [`Result::Ok`] containing a [`CompletedFrame`] if successful, otherwise
+    /// Returns [`Result::Ok`] containing a `CompletedFrame` if successful, otherwise
     /// [`Result::Err`] containing the [`std::io::Error`] that caused the failure.
     ///
     /// This is the equivalent of [`Terminal::draw`] but the render callback is a function or
@@ -452,7 +437,7 @@ where
     /// - call the render callback, passing it a [`Frame`] reference to render to
     /// - flush the current internal state by copying the current buffer to the backend
     /// - move the cursor to the last known position if it was set during the rendering closure
-    /// - return a [`CompletedFrame`] with the current buffer and the area of the terminal
+    /// - return a `CompletedFrame` with the current buffer and the area of the terminal
     ///
     /// The render callback passed to `try_draw` can return any [`Result`] with an error type that
     /// can be converted into an [`std::io::Error`] using the [`Into`] trait. This makes it possible
@@ -460,7 +445,7 @@ where
     /// callback returns an error, the error will be returned from `try_draw` as an
     /// [`std::io::Error`] and the terminal will not be updated.
     ///
-    /// The [`CompletedFrame`] returned by this method can be useful for debugging or testing
+    /// The `CompletedFrame` returned by this method can be useful for debugging or testing
     /// purposes, but it is often not used in regular applicationss.
     ///
     /// The render callback should fully render the entire frame when called, including areas that

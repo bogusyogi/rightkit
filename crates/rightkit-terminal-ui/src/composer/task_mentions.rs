@@ -4,6 +4,7 @@
 //! request handles) stays with the parent.
 
 /// Maximum grapheme count accepted in a `[@title](thread://…)` task link.
+#[cfg(test)]
 pub(crate) const MAX_TASK_TITLE_CHARS: usize = 160;
 
 /// Return the inner id when `path` is a well-formed `thread://` reference.
@@ -19,6 +20,7 @@ pub(crate) fn valid_thread_path(path: &str) -> Option<&str> {
 
 /// Parse `[@title](thread://id)` at `start`, returning title, path, and the
 /// offset just past the closing `)`.
+#[cfg(test)]
 pub(crate) fn parse_task_link(text: &str, start: usize) -> Option<(String, String, usize)> {
     let remaining = text.get(start..)?.strip_prefix("[@")?;
     let mut title = String::new();

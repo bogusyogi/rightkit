@@ -69,6 +69,7 @@ impl Command for EnablePointerCapture {
 }
 
 impl AlternateScreen {
+    #[cfg(test)]
     pub(super) fn set_link_pointer(&self, writer: &mut impl Write, over_link: bool) -> Result<()> {
         if self.mouse_active.load(Ordering::Relaxed) {
             self.link_pointer.update(writer, over_link)
@@ -78,6 +79,7 @@ impl AlternateScreen {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn is_active(&self) -> bool {
         self.active.load(Ordering::Relaxed)
     }
@@ -219,9 +221,11 @@ impl AlternateScreen {
     }
 }
 
+#[cfg(test)]
 impl super::session::OverlayInput {
     /// Roll back a partial overlay setup immediately; callers still receive the original error.
     /// The fallback keeps capture when the session owns the screen, otherwise restores the picker.
+    #[cfg(test)]
     pub(super) fn apply(
         &mut self,
         screen: &AlternateScreen,

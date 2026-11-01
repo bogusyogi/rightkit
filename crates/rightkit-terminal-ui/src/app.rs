@@ -255,9 +255,8 @@ impl Surface {
         let height = viewport.height.min(new_height);
         let was_bottom_pinned = viewport.bottom_exclusive() == old_height;
         let mut top = viewport.top;
-        if top.saturating_add(height) > new_height {
-            top = new_height.saturating_sub(height);
-        } else if new_height > old_height && was_bottom_pinned {
+        if top.saturating_add(height) > new_height || (new_height > old_height && was_bottom_pinned)
+        {
             top = new_height.saturating_sub(height);
         }
         Viewport { top, height }

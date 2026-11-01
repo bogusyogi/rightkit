@@ -21,6 +21,7 @@
 use crate::composer::key_hint::KeyBindingListExt;
 use crate::composer::key_hint::is_altgr;
 use crate::composer::keymap::EditorKeymap;
+#[cfg(test)]
 use crate::composer::keymap::KeymapContext;
 use crate::composer::keymap::RuntimeKeymap;
 use crate::composer::keymap::VimNormalKeymap;
@@ -38,8 +39,6 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Color;
 use ratatui::style::Style;
-use ratatui::style::Stylize;
-use ratatui::text::Span;
 use ratatui::widgets::StatefulWidgetRef;
 use ratatui::widgets::WidgetRef;
 use std::borrow::Cow;
@@ -123,6 +122,7 @@ struct TextElement {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(test)]
 pub(crate) struct TextElementSnapshot {
     pub(crate) id: u64,
     pub(crate) range: Range<usize>,
@@ -184,12 +184,6 @@ enum KillBufferKind {
     Linewise,
 }
 
-/// The last editor kill or Vim yank, carried between chat composers in the same TUI session.
-pub(crate) struct KillBufferSnapshot {
-    text: String,
-    kind: KillBufferKind,
-}
-
 impl TextArea {
     pub fn new() -> Self {
         let defaults = RuntimeKeymap::defaults();
@@ -225,6 +219,7 @@ impl TextArea {
     /// reinterpret pending input, change Vim mode, move the cursor, or mutate
     /// the kill buffer, so callers can safely apply a live config update while
     /// preserving the current draft exactly as typed.
+    #[cfg(test)]
     pub fn set_keymap_bindings(&mut self, keymap: &RuntimeKeymap) {
         self.editor_keymap = Arc::clone(&keymap.editor);
         self.vim_normal_keymap = keymap.vim_normal.clone();
@@ -337,6 +332,7 @@ impl TextArea {
     }
 
     /// Return the keymap context that owns the next editing key.
+    #[cfg(test)]
     pub(crate) fn keymap_context(&self) -> KeymapContext {
         if !self.vim_enabled
             || matches!(self.vim_mode, VimMode::Insert | VimMode::Replace)
@@ -394,11 +390,6 @@ impl TextArea {
         !self.vim_enabled || matches!(self.vim_mode, VimMode::Insert | VimMode::Replace)
     }
 
-    /// Return whether rendering should use the insert-mode cursor style.
-    pub(crate) fn uses_vim_insert_cursor(&self) -> bool {
-        self.vim_enabled && self.vim_mode == VimMode::Insert
-    }
-
     /// Return whether Escape should be intercepted before composer-level routing.
     ///
     /// In Vim insert mode or while a command is pending, Escape is an editing
@@ -426,18 +417,6 @@ impl TextArea {
             VimMode::Normal => "Normal",
             VimMode::Insert => "Insert",
             VimMode::Replace => "Replace",
-        })
-    }
-
-    /// Return the styled footer indicator for the active Vim editing mode.
-    pub(crate) fn vim_mode_indicator_span(&self) -> Option<Span<'static>> {
-        if !self.vim_enabled {
-            return None;
-        }
-        Some(match self.vim_mode {
-            VimMode::Normal => "Vim: Normal".magenta(),
-            VimMode::Insert => "Vim: Insert".green(),
-            VimMode::Replace => "Vim: Replace".cyan(),
         })
     }
 
@@ -1288,18 +1267,6 @@ impl TextArea {
         self.insert_str(&text);
     }
 
-    pub(crate) fn take_kill_buffer_snapshot(&mut self) -> KillBufferSnapshot {
-        KillBufferSnapshot {
-            text: std::mem::take(&mut self.kill_buffer),
-            kind: self.kill_buffer_kind,
-        }
-    }
-
-    pub(crate) fn restore_kill_buffer_snapshot(&mut self, snapshot: KillBufferSnapshot) {
-        self.kill_buffer = snapshot.text;
-        self.kill_buffer_kind = snapshot.kind;
-    }
-
     fn kill_range(&mut self, range: Range<usize>) {
         self.kill_range_with_kind(range, KillBufferKind::Characterwise);
     }
@@ -1604,6 +1571,7 @@ impl TextArea {
             .collect()
     }
 
+    #[cfg(test)]
     pub(crate) fn text_element_snapshots(&self) -> Vec<TextElementSnapshot> {
         self.elements
             .iter()
@@ -1645,76 +1613,6 @@ impl TextArea {
             .iter()
             .find(|element| element.range == range)
             .map(|element| element.id)
-    }
-
-    /// Renames a single text element in-place, keeping it atomic.
-    ///
-    /// Use this when the element payload is an identifier (e.g. a placeholder) that must be
-    /// updated without converting the element back into normal text.
-    pub fn replace_element_payload(&mut self, old: &str, new: &str) -> bool {
-        let Some(idx) = self
-            .elements
-            .iter()
-            .position(|e| self.text.get(e.range.clone()) == Some(old))
-        else {
-            return false;
-        };
-
-        let range = self.elements[idx].range.clone();
-        let start = range.start;
-        let end = range.end;
-        if start > end || end > self.text.len() {
-            return false;
-        }
-
-        let removed_len = end - start;
-        let inserted_len = new.len();
-        let diff = inserted_len as isize - removed_len as isize;
-
-        self.mouse_selection = None;
-        self.text.replace_range(range, new);
-        self.wrap_cache.replace(None);
-        self.preferred_col = None;
-
-        // Update the modified element's range.
-        self.elements[idx].range = start..(start + inserted_len);
-
-        // Shift element ranges that occur after the replaced element.
-        if diff != 0 {
-            for (j, e) in self.elements.iter_mut().enumerate() {
-                if j == idx {
-                    continue;
-                }
-                if e.range.end <= start {
-                    continue;
-                }
-                if e.range.start >= end {
-                    e.range.start = ((e.range.start as isize) + diff) as usize;
-                    e.range.end = ((e.range.end as isize) + diff) as usize;
-                    continue;
-                }
-
-                // Elements should not partially overlap each other; degrade gracefully by
-                // snapping anything intersecting the replaced range to the new bounds.
-                e.range.start = start.min(e.range.start);
-                e.range.end = (start + inserted_len).max(e.range.end.saturating_add_signed(diff));
-            }
-        }
-
-        // Update the cursor position to account for the edit.
-        self.cursor_pos = if self.cursor_pos < start {
-            self.cursor_pos
-        } else if self.cursor_pos <= end {
-            start + inserted_len
-        } else {
-            ((self.cursor_pos as isize) + diff) as usize
-        };
-        self.cursor_pos = self.clamp_pos_to_nearest_boundary(self.cursor_pos);
-
-        // Keep element ordering deterministic.
-        self.elements.sort_by_key(|e| e.range.start);
-
-        true
     }
 
     fn add_element(&mut self, range: Range<usize>) -> u64 {
@@ -2149,6 +2047,7 @@ impl StatefulWidgetRef for &TextArea {
 }
 
 impl TextArea {
+    #[cfg(test)]
     pub(crate) fn render_ref_masked(
         &self,
         area: Rect,
@@ -2256,6 +2155,7 @@ impl TextArea {
     }
 
     /// Renders width-preserving mask glyphs without writing outside the textarea viewport.
+    #[cfg(test)]
     fn render_lines_masked(
         &self,
         area: Rect,

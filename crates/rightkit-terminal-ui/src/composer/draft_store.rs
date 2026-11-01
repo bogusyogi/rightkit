@@ -8,7 +8,7 @@
 //! (session id, panel name -- whatever `tui_host.rs` uses to identify a
 //! view).
 //!
-//! Deliberately separate from [`super::buffer::Buffer`]: the store holds
+//! Deliberately separate from `super::buffer::Buffer`: the store holds
 //! *expanded* text (after paste markers are resolved), not a live buffer
 //! with its own paste registry/undo history, because a saved draft is
 //! inert until it is restored into a fresh `Composer`, and restoring a

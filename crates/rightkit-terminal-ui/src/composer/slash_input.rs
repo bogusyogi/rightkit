@@ -9,16 +9,6 @@
 
 use crate::composer::completion::CompletionCandidate;
 
-/// The result of validating a submission that begins with `/`.
-pub(crate) enum SubmissionValidation {
-    /// First line is not a slash command (or starts with a space).
-    NotCommand,
-    /// `/name` resolved to a catalog candidate (possibly with args).
-    Recognized,
-    /// `/name` did not resolve to any catalog candidate.
-    UnknownCommand(String),
-}
-
 /// Parse `"/name rest..."` from raw text — verbatim donor
 /// `prompt_args::parse_slash_name`.
 ///
@@ -117,17 +107,6 @@ pub(crate) fn command_popup_filter_text(first_line: &str, cursor: usize) -> Opti
     Some(format!("/{name}"))
 }
 
-/// Whether `first_line` holds the `/name` token under edit (used by
-/// `sync_command_popup`; wraps [`is_editing_command_name`] plus the non-empty
-/// name requirement).
-pub(crate) fn is_command_name_edit(
-    first_line: &str,
-    cursor: usize,
-    catalog: &[CompletionCandidate],
-) -> bool {
-    is_editing_command_name(first_line, cursor, catalog) && parse_slash_name(first_line).is_some()
-}
-
 /// Resolve a command name against the host-supplied catalog (name or alias),
 /// case-insensitively, matching donor `find_slash_command` semantics.
 pub(crate) fn find_command<'a>(
@@ -142,40 +121,4 @@ pub(crate) fn find_command<'a>(
                 .iter()
                 .any(|alias| alias.to_lowercase() == needle)
     })
-}
-
-/// Validate a submitting text against the catalog.
-///
-/// Mirrors the donor `validate_submission`: a leading space escapes command
-/// parsing; a first line starting with `/` must resolve.
-pub(crate) fn validate_submission(
-    catalog: &[CompletionCandidate],
-    text: &str,
-    input_starts_with_space: bool,
-) -> SubmissionValidation {
-    if input_starts_with_space {
-        return SubmissionValidation::NotCommand;
-    }
-    let Some((name, _, _)) = parse_slash_name(text) else {
-        return SubmissionValidation::NotCommand;
-    };
-    if find_command(catalog, name).is_some() {
-        SubmissionValidation::Recognized
-    } else {
-        SubmissionValidation::UnknownCommand(name.to_string())
-    }
-}
-
-/// The bare `/name` command in `text`, if the first line is exactly a command
-/// token with no arguments. Used by the "type `/diff`, press Enter" dispatch
-/// path where the popup may already be hidden.
-pub(crate) fn bare_command<'a>(
-    catalog: &'a [CompletionCandidate],
-    text: &str,
-) -> Option<&'a CompletionCandidate> {
-    let (name, rest, _) = parse_slash_name(text)?;
-    if !rest.trim().is_empty() {
-        return None;
-    }
-    find_command(catalog, name)
 }

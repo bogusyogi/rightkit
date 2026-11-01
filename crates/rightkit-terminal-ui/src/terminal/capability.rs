@@ -124,10 +124,10 @@ pub fn detect_unicode(env: &impl Env) -> bool {
     {
         return true;
     }
-    if let Some(term) = env.get("TERM") {
-        if matches!(term.as_str(), "linux" | "dumb" | "vt100" | "vt220" | "ansi") {
-            return false;
-        }
+    if let Some(term) = env.get("TERM")
+        && matches!(term.as_str(), "linux" | "dumb" | "vt100" | "vt220" | "ansi")
+    {
+        return false;
     }
     // The first locale variable that is set decides (LC_ALL > LC_CTYPE > LANG).
     for key in ["LC_ALL", "LC_CTYPE", "LANG"] {
@@ -327,7 +327,7 @@ pub fn detect_terminal_info(env: &impl Env) -> TerminalInfo {
         term_program: None,
         version,
         term: None,
-        multiplexer: multiplexer.clone(),
+        multiplexer,
     };
 
     if non_empty(env.get("GHOSTTY_RESOURCES_DIR")).is_some() {

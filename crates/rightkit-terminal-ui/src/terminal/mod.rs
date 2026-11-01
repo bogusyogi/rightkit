@@ -213,10 +213,10 @@ pub fn query_background(
             Ok(0) => break,
             Ok(n) => {
                 buffer.extend_from_slice(&chunk[..n]);
-                if let Ok(text) = std::str::from_utf8(&buffer) {
-                    if let Some(rgb) = parse_osc11(text) {
-                        return Ok(Some(classify(rgb)));
-                    }
+                if let Ok(text) = std::str::from_utf8(&buffer)
+                    && let Some(rgb) = parse_osc11(text)
+                {
+                    return Ok(Some(classify(rgb)));
                 }
                 // Cap the buffer: a terminal streaming unrelated input should
                 // not grow this without bound.

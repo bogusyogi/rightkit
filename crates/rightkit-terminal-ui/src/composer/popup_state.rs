@@ -111,20 +111,7 @@ pub(super) enum ActivePopup {
     File(FileSearchPopup),
 }
 
-impl ActivePopup {
-    /// Shared suggestion menus render above the draft.
-    pub(super) fn is_above_composer(&self) -> bool {
-        !matches!(self, Self::None)
-    }
-
-    pub(super) fn required_height(&self, width: u16, footer_total_height: u16) -> u16 {
-        match self {
-            Self::None => footer_total_height,
-            Self::Command(popup) => popup.calculate_required_height(width) + footer_total_height,
-            Self::File(popup) => popup.calculate_required_height() + footer_total_height,
-        }
-    }
-}
+impl ActivePopup {}
 
 #[cfg(test)]
 #[path = "popup_state_tests.rs"]

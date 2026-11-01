@@ -405,11 +405,9 @@ fn create_diff_lines(
                 remaining = remaining.saturating_sub(1);
             }
         }
-        if !is_first_file {
-            if remaining > 0 {
-                rendered.push(Line::from(""));
-                remaining = remaining.saturating_sub(1);
-            }
+        if !is_first_file && remaining > 0 {
+            rendered.push(Line::from(""));
+            remaining = remaining.saturating_sub(1);
         }
         is_first_file = false;
 
@@ -458,14 +456,12 @@ fn create_diff_lines(
             }
             FileChange::Update { unified_diff } => {
                 let hunks = parse_unified_diff(unified_diff);
-                if hunks.is_empty() {
-                    if remaining > 0 {
-                        rendered.push(Line::from(Span::styled(
-                            format!("{block_indent}(unable to parse diff)"),
-                            dim_style(theme),
-                        )));
-                        remaining = remaining.saturating_sub(1);
-                    }
+                if hunks.is_empty() && remaining > 0 {
+                    rendered.push(Line::from(Span::styled(
+                        format!("{block_indent}(unable to parse diff)"),
+                        dim_style(theme),
+                    )));
+                    remaining = remaining.saturating_sub(1);
                 }
                 for hunk in hunks {
                     if remaining == 0 {

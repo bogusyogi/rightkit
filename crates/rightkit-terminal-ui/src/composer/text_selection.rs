@@ -1,9 +1,5 @@
 //! Shared selection gestures and source-text boundaries; each view owns its hit testing and state.
 
-use crossterm::event::KeyCode;
-use crossterm::event::KeyEvent;
-use crossterm::event::KeyEventKind;
-use crossterm::event::KeyModifiers;
 use std::ops::Range;
 use std::time::Duration;
 use std::time::Instant;
@@ -63,14 +59,4 @@ pub(crate) fn click_count(
         .map_or(/*default*/ 1, |(_, _, _, clicks)| clicks % 3 + 1);
     *last_click = Some((now, column, row, clicks));
     clicks
-}
-
-pub(crate) fn is_copy_key(key: KeyEvent) -> bool {
-    // Kitty reports Cmd+C as Super+C, including over SSH. Crossterm may report
-    // Ctrl+Shift+C as uppercase C with only Control set.
-    let (code, modifiers) = crate::composer::key_hint::normalize_key_parts(key.code, key.modifiers);
-    key.kind != KeyEventKind::Release
-        && code == KeyCode::Char('c')
-        && (matches!(modifiers, KeyModifiers::CONTROL | KeyModifiers::SUPER)
-            || modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT))
 }

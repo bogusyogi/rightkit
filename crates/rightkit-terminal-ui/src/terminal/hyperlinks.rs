@@ -6,19 +6,22 @@
 mod paragraph;
 mod source;
 
+#[cfg(test)]
 pub(crate) use paragraph::HyperlinkParagraph;
-pub(crate) use source::LineWrapPolicy;
 pub(crate) use source::LogicalLineSource;
 
 use std::num::NonZeroU16;
 use std::ops::Range;
+#[cfg(test)]
 use std::path::Path;
 
 use ratatui::buffer::Buffer;
 use ratatui::buffer::CellDiffOption;
 use ratatui::buffer::CellWidth;
 use ratatui::layout::Rect;
+#[cfg(test)]
 use ratatui::style::Color;
+#[cfg(test)]
 use ratatui::style::Modifier;
 use ratatui::text::Line;
 use ratatui::text::Span;
@@ -53,14 +56,18 @@ enum DestinationKind {
 }
 
 /// An existing, inert source file proven to remain inside its session workspace.
+#[cfg(test)]
 pub(crate) struct TrustedWorkspaceFile(Url);
 
+#[cfg(test)]
 const SAFE_WORKSPACE_EXTENSIONS: &[&str] = &[
     "rs", "go", "c", "cc", "cpp", "h", "hpp", "java", "kt", "swift", "toml", "json", "yaml", "yml",
     "md", "txt", "css",
 ];
 
+#[cfg(test)]
 impl TrustedWorkspaceFile {
+    #[cfg(test)]
     pub(crate) fn validate(workspace: &Path, candidate: &str) -> Option<Self> {
         if candidate.is_empty()
             || candidate.len() > 512
@@ -111,6 +118,7 @@ impl TerminalHyperlink {
         self.destination_kind = DestinationKind::TrustedFile;
     }
 
+    #[cfg(test)]
     pub(crate) fn trusted_workspace_file(
         columns: Range<usize>,
         file: TrustedWorkspaceFile,
@@ -182,15 +190,6 @@ impl PartialEq for HyperlinkLine {
 
 impl Eq for HyperlinkLine {}
 
-/// Cache equality also tracks source whitespace hidden by display wrapping.
-pub(crate) fn lines_with_sources_eq(left: &[HyperlinkLine], right: &[HyperlinkLine]) -> bool {
-    left == right
-        && left
-            .iter()
-            .map(|line| &line.source)
-            .eq(right.iter().map(|line| &line.source))
-}
-
 impl HyperlinkLine {
     pub(crate) fn new(line: Line<'static>) -> Self {
         Self {
@@ -258,10 +257,12 @@ impl From<String> for HyperlinkLine {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn visible_lines(lines: Vec<HyperlinkLine>) -> Vec<Line<'static>> {
     lines.into_iter().map(|line| line.line).collect()
 }
 
+#[cfg(test)]
 pub(crate) fn visible_lines_ref(lines: &[HyperlinkLine]) -> Vec<Line<'_>> {
     lines
         .iter()
@@ -271,83 +272,6 @@ pub(crate) fn visible_lines_ref(lines: &[HyperlinkLine]) -> Vec<Line<'_>> {
 
 pub(crate) fn plain_hyperlink_lines(lines: Vec<Line<'static>>) -> Vec<HyperlinkLine> {
     lines.into_iter().map(HyperlinkLine::new).collect()
-}
-
-pub(crate) fn prefix_hyperlink_lines(
-    lines: Vec<HyperlinkLine>,
-    initial_prefix: Span<'static>,
-    subsequent_prefix: Span<'static>,
-) -> Vec<HyperlinkLine> {
-    lines
-        .into_iter()
-        .enumerate()
-        .map(|(index, mut line)| {
-            let prefix = if index == 0 {
-                initial_prefix.clone()
-            } else {
-                subsequent_prefix.clone()
-            };
-            let shift = display_width(prefix.content.as_ref());
-            let mut source = line
-                .source
-                .take()
-                .unwrap_or_else(|| LogicalLineSource::from_line(&line.line));
-            source.prefix_bytes += prefix.content.len();
-            source
-                .continuation_indent
-                .spans
-                .insert(/*index*/ 0, subsequent_prefix.clone());
-            line.source = Some(source);
-            let mut spans = Vec::with_capacity(line.line.spans.len() + 1);
-            spans.push(prefix);
-            spans.extend(line.line.spans);
-            line.line = Line::from(spans).style(line.line.style);
-            for hyperlink in &mut line.hyperlinks {
-                hyperlink.columns = hyperlink.columns.start + shift..hyperlink.columns.end + shift;
-            }
-            line
-        })
-        .collect()
-}
-
-/// Retain a known first-line label in copy text without changing the existing wrapping.
-///
-/// Callers pass the suffix of the first row's synthetic prefix that carries meaning, such as
-/// a checkbox or `answer:`. Only that row's shared logical source is updated.
-pub(crate) fn retain_initial_prefix(lines: &mut [HyperlinkLine], prefix: &str) {
-    let Some(origin) = lines.first().and_then(|line| line.source.clone()) else {
-        return;
-    };
-    debug_assert!(origin.prefix_bytes >= prefix.len());
-    let prefix_line = LogicalLineSource::from_line(&lines[0].line)
-        .styled_range(origin.prefix_bytes - prefix.len()..origin.prefix_bytes);
-    let mut styles = LogicalLineSource::from_line(&prefix_line).styles.to_vec();
-    styles.extend(origin.styles.iter().map(|(range, style)| {
-        (
-            range.start + prefix.len()..range.end + prefix.len(),
-            origin.line_style.patch(*style).patch(origin.span_style),
-        )
-    }));
-    let styles = std::sync::Arc::from(styles);
-    let text: std::sync::Arc<str> = format!("{prefix}{}", origin.text).into();
-    for (index, line) in lines.iter_mut().enumerate() {
-        let Some(source) = line
-            .source
-            .as_mut()
-            .filter(|source| std::sync::Arc::ptr_eq(&source.text, &origin.text))
-        else {
-            continue;
-        };
-        source.text = std::sync::Arc::clone(&text);
-        source.styles = std::sync::Arc::clone(&styles);
-        source.line_style = ratatui::style::Style::default();
-        source.span_style = ratatui::style::Style::default();
-        source.range = source.range.start + prefix.len()..source.range.end + prefix.len();
-        if index == 0 {
-            source.range.start = 0;
-            source.prefix_bytes -= prefix.len();
-        }
-    }
 }
 
 pub(crate) fn adaptive_wrap_hyperlink_lines(
@@ -374,10 +298,6 @@ pub(crate) fn adaptive_wrap_hyperlink_lines(
         ));
     }
     out
-}
-
-pub(crate) fn annotate_web_urls(lines: Vec<Line<'static>>) -> Vec<HyperlinkLine> {
-    lines.into_iter().map(annotate_web_urls_in_line).collect()
 }
 
 pub(crate) fn annotate_web_urls_in_line(line: Line<'static>) -> HyperlinkLine {
@@ -648,6 +568,7 @@ fn sanitized_destination(destination: &str) -> Option<String> {
     Some(destination.chars().filter(|ch| !ch.is_control()).collect())
 }
 
+#[cfg(test)]
 pub(crate) fn osc8_hyperlink(destination: &str, text: &str) -> String {
     let Some(safe_destination) = web_destination(destination) else {
         return text.to_string();
@@ -860,18 +781,21 @@ pub(crate) fn mark_buffer_hyperlinks(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn mark_url_hyperlink(buf: &mut Buffer, area: Rect, destination: &str) {
     mark_matching_cells(buf, area, destination, |cell| {
         cell.fg == Color::Cyan && cell.modifier.contains(Modifier::UNDERLINED)
     });
 }
 
+#[cfg(test)]
 pub(crate) fn mark_underlined_hyperlink(buf: &mut Buffer, area: Rect, destination: &str) {
     mark_matching_cells(buf, area, destination, |cell| {
         cell.modifier.contains(Modifier::UNDERLINED)
     });
 }
 
+#[cfg(test)]
 fn mark_matching_cells(
     buf: &mut Buffer,
     area: Rect,

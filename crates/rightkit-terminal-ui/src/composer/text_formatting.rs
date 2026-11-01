@@ -2,24 +2,13 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::composer::width::display_width;
 
-pub(crate) fn capitalize_first(input: &str) -> String {
-    let mut chars = input.chars();
-    match chars.next() {
-        Some(first) => {
-            let mut capitalized = first.to_uppercase().collect::<String>();
-            capitalized.push_str(chars.as_str());
-            capitalized
-        }
-        None => String::new(),
-    }
-}
-
 /// Formats JSON on one line with spaces after separators for readability and natural wrap points.
 ///
 /// Compact JSON is hard to scan, while pretty-printed JSON consumes unnecessary terminal rows.
 /// Returns the formatted JSON string for valid input, or `None` otherwise.
 ///
 /// Example: `{"a":"b","c":["d","e"]}` becomes `{"a": "b", "c": ["d", "e"]}`.
+#[cfg(test)]
 pub(crate) fn format_json_compact(text: &str) -> Option<String> {
     let json = serde_json::from_str::<serde_json::Value>(text).ok()?;
     let json_pretty = serde_json::to_string_pretty(&json).unwrap_or_else(|_| json.to_string());
@@ -67,6 +56,7 @@ pub(crate) fn format_json_compact(text: &str) -> Option<String> {
 }
 
 /// Truncate `text` to `max_graphemes` graphemes. Using graphemes to avoid accidentally truncating in the middle of a multi-codepoint character.
+#[cfg(test)]
 pub(crate) fn truncate_text(text: &str, max_graphemes: usize) -> String {
     let mut graphemes = text.grapheme_indices(true);
 
@@ -312,6 +302,7 @@ pub(crate) fn center_truncate_path(path: &str, max_width: usize) -> String {
 /// - ["apple"] -> "apple"
 /// - ["apple", "banana"] -> "apple and banana"
 /// - ["apple", "banana", "cherry"] -> "apple, banana and cherry"
+#[cfg(test)]
 pub(crate) fn proper_join<T: AsRef<str>>(items: &[T]) -> String {
     match items.len() {
         0 => String::new(),

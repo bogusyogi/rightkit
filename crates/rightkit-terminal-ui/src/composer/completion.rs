@@ -10,7 +10,7 @@
 //! It does not fetch candidates itself -- [`crate::component::CommandSource`]
 //! (already defined in `component.rs`) is the seam onto the shared command
 //! registry (CG-A01's grammar), and whoever owns that registry supplies
-//! `CompletionCandidate`s through [`CompletionPopup::refresh`]. This module
+//! `CompletionCandidate`s through `CompletionPopup::refresh`. This module
 //! only owns the popup's open/closed state, its filtering, and its
 //! selection -- the part docs/canon/daemon-master-canon-atoms.md's acceptance criterion actually asks for:
 //! "typing `/` shows a popup with descriptions/aliases/disabled reasons".
@@ -90,14 +90,13 @@ impl CompletionPopup {
             // Host refreshes can alter candidate ordering while a popup is
             // open. Preserve selection by canonical command name, never by
             // its stale display-row index.
-            if let Some(name) = selected_name {
-                if let Some(position) = self
+            if let Some(name) = selected_name
+                && let Some(position) = self
                     .filtered
                     .iter()
                     .position(|&index| self.catalog[index].name == name)
-                {
-                    self.selected = position;
-                }
+            {
+                self.selected = position;
             }
         }
     }

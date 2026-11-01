@@ -21,7 +21,6 @@
 //!   Esc on the effort list returns to the model list; Esc on the model
 //!   list cancels.
 
-use crate::component::RenderFrameExt as _;
 use crossterm::event::{KeyCode, KeyEventKind};
 use ratatui::layout::Rect;
 

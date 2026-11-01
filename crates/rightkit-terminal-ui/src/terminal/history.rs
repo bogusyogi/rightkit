@@ -12,7 +12,7 @@
 //!
 //! 1. **The scroll region is always restored**, on every path including write
 //!    failures. A leaked region means every later write scrolls a
-//!    sub-rectangle of the screen. [`ScrollRegion`] enforces this with `Drop`,
+//!    sub-rectangle of the screen. `ScrollRegion` enforces this with `Drop`,
 //!    and the donor's `queue!`-based [`SetScrollRegion`]/[`ResetScrollRegion`]
 //!    are used where the algorithm pairs them manually.
 //! 2. **The cursor is restored by raw movement**, never through a tracked
@@ -22,7 +22,7 @@
 //! Untrusted content reaches this module only through styled `ratatui` spans
 //! produced by the transcript renderer, which routes all provider text through
 //! `render::sanitize`. Semantic OSC-8 hyperlinks are emitted by
-//! [`super::hyperlinks::decorate_spans`] as *trusted* renderer-generated
+//! `super::hyperlinks::decorate_spans` as *trusted* renderer-generated
 //! escapes around already-sanitized span text.
 
 use std::fmt;
@@ -160,6 +160,10 @@ fn move_to(writer: &mut impl Write, col: u16, row: u16) -> io::Result<()> {
 /// Returns the number of rows the viewport's top slid DOWN while making
 /// room. The caller adds it to `Viewport.top`; the band it released holds
 /// real inserted history and must not be erased as stale paint.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one scrollback insert needs the writer, mode, viewport, screen size, lines, wrap policy and cursor together"
+)]
 pub fn insert(
     writer: &mut impl Write,
     mode: InsertMode,

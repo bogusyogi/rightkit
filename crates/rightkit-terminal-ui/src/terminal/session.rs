@@ -76,7 +76,6 @@ impl Command for DisableAlternateScroll {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RawModeRestore {
     Disable,
-    Keep,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,11 +87,11 @@ pub(super) enum KeyboardRestore {
 #[derive(Clone, Copy)]
 pub(crate) enum TerminalHandoff {
     Restore,
-    KeepScreen,
 }
 
 /// The current screen's pointer policy; ordinary pickers retain alternate-scroll input.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[cfg(test)]
 pub(crate) enum OverlayInput {
     #[default]
     Default,
@@ -102,7 +101,9 @@ pub(crate) enum OverlayInput {
     Usage,
 }
 
+#[cfg(test)]
 impl OverlayInput {
+    #[cfg(test)]
     pub(crate) fn captures_mouse(self, owned_screen: bool) -> bool {
         match self {
             Self::Default => owned_screen,
@@ -159,14 +160,7 @@ pub(super) fn restore_common(
     let mut first_error = ensure_virtual_terminal_processing().err();
 
     let screen_result = match handoff {
-        TerminalHandoff::KeepScreen if ALTERNATE_SCREEN.is_active() => {
-            let result = ALTERNATE_SCREEN.release_input(&mut stdout());
-            let _ = execute!(stdout(), keyboard_modes::DisableModifyOtherKeys);
-            result
-        }
-        TerminalHandoff::Restore | TerminalHandoff::KeepScreen => {
-            ALTERNATE_SCREEN.restore(&mut stdout(), keyboard_restore)
-        }
+        TerminalHandoff::Restore => ALTERNATE_SCREEN.restore(&mut stdout(), keyboard_restore),
     };
     if let Err(err) = screen_result {
         first_error.get_or_insert(err);
@@ -176,10 +170,10 @@ pub(super) fn restore_common(
         first_error.get_or_insert(err);
     }
     let _ = execute!(stdout(), DisableFocusChange);
-    if matches!(raw_mode_restore, RawModeRestore::Disable) {
-        if let Err(err) = disable_raw_mode() {
-            first_error.get_or_insert(err);
-        }
+    if matches!(raw_mode_restore, RawModeRestore::Disable)
+        && let Err(err) = disable_raw_mode()
+    {
+        first_error.get_or_insert(err);
     }
     #[cfg(windows)]
     if let Err(err) = super::windows_console::restore_input_mode() {
@@ -229,33 +223,6 @@ pub fn restore_after_exit() -> Result<()> {
         KeyboardRestore::ResetAfterExit,
         TerminalHandoff::Restore,
     )
-}
-
-/// Restore the terminal to its original state, but keep raw mode enabled.
-pub(super) fn restore_keep_raw(handoff: TerminalHandoff) -> Result<()> {
-    restore_common(RawModeRestore::Keep, KeyboardRestore::PopStack, handoff)
-}
-
-/// Force crossterm's cached raw-mode state back in sync with the terminal after `fg`.
-///
-/// A shell may restore the job's saved termios after the process receives
-/// `SIGCONT`. When that races with [`set_modes`], crossterm still believes raw
-/// mode is enabled even though the terminal has returned to canonical, echoing
-/// mode. Clearing crossterm's saved state before enabling raw mode again makes
-/// the kernel state authoritative once the shell has completed its handoff.
-#[cfg(unix)]
-pub(super) fn reapply_raw_mode_after_resume() -> Result<()> {
-    disable_raw_mode()?;
-    enable_raw_mode()
-}
-
-/// Flush the underlying stdin buffer to clear any input that may be buffered at
-/// the terminal level, e.g. user input typed while the crossterm event source
-/// was dropped.
-#[cfg(unix)]
-fn flush_terminal_input_buffer() {
-    // Safety: flushing the stdin queue is safe and does not move ownership.
-    let _ = unsafe { libc::tcflush(libc::STDIN_FILENO, libc::TCIFLUSH) };
 }
 
 /// Ensure both stdout and stderr have virtual-terminal processing on Windows.

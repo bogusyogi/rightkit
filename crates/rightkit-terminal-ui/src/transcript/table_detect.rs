@@ -121,6 +121,7 @@ pub(crate) fn is_table_delimiter_line(line: &str) -> bool {
 /// ignored by the table scanner because their pipe characters are code, not
 /// table syntax.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(test)]
 pub(crate) enum FenceKind {
     /// Not inside any fenced code block.
     Outside,
@@ -140,12 +141,15 @@ pub(crate) enum FenceKind {
 /// The tracker reports the fence context that applies to the current line
 /// before that line mutates the state. Callers rely on that when deciding
 /// whether the current raw line can open or continue a table.
+#[cfg(test)]
 pub(crate) struct FenceTracker {
     state: Option<(char, usize, FenceKind)>,
 }
 
+#[cfg(test)]
 impl FenceTracker {
     #[inline]
+    #[cfg(test)]
     pub(crate) fn new() -> Self {
         Self { state: None }
     }
@@ -154,6 +158,7 @@ impl FenceTracker {
     ///
     /// Lines with >3 leading spaces are ignored (indented code blocks, not
     /// fences).  Blockquote prefixes (`>`) are stripped before scanning.
+    #[cfg(test)]
     pub(crate) fn advance(&mut self, raw_line: &str) {
         let leading_spaces = raw_line
             .as_bytes()
@@ -189,6 +194,7 @@ impl FenceTracker {
 
     /// Current fence context for the most-recently-advanced line.
     #[inline]
+    #[cfg(test)]
     pub(crate) fn kind(&self) -> FenceKind {
         self.state.map_or(FenceKind::Outside, |(_, _, k)| k)
     }

@@ -105,7 +105,7 @@ impl LiveSubagentsPanel {
     }
 
     pub fn set_tree(&mut self, root: &AgentNode) {
-        fn collect<'a>(node: &'a AgentNode, rows: &mut Vec<LiveAgentProjection>) {
+        fn collect(node: &AgentNode, rows: &mut Vec<LiveAgentProjection>) {
             for child in &node.children {
                 if matches!(
                     child.state,

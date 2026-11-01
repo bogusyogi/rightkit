@@ -426,10 +426,10 @@ impl Component for ProvidersPicker {
 
     fn handle(&mut self, event: &Event) -> Outcome {
         if self.phase == Phase::KeyEntry {
-            if let Event::Key(key) = event {
-                if key.kind == KeyEventKind::Release {
-                    return Outcome::Ignored;
-                }
+            if let Event::Key(key) = event
+                && key.kind == KeyEventKind::Release
+            {
+                return Outcome::Ignored;
             }
             return self.handle_key_entry(event);
         }

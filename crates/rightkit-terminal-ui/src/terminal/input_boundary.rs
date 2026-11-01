@@ -9,19 +9,6 @@ use std::io::stdin;
 use std::time::Duration;
 use std::time::Instant;
 
-/// Restores terminal modes when initialization fails before ownership is transferred.
-pub(super) struct TerminalInitializationGuard {
-    pub(super) active: bool,
-}
-
-impl Drop for TerminalInitializationGuard {
-    fn drop(&mut self) {
-        if self.active {
-            let _ = super::session::restore_after_exit();
-        }
-    }
-}
-
 /// Drain decoded and unread input before a screen can accept a security-sensitive decision.
 ///
 /// Partial control sequences remain quarantined; an unresolved boundary fails after one second.

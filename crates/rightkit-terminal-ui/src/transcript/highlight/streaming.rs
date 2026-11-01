@@ -1,26 +1,40 @@
 //! Append-only syntax highlighting for complete lines in an open code fence.
 
+#[cfg(test)]
 use super::MAX_HIGHLIGHT_LINE_BYTES;
+#[cfg(test)]
 use super::exceeds_highlight_limits;
+#[cfg(test)]
 use super::find_syntax;
+#[cfg(test)]
 use super::highlighted_line_spans;
+#[cfg(test)]
 use super::syntax_set;
+#[cfg(test)]
 use super::syntax_theme_revision;
+#[cfg(test)]
 use super::theme_lock;
+#[cfg(test)]
 use ratatui::text::Line;
+#[cfg(test)]
 use syntect::easy::HighlightLines;
+#[cfg(test)]
 use syntect::highlighting::HighlightState;
+#[cfg(test)]
 use syntect::parsing::ParseState;
+#[cfg(test)]
 use syntect::util::LinesWithEndings;
 
 /// Retains only Syntect's parser state, subject to the ordinary highlighting limits.
 ///
 /// An absent state means the whole fence already uses the permanent plain-text fallback because
 /// its language is unknown or a size limit was exceeded. The caller owns the rendered prefix.
+#[cfg(test)]
 pub(crate) struct StreamingCodeHighlighter {
     state: Option<HighlightedCode>,
 }
 
+#[cfg(test)]
 struct HighlightedCode {
     bytes: usize,
     lines: usize,
@@ -28,11 +42,13 @@ struct HighlightedCode {
     syntax: (HighlightState, ParseState),
 }
 
+#[cfg(test)]
 impl StreamingCodeHighlighter {
     /// Reconstruct highlighting state after the canonical renderer emitted `code`.
     ///
     /// Unknown languages and oversized input retain a permanent plain-text fallback. A changed
     /// theme or failed replay returns `None`, requiring the caller to render the whole fence again.
+    #[cfg(test)]
     pub(crate) fn new(code: &str, lang: &str, theme_revision: u64) -> Option<Self> {
         let active_theme = theme_lock();
         let theme = match active_theme.read() {
@@ -71,6 +87,7 @@ impl StreamingCodeHighlighter {
     /// Every appended line must be newline-terminated to preserve Syntect's parser state.
     /// Returning `None` discards the state: the caller must render the whole fence again, which
     /// also removes old colors when the aggregate input crosses a highlighting limit.
+    #[cfg(test)]
     pub(crate) fn append(mut self, appended: &str) -> Option<(Self, Vec<Line<'static>>)> {
         if !appended.ends_with('\n') {
             return None;

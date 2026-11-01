@@ -59,6 +59,7 @@ impl TextArea {
         }
     }
 
+    #[cfg(test)]
     pub fn insert_element(&mut self, text: &str) -> u64 {
         self.insert_element_at_target(self.edit_target(), text)
     }
