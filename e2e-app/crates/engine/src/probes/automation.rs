@@ -235,20 +235,12 @@ fn drive(
         ));
     }
 
-    // Delivery with read-back proof: the product path. A pin captures the app's focused editor, so focus it first.
-    let focus_tree = snap(a, pid)?;
-    a.act(
-        &focus_tree.id,
-        Some(&ed),
-        Action::Focus,
-        &ActOptions::default(),
-    )
-    .map_err(|e| format!("focus the editor before capture_pin: {e}"))?;
-    // Delivery goes only into the app the user has in front (the crate never activates a target), so do what the user
-    // does: bring the helper to the front, then wait until the system reports it frontmost.
+    // Delivery with read-back proof: the product path. Delivery goes only into the app the user has in front (the
+    // crate never activates a target), so do what the user does: bring the helper to the front (`activate`; a reopen
+    // event would raise TextEdit's Open panel), dismiss the Open panel TextEdit shows at launch (it holds the focus
+    // once the app is in front), then focus the document's editor that capture_pin pins.
     #[cfg(target_os = "macos")]
     {
-        // `activate`, not `open -b`: a reopen event makes TextEdit show its Open panel, which takes the focus.
         std::process::Command::new("/usr/bin/osascript")
             .args([
                 "-e",
@@ -267,7 +259,25 @@ fn drive(
         if !front {
             return Err(format!("{HELPER} did not come to the front for delivery"));
         }
+        let panel_tree = snap(a, pid)?;
+        a.act(
+            &panel_tree.id,
+            None,
+            Action::Keys("escape".into()),
+            &ActOptions::default(),
+        )
+        .map_err(|e| format!("dismiss the Open panel: {e}"))?;
+        sleep(300);
     }
+    let focus_tree = snap(a, pid)?;
+    let focus_ed = editor(&focus_tree).unwrap_or_else(|| ed.clone());
+    a.act(
+        &focus_tree.id,
+        Some(&focus_ed),
+        Action::Focus,
+        &ActOptions::default(),
+    )
+    .map_err(|e| format!("focus the editor before capture_pin: {e}"))?;
     sleep(150);
     let pin = a
         .capture_pin(Some(pid))
