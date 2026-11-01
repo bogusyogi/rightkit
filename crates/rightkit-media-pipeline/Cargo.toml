@@ -15,7 +15,7 @@ path = "src/lib.rs"
 
 [features]
 # QA and dev builds only: forwards the generation layer's test seams.
-test-mode = ["rightkit-media-gen/test-mode"]
+test-mode = ["rightkit-media-gen/test-mode", "rightkit-approvals/test-mode"]
 # HyperFrames motion render (`motion`): loopback project server, managed headless Chrome capture,
 # encode through rightkit-motion. Adds rightkit-browser, rightkit-motion (encode, server) and tokio.
 motion = ["dep:rightkit-browser", "dep:rightkit-motion", "dep:tokio", "dep:serde"]
@@ -23,6 +23,8 @@ motion = ["dep:rightkit-browser", "dep:rightkit-motion", "dep:tokio", "dep:serde
 [dependencies]
 rightkit-media-gen = { version = "0.1.0", path = "../rightkit-media-gen" }
 rightkit-local-gen = { version = "0.1.0", path = "../rightkit-local-gen" }
+rightkit-approvals = { version = "0.1.0", path = "../rightkit-approvals" }
+rightkit-contracts = { version = "0.1.8", path = "../rightkit-contracts" }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 time = { version = "0.3", features = ["formatting", "macros"] }
