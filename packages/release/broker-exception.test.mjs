@@ -498,7 +498,7 @@ function listFixture(t, files) {
   const run = async (extraArgs = [], extraIo = {}) => {
     const out = []; const err = []; const plans = [];
     const exit = await main(["check", "--commit", commit, "--full-a", "--snapshot", snap.path, ...extraArgs], {
-      cwd: repo, gatePackage, env: { ...process.env, RK_GATE_CACHE: "0", RK_GATE_TMPDIR: base }, platform: process.platform, snapshotRoot: path.join(base, "snapshots-own"), spawn, out: (m) => out.push(m), err: (m) => err.push(m),
+      cwd: repo, gatePackage, env: { ...process.env, RK_GATE_CACHE: "0", RK_GATE_TMPDIR: base }, platform: process.platform, snapshotRoot: path.join(base, "snapshots"), spawn, out: (m) => out.push(m), err: (m) => err.push(m),
       appCheck: async () => 0, classA: undefined, selfPath: path.join(base, "elsewhere", "rightkit-gate.mjs"), resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }),
       runScans: async (plan) => { plans.push(plan); return { scans: [], notes: [], cacheHits: [] }; }, ...extraIo,
     });

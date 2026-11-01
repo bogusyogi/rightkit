@@ -35,7 +35,7 @@ function host(t, { rb = null } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-opdl-"))); t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   const checkout = path.join(root, "checkout"); const snapshot = path.join(rb ? path.join(rb.dataRoot, "snapshots") : path.join(root, "data", "snapshots"), "0123456789abcdef");
   writeTree(checkout, WORKSPACES); writeTree(snapshot, WORKSPACES);
-  const own = acquireBuildOwnership({ file: path.join(root, "build-ownership", "owner.json"), platform: "darwin", probe: probe(), lease: () => { throw new Error("no lease query expected"); }, env: {}, exportEnv: false, stage: "compile", snapshot });
+  const own = acquireBuildOwnership({ file: path.join(root, "build-ownership", "0123456789abcdef", "owner.json"), platform: "darwin", probe: probe(), lease: () => { throw new Error("no lease query expected"); }, env: {}, exportEnv: false, stage: "compile", snapshot });
   const marks = [];
   const sb = {
     controlRoot: rb?.controlRoot ?? path.join(root, "control"), commit: COMMIT, snapshot: { path: snapshot, expectedTree: COMMIT.tree }, declaredInputs: [], handle: own.handle,
