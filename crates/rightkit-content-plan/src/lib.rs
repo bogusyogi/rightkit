@@ -3,11 +3,14 @@
 //! - [`drafts`]: manual draft approval gate, first-sentence disclosure rule and the per-platform
 //!   host table for posted links.
 //!
+//! - [`calendar`]: briefs and calendar entries (put, get, list, approve, reject, pause, resume,
+//!   request approval, resolve failure) over a host-implemented [`calendar::CalendarStore`].
 //! - [`draft_store`]: the manual draft commands over a host-implemented [`draft_store::DraftStore`].
 //! - [`protocol`]: the draft payload shapes.
 //!
-//! Briefs, calendar entries, variants and hook tests are stored by the host app.
+//! The tables are the host app's.
 
+pub mod calendar;
 pub mod draft_store;
 pub mod drafts;
 pub mod protocol;
