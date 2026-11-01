@@ -3579,7 +3579,11 @@ export async function main(argv, io = {}) {
             const { brokerSection } = await import("../snapshot-broker.mjs");
             broker = { checkoutDirs, section: brokerSection(wrapBroker) };
           }
-          cargoShim = shimModule.installCargoShim({ base: os.tmpdir(), snapshotRoot: wrapRoot, targetDirs, broker, realCargo: realCargo ?? null, platform: o.platform, onDir: (dir) => { cargoShimDir = dir; } });
+          // Its own base directory: the wrapper's directory is named by its identity, and a unit stage's outer wrapper over the same
+          // workspaces has the same identity, so a shared base would let this run's cleanup delete the wrapper the next stage runs under.
+          const shimBase = fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-shim-"));
+          cargoShimDir = shimBase;
+          cargoShim = shimModule.installCargoShim({ base: shimBase, snapshotRoot: wrapRoot, targetDirs, broker, realCargo: realCargo ?? null, platform: o.platform });
           cargoShim.scanEnv = shimModule.shimScanEnv(o.env, cargoShim);
         } catch (error) { o.err(`${tag} BLOCKED: the runtime cargo wrapper cannot be installed (${error.message}); nothing compiled`); return 1; }
         o.out(`${tag} runtime cargo wrapper ${cargoShim.shim} (identity ${cargoShim.identity.slice(0, 16)}, ${cargoShim.mode}) -> ${cargoShim.mode === "broker" ? "the RustRight broker, one carried request per call" : realCargo}: each cargo invocation ${cargoShim.mode === "broker" ? "is carried with its own receipt, verified by the gate," : "binds its workspace's checkout target directory"} or is refused`);
