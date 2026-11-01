@@ -6794,8 +6794,10 @@ version = "0.2.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
+ "ring",
  "serde",
  "serde_json",
+ "zeroize",
 ]
 
 [[package]]
