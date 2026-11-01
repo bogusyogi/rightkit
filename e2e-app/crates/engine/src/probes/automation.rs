@@ -248,10 +248,14 @@ fn drive(
     // does: bring the helper to the front, then wait until the system reports it frontmost.
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("/usr/bin/open")
-            .args(["-b", HELPER])
+        // `activate`, not `open -b`: a reopen event makes TextEdit show its Open panel, which takes the focus.
+        std::process::Command::new("/usr/bin/osascript")
+            .args([
+                "-e",
+                &format!("tell application id \"{HELPER}\" to activate"),
+            ])
             .status()
-            .map_err(|e| format!("open -b {HELPER}: {e}"))?;
+            .map_err(|e| format!("activate {HELPER}: {e}"))?;
         let mut front = false;
         for _ in 0..40 {
             if a.frontmost().map(|f| f.pid) == Some(pid) {
