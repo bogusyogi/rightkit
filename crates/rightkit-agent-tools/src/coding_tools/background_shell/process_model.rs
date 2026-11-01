@@ -20,7 +20,6 @@ use std::sync::{Arc, Mutex};
 #[cfg(not(windows))]
 use tokio::io::AsyncWrite;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
 
 static SHELL_SEQ: AtomicU64 = AtomicU64::new(0);
 
