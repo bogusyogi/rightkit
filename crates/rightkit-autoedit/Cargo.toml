@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-autoedit"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Automatic editing for Right Suite video apps: transcript-driven cut engine (retakes, fillers, silences), editorial engine, named cut variants, and scoped editing rules with their resolution matrix."
@@ -13,7 +13,15 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
 name = "rightkit_autoedit"
 path = "src/lib.rs"
 
+[features]
+default = []
+# Engine command modules (`cmd`): autoedit, autonomy, rules, style and mic methods over JSON params, for an engine
+# built on rightkit-engine-host. Adds rightkit-engine-host (with its `project-cmd` layer) and chrono.
+engine-commands = ["dep:rightkit-engine-host", "dep:chrono", "rightkit-fs/lock"]
+
 [dependencies]
+chrono = { version = "0.4", features = ["serde", "clock"], optional = true }
+rightkit-engine-host = { version = "0.1.1", path = "../rightkit-engine-host", features = ["project-cmd"], optional = true }
 blake3 = "1.8"
 rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline" }
 rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project" }

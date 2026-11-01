@@ -3,6 +3,8 @@
 //! with their resolution matrix. Moved from CutRight (`cutright-cuts`, `-editorial`,
 //! `-variants`, `-rules`).
 
+#[cfg(feature = "engine-commands")]
+pub mod cmd;
 pub mod cuts;
 pub mod editorial;
 pub mod rules;
