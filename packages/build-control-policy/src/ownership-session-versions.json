@@ -526,6 +526,7 @@
     "rightkit-typeset": "0.1.0",
     "rightkit-vad": "0.1.2",
     "rightkit-vault": "0.2.0",
+    "rightkit-video-project": "0.1.0",
     "rightkit-workflow": "0.2.0"
   },
   "swift": {

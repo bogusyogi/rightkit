@@ -1,0 +1,6 @@
+[
+  { "output_ms": 0, "source_id": "cam-a", "shot_boundary": true, "observations": [{ "modality": "face", "center_x": 0.15, "center_y": 0.5, "confidence": 0.9 }] },
+  { "output_ms": 200, "source_id": "cam-a", "shot_boundary": false, "observations": [{ "modality": "face", "center_x": 0.15, "center_y": 0.5, "confidence": 0.9 }] },
+  { "output_ms": 300, "source_id": "cam-b", "shot_boundary": true, "observations": [{ "modality": "face", "center_x": 0.9, "center_y": 0.5, "confidence": 0.9 }] },
+  { "output_ms": 500, "source_id": "cam-b", "shot_boundary": false, "observations": [{ "modality": "face", "center_x": 0.9, "center_y": 0.5, "confidence": 0.9 }] }
+]

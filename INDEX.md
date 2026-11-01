@@ -12,7 +12,7 @@ Flagged mismatches: 0.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (74)
+## Rust crates (75)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -89,6 +89,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-typeset` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | typeset | Typst rendering for titles, captions and math, with mitex LaTeX input, for Right Suite applications; no file access, no package fetching, explicit fonts |
 | `rightkit-vad` | crates.io | 0.1.2 | 0.1.2 | 0.1.2 | ok | voice-activity-detection | Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chunking policy, streaming frame carry |
 | `rightkit-vault` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | secret-vault | Split-key secret sync for Right Suite apps: a small secret map sealed under a random data key, the key wrapped under a server-held wrapping key combined with a client-held secret, the blob kept in the user's own cloud app folder. |
+| `rightkit-video-project` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Video project layer for Right Suite apps: project files, sources and their integrity, revisions on the timeline, render jobs, and portable project bundles. |
 | `rightkit-workflow` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | scenario-runtime | Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary |
 
 ## npm packages (26)

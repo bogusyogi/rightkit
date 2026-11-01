@@ -1596,6 +1596,15 @@
         "README.md": "7eaddf8cabd60eb235880f5ecc64d8375eced10dbfa96fa4dfaf1a7680d04f9a",
         "src/main.rs": "27d0f0c1bc20b0c48ce91e1c803716f3f59db6c1303651f6ee57c56bef222c13"
       }
+    },
+    "rightkit-video-project": {
+      "pkId": "PK56",
+      "id": "ci/consumers/rightkit-video-project/src/main.rs",
+      "files": {
+        "Cargo.toml": "b4e5acc12340b261c8a30f65a8ebb5c9d80a8eddd4ed5c8570ef1da1a65325b6",
+        "README.md": "3058b5ccceccc01df9db1a9160294e2d113b6464ae4b97b92d41fd779f9d6769",
+        "src/main.rs": "fe1691662ebfc75ec77684ee1f42f46491fd402011fde5b95b63803fe3f9a54a"
+      }
     }
   }
 }
