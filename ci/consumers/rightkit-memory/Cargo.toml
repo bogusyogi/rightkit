@@ -7,6 +7,6 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-memory = { version = "=0.1.0" }
+rightkit-memory = { version = "=0.1.1" }
 serde_json = "1"
 

@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-notch-ui = { version = "=0.1.1" }
+rightkit-notch-ui = { version = "=0.1.0" }

@@ -1,7 +1,7 @@
 # RkE2E Third-Party Notices
 
 Build provenance: RkE2E 0.1.0, effective 2026-10-24.
-inputs: pnpm-lock.yaml sha256 2b7fa1608b78a637b9e25cfa3411f08cf934338663af724988b3ab9fca0d1764; Cargo.lock sha256 e6c1b9796fe3ae5ea8893eb7518e2e17c9496be85682c3af6633e6e522e06ef2; legal/THIRD_PARTY_NPM_LICENSES.html sha256 e38d74f8ea247a7012c434e5df5089f8c138f19a2a2a4a0214fefffbeede272f.
+inputs: pnpm-lock.yaml sha256 2b7fa1608b78a637b9e25cfa3411f08cf934338663af724988b3ab9fca0d1764; Cargo.lock sha256 87436b38adbe15aeeee0c2773b735fdfe4d99ba632bda92616e4d7b1bd036167; legal/THIRD_PARTY_NPM_LICENSES.html sha256 e38d74f8ea247a7012c434e5df5089f8c138f19a2a2a4a0214fefffbeede272f.
 generated-by=@rightkit/legal legal-snapshot from legal/NOTICES.template.md
 
 RkE2E includes third-party software that stays under its own licences. This notice does not reduce any permission those licences grant.

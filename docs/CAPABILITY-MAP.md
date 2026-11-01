@@ -26,8 +26,8 @@ Capabilities: 215 (58 with fingerprints, 157 declaration-only). Internal owners 
 | agent-experience-gates | `@rightkit/ax` | none | declaration-only | 0 | @rightkit/ax: published 0.3.2 (npm) |
 | agent-gateway | `rightkit-agent-gateway` | none | declaration-only | 0 | rightkit-agent-gateway: staged 0.1.0, not published |
 | agent-history | `rightkit-agent-engine-history` | none | declaration-only | 0 | rightkit-agent-engine-history: staged 0.1.0, not published |
-| agent-host-traits | `rightkit-agent-host-traits` | none | declaration-only | 0 | rightkit-agent-host-traits: staged 0.1.0, not published |
-| agent-memory | `rightkit-memory` | none | declaration-only | 0 | rightkit-memory: staged 0.1.0, not published |
+| agent-host-traits | `rightkit-agent-host-traits` | none | declaration-only | 0 | rightkit-agent-host-traits: staged 0.1.1, not published |
+| agent-memory | `rightkit-memory` | none | declaration-only | 0 | rightkit-memory: staged 0.1.1, not published |
 | agent-mobile-runtime | `rightkit-agent-engine-mobile-runtime` | none | declaration-only | 0 | rightkit-agent-engine-mobile-runtime: staged 0.1.0, not published |
 | agent-orchestration | `rightkit-agent-orchestration` | none | declaration-only | 0 | rightkit-agent-orchestration: staged 0.1.1, not published |
 | agent-orchestration-handoff | `rightkit-agent-orchestration-handoff` | none | declaration-only | 0 | rightkit-agent-orchestration-handoff: staged 0.1.0, not published |
@@ -70,7 +70,7 @@ Capabilities: 215 (58 with fingerprints, 157 declaration-only). Internal owners 
 | composition-model | `rightkit-compose` | none | declaration-only | 0 | rightkit-compose: published 0.2.0 (crates.io) |
 | content-contracts | `rightkit-contracts` | none | declaration-only | 0 | rightkit-contracts: published 0.1.7 (crates.io) |
 | content-plan | `rightkit-content-plan` | none | declaration-only | 0 | rightkit-content-plan: staged 0.1.1, not published |
-| content-proof | `rightkit-content-proof` | none | declaration-only | 0 | rightkit-content-proof: staged 0.1.0, not published |
+| content-proof | `rightkit-content-proof` | none | declaration-only | 0 | rightkit-content-proof: staged 0.1.1, not published |
 | content-review | `rightkit-review` | none | declaration-only | 0 | rightkit-review: published 0.4.0 (crates.io) |
 | context | `rightkit-context` | none | declaration-only | 0 | rightkit-context: staged 0.1.0, not published |
 | context-budget | `rightkit-context-core` | none | declaration-only | 0 | rightkit-context-core: staged 0.1.0, not published |
@@ -123,7 +123,7 @@ Capabilities: 215 (58 with fingerprints, 157 declaration-only). Internal owners 
 | file-index | `rightkit-fsindex` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-fsindex: published 0.5.0 (crates.io) |
 | file-watching | `rightkit-file-watch` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-file-watch: published 0.4.1 (crates.io) |
 | framed-sidecar | `rightkit-sidecar` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-sidecar: published 0.3.0 (crates.io) |
-| generation-pipeline | `rightkit-pipeline` | none | declaration-only | 0 | rightkit-pipeline: staged 0.1.1, not published |
+| generation-pipeline | `rightkit-pipeline` | none | declaration-only | 0 | rightkit-pipeline: staged 0.1.2, not published |
 | generative-media | `rightkit-media-gen` | none | declaration-only | 0 | rightkit-media-gen: staged 0.1.0, not published |
 | github | `rightkit-github` | none | declaration-only | 0 | rightkit-github: staged 0.1.1, not published |
 | github-workflows | `@rightkit/ci` | none | declaration-only | 0 | @rightkit/ci: published 0.3.1 (npm) |
@@ -138,7 +138,7 @@ Capabilities: 215 (58 with fingerprints, 157 declaration-only). Internal owners 
 | licensing | `@rightkit/license`, `rightkit-license` | advise | fingerprinted | 6 (0 block, 6 advise) | @rightkit/license: published 0.3.0 (npm); rightkit-license: published 0.2.5 (crates.io) |
 | lifecycle-hooks | `@rightkit/hooks`, `rightkit-hooks` | none | declaration-only | 0 | @rightkit/hooks: published 0.1.2 (npm); rightkit-hooks: published 0.2.0 (crates.io) |
 | llm-providers | `rightkit-llm` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-llm: published 0.3.1 (crates.io) |
-| local-artifact-library | `rightkit-library` | none | declaration-only | 0 | rightkit-library: staged 0.1.1, not published |
+| local-artifact-library | `rightkit-library` | none | declaration-only | 0 | rightkit-library: staged 0.1.3, not published |
 | local-image-generation | `rightkit-local-gen` | none | declaration-only | 0 | rightkit-local-gen: staged 0.1.0, not published |
 | local-services | `rightkit-daemon` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-daemon: published 0.4.0 (crates.io) |
 | localization | `@rightkit/i18n` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/i18n: published 0.2.0 (npm) |
@@ -180,7 +180,7 @@ Capabilities: 215 (58 with fingerprints, 157 declaration-only). Internal owners 
 | remote-compute | `rightkit-remote-compute` | none | declaration-only | 0 | rightkit-remote-compute: staged 0.1.0, not published |
 | repo-graph | `rightkit-repo-graph` | none | declaration-only | 0 | rightkit-repo-graph: staged 0.1.0, not published |
 | repo-graph-grammars | `rightkit-repo-graph-grammars` | none | declaration-only | 0 | rightkit-repo-graph-grammars: staged 0.1.0, not published |
-| research | `rightkit-research` | none | declaration-only | 0 | rightkit-research: staged 0.1.1, not published |
+| research | `rightkit-research` | none | declaration-only | 0 | rightkit-research: staged 0.1.2, not published |
 | right-suite-api | `rightkit-license` | none | declaration-only | 0 | rightkit-license: published 0.2.5 (crates.io) |
 | safe-filesystem | `rightkit-fs` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-fs: published 0.4.7 (crates.io) |
 | scenario-runtime | `rightkit-workflow` | none | declaration-only | 0 | rightkit-workflow: published 0.2.0 (crates.io) |
