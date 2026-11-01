@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-local-gen-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-local-gen = { version = "=0.1.0" }
+
