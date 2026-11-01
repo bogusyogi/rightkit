@@ -8,11 +8,11 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 0.
+Flagged mismatches: 1.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (69)
+## Rust crates (70)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -52,6 +52,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-llm` | crates.io | 0.3.1 | 0.3.1 | 0.3.1 | ok | llm-providers | Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants. |
 | `rightkit-logs` | crates.io | 0.3.6 | 0.3.5 | 0.3.6 | staged, not yet published | structured-logging | Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps. |
 | `rightkit-mcp` | crates.io | 0.7.1 | 0.7.0 | 0.7.1 | staged, not yet published | mcp | Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps. |
+| `rightkit-mesh` | crates.io | 0.1.0 | none recorded |  | **MISMATCH public package has no release record** |  | Device mesh for Right Suite apps: iroh live sessions between paired devices, end-to-end encrypted mailbox, sync reconciliation and capped relayed transfers. The host supplies identity and trust through PeerTrust. |
 | `rightkit-models` | crates.io | 0.5.2 | 0.5.1 | 0.5.2 | staged, not yet published | model-installation | Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit. |
 | `rightkit-motion` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | motion-beat-sync, motion-inspect-sheets, motion-takes | Product-neutral motion helpers for Right Suite video: bracketed-script beat sync, storyboard inspect sheets, and a frame-source render and encode driver (H.264/MPEG-4, ProRes 4444 and VP9 alpha, PNG stills) |
 | `rightkit-oauth` | crates.io | 0.10.0 | 0.10.0 | 0.10.0 | ok | oauth-sign-in | Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials. |

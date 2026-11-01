@@ -1551,6 +1551,15 @@
         "README.md": "02b787bd0efe3bfd5db4f45fa2fa34e2ddb1b2bc2e92f479a123eb5f421cab73",
         "src/main.rs": "91d8a63d6af927194ef2fffc9135aaa4330683c471ac2ebb985496ac1a425c32"
       }
+    },
+    "rightkit-mesh": {
+      "pkId": "PK51",
+      "id": "ci/consumers/rightkit-mesh/src/main.rs",
+      "files": {
+        "Cargo.toml": "05e56432f0bd77701fd96135da887d2cd19c963fc85bf656287f0c11a3b6adaf",
+        "README.md": "3adc75dad4484961284b9a5bbd7797fcc36021ed4cf3e6fd74642e398fd68f48",
+        "src/main.rs": "d7d11f131211e5c691a17bd95892baaa6b5fcac123c1e754daa58a2fc53633eb"
+      }
     }
   }
 }
