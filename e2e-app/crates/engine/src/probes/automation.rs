@@ -275,13 +275,16 @@ fn drive(
     );
     ensure(delivered.inserted(), || {
         format!(
-            "deliver_text was not confirmed by read-back: {:?} via {:?}",
+            "deliver_text was not confirmed by read-back: {:?} via {:?} (pinned role {:?}, window {:?}, fingerprint {})",
             delivered.outcome,
             delivered
                 .attempts
                 .iter()
                 .map(|x| (x.tier, x.ok))
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
+            pin.role,
+            pin.window_id,
+            if pin.fingerprint.is_some() { "readable" } else { "none" }
         )
     })?;
 
