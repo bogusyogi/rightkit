@@ -1,9 +1,9 @@
 use super::*;
+use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
 use rightkit_mcp::agent_mcp::{
     McpManager, McpResourceContent, McpResourceDef, McpToolDef, McpToolResult, McpTransport,
     StubTransport,
 };
-use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
 use std::sync::Arc;
 
 fn make_ctx_no_mcp() -> ToolContext {

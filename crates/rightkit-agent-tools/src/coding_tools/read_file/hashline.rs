@@ -130,9 +130,10 @@ fn fresh_hashline_context(current: &str, focus_line: usize, context_radius: usiz
 }
 
 fn stale_hashline_error(anchor: HashlineAnchor<'_>, current: &str, detail: String) -> String {
-    let hint = crate::coding_tools::edit_helpers::nearest_content_diagnostic(current, anchor.content)
-        .map(|hint| format!("\nNearest-content suggestion: {hint}."))
-        .unwrap_or_default();
+    let hint =
+        crate::coding_tools::edit_helpers::nearest_content_diagnostic(current, anchor.content)
+            .map(|hint| format!("\nNearest-content suggestion: {hint}."))
+            .unwrap_or_default();
     format!(
         "Stale hashline anchor at line {}: {}. The file changed since read; re-read it and retry with fresh anchors.\nFresh anchors:\n{}{}",
         anchor.line_number,

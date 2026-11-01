@@ -48,12 +48,13 @@ impl Tool for ApplyPatchTool {
                             hunks.push((file, std::mem::take(&mut current_lines)));
                         }
                     }
-                    current_file =
-                        match crate::coding_tools::read_file::resolve_in_workspace(path_str, &ctx.workspace_root)
-                        {
-                            Ok(path) => Some(path),
-                            Err(error) => return ToolResult::error(error),
-                        };
+                    current_file = match crate::coding_tools::read_file::resolve_in_workspace(
+                        path_str,
+                        &ctx.workspace_root,
+                    ) {
+                        Ok(path) => Some(path),
+                        Err(error) => return ToolResult::error(error),
+                    };
                 }
                 other => {
                     if current_file.is_some() {
@@ -77,14 +78,18 @@ impl Tool for ApplyPatchTool {
         // Preflight every target before writing any hunk so a later sensitive
         // target cannot leave an earlier non-sensitive hunk partially applied.
         for (path, _) in &hunks {
-            if let Err(error) = crate::coding_tools::durable_write::require_path_authorization(path, ctx) {
+            if let Err(error) =
+                crate::coding_tools::durable_write::require_path_authorization(path, ctx)
+            {
                 return ToolResult::error(error);
             }
             for access in [
                 crate::coding_tools::read_file::PathAccess::Write,
                 crate::coding_tools::read_file::PathAccess::Read,
             ] {
-                if let Err(error) = crate::coding_tools::read_file::enforce_path_deny(ctx, path, access) {
+                if let Err(error) =
+                    crate::coding_tools::read_file::enforce_path_deny(ctx, path, access)
+                {
                     return ToolResult::error(error);
                 }
             }
@@ -214,7 +219,8 @@ impl Tool for ApplyPatchTool {
                 let store = HistoryStore::new(&ctx.workspace_root);
                 let _ = store.snapshot(&item.path, &item.original);
             }
-            crate::coding_tools::lsp_notify::document_mutated(&ctx.workspace_root, &item.path).await;
+            crate::coding_tools::lsp_notify::document_mutated(&ctx.workspace_root, &item.path)
+                .await;
             applied.push(item.path.display().to_string());
             mutations.push(WorkspaceMutation {
                 path: item.path.clone(),

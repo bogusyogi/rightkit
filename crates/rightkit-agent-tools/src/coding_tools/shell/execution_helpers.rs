@@ -65,8 +65,10 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
     async fn spawn(
         &self,
         spec: rightkit_sandbox::execution::CommandLaunchSpec,
-    ) -> Result<Box<dyn rightkit_sandbox::execution::ManagedChild>, rightkit_sandbox::execution::EffectExecutionError>
-    {
+    ) -> Result<
+        Box<dyn rightkit_sandbox::execution::ManagedChild>,
+        rightkit_sandbox::execution::EffectExecutionError,
+    > {
         let mut command = rightkit_child_process::tokio_support::command(&spec.program);
         command
             .args(&spec.argv)
@@ -116,8 +118,10 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         &self,
         spec: rightkit_sandbox::execution::CommandLaunchSpec,
         channel: rightkit_sandbox::execution::ExecutionChannel,
-    ) -> Result<Box<dyn rightkit_sandbox::execution::ManagedChild>, rightkit_sandbox::execution::EffectExecutionError>
-    {
+    ) -> Result<
+        Box<dyn rightkit_sandbox::execution::ManagedChild>,
+        rightkit_sandbox::execution::EffectExecutionError,
+    > {
         match channel {
             rightkit_sandbox::execution::ExecutionChannel::Pipe => self.spawn(spec).await,
             rightkit_sandbox::execution::ExecutionChannel::Pty(_) => {
@@ -185,8 +189,10 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
     async fn spawn(
         &self,
         spec: rightkit_sandbox::execution::CommandLaunchSpec,
-    ) -> Result<Box<dyn rightkit_sandbox::execution::ManagedChild>, rightkit_sandbox::execution::EffectExecutionError>
-    {
+    ) -> Result<
+        Box<dyn rightkit_sandbox::execution::ManagedChild>,
+        rightkit_sandbox::execution::EffectExecutionError,
+    > {
         if !spec.context.sandbox_required {
             // Typed opt-out (e.g. user lifecycle hooks outside safe mode): run
             // through the local adapter, which records an unenforced proof.
@@ -222,12 +228,14 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         let argv = spec.argv.clone();
         let env = spec.env.clone();
         let confined = tokio::task::spawn_blocking(move || {
-            crate::coding_tools::sandbox::AppContainerProfile::for_workspace(&root).and_then(|profile| {
-                let profile = profile.with_network(network_required);
-                crate::coding_tools::sandbox::spawn_confined_piped_with_env(
-                    &profile, &program, &argv, &cwd, true, &env,
-                )
-            })
+            crate::coding_tools::sandbox::AppContainerProfile::for_workspace(&root).and_then(
+                |profile| {
+                    let profile = profile.with_network(network_required);
+                    crate::coding_tools::sandbox::spawn_confined_piped_with_env(
+                        &profile, &program, &argv, &cwd, true, &env,
+                    )
+                },
+            )
         })
         .await
         .unwrap_or_else(|error| Err(std::io::Error::other(error.to_string())));
@@ -246,8 +254,10 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         &self,
         spec: rightkit_sandbox::execution::CommandLaunchSpec,
         channel: rightkit_sandbox::execution::ExecutionChannel,
-    ) -> Result<Box<dyn rightkit_sandbox::execution::ManagedChild>, rightkit_sandbox::execution::EffectExecutionError>
-    {
+    ) -> Result<
+        Box<dyn rightkit_sandbox::execution::ManagedChild>,
+        rightkit_sandbox::execution::EffectExecutionError,
+    > {
         match channel {
             rightkit_sandbox::execution::ExecutionChannel::Pipe => self.spawn(spec).await,
             rightkit_sandbox::execution::ExecutionChannel::Pty(_) => {
@@ -321,8 +331,10 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
     async fn spawn(
         &self,
         spec: rightkit_sandbox::execution::CommandLaunchSpec,
-    ) -> Result<Box<dyn rightkit_sandbox::execution::ManagedChild>, rightkit_sandbox::execution::EffectExecutionError>
-    {
+    ) -> Result<
+        Box<dyn rightkit_sandbox::execution::ManagedChild>,
+        rightkit_sandbox::execution::EffectExecutionError,
+    > {
         let root = std::path::PathBuf::from(&spec.context.workspace_root);
         if spec.context.sandbox_required && spec.context.sandbox_profile.is_none() {
             return Err(rightkit_sandbox::execution::EffectExecutionError::SandboxMissing);
@@ -335,9 +347,13 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
             } else {
                 crate::coding_tools::shell::effective_sandbox_tier(&root, None)
             };
-            let wrapped =
-                crate::coding_tools::shell::macos_sandbox_wrap_for_tier(&spec.program, &spec.argv, &root, tier)
-                    .ok_or(rightkit_sandbox::execution::EffectExecutionError::SandboxMissing)?;
+            let wrapped = crate::coding_tools::shell::macos_sandbox_wrap_for_tier(
+                &spec.program,
+                &spec.argv,
+                &root,
+                tier,
+            )
+            .ok_or(rightkit_sandbox::execution::EffectExecutionError::SandboxMissing)?;
             enforced = true;
             network_enforced = tier.denies_network();
             wrapped
@@ -367,8 +383,10 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         &self,
         spec: rightkit_sandbox::execution::CommandLaunchSpec,
         channel: rightkit_sandbox::execution::ExecutionChannel,
-    ) -> Result<Box<dyn rightkit_sandbox::execution::ManagedChild>, rightkit_sandbox::execution::EffectExecutionError>
-    {
+    ) -> Result<
+        Box<dyn rightkit_sandbox::execution::ManagedChild>,
+        rightkit_sandbox::execution::EffectExecutionError,
+    > {
         match channel {
             rightkit_sandbox::execution::ExecutionChannel::Pipe => self.spawn(spec).await,
             rightkit_sandbox::execution::ExecutionChannel::Pty(_) => {
@@ -390,13 +408,17 @@ impl rightkit_sandbox::execution::CommandSandboxAdapter for NativeCommandSandbox
         program: &str,
         argv: &[String],
         context: &rightkit_sandbox::execution::ProcessLaunchContext,
-    ) -> Result<rightkit_sandbox::execution::PreparedProcessLaunch, rightkit_sandbox::execution::EffectExecutionError>
-    {
+    ) -> Result<
+        rightkit_sandbox::execution::PreparedProcessLaunch,
+        rightkit_sandbox::execution::EffectExecutionError,
+    > {
         if program.is_empty() || context.workspace_root.is_empty() {
-            return Err(rightkit_sandbox::execution::EffectExecutionError::InvalidRequest {
-                field: "launch".into(),
-                reason: "program and workspace are required".into(),
-            });
+            return Err(
+                rightkit_sandbox::execution::EffectExecutionError::InvalidRequest {
+                    field: "launch".into(),
+                    reason: "program and workspace are required".into(),
+                },
+            );
         }
         if context.sandbox_required && context.sandbox_profile.is_none() {
             return Err(rightkit_sandbox::execution::EffectExecutionError::SandboxMissing);
@@ -430,7 +452,9 @@ fn selected_execution_backend(ctx: &ToolContext) -> ShellExecutionBackend<'_> {
                 return ShellExecutionBackend::Unsupported(backend);
             }
             match config.kind {
-                rightkit_sandbox::execution::BackendKind::Local => return ShellExecutionBackend::Local,
+                rightkit_sandbox::execution::BackendKind::Local => {
+                    return ShellExecutionBackend::Local
+                }
             }
         }
     }
@@ -587,7 +611,10 @@ fn notify_utf8(
 /// Append the typed, reaped exit status to a foreground result message. The
 /// call sites run it only after the child was waited on, so the status is
 /// confirmed rather than assumed.
-fn with_exit_status(message: String, status: rightkit_agent_engine_protocol::ShellExitStatus) -> String {
+fn with_exit_status(
+    message: String,
+    status: rightkit_agent_engine_protocol::ShellExitStatus,
+) -> String {
     format!("{message}\n[status: {}]", status.label())
 }
 
@@ -872,7 +899,9 @@ fn assign_windows_job_to_child(
 }
 
 #[cfg(windows)]
-pub(crate) fn assign_windows_job_to_pid(pid: u32) -> std::io::Result<crate::coding_tools::sandbox::WindowsJob> {
+pub(crate) fn assign_windows_job_to_pid(
+    pid: u32,
+) -> std::io::Result<crate::coding_tools::sandbox::WindowsJob> {
     let job = crate::coding_tools::sandbox::shell_job()?;
     job.assign_process_id(pid)?;
     Ok(job)
@@ -897,8 +926,9 @@ pub(crate) fn spawn_windows_appcontainer_with_grant(
     network_allowed: bool,
     grant: Option<&crate::coding_tools::sandbox::SandboxGrant>,
 ) -> std::io::Result<crate::coding_tools::sandbox::ConfinedPipedChild> {
-    let mut profile = crate::coding_tools::sandbox::AppContainerProfile::for_workspace(workspace_root)?
-        .with_network(network_allowed || grant.is_some_and(|grant| grant.network));
+    let mut profile =
+        crate::coding_tools::sandbox::AppContainerProfile::for_workspace(workspace_root)?
+            .with_network(network_allowed || grant.is_some_and(|grant| grant.network));
     if let Some(grant) = grant {
         for path in &grant.read_paths {
             profile.lease_extra_access(path, false)?;
@@ -907,7 +937,13 @@ pub(crate) fn spawn_windows_appcontainer_with_grant(
             profile.lease_extra_access(path, true)?;
         }
     }
-    crate::coding_tools::sandbox::spawn_confined_piped(&profile, program, args, workspace_root, with_stdin)
+    crate::coding_tools::sandbox::spawn_confined_piped(
+        &profile,
+        program,
+        args,
+        workspace_root,
+        with_stdin,
+    )
 }
 
 fn record_foreground_process(
@@ -929,7 +965,9 @@ fn record_foreground_process(
     }
 }
 
-fn execution_target_from_context(ctx: &ToolContext) -> crate::coding_tools::background_shell::BgExecutionTarget {
+fn execution_target_from_context(
+    ctx: &ToolContext,
+) -> crate::coding_tools::background_shell::BgExecutionTarget {
     crate::coding_tools::background_shell::BgExecutionTarget {
         backend_id: ctx.execution_backend.clone(),
         workspace_id: ctx.execution_workspace_id.clone(),
@@ -937,7 +975,9 @@ fn execution_target_from_context(ctx: &ToolContext) -> crate::coding_tools::back
     }
 }
 
-pub(crate) fn sandbox_tier_for_workspace(workspace_root: &Path) -> crate::coding_tools::sandbox::SandboxTier {
+pub(crate) fn sandbox_tier_for_workspace(
+    workspace_root: &Path,
+) -> crate::coding_tools::sandbox::SandboxTier {
     sandbox_policy_for_workspace(workspace_root).effective
 }
 
@@ -1015,8 +1055,10 @@ mod network_context_tests {
     #[test]
     fn network_required_uses_filesystem_only_tier() {
         let root = std::path::Path::new("/tmp/rightkit-agent-network-context");
-        let config =
-            super::local_sandbox_config_for_tier(root, crate::coding_tools::sandbox::SandboxTier::WorkspaceWrite);
+        let config = super::local_sandbox_config_for_tier(
+            root,
+            crate::coding_tools::sandbox::SandboxTier::WorkspaceWrite,
+        );
         assert!(!config.network_denied);
         assert!(!config.seccomp_enabled);
     }

@@ -968,7 +968,9 @@ mod imp {
     /// before any ACE is written for the root.
     fn refuse_protected_secrets_within(granted_root: &Path) -> std::io::Result<()> {
         let protected = crate::coding_tools::sandbox::secret_paths_within(granted_root);
-        if protected.is_empty() && !crate::coding_tools::sandbox::path_is_protected_secret(granted_root) {
+        if protected.is_empty()
+            && !crate::coding_tools::sandbox::path_is_protected_secret(granted_root)
+        {
             return Ok(());
         }
         let listed = protected

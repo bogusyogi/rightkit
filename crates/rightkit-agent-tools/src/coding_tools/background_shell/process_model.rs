@@ -68,7 +68,9 @@ pub enum BgStatus {
 /// Background shells have no wall-clock timeout, so a kill is always an
 /// explicit stop or operator cancel. A missing exit code on unix means the
 /// child died from a signal the adapter did not surface.
-pub fn exit_status_for(status: &BgStatus) -> Option<rightkit_agent_engine_protocol::ShellExitStatus> {
+pub fn exit_status_for(
+    status: &BgStatus,
+) -> Option<rightkit_agent_engine_protocol::ShellExitStatus> {
     use rightkit_agent_engine_protocol::ShellExitStatus;
     match status {
         BgStatus::Running | BgStatus::Unknown => None,
@@ -637,7 +639,10 @@ impl BgShell {
         }
         Ok(())
     }
-    pub async fn resize_pty(&self, size: rightkit_sandbox::execution::PtySize) -> Result<(), String> {
+    pub async fn resize_pty(
+        &self,
+        size: rightkit_sandbox::execution::PtySize,
+    ) -> Result<(), String> {
         let sender = self
             .control_tx
             .as_ref()

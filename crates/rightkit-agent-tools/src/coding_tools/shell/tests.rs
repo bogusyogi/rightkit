@@ -135,7 +135,10 @@ mod tests {
             .next()
             .expect("foreground shell should record a completed process row");
         assert_eq!(row.process_kind(), "foregroundShell");
-        assert_eq!(row.status(), crate::coding_tools::background_shell::BgStatus::Exited(0));
+        assert_eq!(
+            row.status(),
+            crate::coding_tools::background_shell::BgStatus::Exited(0)
+        );
         assert!(row.output_snapshot().contains("foreground-target"));
         let target = row.execution_target();
         assert_eq!(target.backend_id.as_deref(), Some("local"));
@@ -487,7 +490,10 @@ mod tests {
         .unwrap();
 
         let policy = sandbox_policy_for_workspace(dir.path());
-        assert_eq!(policy.effective, crate::coding_tools::sandbox::SandboxTier::Strict);
+        assert_eq!(
+            policy.effective,
+            crate::coding_tools::sandbox::SandboxTier::Strict
+        );
         assert_eq!(policy.effective.persisted_value(), "landlock-seccomp");
     }
 
@@ -516,19 +522,27 @@ mod tests {
         .unwrap();
 
         let policy = sandbox_policy_for_workspace(dir.path());
-        assert_eq!(policy.operator, Some(crate::coding_tools::sandbox::SandboxTier::Strict));
+        assert_eq!(
+            policy.operator,
+            Some(crate::coding_tools::sandbox::SandboxTier::Strict)
+        );
         assert_eq!(
             policy.workspace,
             Some(crate::coding_tools::sandbox::SandboxTier::Disabled)
         );
-        assert_eq!(policy.effective, crate::coding_tools::sandbox::SandboxTier::Strict);
+        assert_eq!(
+            policy.effective,
+            crate::coding_tools::sandbox::SandboxTier::Strict
+        );
         assert!(!sandbox_disabled_for_workspace(dir.path()));
     }
 
     #[test]
     fn strict_tier_config_enables_seccomp_and_network_deny() {
-        let cfg =
-            local_sandbox_config_for_tier(Path::new("/ws"), crate::coding_tools::sandbox::SandboxTier::Strict);
+        let cfg = local_sandbox_config_for_tier(
+            Path::new("/ws"),
+            crate::coding_tools::sandbox::SandboxTier::Strict,
+        );
         assert!(cfg.seccomp_enabled);
         assert!(cfg.network_denied);
     }

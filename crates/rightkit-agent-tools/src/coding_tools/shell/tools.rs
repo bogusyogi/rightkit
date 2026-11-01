@@ -73,7 +73,9 @@ impl Tool for ShellTool {
         Some(rightkit_agent_policy::CapabilityClass::Shell)
     }
 
-    fn process_resource_kind(&self) -> Option<rightkit_agent_engine_runtime_resources::ResourceKind> {
+    fn process_resource_kind(
+        &self,
+    ) -> Option<rightkit_agent_engine_runtime_resources::ResourceKind> {
         Some(rightkit_agent_engine_runtime_resources::ResourceKind::ChildProcess)
     }
 
@@ -118,7 +120,9 @@ impl Tool for PowerShellTool {
         Some(rightkit_agent_policy::CapabilityClass::Shell)
     }
 
-    fn process_resource_kind(&self) -> Option<rightkit_agent_engine_runtime_resources::ResourceKind> {
+    fn process_resource_kind(
+        &self,
+    ) -> Option<rightkit_agent_engine_runtime_resources::ResourceKind> {
         Some(rightkit_agent_engine_runtime_resources::ResourceKind::ChildProcess)
     }
 
@@ -242,7 +246,10 @@ pub(crate) async fn execute_shell(
 
     // PTY selection follows the SAME shell validation, destructive guard,
     // provenance gate and permission/approval decision as ordinary pipes.
-    if matches!(channel, rightkit_sandbox::execution::ExecutionChannel::Pty(_)) {
+    if matches!(
+        channel,
+        rightkit_sandbox::execution::ExecutionChannel::Pty(_)
+    ) {
         let Some(store) = &ctx.background_shells else {
             return ToolResult::error("managed process inventory is not available");
         };

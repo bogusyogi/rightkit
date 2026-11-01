@@ -15,8 +15,10 @@ mod tests {
             tier: SandboxTier,
         ) -> Output {
             let (wrapped_program, wrapped_args) =
-                crate::coding_tools::shell::macos_sandbox_wrap_for_tier(program, args, workspace, tier)
-                    .expect("enabled tier must produce a sandbox-exec wrapper");
+                crate::coding_tools::shell::macos_sandbox_wrap_for_tier(
+                    program, args, workspace, tier,
+                )
+                .expect("enabled tier must produce a sandbox-exec wrapper");
             Command::new(wrapped_program)
                 .args(wrapped_args)
                 .current_dir(workspace)

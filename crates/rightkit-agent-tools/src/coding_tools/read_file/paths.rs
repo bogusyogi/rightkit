@@ -184,7 +184,8 @@ pub(crate) enum PathAccess {
 }
 
 fn default_path_deny() -> &'static rightkit_agent_policy::DenyGlobSet {
-    static DEFAULT: std::sync::OnceLock<rightkit_agent_policy::DenyGlobSet> = std::sync::OnceLock::new();
+    static DEFAULT: std::sync::OnceLock<rightkit_agent_policy::DenyGlobSet> =
+        std::sync::OnceLock::new();
     DEFAULT.get_or_init(rightkit_agent_policy::DenyGlobSet::new)
 }
 

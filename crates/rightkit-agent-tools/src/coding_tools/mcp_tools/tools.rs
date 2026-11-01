@@ -21,7 +21,9 @@ impl Tool for ListMcpToolsTool {
         true
     }
 
-    fn process_resource_kind(&self) -> Option<rightkit_agent_engine_runtime_resources::ResourceKind> {
+    fn process_resource_kind(
+        &self,
+    ) -> Option<rightkit_agent_engine_runtime_resources::ResourceKind> {
         Some(rightkit_agent_engine_runtime_resources::ResourceKind::Mcp)
     }
 
@@ -136,7 +138,9 @@ impl Tool for McpCallTool {
         "mcp_call"
     }
 
-    fn process_resource_kind(&self) -> Option<rightkit_agent_engine_runtime_resources::ResourceKind> {
+    fn process_resource_kind(
+        &self,
+    ) -> Option<rightkit_agent_engine_runtime_resources::ResourceKind> {
         Some(rightkit_agent_engine_runtime_resources::ResourceKind::Mcp)
     }
 
@@ -320,11 +324,11 @@ fn bind_trusted_membrane_caller(
 #[cfg(test)]
 mod canonical_scope_tests {
     use super::*;
+    use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
     use rightkit_mcp::agent_mcp::{
         CanonicalMembraneBinding, CanonicalMembraneCaller, McpToolAnnotations, McpToolDef,
         StubTransport,
     };
-    use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
     use std::sync::Arc;
 
     fn bound_manager(root: &std::path::Path) -> McpManager {
@@ -422,7 +426,9 @@ impl Tool for ListMcpResourcesTool {
         true
     }
 
-    fn process_resource_kind(&self) -> Option<rightkit_agent_engine_runtime_resources::ResourceKind> {
+    fn process_resource_kind(
+        &self,
+    ) -> Option<rightkit_agent_engine_runtime_resources::ResourceKind> {
         Some(rightkit_agent_engine_runtime_resources::ResourceKind::Mcp)
     }
 
@@ -488,7 +494,9 @@ impl Tool for ReadMcpResourceTool {
         true
     }
 
-    fn process_resource_kind(&self) -> Option<rightkit_agent_engine_runtime_resources::ResourceKind> {
+    fn process_resource_kind(
+        &self,
+    ) -> Option<rightkit_agent_engine_runtime_resources::ResourceKind> {
         Some(rightkit_agent_engine_runtime_resources::ResourceKind::Mcp)
     }
 

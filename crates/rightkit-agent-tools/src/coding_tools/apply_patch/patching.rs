@@ -244,7 +244,9 @@ fn apply_to_content(original: &str, patch_lines: &[PatchLine]) -> Result<String,
                 i += 1;
             }
             PatchLine::Context(ctx_line) => {
-                if let Some(anchor) = crate::coding_tools::read_file::resolve_hashline_line(ctx_line, original)? {
+                if let Some(anchor) =
+                    crate::coding_tools::read_file::resolve_hashline_line(ctx_line, original)?
+                {
                     let target = anchor.line_number - 1;
                     if target < pos {
                         return Err(format!(

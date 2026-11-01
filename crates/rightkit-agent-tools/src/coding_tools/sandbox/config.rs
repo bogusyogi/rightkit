@@ -374,10 +374,7 @@ mod config_tests {
     #[test]
     #[ignore]
     fn strict_seccomp_worker() {
-        assert_eq!(
-            std::env::var("RIGHTKIT_SECCOMP_WORKER").as_deref(),
-            Ok("1")
-        );
+        assert_eq!(std::env::var("RIGHTKIT_SECCOMP_WORKER").as_deref(), Ok("1"));
         let address = std::env::var("RIGHTKIT_SECCOMP_EGRESS_PROBE")
             .expect("parent must provide local seccomp egress probe");
         let error = std::net::TcpStream::connect(address)

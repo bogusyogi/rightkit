@@ -64,7 +64,8 @@ mod tests {
     #[tokio::test]
     async fn shell_task_output_polls_background_process() {
         let dir = tempdir().unwrap();
-        let shell_store: crate::coding_tools::background_shell::BgStore = Arc::new(Mutex::new(HashMap::new()));
+        let shell_store: crate::coding_tools::background_shell::BgStore =
+            Arc::new(Mutex::new(HashMap::new()));
         let ctx = ctx_with_shells(dir.path(), shell_store);
         let command = if cfg!(windows) {
             "Write-Output task-hello".to_string()
@@ -100,7 +101,8 @@ mod tests {
     #[tokio::test]
     async fn shell_task_records_execution_target_on_background_shell() {
         let dir = tempdir().unwrap();
-        let shell_store: crate::coding_tools::background_shell::BgStore = Arc::new(Mutex::new(HashMap::new()));
+        let shell_store: crate::coding_tools::background_shell::BgStore =
+            Arc::new(Mutex::new(HashMap::new()));
         let ctx = ctx_with_shells(dir.path(), shell_store.clone())
             .with_execution_backend("local")
             .with_execution_workspace_id("task-workspace")
@@ -140,11 +142,16 @@ mod tests {
     async fn shell_task_rejects_nonlocal_execution_backend_before_host_spawn() {
         let dir = tempdir().unwrap();
         let marker = dir.path().join(concat!("task", "-nonlocal-ran.txt"));
-        let shell_store: crate::coding_tools::background_shell::BgStore = Arc::new(Mutex::new(HashMap::new()));
+        let shell_store: crate::coding_tools::background_shell::BgStore =
+            Arc::new(Mutex::new(HashMap::new()));
         let ctx = ctx_with_shells(dir.path(), shell_store.clone())
             .with_execution_backend("missing-backend");
         let command = if cfg!(windows) {
-            concat!("Set-Content -Path task", "-nonlocal-ran.txt -Value task-ran").to_string()
+            concat!(
+                "Set-Content -Path task",
+                "-nonlocal-ran.txt -Value task-ran"
+            )
+            .to_string()
         } else {
             concat!("printf task-ran > task", "-nonlocal-ran.txt").to_string()
         };
@@ -295,13 +302,19 @@ mod tests {
         save_records(&ctx(dir.path()), &records).unwrap();
 
         let stopped = TaskStopTool
-            .execute(json!({"id": concat!("task", "-detached-stop")}), &ctx(dir.path()))
+            .execute(
+                json!({"id": concat!("task", "-detached-stop")}),
+                &ctx(dir.path()),
+            )
             .await;
 
         assert!(stopped.is_error);
         assert!(stopped.content.contains("not attached"));
         let fetched = TaskGetTool
-            .execute(json!({"id": concat!("task", "-detached-stop")}), &ctx(dir.path()))
+            .execute(
+                json!({"id": concat!("task", "-detached-stop")}),
+                &ctx(dir.path()),
+            )
             .await;
         assert!(!fetched.is_error, "{}", fetched.content);
         assert!(fetched.content.contains("[shell InProgress]"));

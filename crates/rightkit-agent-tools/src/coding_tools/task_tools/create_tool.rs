@@ -235,15 +235,16 @@ impl Tool for TaskCreateTool {
 mod admission_tests {
     use super::*;
     use crate::coding_tools::context::ToolContext;
-    use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
     use rightkit_agent_engine_runtime_resources::ServiceScope;
+    use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use tempfile::tempdir;
 
     #[test]
     fn command_admission_denial_maps_before_task_publication() {
-        let denial = crate::coding_tools::process_resource_authority::ProcessAdmissionError::Unconfigured;
+        let denial =
+            crate::coding_tools::process_resource_authority::ProcessAdmissionError::Unconfigured;
         let result = super::map_background_admission(Err(denial));
         assert!(result
             .expect_err("denial must stop task publication")
@@ -253,18 +254,20 @@ mod admission_tests {
     #[tokio::test]
     async fn command_admission_denial_leaves_task_store_without_in_progress_record() {
         let dir = tempdir().unwrap();
-        let shell_store: crate::coding_tools::background_shell::BgStore = Arc::new(Mutex::new(HashMap::new()));
+        let shell_store: crate::coding_tools::background_shell::BgStore =
+            Arc::new(Mutex::new(HashMap::new()));
         let task_store: TaskStore = Arc::new(Mutex::new(HashMap::new()));
-        let governor = match crate::coding_tools::process_resource_authority::process_resource_governor() {
-            Some(governor) => governor,
-            None => {
-                let _ = crate::coding_tools::process_resource_authority::install_process_resource_profile(
+        let governor =
+            match crate::coding_tools::process_resource_authority::process_resource_governor() {
+                Some(governor) => governor,
+                None => {
+                    let _ = crate::coding_tools::process_resource_authority::install_process_resource_profile(
                     crate::coding_tools::process_resource_authority::ResourceProfile::Expanded,
                 );
-                crate::coding_tools::process_resource_authority::process_resource_governor()
-                    .expect("test must resolve installed resource governor")
-            }
-        };
+                    crate::coding_tools::process_resource_authority::process_resource_governor()
+                        .expect("test must resolve installed resource governor")
+                }
+            };
         let scope = ServiceScope::Workspace(dir.path().to_string_lossy().into_owned());
         let _ = &governor;
         crate::coding_tools::process_resource_authority::test_denied_scopes()

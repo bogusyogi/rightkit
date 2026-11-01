@@ -4,8 +4,8 @@ mod tests {
     use crate::coding_tools::process_resource_authority::{
         install_process_resource_profile, GovernedProcessLaunchAdapter,
     };
-    use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
     use rightkit_agent_engine_runtime_resources::{ResourceKind, ResourceProfile, ServiceScope};
+    use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
     use std::sync::Arc;
     use tempfile::tempdir;
 
@@ -313,8 +313,8 @@ mod tests {
                 root.path().to_string_lossy().replace('\\', "/")
             ),
         };
-        let mut bridge =
-            rightkit_mcp::agent_mcp::LspMcpBridge::new(config).with_process_launcher(adapter, context);
+        let mut bridge = rightkit_mcp::agent_mcp::LspMcpBridge::new(config)
+            .with_process_launcher(adapter, context);
         tokio::time::timeout(Duration::from_secs(15), bridge.initialize())
             .await
             .expect("real LSP fixture initialization must be bounded")

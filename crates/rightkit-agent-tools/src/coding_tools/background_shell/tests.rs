@@ -35,7 +35,8 @@ mod tests {
         let mut limits = rightkit_agent_engine_runtime_resources::ResourceLimits::default();
         limits.daemon_background = 0;
         let governor = rightkit_agent_engine_runtime_resources::ResourceGovernor::new(limits);
-        let scope = rightkit_agent_engine_runtime_resources::ServiceScope::Workspace("/denied".into());
+        let scope =
+            rightkit_agent_engine_runtime_resources::ServiceScope::Workspace("/denied".into());
         let result = crate::coding_tools::process_resource_authority::reserve_with_governor(
             &governor,
             crate::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
@@ -65,7 +66,8 @@ mod tests {
         let store: BgStore = Arc::new(Mutex::new(HashMap::new()));
         let mut limits = rightkit_agent_engine_runtime_resources::ResourceLimits::default();
         limits.daemon_background = 0;
-        let governor = Arc::new(rightkit_agent_engine_runtime_resources::ResourceGovernor::new(limits));
+        let governor =
+            Arc::new(rightkit_agent_engine_runtime_resources::ResourceGovernor::new(limits));
         let scope = rightkit_agent_engine_runtime_resources::ServiceScope::Workspace(
             dir.path().to_string_lossy().into_owned(),
         );
@@ -91,7 +93,9 @@ mod tests {
         );
         assert!(matches!(
             result,
-            Err(crate::coding_tools::process_resource_authority::ProcessAdmissionError::Rejected(_))
+            Err(
+                crate::coding_tools::process_resource_authority::ProcessAdmissionError::Rejected(_)
+            )
         ));
         assert!(store.lock().unwrap().is_empty());
     }
@@ -101,7 +105,8 @@ mod tests {
         let mut limits = rightkit_agent_engine_runtime_resources::ResourceLimits::default();
         limits.daemon_background = 1;
         let governor = rightkit_agent_engine_runtime_resources::ResourceGovernor::new(limits);
-        let scope = rightkit_agent_engine_runtime_resources::ServiceScope::Workspace("/held".into());
+        let scope =
+            rightkit_agent_engine_runtime_resources::ServiceScope::Workspace("/held".into());
         let admission = crate::coding_tools::process_resource_authority::reserve_with_governor(
             &governor,
             crate::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
@@ -109,21 +114,25 @@ mod tests {
             false,
         )
         .expect("first background child admitted");
-        assert!(crate::coding_tools::process_resource_authority::reserve_with_governor(
-            &governor,
-            crate::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
-            scope.clone(),
-            false,
-        )
-        .is_err());
+        assert!(
+            crate::coding_tools::process_resource_authority::reserve_with_governor(
+                &governor,
+                crate::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
+                scope.clone(),
+                false,
+            )
+            .is_err()
+        );
         drop(admission);
-        assert!(crate::coding_tools::process_resource_authority::reserve_with_governor(
-            &governor,
-            crate::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
-            scope,
-            false,
-        )
-        .is_ok());
+        assert!(
+            crate::coding_tools::process_resource_authority::reserve_with_governor(
+                &governor,
+                crate::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
+                scope,
+                false,
+            )
+            .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -132,7 +141,8 @@ mod tests {
         let store: BgStore = Arc::new(Mutex::new(HashMap::new()));
         let mut limits = rightkit_agent_engine_runtime_resources::ResourceLimits::default();
         limits.daemon_background = 1;
-        let governor = Arc::new(rightkit_agent_engine_runtime_resources::ResourceGovernor::new(limits));
+        let governor =
+            Arc::new(rightkit_agent_engine_runtime_resources::ResourceGovernor::new(limits));
         let scope = rightkit_agent_engine_runtime_resources::ServiceScope::Workspace(
             dir.path().to_string_lossy().into_owned(),
         );
@@ -159,24 +169,28 @@ mod tests {
             },
         )
         .expect("production background path admitted child");
-        assert!(crate::coding_tools::process_resource_authority::reserve_with_governor(
-            &governor,
-            crate::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
-            scope.clone(),
-            false,
-        )
-        .is_err());
+        assert!(
+            crate::coding_tools::process_resource_authority::reserve_with_governor(
+                &governor,
+                crate::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
+                scope.clone(),
+                false,
+            )
+            .is_err()
+        );
         assert!(!matches!(
             wait_until_done(&store, &id).await,
             BgStatus::Running
         ));
-        assert!(crate::coding_tools::process_resource_authority::reserve_with_governor(
-            &governor,
-            crate::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
-            scope,
-            false,
-        )
-        .is_ok());
+        assert!(
+            crate::coding_tools::process_resource_authority::reserve_with_governor(
+                &governor,
+                crate::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
+                scope,
+                false,
+            )
+            .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -185,7 +199,8 @@ mod tests {
         let store: BgStore = Arc::new(Mutex::new(HashMap::new()));
         let mut limits = rightkit_agent_engine_runtime_resources::ResourceLimits::default();
         limits.daemon_background = 1;
-        let governor = Arc::new(rightkit_agent_engine_runtime_resources::ResourceGovernor::new(limits));
+        let governor =
+            Arc::new(rightkit_agent_engine_runtime_resources::ResourceGovernor::new(limits));
         let scope = rightkit_agent_engine_runtime_resources::ServiceScope::Workspace(
             dir.path().to_string_lossy().into_owned(),
         );
@@ -215,13 +230,15 @@ mod tests {
             wait_until_done(&store, &id).await,
             BgStatus::SpawnFailed(_)
         ));
-        assert!(crate::coding_tools::process_resource_authority::reserve_with_governor(
-            &governor,
-            crate::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
-            scope,
-            false,
-        )
-        .is_ok());
+        assert!(
+            crate::coding_tools::process_resource_authority::reserve_with_governor(
+                &governor,
+                crate::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
+                scope,
+                false,
+            )
+            .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -876,7 +893,11 @@ mod tests {
             }),
             human: Default::default(),
         };
-        shell.append(&vec![b'x'; rightkit_agent_engine_runtime_resources::RETAINED_BYTES * 4]);
+        shell.append(&vec![
+            b'x';
+            rightkit_agent_engine_runtime_resources::RETAINED_BYTES
+                * 4
+        ]);
         let snapshot = shell.output_snapshot();
         assert!(snapshot.len() <= rightkit_agent_engine_runtime_resources::RETAINED_BYTES + 64);
         assert!(snapshot.contains("output truncated"));

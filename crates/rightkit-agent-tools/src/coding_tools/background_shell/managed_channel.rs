@@ -171,7 +171,9 @@ async fn supervise_managed_channel(
     shell.set_status(status);
 }
 
-async fn stop_managed_child(child: &mut Box<dyn rightkit_sandbox::execution::ManagedChild>) -> BgStatus {
+async fn stop_managed_child(
+    child: &mut Box<dyn rightkit_sandbox::execution::ManagedChild>,
+) -> BgStatus {
     match child.cancel().await {
         Ok(()) => match child.wait().await {
             Ok(_) => BgStatus::Killed,

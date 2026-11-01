@@ -16,9 +16,11 @@ mod tests {
     }
 
     fn unconfined_rich_worker() -> UnconfinedRichWorkerGuard {
-        crate::coding_tools::rich_parser_worker::set_test_launch_adapter(Some(std::sync::Arc::new(
-            crate::coding_tools::process_launch::UnconfinedProcessLaunchAdapter,
-        )));
+        crate::coding_tools::rich_parser_worker::set_test_launch_adapter(Some(
+            std::sync::Arc::new(
+                crate::coding_tools::process_launch::UnconfinedProcessLaunchAdapter,
+            ),
+        ));
         UnconfinedRichWorkerGuard
     }
 

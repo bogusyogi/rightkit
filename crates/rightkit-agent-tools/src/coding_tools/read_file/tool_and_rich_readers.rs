@@ -99,9 +99,10 @@ impl Tool for ReadFileTool {
         let recovery_candidate = std::path::Path::new(path_str);
         // Shell (and its recovery copies) exists only in host builds, not iOS.
         #[cfg(feature = "coding_tools-host")]
-        if let Some(reason) =
-            crate::coding_tools::shell::shell_output_recovery_unavailable(recovery_candidate, &ctx.session_id)
-        {
+        if let Some(reason) = crate::coding_tools::shell::shell_output_recovery_unavailable(
+            recovery_candidate,
+            &ctx.session_id,
+        ) {
             return ToolResult::error(format!(
                 "[shell output recovery unavailable: {}]",
                 reason.label()
@@ -153,8 +154,12 @@ impl Tool for ReadFileTool {
         // PDF/notebook/office readers run in a worker process. Without one,
         // fall through to the plain text read below.
         #[cfg(feature = "coding_tools-host")]
-        if let Some(result) =
-            crate::coding_tools::rich_parser_worker::read_rich_file(&path, &args, &ctx.workspace_root).await
+        if let Some(result) = crate::coding_tools::rich_parser_worker::read_rich_file(
+            &path,
+            &args,
+            &ctx.workspace_root,
+        )
+        .await
         {
             return result;
         }

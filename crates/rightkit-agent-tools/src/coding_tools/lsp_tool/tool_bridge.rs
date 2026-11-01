@@ -98,7 +98,9 @@ impl Tool for LspTool {
         true
     }
 
-    fn process_resource_kind(&self) -> Option<rightkit_agent_engine_runtime_resources::ResourceKind> {
+    fn process_resource_kind(
+        &self,
+    ) -> Option<rightkit_agent_engine_runtime_resources::ResourceKind> {
         Some(rightkit_agent_engine_runtime_resources::ResourceKind::Lsp)
     }
 
