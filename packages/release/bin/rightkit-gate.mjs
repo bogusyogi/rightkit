@@ -84,7 +84,7 @@ import { resolveExecutor } from "../gate-executor.mjs";
 import { ALL_UNITS_ERRORS, ALL_UNITS_EXCEPTIONS_FILE, BROKER_EXCEPTIONS_FILE, BROKER_EXCEPTION_ERRORS, CARGO_WORKSPACE_LIST_FILE, CARGO_WORKSPACE_LIST_KEY, RIGHTKIT_IDENTITY_FILE, authorizeAllUnits, authorizeNoBroker, checkCargoWorkspaceList, describeAllUnitsException, describeBrokerException, isRightKitIdentity, unitsOfSelector } from "../broker-exception.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { gitListRustFiles } from "../signing-files.mjs";
-import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directPlatform, linuxBrokerDeclared, managedRuntimeClient } from "../managed-cargo.mjs";
+import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directPlatform, linuxBrokerDeclared, managedRuntimeClient, realCargoOf } from "../managed-cargo.mjs";
 import { createBrokerLive } from "../broker-admission.mjs";
 import { bindingOf, compileOutputsRecord, compileReuseProblem, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
@@ -2234,7 +2234,7 @@ async function bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs, ext
     const { brokerSection } = await import("../snapshot-broker.mjs");
     broker = { checkoutDirs: Object.fromEntries(workspaces.map((w) => [w, path.join(checkoutReal, ...(w === "." ? [] : w.split("/")))])), section: (o.brokerSection ?? brokerSection)(sb) };
   } else {
-    realCargo = which("cargo").find((c) => path.isAbsolute(c));
+    realCargo = realCargoOf(which("cargo"));
     if (!realCargo) return { refusal: "no cargo on PATH to wrap for the unit stages" };
   }
   let installed; let dir = null;
@@ -3571,7 +3571,7 @@ export async function main(argv, io = {}) {
       // own workspace's checkout target directory or refuses it (RK_CARGO_*), whatever path reaches cargo. Direct POSIX hosts only (a
       // broker host never reaches here; a direct Windows host keeps the fail-closed static walk). Removed when the gate ends (cleanup).
       if (o.platform !== "win32" && rust.workspaces.length) {
-        const realCargo = which("cargo").find((c) => path.isAbsolute(c));
+        const realCargo = realCargoOf(which("cargo"));
         if (!realCargo && !wrapBroker) { o.err(`${tag} BLOCKED: no cargo on PATH to wrap for the snapshot compile; nothing compiled`); return 1; }
         try {
           const shimModule = await import("../cargo-target-shim.mjs");

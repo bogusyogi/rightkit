@@ -28,7 +28,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { resolveExecutor as defaultResolveExecutor } from "./gate-executor.mjs";
-import { directPlatform } from "./managed-cargo.mjs";
+import { directPlatform, realCargoOf } from "./managed-cargo.mjs";
 import { defaultSpawnAsync, sidecarBoundCrate } from "./deterministic-scans.mjs";
 import { gateStateDir } from "./gate-stages.mjs";
 import { ProvenanceError, verifyAttributionDetail } from "./provenance-verify.mjs";
@@ -433,7 +433,7 @@ export async function clippyCommand(o, args, deps = {}) {
     // The snapshot's working directory for the request, and the Cargo workspace it names, resolved from the commit's own manifests.
     const snapCwd = relCwd ? path.join(synced.path, ...relCwd.split("/")) : synced.path;
     if (!fs.existsSync(snapCwd)) { o.err(`${tag} BLOCKED: the working directory ${relCwd} is not in commit ${synced.commit.slice(0, 12)}; run from a directory the commit holds; nothing compiled`); return BLOCKED; }
-    const realCargo = which("cargo").find((c) => path.isAbsolute(c));
+    const realCargo = realCargoOf(which("cargo"));
     if (!realCargo) { o.err(`${tag} BLOCKED: no cargo on PATH to wrap for the snapshot compile; nothing compiled`); return BLOCKED; }
     const located = o.spawn("cargo", ["locate-project", "--workspace", "--message-format", "plain", ...(parsed.manifestPath ? ["--manifest-path", parsed.manifestPath] : [])], { cwd: snapCwd, env: o.env });
     if (failed(located) || !path.isAbsolute(text(located).trim())) { o.err(`${tag} BLOCKED: the request's Cargo workspace cannot be resolved in the snapshot (${why(located) || "no manifest"}); nothing compiled`); return BLOCKED; }

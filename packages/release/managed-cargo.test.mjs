@@ -15,7 +15,10 @@ import {
   directHost, linuxBrokerDeclared, managedHost, resolveLinuxBrokerRoute, runCargoAsync, runCargoSync,
   NO_BROKER_ENV,
   gateNoBroker,
+  isGateCargoWrapper,
+  realCargoOf,
 } from "./managed-cargo.mjs";
+import { installCargoShim } from "./cargo-target-shim.mjs";
 
 /** Unix socket paths are limited to 103 bytes on macOS and a hosted runner's hermetic temp root leaves no room: a socket's directory falls back to /tmp when the socket's path would not fit under the temp directory. */
 const socketBase = (prefix, file) => (process.platform === "win32" || Buffer.byteLength(path.join(os.tmpdir(), `${prefix}XXXXXX`, file)) < 100 ? os.tmpdir() : "/tmp");
@@ -154,4 +157,22 @@ test("a gate run under the no-broker exception is never a broker-managed host, s
     assert.equal(brokerManagedHost({ ...env, RIGHTKIT_GATE_NO_BROKER: undefined }, platform, () => false), true, `${platform}: a broker socket alone is broker-managed`);
     assert.equal(brokerManagedHost(env, platform, () => true), false, `${platform}: the exception runs Cargo directly`);
   }
+});
+
+test("the cargo a gate wraps skips an outer gate's runtime wrapper on PATH and takes the next toolchain cargo (0.6.18 Linux qualify)", { skip: process.platform === "win32" }, () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "rk-real-cargo-"));
+  try {
+    const snap = path.join(base, "snap");
+    fs.mkdirSync(snap);
+    const toolchain = path.join(base, "toolchain", "cargo");
+    fs.mkdirSync(path.dirname(toolchain));
+    fs.writeFileSync(toolchain, BODY, { mode: 0o755 });
+    const outer = installCargoShim({ base, snapshotRoot: snap, targetDirs: {}, realCargo: toolchain });
+    assert.equal(isGateCargoWrapper(outer.shim), true, "installCargoShim's own script is recognised");
+    assert.equal(isGateCargoWrapper(toolchain), false, "a toolchain cargo is not a wrapper");
+    assert.equal(realCargoOf([outer.shim, toolchain]), toolchain, "the outer wrapper first on PATH is skipped");
+    assert.equal(realCargoOf([toolchain, outer.shim]), toolchain);
+    assert.equal(realCargoOf([outer.shim]), undefined, "only a wrapper: no cargo to wrap");
+    assert.equal(realCargoOf(["cargo", toolchain]), toolchain, "a relative entry is never taken");
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });

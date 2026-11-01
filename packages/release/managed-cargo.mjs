@@ -125,6 +125,21 @@ function fileHead(file) {
   catch { return ""; } finally { if (fd !== null) try { closeSync(fd); } catch { /* closed */ } }
 }
 
+/** True when `file` is a gate's own runtime cargo wrapper (cargo-target-shim.mjs installCargoShim writes it), not a toolchain cargo. */
+export function isGateCargoWrapper(file, readHead = fileHead) {
+  const head = readHead(file);
+  return head.startsWith("#!/bin/sh\n") && head.includes("cargo-target-shim.mjs") && head.includes(" --map ");
+}
+
+/**
+ * The absolute cargo a gate wraps: the first of `candidates` (a PATH lookup, in order) that is not another gate's runtime wrapper.
+ * A gate started inside a scan of an outer gate finds that gate's wrapper first on PATH; wrapping it would send every call through
+ * the outer map, which binds none of this gate's workspaces (0.6.18 Linux qualify: RK_CARGO_UNBOUND_WORKSPACE "resolved (none)").
+ */
+export function realCargoOf(candidates, readHead = fileHead) {
+  return candidates.find((c) => path.isAbsolute(c) && !isGateCargoWrapper(c, readHead));
+}
+
 /**
  * On a direct (Linux) host: PATH without the directories whose `cargo` is a RustRight shim (the managed agent-bin, a configured
  * RIGHTKIT_MANAGED_AGENT_BIN, or a script that routes through the broker, read 4 KiB at most), and the first real cargo left on it.

@@ -269,14 +269,41 @@ function interceptSync(command, args, options) {
   };
 }
 
+// Hosted CI runs the toolchain's cargo, but inside a gate scan the first `cargo` on PATH is the gate's runtime wrapper
+// (cargo-target-shim.mjs), which refuses a workspace its map does not bind: a test's temp-directory fixture always. A `cargo metadata`
+// of such a fixture gets the same stub it gets off CI; every call the wrapper binds still runs for real through it.
+function unboundWrapperMetadata(command, args, options) {
+  if (!hostedCi()) return false;
+  const [argv, opts = {}] = splitArguments(args, options);
+  const cargoArgv = cargoArguments(command, argv);
+  if (!cargoArgv || cargoArgv[0] !== "metadata") return false;
+  const text = String(command);
+  const file = /[\\/]/.test(text) ? text : resolveOnPath("cargo");
+  let map;
+  try {
+    const head = fs.readFileSync(file, "utf8").slice(0, 4096);
+    const at = head.startsWith("#!/bin/sh\n") && head.includes("cargo-target-shim.mjs") ? /--map '([^']+)'/.exec(head) : null;
+    if (!at) return false;
+    map = JSON.parse(fs.readFileSync(at[1], "utf8"));
+  } catch { return false; }
+  const cwd = opts.cwd ?? process.cwd();
+  const index = cargoArgv.indexOf("--manifest-path");
+  const manifest = index >= 0 ? path.resolve(cwd, cargoArgv[index + 1]) : nearestManifest(cwd);
+  if (!manifest) return false;
+  let dir;
+  try { dir = realpathSync(path.dirname(manifest)); } catch { return false; }
+  return !Object.keys(map.workspaces ?? {}).some((w) => { const r = path.relative(w, dir); return r === "" || (!r.startsWith("..") && !path.isAbsolute(r)); });
+}
+
 function guardedSpawnSync(command, ...rest) {
+  if (enforcing() && unboundWrapperMetadata(command, ...rest)) return interceptSync(command, ...rest);
   if (!enforcing() || !brokerLaunch(command)) return original.spawnSync(command, ...rest);
   const [args, options] = rest;
   return interceptSync(command, args, options);
 }
 
 function guardedExecFileSync(file, ...rest) {
-  if (!enforcing() || !brokerLaunch(file)) return original.execFileSync(file, ...rest);
+  if (!enforcing() || !(brokerLaunch(file) || unboundWrapperMetadata(file, ...rest))) return original.execFileSync(file, ...rest);
   const [args, options] = rest;
   const result = interceptSync(file, args, options);
   if (result.status !== 0) {
