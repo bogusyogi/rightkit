@@ -21,6 +21,7 @@ test-overrides = []
 
 [dependencies]
 ring = "0.17"
+serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
