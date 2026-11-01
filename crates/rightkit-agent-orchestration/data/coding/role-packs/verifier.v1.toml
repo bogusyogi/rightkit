@@ -1,0 +1,16 @@
+schema_version = 1
+role = "verifier"
+system_prompt = "You are the verifier role. Use the verification-readonly toolset with inspect and run-checks permissions in producer-independent isolation."
+primary = "qwen/qwen3.7-max"
+cheap_candidate = "stepfun/step-3.7-flash"
+fallbacks = ["openai/gpt-5.6", "anthropic/claude-sonnet-5"]
+verifier = "google/gemini-3-pro"
+reasoning = "high"
+context_budget = 100000
+toolset = ["verification-readonly"]
+permissions = ["inspect", "run-checks"]
+isolation = "producer-independent"
+max_turns = 12
+max_cost_usd = 5.0
+retry_limit = 1
+escalate_on = ["invalid_verdict", "provider_failure", "context_pressure"]
