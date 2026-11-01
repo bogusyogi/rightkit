@@ -297,6 +297,11 @@ pub const ENV_TOKENS: &str = "RIGHTKIT_QA_TOKENS";
 pub const DEFAULT_PORT_BASE: u16 = 41000;
 /// Ports in each world's range by default.
 pub const DEFAULT_PORTS_PER_WORLD: u16 = 16;
+/// Longest Unix socket path (rightkit-daemon `transport::MAX_UNIX_SOCKET_PATH`): 104 bytes on macOS
+/// including the trailing NUL.
+#[cfg(unix)]
+const MAX_UNIX_SOCKET_PATH: usize = 103;
+
 /// Last port a world may be given: the top of the registered range, below the dynamic ports.
 pub const MAX_WORLD_PORT: u16 = 49151;
 /// Teardown deadline recorded in a spec until the budgets of W2-G say otherwise.
@@ -363,10 +368,25 @@ impl WorldPlan {
         let n = index + 1;
         let dir = self.worlds_dir().join(format!("w{n:03}"));
         let home = dir.join("home");
+        // The world's temp dir is the app's TMPDIR, where its control service falls back to a
+        // `rk-<tag>-<hash>.sock` (33 bytes, rightkit-daemon transport.rs) when the suite path is too
+        // long. It sits beside the home (`wNNN/t`, inside the world's QA root) so that socket fits the
+        // 103-byte Unix limit; a run root too deep for it is refused here, before anything launches.
+        let temp = dir.join("t");
+        #[cfg(unix)]
+        {
+            let need = temp.as_os_str().len() + 1 + 33;
+            if need > MAX_UNIX_SOCKET_PATH {
+                return err(format!(
+                    "the world temp dir {} leaves a control socket path of {need} bytes, over the {MAX_UNIX_SOCKET_PATH}-byte Unix limit; use a shorter run root",
+                    temp.display()
+                ));
+            }
+        }
         let start = u32::from(self.port_base) + index as u32 * u32::from(self.ports_per_world);
         Ok(World {
             data_dir: home.join("data"),
-            temp: home.join("tmp"),
+            temp,
             control_socket: dir.join("control.sock"),
             control_token_file: dir.join("control.token"),
             port_start: start as u16,
@@ -645,6 +665,10 @@ pub fn world_workspace(
         }
     }
     env.extend(world_env(world, tokens));
+    // The app's temp dir is the world's own short one (see `WorldPlan::world`), not `home/tmp`.
+    for key in ["TMPDIR", "TMP", "TEMP"] {
+        env.insert(key.into(), world.temp.to_string_lossy().into_owned());
+    }
     Ok(QaWorkspace {
         run_id: ws.run_id.clone(),
         root: ws.root.clone(),
@@ -1070,7 +1094,7 @@ mod tests {
             w.validate(&r).unwrap();
             assert!(w.home.starts_with(&w.dir));
             assert_eq!(w.data_dir, w.home.join("data"));
-            assert_eq!(w.temp, w.home.join("tmp"));
+            assert_eq!(w.temp, w.dir.join("t"));
             assert_eq!(w.env_marker.name, WORLD_MARKER_ENV);
             assert!(w.port_start >= DEFAULT_PORT_BASE && w.port_end <= MAX_WORLD_PORT);
             assert_eq!(w.port_end - w.port_start + 1, DEFAULT_PORTS_PER_WORLD);
