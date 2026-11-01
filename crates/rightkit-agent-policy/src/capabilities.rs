@@ -47,7 +47,6 @@ pub fn parse_capability(permission_class: Option<&str>) -> CapabilityClass {
         Some("media")
         | Some("ocr")
         | Some("ocr_onnx")
-        | Some("transcribe")
         | Some("web_extract")
         | Some("media_fetch")
         | Some("ffmpeg_extract") => CapabilityClass::Media,
@@ -72,6 +71,99 @@ pub fn parse_capability(permission_class: Option<&str>) -> CapabilityClass {
         Some("artifact_trust") => CapabilityClass::ArtifactTrust,
         Some("add_context") => CapabilityClass::AddContext,
         _ => CapabilityClass::Unknown,
+    }
+}
+
+/// What a tool call does to the world (rule 50a, T-01). Shown by `caps --json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectClass {
+    /// Reads local state only.
+    Read,
+    /// Changes local state: files, repository, processes, tasks.
+    Write,
+    /// Reaches outside the machine or an external tool server: network, browser, MCP, media fetch.
+    External,
+    /// Spends metered credits.
+    Spend,
+    /// Destroys data that cannot be restored.
+    Destroy,
+}
+
+/// Who may approve a tool call that needs approval (rule 50a, T-01).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalClass {
+    /// Never asks.
+    None,
+    /// Asks, and a headless caller may answer with `--yes`.
+    Yes,
+    /// Asks, and only a person in the app can answer.
+    InApp,
+}
+
+impl EffectClass {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EffectClass::Read => "read",
+            EffectClass::Write => "write",
+            EffectClass::External => "external",
+            EffectClass::Spend => "spend",
+            EffectClass::Destroy => "destroy",
+        }
+    }
+
+    /// The approval class every call of this effect carries.
+    pub fn approval_class(self) -> ApprovalClass {
+        match self {
+            EffectClass::Read => ApprovalClass::None,
+            EffectClass::Write | EffectClass::External | EffectClass::Spend => ApprovalClass::Yes,
+            EffectClass::Destroy => ApprovalClass::InApp,
+        }
+    }
+}
+
+impl ApprovalClass {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ApprovalClass::None => "none",
+            ApprovalClass::Yes => "yes",
+            ApprovalClass::InApp => "in_app",
+        }
+    }
+}
+
+/// Tools that spend metered credits. Closed list: a new paid tool must be added here.
+const SPEND_TOOLS: &[&str] = &["image_generate"];
+
+/// Effect class of a tool from its declared capability class (or, when it declares none, the name
+/// table) and its read-only flag. An undeclared, unrecognised tool is `Write`, the gated default,
+/// unless it reports itself read-only.
+pub fn effect_class_for_tool(
+    name: &str,
+    declared: Option<CapabilityClass>,
+    read_only: bool,
+) -> EffectClass {
+    if SPEND_TOOLS.contains(&name) {
+        return EffectClass::Spend;
+    }
+    let class = declared.unwrap_or_else(|| parse_capability(Some(name)));
+    match class {
+        CapabilityClass::ReadFile => EffectClass::Read,
+        CapabilityClass::Media
+        | CapabilityClass::Network
+        | CapabilityClass::Browser
+        | CapabilityClass::Mcp
+        | CapabilityClass::Secrets => EffectClass::External,
+        CapabilityClass::Destructive => EffectClass::Destroy,
+        CapabilityClass::Unknown if read_only => EffectClass::Read,
+        CapabilityClass::WriteFile
+        | CapabilityClass::Shell
+        | CapabilityClass::GitWrite
+        | CapabilityClass::ProcessControl
+        | CapabilityClass::ArtifactTrust
+        | CapabilityClass::AddContext
+        | CapabilityClass::Unknown => EffectClass::Write,
     }
 }
 

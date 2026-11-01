@@ -237,11 +237,24 @@ impl PermissionEngine {
             if let Some(pdp) = &self.pdp {
                 if let Some(rule) = pdp.matched_rule(req) {
                     let source = format!("abac:{}", rule.id);
-                    let reason = format!(
+                    let mut effect = rule.effect;
+                    let mut reason = format!(
                         "{:?} by ABAC rule '{}' (tool '{}') -> {:?}",
                         cls, rule.id, rule.tool_match, rule.effect
                     );
-                    return PermissionVerdict::new(rule.effect, reason, source);
+                    // Rule 51: an ABAC Allow never relaxes the untrusted-workspace clamp. Only
+                    // Bypass, the explicit opt-out, passes it.
+                    if effect == PermissionDecision::Allow
+                        && mode != PermissionMode::Bypass
+                        && matches!(trust, WorkspaceTrust::Untrusted | WorkspaceTrust::Sandboxed)
+                        && !is_read_only(cls)
+                    {
+                        effect = PermissionDecision::Ask;
+                        reason.push_str(
+                            "; the workspace is not trusted, so approval is still required",
+                        );
+                    }
+                    return PermissionVerdict::new(effect, reason, source);
                 }
             }
         }
