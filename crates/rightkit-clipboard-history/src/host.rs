@@ -55,6 +55,16 @@ pub trait Host: Send + Sync + 'static {
         "0".to_string()
     }
 
+    /// Name of the clipboard format that marks the application's own writes.
+    fn own_write_format(&self) -> String {
+        "RightKitOwnWrite".to_string()
+    }
+
+    /// Name of the temporary folder (under the system temp directory) for copies a drag made.
+    fn drag_copy_dir(&self) -> String {
+        "RightKitClip".to_string()
+    }
+
     /// Records an informational event with `fields`. Never called with clipboard content.
     fn log_info(&self, _event: &str, _fields: &[(&str, &str)]) {}
 }
@@ -83,6 +93,18 @@ pub(crate) fn retention() -> Retention {
 
 pub(crate) fn switch_on(key: &str) -> bool {
     HOST.get().is_none_or(|host| host.switch_on(key))
+}
+
+pub(crate) fn own_write_format() -> String {
+    HOST.get().map_or_else(
+        || "RightKitOwnWrite".to_string(),
+        |host| host.own_write_format(),
+    )
+}
+
+pub(crate) fn drag_copy_dir() -> String {
+    HOST.get()
+        .map_or_else(|| "RightKitClip".to_string(), |host| host.drag_copy_dir())
 }
 
 pub(crate) fn app_version() -> String {

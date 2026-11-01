@@ -20,7 +20,7 @@ rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Imaging", "Win32_Security", "Win32_Security_Cryptography", "Win32_System_Com", "Win32_System_Com_StructuredStorage"] }
 
 [workspace]
 
