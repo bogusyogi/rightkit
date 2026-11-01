@@ -9,8 +9,7 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
-const CATALOG_JSON: &str =
-    include_str!("../../../../skills/ios-development/config/tool-catalog.json");
+const CATALOG_JSON: &str = include_str!("../data/tool-catalog.json");
 
 /// Parse and return catalog metadata, including its tool setup records.
 pub fn catalog_metadata() -> Value {
