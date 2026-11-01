@@ -118,7 +118,7 @@ impl HookRegistry {
     }
 }
 
-/// Result of a [`dry_run_hook`] invocation.
+/// Result of a [`dry_run_hook_with_adapter`] invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HookDryRunReport {
     /// Whether at least one matching command hook actually ran during the

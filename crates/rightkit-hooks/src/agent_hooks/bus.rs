@@ -702,31 +702,6 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    struct FixedProcessLaunchAdapter {
-        stdout: Vec<u8>,
-    }
-
-    #[async_trait::async_trait]
-    impl ProcessLaunchAdapter for FixedProcessLaunchAdapter {
-        async fn run(
-            &self,
-            _command: String,
-            _envs: Vec<(&'static str, String)>,
-            _context: rightkit_sandbox::execution::ProcessLaunchContext,
-        ) -> Result<std::process::Output, String> {
-            #[cfg(unix)]
-            use std::os::unix::process::ExitStatusExt;
-            #[cfg(windows)]
-            use std::os::windows::process::ExitStatusExt;
-
-            Ok(std::process::Output {
-                status: std::process::ExitStatus::from_raw(0),
-                stdout: self.stdout.clone(),
-                stderr: Vec::new(),
-            })
-        }
-    }
-
     #[test]
     fn pre_commit_event_serializes_with_kind_tag() {
         let ev = HookEvent::PreCommit {

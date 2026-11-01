@@ -653,12 +653,10 @@ pub async fn run_chain(
                     report.reason = result.reason;
                 }
             }
-            Some(HookDecision::Allow) => {
-                if report.decision.is_none() {
-                    report.decision = Some(HookDecision::Allow);
-                }
+            Some(HookDecision::Allow) if report.decision.is_none() => {
+                report.decision = Some(HookDecision::Allow);
             }
-            None => {}
+            Some(HookDecision::Allow) | None => {}
         }
     }
     report
@@ -708,7 +706,7 @@ mod tests {
     }
 
     impl ScriptedLauncher {
-        fn new(replies: Vec<(&str, Scripted)>) -> Arc<dyn ProcessLaunchAdapter> {
+        fn arc(replies: Vec<(&str, Scripted)>) -> Arc<dyn ProcessLaunchAdapter> {
             Arc::new(Self {
                 replies: replies
                     .into_iter()
@@ -930,7 +928,7 @@ mod tests {
 
     #[tokio::test]
     async fn matcher_skips_non_matching_hooks() {
-        let launcher = ScriptedLauncher::new(vec![("deny", reply(2, "", "nope"))]);
+        let launcher = ScriptedLauncher::arc(vec![("deny", reply(2, "", "nope"))]);
         let specs = vec![HookSpec::new("deny").with_matcher("shell")];
         let report = pre_tool(&launcher, &specs, "read_file", json!({})).await;
         assert_eq!(report.ran, 0);
@@ -966,7 +964,7 @@ mod tests {
     // (3) chaining
     #[tokio::test]
     async fn any_deny_wins_and_stops_chain() {
-        let launcher = ScriptedLauncher::new(vec![
+        let launcher = ScriptedLauncher::arc(vec![
             ("allow", reply(0, r#"{"decision":"allow"}"#, "")),
             ("deny", reply(2, "", "blocked here")),
             ("never", reply(0, "", "")),
@@ -984,7 +982,7 @@ mod tests {
 
     #[tokio::test]
     async fn deny_discards_earlier_mutation() {
-        let launcher = ScriptedLauncher::new(vec![
+        let launcher = ScriptedLauncher::arc(vec![
             (
                 "mutate",
                 reply(0, r#"{"updatedInput":{"command":"y"}}"#, ""),
@@ -999,7 +997,7 @@ mod tests {
 
     #[tokio::test]
     async fn mutations_compose_in_order() {
-        let launcher = ScriptedLauncher::new(vec![
+        let launcher = ScriptedLauncher::arc(vec![
             (
                 "first",
                 reply(0, r#"{"updatedInput":{"command":"one"}}"#, ""),
@@ -1038,7 +1036,7 @@ mod tests {
 
     #[tokio::test]
     async fn ask_outranks_allow_in_either_order() {
-        let launcher = ScriptedLauncher::new(vec![
+        let launcher = ScriptedLauncher::arc(vec![
             ("allow", reply(0, r#"{"decision":"allow"}"#, "")),
             (
                 "ask",
@@ -1057,7 +1055,7 @@ mod tests {
 
     #[tokio::test]
     async fn allow_with_no_opinion_hooks_is_allow() {
-        let launcher = ScriptedLauncher::new(vec![
+        let launcher = ScriptedLauncher::arc(vec![
             ("quiet", reply(0, "", "")),
             ("allow", reply(0, r#"{"decision":"allow"}"#, "")),
         ]);
@@ -1069,14 +1067,14 @@ mod tests {
     #[tokio::test]
     async fn non_object_updated_input_is_denied() {
         let launcher =
-            ScriptedLauncher::new(vec![("bad", reply(0, r#"{"updatedInput":"str"}"#, ""))]);
+            ScriptedLauncher::arc(vec![("bad", reply(0, r#"{"updatedInput":"str"}"#, ""))]);
         let report = pre_tool(&launcher, &[HookSpec::new("bad")], "shell", json!({})).await;
         assert!(report.is_denied());
     }
 
     #[tokio::test]
     async fn continue_false_stops_with_reason() {
-        let launcher = ScriptedLauncher::new(vec![(
+        let launcher = ScriptedLauncher::arc(vec![(
             "stop",
             reply(0, r#"{"continue":false,"stopReason":"halted"}"#, ""),
         )]);
@@ -1087,7 +1085,7 @@ mod tests {
 
     #[tokio::test]
     async fn additional_context_is_collected_in_order() {
-        let launcher = ScriptedLauncher::new(vec![
+        let launcher = ScriptedLauncher::arc(vec![
             ("a", reply(0, r#"{"additionalContext":"one"}"#, "")),
             ("b", reply(0, r#"{"additionalContext":"two"}"#, "")),
         ]);
@@ -1098,7 +1096,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_blocking_error_does_not_stop_chain() {
-        let launcher = ScriptedLauncher::new(vec![
+        let launcher = ScriptedLauncher::arc(vec![
             ("err", reply(1, "", "flaky")),
             ("mutate", reply(0, r#"{"updatedInput":{"k":1}}"#, "")),
         ]);
@@ -1116,7 +1114,7 @@ mod tests {
             delay: Duration::from_millis(500),
             ..reply(0, "", "")
         };
-        let launcher = ScriptedLauncher::new(vec![("slow", slow)]);
+        let launcher = ScriptedLauncher::arc(vec![("slow", slow)]);
         let specs = vec![HookSpec::new("slow").with_timeout(Duration::from_millis(30))];
         let report = pre_tool(&launcher, &specs, "shell", json!({})).await;
         assert!(report.is_denied());
@@ -1129,7 +1127,7 @@ mod tests {
             delay: Duration::from_millis(500),
             ..reply(0, "", "")
         };
-        let launcher = ScriptedLauncher::new(vec![("slow", slow)]);
+        let launcher = ScriptedLauncher::arc(vec![("slow", slow)]);
         let specs = vec![HookSpec::new("slow").with_timeout(Duration::from_millis(30))];
         let report = run_chain(
             &launcher,
