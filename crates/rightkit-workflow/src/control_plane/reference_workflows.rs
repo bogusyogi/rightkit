@@ -32,13 +32,13 @@ pub const WORKFLOWS: &[ReferenceWorkflow] = &[
     ReferenceWorkflow {
         name: "seo-audit-content",
         yaml: include_str!(
-            "../../../../../docs/pending/workflow-control-plane-support/examples/seo-audit-content.workflow.yaml"
+            "../../fixtures/reference-workflows/seo-audit-content.workflow.yaml"
         ),
     },
     ReferenceWorkflow {
         name: "github-issue-to-pr",
         yaml: include_str!(
-            "../../../../../docs/pending/workflow-control-plane-support/examples/github-issue-to-pr.workflow.yaml"
+            "../../fixtures/reference-workflows/github-issue-to-pr.workflow.yaml"
         ),
     },
 ];

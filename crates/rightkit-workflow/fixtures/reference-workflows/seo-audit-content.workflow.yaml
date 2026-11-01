@@ -1,0 +1,487 @@
+apiVersion: coderight.dev/v1alpha1
+kind: Workflow
+metadata:
+  id: seo_audit_content
+  name: Multi-site SEO audit and bounded content drafts
+  description: Audit an explicit site set, produce evidence-backed strategy and verified drafts, and optionally create draft-only CMS entries.
+  tags: [seo, research, content, reference]
+spec:
+  enabled: false
+  inputs:
+    sites:
+      type: array
+      required: true
+      default: []
+      maxItems: 10
+      description: Explicit HTTPS site origins owned or approved by the operator.
+    period:
+      type: string
+      required: true
+      default: weekly
+    maxDrafts:
+      type: integer
+      required: true
+      default: 4
+      minimum: 0
+      maximum: 12
+    cmsDraftsEnabled:
+      type: boolean
+      required: true
+      default: false
+  budgets:
+    maxRuntimeSeconds: 14400
+    maxCostUsd: 25
+    maxTokens: 1500000
+    maxToolCalls: 1500
+    maxParallelNodes: 6
+    maxArtifactsBytes: 1073741824
+    maxEffects: 16
+  capabilities:
+    filesystem: workspace-write
+    network: ["${inputs.sites}", "https://search.example.invalid"]
+    tools: [web_fetch, web_search, read_file, write_file, research_report]
+    secrets: [CMS_TOKEN]
+    effects: [draft-cms, review-notification]
+  triggers:
+    - id: manual_run
+      type: manual
+      enabled: false
+      overlap: forbid
+      misfire: skip
+      versionPolicy: pinned
+      concurrencyKey: "seo:${hash(inputs.sites)}"
+    - id: weekly_suggestion
+      type: cron
+      enabled: false
+      cron: "0 8 * * 1"
+      timeZone: Asia/Kolkata
+      overlap: forbid
+      misfire: coalesce
+      versionPolicy: latestPublishedAtOccurrence
+      concurrencyKey: "seo:${hash(inputs.sites)}"
+  nodes:
+    - id: validate_scope
+      kind: transform
+      dependsOn: []
+      runtime: deterministic
+      bounds: &small_bounds
+        maxRuntimeSeconds: 60
+        maxTokens: 1000
+        maxToolCalls: 0
+        maxOutputBytes: 262144
+      retry: &no_retry
+        maxAttempts: 1
+        retryOn: []
+        backoff: none
+        baseDelaySeconds: 0
+      inputs:
+        sites: "${inputs.sites}"
+        maxDrafts: "${inputs.maxDrafts}"
+        cmsDraftsEnabled: "${inputs.cmsDraftsEnabled}"
+      outputSchema: schema://seo/scope-v1
+      claims:
+        - id: scope_valid
+          statement: The site set, draft limit, workspace, and capability request are valid and bounded.
+          evidence: [artifact]
+      completion: "output.valid == true"
+      config:
+        requireHttps: true
+        maxSites: 10
+        maxDrafts: 12
+
+    - id: snapshot_sites
+      kind: agent
+      dependsOn: [validate_scope]
+      runtime: native
+      role: web_evidence_collector
+      bounds: &agent_bounds
+        maxRuntimeSeconds: 1800
+        maxTokens: 120000
+        maxToolCalls: 300
+        maxOutputBytes: 67108864
+      retry: &transient_retry
+        maxAttempts: 3
+        retryOn: [transientProvider, transientNetwork, executorUnavailable, leaseLost]
+        backoff: exponential
+        baseDelaySeconds: 5
+      inputs:
+        sites: "${nodes.validate_scope.output.sites}"
+      outputSchema: schema://seo/site-snapshots-v1
+      claims:
+        - id: snapshots_captured
+          statement: Each reachable site has bounded robots, sitemap, representative-page, status, metadata, canonical, and structured-data evidence.
+          evidence: [artifact, source]
+      completion: "output.siteCount == size(nodes.validate_scope.output.sites) || output.partialExplicit == true"
+      config:
+        maxPagesPerSite: 100
+        maxBytesPerPage: 2097152
+
+    - id: map_site_audits
+      kind: map
+      dependsOn: [snapshot_sites]
+      runtime: deterministic
+      bounds:
+        <<: *small_bounds
+        maxItems: 10
+      retry: *no_retry
+      inputs:
+        items: "${nodes.snapshot_sites.output.sites}"
+      outputSchema: schema://workflow/map-materialization-v1
+      claims: []
+      completion: "output.materialized <= 10"
+      config:
+        childTemplate: audit_site
+        itemKey: siteId
+
+    - id: audit_site
+      kind: agent
+      dependsOn: [map_site_audits]
+      runtime: conductor
+      role: seo_auditor
+      bounds: *agent_bounds
+      retry: *transient_retry
+      inputs:
+        site: "${iteration.item}"
+        snapshot: "${iteration.item.snapshotArtifact}"
+      outputSchema: schema://seo/site-audit-v1
+      claims:
+        - id: technical_findings_supported
+          statement: Every technical finding identifies the site/page/check and hash-bound captured evidence.
+          evidence: [artifact, source]
+          independentReview: true
+      completion: "all(output.findings, finding.evidenceArtifact != null)"
+      config:
+        maxFindings: 200
+
+    - id: join_audits
+      kind: join
+      dependsOn: [audit_site]
+      runtime: deterministic
+      bounds: *small_bounds
+      retry: *no_retry
+      inputs:
+        audits: "${nodes.audit_site.outputs}"
+      outputSchema: schema://seo/audit-collection-v1
+      claims: []
+      completion: "output.accountedFor == nodes.map_site_audits.output.materialized"
+      config:
+        mode: allTerminal
+        preserveRejected: true
+
+    - id: research_demand
+      kind: agent
+      dependsOn: [join_audits]
+      runtime: native
+      role: research_investigator
+      bounds: *agent_bounds
+      retry: *transient_retry
+      inputs:
+        sites: "${nodes.validate_scope.output.sites}"
+        audits: "${nodes.join_audits.output.artifact}"
+      outputSchema: schema://seo/demand-research-v1
+      claims:
+        - id: research_cited
+          statement: Demand, competitor, intent, and content-gap assertions have cited sources and retrieval metadata.
+          evidence: [artifact, source]
+          independentReview: true
+      completion: "output.uncitedMaterialClaims == 0"
+      config:
+        maxQueries: 40
+        maxSources: 120
+
+    - id: synthesize_strategy
+      kind: agent
+      dependsOn: [join_audits, research_demand]
+      runtime: conductor
+      role: content_strategist
+      bounds: *agent_bounds
+      retry: *transient_retry
+      inputs:
+        audits: "${nodes.join_audits.output.artifact}"
+        research: "${nodes.research_demand.output.artifact}"
+        period: "${inputs.period}"
+      outputSchema: schema://seo/strategy-v1
+      claims:
+        - id: priorities_traceable
+          statement: Every priority and draft candidate traces to accepted audit or research evidence.
+          evidence: [artifact, review]
+          independentReview: true
+      completion: "all(output.priorities, item.evidenceRefs != [])"
+      config:
+        maxPriorities: 100
+        maxDraftCandidates: 50
+
+    - id: review_strategy
+      kind: agent
+      dependsOn: [synthesize_strategy]
+      runtime: claude
+      role: independent_strategy_reviewer
+      bounds: *agent_bounds
+      retry: *transient_retry
+      inputs:
+        strategy: "${nodes.synthesize_strategy.output.artifact}"
+        audits: "${nodes.join_audits.output.artifact}"
+        research: "${nodes.research_demand.output.artifact}"
+      outputSchema: schema://review/verdict-v1
+      claims:
+        - id: strategy_reviewed
+          statement: Evidence sufficiency, contradiction, duplication, policy, and prioritization were reviewed independently.
+          evidence: [review]
+      completion: "output.verdict in ['accepted','repair','rejected']"
+      config:
+        maxFindings: 100
+
+    - id: repair_strategy
+      kind: agent
+      dependsOn: [review_strategy]
+      runtime: codex
+      role: strategy_repairer
+      bounds: *agent_bounds
+      retry: *no_retry
+      inputs:
+        strategy: "${nodes.synthesize_strategy.output.artifact}"
+        findings: "${nodes.review_strategy.output.findings}"
+      outputSchema: schema://seo/strategy-v1
+      claims:
+        - id: strategy_repaired
+          statement: Accepted review findings are resolved or explicitly rejected with evidence.
+          evidence: [artifact, review]
+          independentReview: true
+      completion: "nodes.review_strategy.output.verdict != 'repair' || output.progress == true"
+      when: "nodes.review_strategy.output.verdict == 'repair'"
+      config:
+        maxRepairRounds: 2
+        noProgressCutoff: 1
+
+    - id: select_drafts
+      kind: transform
+      dependsOn: [review_strategy, repair_strategy]
+      runtime: deterministic
+      bounds: *small_bounds
+      retry: *no_retry
+      inputs:
+        strategy: "${coalesce(nodes.repair_strategy.output, nodes.synthesize_strategy.output)}"
+        maxDrafts: "${inputs.maxDrafts}"
+      outputSchema: schema://seo/draft-selection-v1
+      claims: []
+      completion: "output.count <= inputs.maxDrafts && output.count <= 12"
+      config:
+        acceptedOnly: true
+
+    - id: map_drafts
+      kind: map
+      dependsOn: [select_drafts]
+      runtime: deterministic
+      bounds:
+        <<: *small_bounds
+        maxItems: 12
+      retry: *no_retry
+      inputs:
+        items: "${nodes.select_drafts.output.items}"
+      outputSchema: schema://workflow/map-materialization-v1
+      claims: []
+      completion: "output.materialized <= 12"
+      config:
+        childTemplate: write_draft
+        itemKey: candidateId
+
+    - id: write_draft
+      kind: agent
+      dependsOn: [map_drafts]
+      runtime: claude
+      role: content_writer
+      bounds: *agent_bounds
+      retry: *transient_retry
+      inputs:
+        candidate: "${iteration.item}"
+        strategy: "${coalesce(nodes.repair_strategy.output.artifact, nodes.synthesize_strategy.output.artifact)}"
+        research: "${nodes.research_demand.output.artifact}"
+      outputSchema: schema://seo/content-draft-v1
+      claims:
+        - id: draft_claims_ledgered
+          statement: Material factual claims link to sources or are marked editorial/non-factual.
+          evidence: [artifact, source]
+          independentReview: true
+      completion: "output.unledgeredMaterialClaims == 0"
+      config:
+        maxWords: 5000
+
+    - id: verify_draft
+      kind: agent
+      dependsOn: [write_draft]
+      runtime: native
+      role: independent_content_reviewer
+      bounds: *agent_bounds
+      retry: *transient_retry
+      inputs:
+        draft: "${iteration.output.artifact}"
+        sources: "${nodes.research_demand.output.artifact}"
+      outputSchema: schema://review/verdict-v1
+      claims:
+        - id: draft_verified
+          statement: Factual support, source use, brand constraints, duplication, prohibited claims, and schema were checked independently.
+          evidence: [review, source]
+      completion: "output.verdict in ['accepted','repair','rejected']"
+      config:
+        maxFindings: 100
+
+    - id: repair_draft
+      kind: agent
+      dependsOn: [verify_draft]
+      runtime: codex
+      role: content_repairer
+      bounds: *agent_bounds
+      retry: *no_retry
+      inputs:
+        draft: "${iteration.parent.output.artifact}"
+        findings: "${iteration.output.findings}"
+      outputSchema: schema://seo/content-draft-v1
+      claims:
+        - id: draft_repair_traceable
+          statement: Review findings are resolved or explicitly rejected with evidence.
+          evidence: [artifact, review]
+          independentReview: true
+      completion: "iteration.output.verdict != 'repair' || output.progress == true"
+      when: "iteration.output.verdict == 'repair'"
+      config:
+        maxRepairRounds: 2
+        noProgressCutoff: 1
+
+    - id: join_verified_drafts
+      kind: join
+      dependsOn: [verify_draft, repair_draft]
+      runtime: deterministic
+      bounds: *small_bounds
+      retry: *no_retry
+      inputs:
+        drafts: "${nodes.write_draft.outputs}"
+        verdicts: "${nodes.verify_draft.outputs}"
+        repairs: "${nodes.repair_draft.outputs}"
+      outputSchema: schema://seo/verified-drafts-v1
+      claims: []
+      completion: "output.accepted + output.rejected == nodes.map_drafts.output.materialized"
+      config:
+        preserveRejected: true
+
+    - id: final_audit
+      kind: agent
+      dependsOn: [join_verified_drafts, review_strategy]
+      runtime: conductor
+      role: completion_arbiter
+      bounds: *agent_bounds
+      retry: *no_retry
+      inputs:
+        scope: "${nodes.validate_scope.output}"
+        audits: "${nodes.join_audits.output.artifact}"
+        strategyReview: "${nodes.review_strategy.output}"
+        drafts: "${nodes.join_verified_drafts.output}"
+      outputSchema: schema://workflow/final-signoff-v1
+      claims:
+        - id: workflow_complete
+          statement: Required sites, findings, strategy, drafts, evidence, budgets, and residual risks are explicitly accounted for.
+          evidence: [artifact, review]
+          independentReview: true
+      completion: "output.verdict in ['accepted','explicitPartial','rejected']"
+      config:
+        requireResidualRisks: true
+
+    - id: approve_cms_drafts
+      kind: approval
+      dependsOn: [final_audit]
+      runtime: deterministic
+      bounds: *small_bounds
+      retry: *no_retry
+      inputs:
+        signoff: "${nodes.final_audit.output}"
+        drafts: "${nodes.join_verified_drafts.output.acceptedArtifacts}"
+        destination: "cms://configured-draft-space"
+      outputSchema: schema://workflow/approval-v1
+      claims: []
+      completion: "inputs.cmsDraftsEnabled == false || output.state in ['approved','rejected','expired']"
+      when: "inputs.cmsDraftsEnabled == true && nodes.join_verified_drafts.output.accepted > 0"
+      config:
+        bind: [workflowVersionHash, inputHash, artifactHashes, capabilityHash, effectRequestHash]
+        expiresSeconds: 86400
+        oneShot: true
+
+    - id: create_cms_drafts
+      kind: effect
+      dependsOn: [approve_cms_drafts]
+      runtime: effect
+      bounds:
+        <<: *small_bounds
+        maxEffects: 12
+      retry: *no_retry
+      inputs:
+        drafts: "${nodes.join_verified_drafts.output.acceptedArtifacts}"
+        approval: "${nodes.approve_cms_drafts.output}"
+      outputSchema: schema://effect/receipts-v1
+      claims:
+        - id: cms_drafts_reconciled
+          statement: Every requested CMS draft is confirmed, failed, or explicitly uncertain with reconciliation state.
+          evidence: [receipt]
+      completion: "output.allAccountedFor == true"
+      when: "inputs.cmsDraftsEnabled == true && nodes.approve_cms_drafts.output.state == 'approved'"
+      effect:
+        adapter: cms
+        operation: createDraft
+        destination: "cms://configured-draft-space"
+        payload: "${nodes.join_verified_drafts.output.acceptedArtifacts}"
+        idempotencyKey: "seo-cms:${workflow.versionHash}:${run.id}:${item.slug}:${item.contentHash}"
+        reconcile: "lookup draft by idempotency metadata and content hash before retry"
+        maxAttempts: 2
+        approvalRequired: true
+
+    - id: assemble_delivery
+      kind: transform
+      dependsOn: [final_audit, create_cms_drafts]
+      runtime: deterministic
+      bounds: *small_bounds
+      retry: *no_retry
+      inputs:
+        audit: "${nodes.join_audits.output.artifact}"
+        research: "${nodes.research_demand.output.artifact}"
+        strategy: "${coalesce(nodes.repair_strategy.output.artifact, nodes.synthesize_strategy.output.artifact)}"
+        drafts: "${nodes.join_verified_drafts.output}"
+        signoff: "${nodes.final_audit.output}"
+        effects: "${nodes.create_cms_drafts.output}"
+      outputSchema: schema://seo/delivery-v1
+      claims:
+        - id: delivery_accounted
+          statement: The delivery indexes accepted, rejected, partial, failed, and uncertain outputs and residual risks.
+          evidence: [artifact, receipt]
+      completion: "output.indexComplete == true"
+
+    - id: notify_review_inbox
+      kind: effect
+      dependsOn: [assemble_delivery]
+      runtime: effect
+      bounds:
+        <<: *small_bounds
+        maxEffects: 1
+      retry:
+        maxAttempts: 3
+        retryOn: [transientNetwork, executorUnavailable]
+        backoff: exponential
+        baseDelaySeconds: 2
+      inputs:
+        delivery: "${nodes.assemble_delivery.output.artifact}"
+      outputSchema: schema://effect/receipt-v1
+      claims:
+        - id: review_item_created
+          statement: A deduplicated deep-linked deliverable attention item exists or has an explicit delivery failure.
+          evidence: [receipt]
+      completion: "output.state in ['confirmed','failed']"
+      effect:
+        adapter: reviewInbox
+        operation: notify
+        destination: "coderight://review-inbox"
+        payload: "${nodes.assemble_delivery.output.artifact}"
+        idempotencyKey: "seo-delivery:${run.id}:${nodes.assemble_delivery.output.contentHash}"
+        reconcile: "lookup attention item by dedupe key"
+        maxAttempts: 3
+        approvalRequired: false
+  completion:
+    expression: "nodes.assemble_delivery.state == 'succeeded' && nodes.final_audit.output.verdict in ['accepted','explicitPartial'] && effects.allAccountedFor == true"
+    onPartial: allowExplicitPartial
+    residualRisksRequired: true
