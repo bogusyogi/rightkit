@@ -1,0 +1,57 @@
+{
+  "defaults": {
+    "video_codecs": ["h264", "hevc"],
+    "pixel_formats": ["yuv420p", "yuvj420p", "yuv420p10le"],
+    "audio_codecs": ["aac", "mp3"],
+    "require_audio": true,
+    "duration_tolerance_ms": 150,
+    "fps_tolerance": 0.01,
+    "black_min_ms": 250,
+    "max_black_ms": 500,
+    "black_pix_threshold": 0.10,
+    "freeze_min_ms": 1000,
+    "max_freeze_ms": 2500,
+    "freeze_noise_db": -50.0,
+    "silence_noise_db": -50.0,
+    "silence_min_ms": 1000,
+    "max_silence_ms": 2500,
+    "loudness_target_lufs": -14.0,
+    "loudness_tolerance_lu": 2.0,
+    "true_peak_ceiling_dbtp": -1.0,
+    "clip_threshold": 0.999,
+    "clip_min_run": 3,
+    "max_clipped_runs": 0,
+    "max_av_drift_ms": 100,
+    "max_av_start_offset_ms": 60,
+    "captions": {
+      "required": false,
+      "max_lines": 2,
+      "max_chars_per_line": 42,
+      "max_chars_per_second": 21.0,
+      "max_tail_gap_ms": 2000
+    }
+  },
+  "presets": {
+    "youtube": { "width": 1920, "height": 1080 },
+    "shorts": {
+      "width": 1080,
+      "height": 1920,
+      "captions": { "max_chars_per_line": 24, "max_chars_per_second": 18.0 }
+    },
+    "reels": {
+      "width": 1080,
+      "height": 1920,
+      "captions": { "max_chars_per_line": 24, "max_chars_per_second": 18.0 }
+    },
+    "tiktok": {
+      "width": 1080,
+      "height": 1920,
+      "captions": { "max_chars_per_line": 24, "max_chars_per_second": 18.0 }
+    },
+    "square": {
+      "width": 1080,
+      "height": 1080,
+      "captions": { "max_chars_per_line": 24, "max_chars_per_second": 18.0 }
+    }
+  }
+}

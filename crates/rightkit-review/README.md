@@ -177,3 +177,7 @@ assert!(rule.check(Some(9_899)).unwrap().blocking());
 `tests/product_qa.rs` covers public adoption, warning persistence, old report
 wire shape & legacy review isolation. Unit tests cover rule boundaries, missing
 measurements, malformed policies, Unicode captions & timestamp overflow.
+
+## Final-render QA (feature `render-qa`)
+
+`rightkit_review::render_qa` probes a rendered file, writes a report and receipt into the project, and packages the render for social platforms only when its QA verifies. Tests that need ffmpeg read `RIGHTKIT_FFMPEG` and `RIGHTKIT_FFPROBE` and print `SKIP` when they are unset.
