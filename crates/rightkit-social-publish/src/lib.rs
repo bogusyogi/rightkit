@@ -10,15 +10,25 @@
 //! - [`redact`]: secret scrubbing for platform error text.
 //! - [`wire`]: the post payload the adapters read.
 //!
-//! The durable job store and phase machine that drive these adapters belong to the host app.
+//! - [`protocol`]: the publish job, command inputs/outputs and the channel [`protocol::Scope`].
+//! - [`quota`]: per-account pacing and the `publish.next` selector over a host-implemented
+//!   [`quota::PublishQuotaStore`].
+//! - [`calendar_time`]: UTC instants and local-time conversion for the supported zones.
+//! - [`util`]: error constructors, input checks and the channel lookup the store-bound modules share.
+//!
+//! The durable job store and its schema belong to the host app; it implements the store traits.
 //! Errors are [`Fail`]: a stable machine code plus a human message.
 
 pub mod api_versions;
+pub mod calendar_time;
 pub mod http;
 pub mod media;
 pub mod platform;
 pub mod platforms;
+pub mod protocol;
+pub mod quota;
 pub mod redact;
+pub mod util;
 pub mod wire;
 
 /// An error: a stable machine-readable code and a human-readable message.
