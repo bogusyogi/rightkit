@@ -1180,7 +1180,7 @@
     "rightkit-ownership": {
       "pkId": "PK14",
       "id": "ci/consumers/rightkit-ownership/src/main.rs",
-      "dependency": "rightkit-ownership = { version = \"=0.4.3\" }",
+      "dependency": "rightkit-ownership = { version = \"=0.4.4\" }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],
