@@ -2,9 +2,7 @@
 
 use rightkit_llm::agent_providers::{
     credential_broker::{CredentialBroker, ProviderCredentialConfig},
-    subscription_auth::{
-        open_subscription_store, subscription_leg, AuthSignal, ProcessAuthContext,
-    },
+    subscription_auth::{open_subscription_store, subscription_leg, AuthSignal},
     OpenAiCompatClient, OsKeyStore, ProviderRequestMetadata, OPENAI_CODEX_BASE_URL,
 };
 use std::sync::Arc;
@@ -20,11 +18,7 @@ async fn native_openai_gpt_61_sol_uses_stored_subscription_auth() {
     )
     .expect("openai subscription leg");
     assert!(leg.eligibility.enabled_in_core());
-    let mut broker = CredentialBroker::new(
-        Arc::new(OsKeyStore),
-        "rightkit-agent",
-        Arc::new(ProcessAuthContext),
-    );
+    let mut broker = CredentialBroker::new(Arc::new(OsKeyStore), "rightkit-agent");
     broker.register(ProviderCredentialConfig::new("openai").with_subscription(leg));
     let resolved_auth = broker
         .resolve("openai", AuthSignal::default())

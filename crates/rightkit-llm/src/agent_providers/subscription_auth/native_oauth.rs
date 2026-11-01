@@ -272,31 +272,14 @@ async fn exchange_openai_code(
 // The loopback listener is rightkit-oauth's `CallbackListener` (single use,
 // tolerant of probes and wrong-state requests, constant-time state check).
 //
-// `RIGHTKIT_OAUTH_CALLBACK_HOST` (an IP literal) is the explicit opt-in to bind
-// a different address, for a host where the browser reaches the app through a
-// forwarded or bridged interface (WSL, a container); it is
-// `CallbackBind::custom_bind_address`. The registered redirect spelling stays
-// `localhost`. An unset or unparsable value keeps the loopback default.
+// The listener binds loopback only: no environment variable can move it.
 async fn openai_callback(state: &str, cancel: CancelToken) -> Option<String> {
     let timeout = std::time::Duration::from_millis(COMMAND_CODE_AUTH_TIMEOUT_MS);
-    #[cfg_attr(
-        not(any(test, feature = "agent_providers-host-env")),
-        allow(unused_mut)
-    )]
-    let mut bind = CallbackBind::new(CallbackOptions {
+    let bind = CallbackBind::new(CallbackOptions {
         host: LoopbackHost::V4,
         port: OPENAI_CALLBACK_PORT,
         path: OPENAI_CALLBACK_PATH.into(),
     });
-    #[cfg(any(test, feature = "agent_providers-host-env"))]
-    {
-        if let Some(ip) = std::env::var("RIGHTKIT_OAUTH_CALLBACK_HOST")
-            .ok()
-            .and_then(|value| value.trim().parse::<std::net::IpAddr>().ok())
-        {
-            bind = bind.custom_bind_address(ip).redirect_host("localhost");
-        }
-    }
     let listener = CallbackListener::bind_with(state, bind);
     openai_callback_from_bind(listener, timeout, cancel).await
 }

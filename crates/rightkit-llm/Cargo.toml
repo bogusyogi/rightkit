@@ -16,8 +16,11 @@ default = []
 # Provider that drives an installed, signed-in CLI assistant as a bounded child process.
 cli = ["dep:rightkit-child-process"]
 agent_providers-os-keyring = ["agent_providers", "dep:rightkit-credentials", "rightkit-oauth/secrets"]
-agent_providers-host-env = ["agent_providers", "rightkit-app-settings/agent_config-host-env"]
-agent_providers-replay-record = ["agent_providers", "agent_providers-host-env"]
+# Test-only switches: the OS-keychain kill switch, the replay corpus directory override and the
+# context-inspection fixture hook. Never in a release build. Provider API keys are never read from
+# the environment by a build with an OS credential store.
+agent_providers-test-mode = ["agent_providers"]
+agent_providers-replay-record = ["agent_providers", "agent_providers-test-mode"]
 agent_providers = ["dep:rightkit-logs", "dep:rightkit-agent-engine-protocol", "dep:rightkit-agent-policy", "dep:rightkit-app-settings", "dep:thiserror", "dep:tokio", "dep:futures", "dep:rightkit-oauth", "rightkit-http/untrusted", "rightkit-http/async", "dep:rightkit-crypto", "dep:rightkit-fs", "dep:rightkit-time", "dep:url", "dep:bytes", "dep:async-stream", "dep:toml", "dep:dirs", "dep:tiktoken-rs", "agent_providers-os-keyring"]
 agent_router-os-keyring = ["agent_router", "agent_providers-os-keyring"]
 agent_router = ["agent_providers", "dep:thiserror", "dep:toml", "agent_router-os-keyring"]

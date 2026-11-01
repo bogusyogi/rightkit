@@ -19,7 +19,7 @@ speech = ["dep:rightkit-speech-client"]
 # Agent demo mode (`demo.*` tools, `right-ctl demo`). Non-default: release builds omit it entirely.
 demo = []
 coding_tools-test-mode = ["coding_tools"]
-coding_tools-host = ["coding_tools", "coding_tools-code-mode", "dep:rightkit-browser", "dep:rightkit-sandbox", "dep:rightkit-ffmpeg", "dep:rightkit-agent-plugins", "dep:portable-pty", "rightkit-mcp/agent_mcp-os-keyring", "rightkit-llm/agent_providers-os-keyring", "rightkit-app-settings/agent_config-host-env", "rightkit-mcp/agent_mcp-host-env", "rightkit-llm/agent_providers-host-env"]
+coding_tools-host = ["coding_tools", "coding_tools-code-mode", "dep:rightkit-browser", "dep:rightkit-sandbox", "dep:rightkit-ffmpeg", "dep:rightkit-agent-plugins", "dep:portable-pty", "rightkit-mcp/agent_mcp-os-keyring", "rightkit-llm/agent_providers-os-keyring", "rightkit-app-settings/agent_config-host-env", "rightkit-mcp/agent_mcp-host-env"]
 coding_tools-code-mode = ["coding_tools", "dep:rquickjs"]
 coding_tools-embeddings = ["coding_tools", "rightkit-embed/inference"]
 coding_tools-test-support = ["coding_tools"]

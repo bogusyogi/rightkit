@@ -9,7 +9,6 @@ pub struct ProviderInfo {
     pub base_url: &'static str,
     pub default_model: &'static str,
     pub display_name: &'static str,
-    pub api_key_env: &'static str,
     pub setup_hint: &'static str,
     /// the host app operational request water marks for inline-image history.
     /// These are deliberately conservative application budgets, not claims
@@ -18,28 +17,12 @@ pub struct ProviderInfo {
     pub image_request_low_water_bytes: usize,
 }
 
-/// A provider's API-key env-var name. Only builds that read keys from the environment
-/// (`host-env`, tests) carry it; the mobile build takes keys from the app and stores none.
-#[cfg(any(test, feature = "agent_providers-host-env"))]
-macro_rules! key_env {
-    ($name:literal) => {
-        $name
-    };
-}
-#[cfg(not(any(test, feature = "agent_providers-host-env")))]
-macro_rules! key_env {
-    ($name:literal) => {
-        ""
-    };
-}
-
 pub const PROVIDERS: &[ProviderInfo] = &[
     ProviderInfo {
         id: "openai",
         base_url: "https://api.openai.com/v1",
         default_model: "gpt-5.6",
         display_name: "OpenAI / ChatGPT",
-        api_key_env: key_env!("OPENAI_API_KEY"),
         setup_hint: "Sign in through OpenAI's reusable ChatGPT browser auth, or use an API key",
         image_request_high_water_bytes: 24 * 1024 * 1024,
         image_request_low_water_bytes: 12 * 1024 * 1024,
@@ -49,7 +32,6 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://api.commandcode.ai/provider/v1",
         default_model: "gpt-5.6-sol",
         display_name: "Command Code",
-        api_key_env: key_env!("COMMAND_CODE_API_KEY"),
         setup_hint: "Sign in through Command Code's reusable browser auth",
         image_request_high_water_bytes: 24 * 1024 * 1024,
         image_request_low_water_bytes: 12 * 1024 * 1024,
@@ -59,7 +41,6 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://opencode.ai/zen/go/v1",
         default_model: "gpt-5.6-luna",
         display_name: "OpenCode Go",
-        api_key_env: key_env!("OPENCODE_API_KEY"),
         setup_hint: "Paste the API key from your OpenCode Go account",
         image_request_high_water_bytes: 24 * 1024 * 1024,
         image_request_low_water_bytes: 12 * 1024 * 1024,
@@ -69,7 +50,6 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://opencode.ai/zen/v1",
         default_model: "mimo-v2.5-free",
         display_name: "OpenCode Zen",
-        api_key_env: key_env!("OPENCODE_API_KEY"),
         setup_hint: "Paste the API key from your OpenCode Zen account",
         image_request_high_water_bytes: 24 * 1024 * 1024,
         image_request_low_water_bytes: 12 * 1024 * 1024,
@@ -79,7 +59,6 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://api.minimax.io/v1",
         default_model: "MiniMax-M3",
         display_name: "MiniMax",
-        api_key_env: key_env!("MINIMAX_API_KEY"),
         setup_hint: "Use an API or Token Plan key from platform.minimax.io",
         image_request_high_water_bytes: 16 * 1024 * 1024,
         image_request_low_water_bytes: 8 * 1024 * 1024,
@@ -89,7 +68,6 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://openrouter.ai/api/v1",
         default_model: "moonshotai/kimi-k2.6",
         display_name: "OpenRouter",
-        api_key_env: key_env!("OPENROUTER_API_KEY"),
         setup_hint: "Get your key at openrouter.ai/keys",
         image_request_high_water_bytes: 24 * 1024 * 1024,
         image_request_low_water_bytes: 12 * 1024 * 1024,
@@ -99,7 +77,6 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "",
         default_model: "",
         display_name: "Custom (OpenAI-compatible)",
-        api_key_env: "",
         setup_hint: "Set base URL and model in Settings > Models",
         image_request_high_water_bytes: 8 * 1024 * 1024,
         image_request_low_water_bytes: 4 * 1024 * 1024,
@@ -142,18 +119,6 @@ pub fn is_subscription_billed_route(base_url: &str) -> bool {
     })
 }
 
-/// Direct MiniMax text traffic can use either an ordinary API key or a
-/// stored Token Plan. The daemon checks this exact catalog route before a
-/// request; arbitrary compatible URLs never inherit token-plan behavior.
-pub fn token_plan_provider_for_base_url(base_url: &str) -> Option<&'static str> {
-    let normalized = base_url.trim().trim_end_matches('/');
-    find_provider("minimax").and_then(|provider| {
-        normalized
-            .eq_ignore_ascii_case(provider.base_url.trim_end_matches('/'))
-            .then_some(provider.id)
-    })
-}
-
 #[cfg(test)]
 mod provider_catalog_tests {
     use super::{find_provider, is_subscription_billed_route, provider_model_id, PROVIDERS};
@@ -166,13 +131,8 @@ mod provider_catalog_tests {
                 "provider '{}' missing display_name",
                 p.id
             );
-            // custom has no env var or default model; skip those checks
+            // custom has no default model; skip those checks
             if p.id != "custom" {
-                assert!(
-                    !p.api_key_env.is_empty(),
-                    "provider '{}' missing api_key_env",
-                    p.id
-                );
                 assert!(
                     !p.setup_hint.is_empty(),
                     "provider '{}' missing setup_hint",
@@ -218,9 +178,9 @@ mod provider_catalog_tests {
     }
 
     #[test]
-    fn minimax_provider_declares_its_subscription_key_environment() {
+    fn minimax_provider_is_in_the_catalog() {
         let minimax = find_provider("minimax").expect("minimax provider must be in catalog");
-        assert_eq!(minimax.api_key_env, "MINIMAX_API_KEY");
+        assert_eq!(minimax.display_name, "MiniMax");
     }
 
     #[test]

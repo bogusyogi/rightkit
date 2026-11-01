@@ -369,7 +369,18 @@ fn capability_from_rows<'a>(
         "gpt-6.1-sol" => "openai/gpt-6.1-sol",
         _ => slug,
     };
-    models.iter().find(|m| m.slug == canonical_slug)
+    if let Some(found) = models.iter().find(|m| m.slug == canonical_slug) {
+        return Some(found);
+    }
+    // A provider-native id (`claude-haiku-5-5`, what a direct vendor route sends)
+    // names the one `vendor/<id>` row that carries it; an ambiguous id stays unknown.
+    if canonical_slug.contains('/') {
+        return None;
+    }
+    let suffix = format!("/{canonical_slug}");
+    let mut matches = models.iter().filter(|m| m.slug.ends_with(&suffix));
+    let first = matches.next()?;
+    matches.next().is_none().then_some(first)
 }
 
 pub fn catalog_status() -> &'static CatalogLoad {

@@ -47,8 +47,7 @@ use crate::agent_providers::subscription_auth::eligibility::{
     auth_state_of_stored, AuthState, SubscriptionEligibility,
 };
 use crate::agent_providers::subscription_auth::types::{
-    AuthContext, AuthError, AuthErrorCode, AuthInteraction, AuthSignal, BoxFuture, ModelAuth,
-    REDACTED,
+    AuthError, AuthErrorCode, AuthInteraction, AuthSignal, BoxFuture, ModelAuth, REDACTED,
 };
 
 #[cfg(feature = "agent_providers-os-keyring")]
@@ -65,7 +64,7 @@ use rightkit_oauth::{OAuthError, TokenSet, TokenStore};
 /// One resolvable credential source, in strict precedence order.
 ///
 /// Donor lineage: `SupportedSubscriptionOAuth` is PL-001's tri-state-gated
-/// OAuth leg; `Environment` is the donor's ambient-env leg. `ApiKey` (a stored
+/// OAuth leg. `ApiKey` (a stored
 /// literal credential record) kept its precedence stop, but its store was the
 /// retired subscription credential store and no production code ever configured
 /// it, so nothing currently resolves with this source; the variant stays so the
@@ -76,19 +75,24 @@ use rightkit_oauth::{OAuthError, TokenSet, TokenStore};
 pub enum CredentialSourceKind {
     SupportedSubscriptionOAuth,
     ApiKey,
-    Environment,
     SecureStore,
+    /// A no-store host's process environment (providers R4). Exclusive with `SecureStore`: the
+    /// host has a store or it does not.
+    Environment,
+    /// A no-store host's `<state root>/.env` (providers R4).
+    DotEnvFile,
     Command,
     Extension,
 }
 
 impl CredentialSourceKind {
     /// Strict precedence order the broker tries sources in.
-    pub const PRECEDENCE: [CredentialSourceKind; 6] = [
+    pub const PRECEDENCE: [CredentialSourceKind; 7] = [
         CredentialSourceKind::SupportedSubscriptionOAuth,
         CredentialSourceKind::ApiKey,
-        CredentialSourceKind::Environment,
         CredentialSourceKind::SecureStore,
+        CredentialSourceKind::Environment,
+        CredentialSourceKind::DotEnvFile,
         CredentialSourceKind::Command,
         CredentialSourceKind::Extension,
     ];
@@ -97,8 +101,9 @@ impl CredentialSourceKind {
         match self {
             CredentialSourceKind::SupportedSubscriptionOAuth => "supported_subscription_oauth",
             CredentialSourceKind::ApiKey => "api_key",
-            CredentialSourceKind::Environment => "environment",
             CredentialSourceKind::SecureStore => "secure_store",
+            CredentialSourceKind::Environment => "environment",
+            CredentialSourceKind::DotEnvFile => "dotenv_file",
             CredentialSourceKind::Command => "command",
             CredentialSourceKind::Extension => "extension",
         }
@@ -291,9 +296,6 @@ pub struct ProviderCredentialConfig {
     /// `os-keyring`.
     #[cfg(feature = "agent_providers-os-keyring")]
     pub subscription: Option<Arc<SubscriptionLeg>>,
-    /// `Environment` leg: env var names checked in order, independent of
-    /// anything stored.
-    pub env_vars: Vec<String>,
     /// `SecureStore` leg: OS-keychain key name. Defaults to `provider_id`
     /// when configured with `Some(None)`... callers pass the explicit name.
     pub secure_store_key: Option<String>,
@@ -309,7 +311,6 @@ impl ProviderCredentialConfig {
             provider_id: provider_id.into(),
             #[cfg(feature = "agent_providers-os-keyring")]
             subscription: None,
-            env_vars: Vec::new(),
             secure_store_key: None,
             command: None,
             extension: None,
@@ -319,11 +320,6 @@ impl ProviderCredentialConfig {
     #[cfg(feature = "agent_providers-os-keyring")]
     pub fn with_subscription(mut self, leg: SubscriptionLeg) -> Self {
         self.subscription = Some(Arc::new(leg));
-        self
-    }
-
-    pub fn with_env_vars(mut self, vars: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        self.env_vars = vars.into_iter().map(Into::into).collect();
         self
     }
 
@@ -413,7 +409,10 @@ pub struct CredentialBroker {
     key_store: Arc<dyn KeyStoreBackend + Send + Sync>,
     key_store_service: String,
     command_resolver: Option<Arc<dyn CommandCredentialResolver>>,
-    auth_context: Arc<dyn AuthContext>,
+    /// The host's probe result and its environment and `.env` keys (providers R4). `None` reads
+    /// the credential store only.
+    #[cfg(feature = "agent_providers-os-keyring")]
+    host: Option<Arc<crate::agent_providers::host_credentials::HostCredentials>>,
     /// Lifecycle states the broker itself observed (authenticating, failed, revoked, ...),
     /// per provider. Process-lifetime only; the stored sign-in itself is the durable truth
     /// and `status` derives signed-out / ready / expired from it.
@@ -424,16 +423,33 @@ impl CredentialBroker {
     pub fn new(
         key_store: Arc<dyn KeyStoreBackend + Send + Sync>,
         key_store_service: impl Into<String>,
-        auth_context: Arc<dyn AuthContext>,
     ) -> Self {
         Self {
             providers: BTreeMap::new(),
             key_store,
             key_store_service: key_store_service.into(),
             command_resolver: None,
-            auth_context,
+            #[cfg(feature = "agent_providers-os-keyring")]
+            host: None,
             auth_states: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Resolve provider keys the way this host keeps them (providers R4): the credential store
+    /// when the host has one, otherwise the process environment, then `<state root>/.env`.
+    #[cfg(feature = "agent_providers-os-keyring")]
+    pub fn with_host_credentials(
+        mut self,
+        host: Arc<crate::agent_providers::host_credentials::HostCredentials>,
+    ) -> Self {
+        self.host = Some(host);
+        self
+    }
+
+    /// The host's no-store credentials, when this broker has a host and the host has no store.
+    #[cfg(feature = "agent_providers-os-keyring")]
+    fn no_store_host(&self) -> Option<&crate::agent_providers::host_credentials::HostCredentials> {
+        self.host.as_deref().filter(|host| !host.has_store())
     }
 
     pub fn with_command_resolver(mut self, resolver: Arc<dyn CommandCredentialResolver>) -> Self {
@@ -588,42 +604,17 @@ impl CredentialBroker {
         // 2. ApiKey — retired with the subscription credential store (see
         // `CredentialSourceKind`); no stored-literal leg remains.
 
-        // 3. Environment.
-        if !config.env_vars.is_empty() {
-            signal.check()?;
-            for var in &config.env_vars {
-                if let Some(value) = self.auth_context.env(var).await {
-                    return Ok(Some(BrokerResolution {
-                        auth: ModelAuth::api_key(value),
-                        source: CredentialSourceKind::Environment,
-                        label: Some(var.clone()),
-                    }));
-                }
-            }
-        }
-
-        // 4. SecureStore (OS keychain).
+        // 3. The host's key source (providers R4). With an OS credential store: the store, and the
+        // environment is not read. With none: the process environment, then `<state root>/.env`,
+        // both read once at start.
         if let Some(key_name) = &config.secure_store_key {
             signal.check()?;
-            match self.key_store.get(&self.key_store_service, key_name) {
-                Ok(value) => {
-                    return Ok(Some(BrokerResolution {
-                        auth: ModelAuth::api_key(value),
-                        source: CredentialSourceKind::SecureStore,
-                        label: Some("keychain".to_string()),
-                    }));
-                }
-                Err(KeyStoreError::NotFound { .. }) => {}
-                Err(error) => {
-                    return Err(AuthError::new(
-                        AuthErrorCode::Storage,
-                        format!("secure store read failed for {provider_id}: {error}"),
-                    ));
-                }
+            if let Some(resolution) = self.resolve_host_key(provider_id, key_name)? {
+                return Ok(Some(resolution));
             }
         }
 
-        // 5. Command.
+        // 4. Command.
         if let Some(command) = &config.command {
             signal.check()?;
             let resolver = self.command_resolver.as_ref().ok_or_else(|| {
@@ -659,6 +650,60 @@ impl CredentialBroker {
         }
 
         Ok(None)
+    }
+
+    /// The host's key source for one provider (providers R4): the no-store host's environment
+    /// and `.env`, or the credential store.
+    fn resolve_host_key(
+        &self,
+        provider_id: &str,
+        key_name: &str,
+    ) -> Result<Option<BrokerResolution>, AuthError> {
+        #[cfg(feature = "agent_providers-os-keyring")]
+        if let Some(host) = self.no_store_host() {
+            return match host.provider_key(provider_id) {
+                Ok(Some(found)) => {
+                    let (source, label) = match found.source {
+                        crate::agent_providers::host_credentials::HostKeySource::Environment => {
+                            (CredentialSourceKind::Environment, "environment")
+                        }
+                        crate::agent_providers::host_credentials::HostKeySource::DotEnv => {
+                            (CredentialSourceKind::DotEnvFile, ".env")
+                        }
+                    };
+                    Ok(Some(BrokerResolution {
+                        auth: ModelAuth::api_key(found.value),
+                        source,
+                        label: Some(label.to_string()),
+                    }))
+                }
+                Ok(None) => Ok(None),
+                Err(reason) => Err(AuthError::new(
+                    AuthErrorCode::Storage,
+                    format!("key file read failed for {provider_id}: {reason}"),
+                )),
+            };
+        }
+        self.read_secure_store(provider_id, key_name)
+    }
+
+    fn read_secure_store(
+        &self,
+        provider_id: &str,
+        key_name: &str,
+    ) -> Result<Option<BrokerResolution>, AuthError> {
+        match self.key_store.get(&self.key_store_service, key_name) {
+            Ok(value) => Ok(Some(BrokerResolution {
+                auth: ModelAuth::api_key(value),
+                source: CredentialSourceKind::SecureStore,
+                label: Some("keychain".to_string()),
+            })),
+            Err(KeyStoreError::NotFound { .. }) => Ok(None),
+            Err(error) => Err(AuthError::new(
+                AuthErrorCode::Storage,
+                format!("secure store read failed for {provider_id}: {error}"),
+            )),
+        }
     }
 
     /// Non-secret status enumeration (donor `CredentialStore.list`
@@ -761,6 +806,17 @@ impl CredentialBroker {
         value: &str,
     ) -> Result<(), AuthError> {
         let config = self.provider(provider_id)?;
+        #[cfg(feature = "agent_providers-os-keyring")]
+        if let Some(host) = self.no_store_host() {
+            return host
+                .save_provider_key(provider_id, value)
+                .map_err(|reason| {
+                    AuthError::new(
+                        AuthErrorCode::Storage,
+                        format!("key file write failed for {provider_id}: {reason}"),
+                    )
+                });
+        }
         let key_name = config.secure_store_key.as_deref().unwrap_or(provider_id);
         self.key_store
             .set(&self.key_store_service, key_name, value)
@@ -774,7 +830,7 @@ impl CredentialBroker {
 
     /// Logout/delete: removes the stored subscription sign-in and the
     /// secure-store entry for a provider. Idempotent — deleting an
-    /// already-absent entry is not an error. `Environment`/`Command`/
+    /// already-absent entry is not an error. `Command`/
     /// `Extension` sources are operator/extension-owned
     /// configuration, not broker-managed secrets, so logout does not touch
     /// them (mirrors the donor: only the stored credential the store owns
@@ -792,6 +848,15 @@ impl CredentialBroker {
         }
         #[cfg(not(feature = "agent_providers-os-keyring"))]
         let _ = &signal;
+        #[cfg(feature = "agent_providers-os-keyring")]
+        if let Some(host) = self.no_store_host() {
+            return host.remove_provider_key(provider_id).map_err(|reason| {
+                AuthError::new(
+                    AuthErrorCode::Storage,
+                    format!("key file delete failed for {provider_id}: {reason}"),
+                )
+            });
+        }
         if let Some(key_name) = &config.secure_store_key {
             match self.key_store.delete(&self.key_store_service, key_name) {
                 Ok(()) | Err(KeyStoreError::NotFound { .. }) => {}
@@ -825,8 +890,8 @@ fn is_revocation(error: &AuthError) -> bool {
 #[cfg(all(test, feature = "agent_providers-os-keyring"))]
 mod tests {
     use super::*;
+    use crate::agent_providers::host_credentials::{CredentialStoreState, HostCredentials};
     use crate::agent_providers::keystore::InMemoryKeyStore;
-    use crate::agent_providers::subscription_auth::types::EnvMapAuthContext;
     use rightkit_http::Secret;
     use rightkit_oauth::{MemoryTokenStore, OAuthClient, OAuthConfig};
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -975,11 +1040,23 @@ mod tests {
         key_store: InMemoryKeyStore,
         env: impl IntoIterator<Item = (&'static str, &'static str)>,
     ) -> CredentialBroker {
-        CredentialBroker::new(
-            Arc::new(key_store),
-            "rightkit-agent-test",
-            Arc::new(EnvMapAuthContext::new(env)),
-        )
+        let credential_broker = CredentialBroker::new(Arc::new(key_store), "rightkit-agent-test");
+        let env: Vec<(String, String)> = env
+            .into_iter()
+            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .collect();
+        if env.is_empty() {
+            return credential_broker;
+        }
+        // A host with no OS credential store reads the process environment (providers R4).
+        let host = HostCredentials::load(
+            CredentialStoreState::None {
+                reason: "test".into(),
+            },
+            None,
+            &env,
+        );
+        credential_broker.with_host_credentials(Arc::new(host))
     }
 
     fn store_with(account: &str, tokens: TokenSet) -> Arc<MemoryTokenStore> {
@@ -996,7 +1073,7 @@ mod tests {
         credential_broker.register(
             ProviderCredentialConfig::new("anthropic")
                 .with_subscription(leg(store, TestFlow::supported("Anthropic"), "anthropic"))
-                .with_env_vars(["ANTHROPIC_API_KEY"]),
+                .with_secure_store_key("anthropic"),
         );
 
         let resolution = credential_broker
@@ -1020,7 +1097,7 @@ mod tests {
         credential_broker.register(
             ProviderCredentialConfig::new("openai")
                 .with_subscription(leg(store, TestFlow::supported("OpenAI"), "openai"))
-                .with_env_vars(["OPENAI_API_KEY"]),
+                .with_secure_store_key("openai"),
         );
 
         let resolution = credential_broker
@@ -1080,7 +1157,7 @@ mod tests {
         let mut credential_broker =
             broker(InMemoryKeyStore::new(), [("OPENAI_API_KEY", "env-key")]);
         credential_broker
-            .register(ProviderCredentialConfig::new("openai").with_env_vars(["OPENAI_API_KEY"]));
+            .register(ProviderCredentialConfig::new("openai").with_secure_store_key("openai"));
 
         let resolution = credential_broker
             .resolve("openai", AuthSignal::default())
@@ -1089,6 +1166,23 @@ mod tests {
             .expect("environment must resolve");
         assert_eq!(resolution.source, CredentialSourceKind::Environment);
         assert_eq!(resolution.auth.api_key.as_deref(), Some("env-key"));
+    }
+
+    #[tokio::test]
+    async fn a_host_with_a_credential_store_never_reads_the_environment() {
+        let env = [("OPENAI_API_KEY".to_string(), "env-key".to_string())];
+        let host = HostCredentials::load(CredentialStoreState::Present, None, &env);
+        let mut credential_broker =
+            CredentialBroker::new(Arc::new(InMemoryKeyStore::new()), "rightkit-agent-test")
+                .with_host_credentials(Arc::new(host));
+        credential_broker
+            .register(ProviderCredentialConfig::new("openai").with_secure_store_key("openai"));
+
+        let resolution = credential_broker
+            .resolve("openai", AuthSignal::default())
+            .await
+            .unwrap();
+        assert!(resolution.is_none(), "the environment must not be read");
     }
 
     #[tokio::test]
@@ -1262,14 +1356,14 @@ mod tests {
             broker(InMemoryKeyStore::new(), [("OPENAI_API_KEY", "env-key")]);
         credential_broker.register(ProviderCredentialConfig::new("zeta"));
         credential_broker
-            .register(ProviderCredentialConfig::new("alpha").with_env_vars(["OPENAI_API_KEY"]));
+            .register(ProviderCredentialConfig::new("openai").with_secure_store_key("openai"));
 
         let records = credential_broker
             .list_status(AuthSignal::default())
             .await
             .unwrap();
         assert_eq!(records.len(), 2);
-        assert_eq!(records[0].provider_id, "alpha");
+        assert_eq!(records[0].provider_id, "openai");
         assert!(records[0].configured);
         assert_eq!(records[1].provider_id, "zeta");
         assert!(!records[1].configured);
