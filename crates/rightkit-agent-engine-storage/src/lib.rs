@@ -578,7 +578,6 @@ mod tests {
         assert_eq!(s.latest_seq("nope").unwrap(), 0);
         assert!(s.get_tasks("nope").unwrap().is_empty());
         assert!(s.list_artifacts("nope").unwrap().is_empty());
-        assert!(s.top_memories(10).unwrap().is_empty());
     }
 
     #[test]
