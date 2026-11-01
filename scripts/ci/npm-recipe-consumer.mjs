@@ -67,7 +67,7 @@ export function validateRecipeEntry(entry, name) {
   const dir = recipeDirectory(name);
   const optionalKeys = entry && typeof entry === 'object' ? [...(entry.importClosures === undefined ? [] : ['importClosures']), ...(entry.bin === undefined ? [] : ['bin'])] : [];
   need(entry && typeof entry === 'object' && same(Object.keys(entry).sort(), [...ENTRY_KEYS, ...optionalKeys].sort()), `missing reviewed PK example for ${name}: reviewed npm.${name} entry malformed`);
-  need(/^PK\d{2}$/.test(entry.pkId) && entry.id === `${dir}/consumer.mjs` && /^[a-z0-9][a-z0-9-]*$/.test(entry.recipeId ?? '') && Number.isSafeInteger(entry.scenarios) && entry.scenarios > 0, `reviewed npm.${name} identity differs from named recipe layout`);
+  need(/^PK\d{2,3}$/.test(entry.pkId) && entry.id === `${dir}/consumer.mjs` && /^[a-z0-9][a-z0-9-]*$/.test(entry.recipeId ?? '') && Number.isSafeInteger(entry.scenarios) && entry.scenarios > 0, `reviewed npm.${name} identity differs from named recipe layout`);
   if (entry.bin !== undefined) {
     need(entry.bin && typeof entry.bin === 'object' && !Array.isArray(entry.bin) && Object.keys(entry.bin).length > 0 && same(Object.keys(entry.bin), sorted(Object.keys(entry.bin))) && Object.entries(entry.bin).every(([bin, target]) => /^[a-z0-9][a-z0-9-]*$/.test(bin) && typeof target === 'string' && !target.startsWith('/') && !target.split('/').includes('..')), `reviewed npm.${name} bin must be a sorted reviewed bin mapping`);
     need(Array.isArray(entry.surface) && entry.surface.length === 0, `reviewed npm.${name} bin-only surface must be empty`);

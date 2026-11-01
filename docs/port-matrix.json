@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T08:52:14Z",
-  "rightkitHead": "4aa0db9",
+  "generatedAt": "2026-11-01T08:54:26Z",
+  "rightkitHead": "34bb02f",
   "legend": [
     {
       "state": "adopted",
@@ -8149,7 +8149,7 @@
       "private": false,
       "source": "0.4.0",
       "registry": "0.3.0",
-      "staged": "0.3.1",
+      "staged": "0.4.0",
       "dir": "crates/rightkit-asr",
       "toMoveFrom": {},
       "cells": {
@@ -8350,7 +8350,7 @@
       "private": false,
       "source": "0.7.0",
       "registry": "0.6.1",
-      "staged": "0.6.1",
+      "staged": "0.7.0",
       "dir": "crates/rightkit-automation",
       "toMoveFrom": {},
       "cells": {

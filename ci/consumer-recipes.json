@@ -940,7 +940,7 @@
       "pkId": "PK15",
       "id": "ci/consumers/rightkit-automation/src/main.rs",
       "files": {
-        "Cargo.toml": "b4540af03c7436cfb6c54f612071310f82011e38dd62abec1febee900b4b652c",
+        "Cargo.toml": "ac3387c82b7181117fefb68124235db85889351a859c48ffd087e2501562392f",
         "README.md": "7e6256207f36119308357bc0ace7a3b0f9a696e92dcad2859597ca77188b9bbd",
         "src/main.rs": "0dc6091e9811e1daac8b41a2d6fa4c2e214f11bb6b9f2227547fcc1789cc4754"
       }
@@ -1071,7 +1071,7 @@
         "serde_json = \"1\""
       ],
       "files": {
-        "Cargo.toml": "815a781abdceb31955210f9edcf53a2a285e938ddbf92143d76cf61f8fac3288",
+        "Cargo.toml": "2e1e178aaccf8f0653d9ebd3d8d537a507846c104551ac61cc03a5a98941c588",
         "README.md": "5e12707d11b0b88c7f82541808ee5260136e5aad4ec3a74bfb958568988e73e0",
         "src/main.rs": "77a1fdae68ad0faca0ff96168d26c4a24ebcc33100724b4db7443408ecbae07e"
       },

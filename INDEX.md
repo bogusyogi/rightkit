@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 2.
+Flagged mismatches: 0.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -40,10 +40,10 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-app-manager` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Installed-app management: inventory, icons, usage, updates, safe uninstall with leftovers to the Trash, and app quit/force-quit with system and self protection. |
 | `rightkit-app-settings` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | settings-persistence | Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events. |
 | `rightkit-apple-ops` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Apple ops: App Store Connect API and upload, build analysis, preflight, profiling and SwiftUI traces |
-| `rightkit-asr` | crates.io | 0.4.0 | 0.3.0 | 0.3.1 | **MISMATCH staged 0.3.1 != source 0.4.0** | speech-recognition | Parakeet ONNX + Whisper (CoreML / whisper.cpp) speech decoding runtime for Right Suite applications |
+| `rightkit-asr` | crates.io | 0.4.0 | 0.3.0 | 0.4.0 | staged, not yet published | speech-recognition | Parakeet ONNX + Whisper (CoreML / whisper.cpp) speech decoding runtime for Right Suite applications |
 | `rightkit-audio` | crates.io | 0.3.1 | 0.3.1 | 0.3.1 | ok | audio | Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery. |
 | `rightkit-autoedit` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | video-autoedit | Automatic editing for Right Suite video apps: transcript-driven cut engine (retakes, fillers, silences), editorial engine, named cut variants, and scoped editing rules with their resolution matrix. |
-| `rightkit-automation` | crates.io | 0.7.0 | 0.6.1 | 0.6.1 | **MISMATCH staged 0.6.1 != source 0.7.0** | desktop-automation | Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts. |
+| `rightkit-automation` | crates.io | 0.7.0 | 0.6.1 | 0.7.0 | staged, not yet published | desktop-automation | Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts. |
 | `rightkit-bench` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Benchmark harness building blocks: warmup-and-percentile timing, SQLite EXPLAIN QUERY PLAN probes, and article-quality corpus scoring with a reference extractor. |
 | `rightkit-bot-messaging` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Bot messaging bridge: remote chat channels (Telegram, Slack, Discord style) relaying agent sessions with policy-checked commands |
 | `rightkit-browser` | crates.io | 0.3.7 | 0.3.6 | 0.3.7 | staged, not yet published | browser-automation | Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks. |

@@ -87,7 +87,7 @@ export function npmRecipePolicy(root, unit) {
   let inventory;
   try { inventory = JSON.parse(fs.readFileSync(inventoryFile, "utf8")); } catch { return { ok: false, reason: "reviewed ci/consumer-recipes.json inventory required" }; }
   const reviewed = inventory.schema === 1 ? inventory.npm?.[unit] : null;
-  if (!reviewed || !/^PK\d{2}$/.test(reviewed.pkId ?? "") || typeof reviewed.id !== "string" || !reviewed.files || typeof reviewed.files !== "object") {
+  if (!reviewed || !/^PK\d{2,3}$/.test(reviewed.pkId ?? "") || typeof reviewed.id !== "string" || !reviewed.files || typeof reviewed.files !== "object") {
     return { ok: false, reason: `missing reviewed PK example (ci/consumer-recipes.json npm.${unit}); generic portability is not PK qualification` };
   }
   for (const [file, sha256] of Object.entries(reviewed.files)) {
