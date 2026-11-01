@@ -166,7 +166,8 @@ export function directCargoPath({ env = process.env, exists = existsSync, readHe
     const candidates = win ? ["cargo.exe", "cargo.cmd", "cargo.bat", "cargo"].map((n) => path.win32.join(dir, n)) : [path.posix.join(dir, "cargo")];
     const found = candidates.find((c) => exists(c));
     // `gateWrappers`: a gate resolving its OWN executor also skips another gate's runtime cargo wrapper (a gate started inside an outer gate's scan,
-    // 0.6.18/0.6.19 Linux qualify). A gate's children never pass it: inside a stage the wrapper first on PATH is the binding they must go through.
+    // 0.6.18/0.6.19 Linux qualify). A gate's children never pass it: inside a stage the wrapper first on PATH is the binding they must go through. The
+    // one other caller is test-support/toolchain-cargo.mjs, for a test's throwaway fixtures under the temp directory, never anything in the snapshot.
     const isShim = Boolean(found) && (MANAGED_AGENT_BIN.test(norm(dir)) || (configured && path.posix.resolve(norm(dir)) === configured) || /cargo-guard\.mjs|rustright/i.test(readHead(found)) || (gateWrappers && isGateCargoWrapper(found, readHead)));
     if (isShim) { dropped.push(dir); continue; }
     kept.push(dir);
