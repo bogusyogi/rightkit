@@ -1,4 +1,4 @@
-#![allow(dead_code, unused, missing_docs, clippy::all, rustdoc::all)]
+#![allow(dead_code, unused)]
 //! — the single binary: `serve` daemon + CLI subcommands + service management.
 
 mod acp;
@@ -135,7 +135,17 @@ fn install_crash_capture() {
     );
 }
 
-pub fn run() {
+/// Run the agent server host binary entry.
+///
+/// The product passes its skill implementations: `skill_catalog` answers skill discovery and
+/// trigger queries for the agent crates, and `skill_host` supplies the slash-command table,
+/// custom commands, skill manifests and trigger evaluation. Both are installed before anything runs.
+pub fn run(
+    skill_catalog: std::sync::Arc<dyn rightkit_agent_host_traits::SkillCatalog>,
+    skill_host: std::sync::Arc<dyn rightkit_agent_host_traits::skill_host::SkillHost>,
+) {
+    rightkit_agent_host_traits::install_skill_catalog(skill_catalog);
+    rightkit_agent_host_traits::skill_host::install_skill_host(skill_host);
     // First, before any other thread: read the licence locators the shell passed and remove every
     // licence-named variable from this process's environment, so no child process inherits one.
     license::capture_launch_locators();

@@ -7,7 +7,7 @@
 //! and `Deny` leave the command unrun and visible in the expanded text. This
 //! runner never approves anything itself.
 
-use coderight_skills::inline_shell::{ShellOutcome, ShellRunner};
+use rightkit_agent_host_traits::skill_host::inline_shell::{ShellOutcome, ShellRunner};
 use rightkit_agent_policy::{
     PermissionDecision, PermissionEngine, PermissionMode, ShellDialect, WorkspaceTrust,
 };
@@ -97,7 +97,7 @@ pub(crate) fn expand_custom_command(
         trust,
         workspace: workspace.to_path_buf(),
     };
-    coderight_skills::inline_shell::expand(body, &mut runner)
+    rightkit_agent_host_traits::skill_host::inline_shell::expand(body, &mut runner)
 }
 
 #[cfg(test)]

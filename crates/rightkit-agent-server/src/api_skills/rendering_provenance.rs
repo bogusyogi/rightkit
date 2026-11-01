@@ -121,7 +121,7 @@ fn limit_chars(text: &str, max_chars: usize) -> String {
 
 fn review_skill_provenance(source_url: &str, content: &str) -> SkillProvenanceReviewResponse {
     let mut findings = Vec::new();
-    let normalized_source_url = match coderight_skills::normalize_skill_pack_github_url(source_url)
+    let normalized_source_url = match rightkit_agent_host_traits::skill_host::normalize_skill_pack_github_url(source_url)
     {
         Ok(url) => {
             findings.push(SkillProvenanceFinding {

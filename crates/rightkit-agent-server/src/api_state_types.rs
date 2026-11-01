@@ -614,7 +614,7 @@ pub struct DaemonState {
     /// enable a globally-disabled plugin or disable a globally-enabled one
     /// without touching the manifest. Stored in-memory per daemon lifetime;
     /// clearing on session delete prevents leak.
-    pub session_plugin_activations: Arc<Mutex<coderight_plugins::SessionPluginActivations>>,
+    pub session_plugin_activations: Arc<Mutex<rightkit_agent_plugins::SessionPluginActivations>>,
     /// EXT-001: which plugin scopes were unloaded from a session's tool
     /// registry because they are disabled for that session, and how many
     /// registrations that removed.

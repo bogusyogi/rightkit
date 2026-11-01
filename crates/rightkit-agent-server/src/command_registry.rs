@@ -3,7 +3,7 @@
 //! commands (`main_runtime_interactive_session.rs`).
 //!
 //! P1-1/CR-24 unification: the authoritative table itself lives in
-//! `coderight_skills::commands` (`COMMAND_SPECS`) — the one place where a
+//! `rightkit_agent_host_traits::skill_host::commands` (`COMMAND_SPECS`) — the one place where a
 //! command's canonical name, aliases, metadata, and daemon-side executable
 //! handler identity are defined together. Dependency direction is
 //! `bins -> crates`, so this module is a THIN VIEW over that authority:
@@ -14,15 +14,19 @@
 //! `/model` and `session set --model` are two different *surfaces* over the
 //! same registry entry (`session-set` concept), not two implementations.
 
-pub use coderight_skills::commands::{
+pub use rightkit_agent_host_traits::skill_host::commands::{
     canonical_bare_name, entries_for_surface, entries_in_group, resolve_query, HelpGroup,
 };
 #[cfg(test)]
-pub use coderight_skills::commands::{resolve, CommandScope};
+pub use rightkit_agent_host_traits::skill_host::commands::{resolve, CommandScope};
 
 /// The single source of truth, re-exported from the shared authority so
 /// every in-binary consumer keeps reading it through this module path.
-pub use coderight_skills::commands::COMMAND_SPECS as COMMAND_REGISTRY;
+/// The slash command table (installed host).
+pub fn command_registry() -> &'static [rightkit_agent_host_traits::skill_host::commands::CommandSpec]
+{
+    rightkit_agent_host_traits::skill_host::command_specs()
+}
 
 /// Whether a command may run while a turn is in flight. This is the one
 /// place mid-turn eligibility is *enforced* rather than merely read off the
@@ -79,7 +83,7 @@ impl CommandRouter {
     /// completion. `prefix` matches against every registered string, not
     /// just canonical names, so completing `/q` offers `/quit`.
     pub fn completions(&self, prefix: &str) -> Vec<String> {
-        let mut out: Vec<String> = COMMAND_REGISTRY
+        let mut out: Vec<String> = command_registry()
             .iter()
             .flat_map(|entry| std::iter::once(entry.name).chain(entry.aliases.iter().copied()))
             .filter(|candidate| candidate.starts_with(prefix))
@@ -115,12 +119,12 @@ impl rightkit_terminal_ui::component::CommandSource for CommandRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use coderight_skills::commands::SlashCommand;
+    use rightkit_agent_host_traits::skill_host::commands::SlashCommand;
     use std::collections::HashSet;
 
     #[test]
     fn every_alias_resolves_to_its_own_entry() {
-        for entry in COMMAND_REGISTRY {
+        for entry in command_registry() {
             assert_eq!(
                 resolve(entry.name).map(|resolved| resolved.name),
                 Some(entry.name),
@@ -142,7 +146,7 @@ mod tests {
     #[test]
     fn no_duplicate_canonical_names() {
         let mut seen = HashSet::new();
-        for entry in COMMAND_REGISTRY {
+        for entry in command_registry() {
             assert!(
                 seen.insert(entry.name),
                 "duplicate canonical name: {}",
@@ -157,7 +161,7 @@ mod tests {
         // match `resolve` finds for any given string must be the one entry
         // that declares it, i.e. no two entries share a name/alias string.
         let mut all_strings: Vec<&'static str> = Vec::new();
-        for entry in COMMAND_REGISTRY {
+        for entry in command_registry() {
             all_strings.push(entry.name);
             all_strings.extend(entry.aliases.iter().copied());
         }
@@ -177,7 +181,7 @@ mod tests {
         // exactly once, so there is no third hidden list to fall out of sync.
         let common: Vec<_> = entries_in_group(HelpGroup::Common).collect();
         let advanced: Vec<_> = entries_in_group(HelpGroup::Advanced).collect();
-        assert_eq!(common.len() + advanced.len(), COMMAND_REGISTRY.len());
+        assert_eq!(common.len() + advanced.len(), command_registry().len());
     }
 
     #[test]
@@ -185,7 +189,7 @@ mod tests {
         // Every command reachable from both surfaces (BOTH) must exist as
         // exactly one registry entry — proving CLI and TUI resolve to the
         // same implementation rather than parallel definitions.
-        for entry in COMMAND_REGISTRY {
+        for entry in command_registry() {
             if entry.surfaces.cli && entry.surfaces.interactive {
                 assert_eq!(resolve(entry.name).unwrap().name, entry.name);
             }
@@ -193,7 +197,7 @@ mod tests {
         // Session-scoped commands are interactive-only (a session cannot
         // exist outside an interactive/daemon-attached context); non-session
         // commands reachable from the CLI don't require a live session.
-        for entry in COMMAND_REGISTRY {
+        for entry in command_registry() {
             if entry.scope == CommandScope::Session {
                 assert!(
                     entry.surfaces.interactive,
@@ -262,7 +266,7 @@ mod tests {
     #[test]
     fn aliases_resolve_identically_from_every_surface() {
         let router = CommandRouter;
-        for entry in COMMAND_REGISTRY {
+        for entry in command_registry() {
             for alias in entry.aliases {
                 assert_eq!(
                     resolve(alias).map(|e| e.name),
@@ -281,7 +285,9 @@ mod tests {
     /// "recognized but no executor".
     #[test]
     fn all_surfaces_share_one_table_and_normalize_aliases_before_execution() {
-        use coderight_skills::commands::{canonical_bare_name, CommandRegistry};
+        use rightkit_agent_host_traits::skill_host::commands::{
+            canonical_bare_name, CommandRegistry,
+        };
 
         let router = CommandRouter;
         let registry = CommandRegistry::new();
@@ -308,9 +314,9 @@ mod tests {
         // Structural unification: the binary exposes NO independent table.
         // `COMMAND_REGISTRY` IS the crate's `COMMAND_SPECS` (a re-export),
         // so any command added there appears here automatically.
-        for spec in coderight_skills::commands::COMMAND_SPECS {
+        for spec in rightkit_agent_host_traits::skill_host::command_specs() {
             assert!(
-                COMMAND_REGISTRY.iter().any(|e| e.name == spec.name),
+                command_registry().iter().any(|e| e.name == spec.name),
                 "bin view diverged from the authority at {}",
                 spec.name
             );
@@ -318,7 +324,7 @@ mod tests {
 
         // Alias normalization before execution, end to end: executing an
         // alias yields the identical result as executing the canonical name.
-        for entry in COMMAND_REGISTRY
+        for entry in command_registry()
             .iter()
             .filter(|e| e.daemon_handler.is_some())
         {
@@ -405,6 +411,6 @@ mod tests {
         // command added to the array automatically appears in both.
         let total_common_and_advanced = entries_in_group(HelpGroup::Common).count()
             + entries_in_group(HelpGroup::Advanced).count();
-        assert_eq!(total_common_and_advanced, COMMAND_REGISTRY.len());
+        assert_eq!(total_common_and_advanced, command_registry().len());
     }
 }

@@ -15,7 +15,7 @@ async fn run_recipe_sub_steps(
     toolset: Option<String>,
     max_budget_usd: Option<f64>,
 ) -> Result<(), i32> {
-    let plan = match coderight_recipes::resolve_run_plan(
+    let plan = match rightkit_agent_recipes::resolve_run_plan(
         recipe,
         params,
         &cli_recipe_catalog(store, Some(recipe)),

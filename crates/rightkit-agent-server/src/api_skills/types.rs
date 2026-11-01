@@ -11,7 +11,7 @@ struct SkillItem {
     compatibility: Vec<String>,
     platforms: Vec<String>,
     required_environment_variables: Vec<String>,
-    metadata: coderight_skills::manifest::SkillPackageMetadata,
+    metadata: rightkit_agent_host_traits::skill_host::manifest::SkillPackageMetadata,
     category: SkillCategory,
     priority: i32,
     disable_model_invocation: bool,
@@ -148,7 +148,7 @@ struct SkillBenchmarkVerdict {
     slug: String,
     proposal_id: Option<String>,
     benchmark_id: String,
-    gate_mode: coderight_skills::SkillGateMode,
+    gate_mode: rightkit_agent_host_traits::skill_host::SkillGateMode,
     score_continuous: f64,
     passed: bool,
     verdict_hash: String,
@@ -192,7 +192,7 @@ struct SkillProposalQuarantineRequest {
 struct SkillBenchmarkRequest {
     slug: Option<String>,
     benchmark_id: String,
-    gate_mode: Option<coderight_skills::SkillGateMode>,
+    gate_mode: Option<rightkit_agent_host_traits::skill_host::SkillGateMode>,
     score_continuous: Option<f64>,
     passed: bool,
     verdict: Option<serde_json::Value>,
@@ -222,7 +222,7 @@ struct SkillProposalBenchmarkRunRequest {
     #[serde(default)]
     benchmark_id: Option<String>,
     #[serde(default)]
-    gate_mode: Option<coderight_skills::SkillGateMode>,
+    gate_mode: Option<rightkit_agent_host_traits::skill_host::SkillGateMode>,
     #[serde(default)]
     threshold: Option<f64>,
     #[serde(default)]

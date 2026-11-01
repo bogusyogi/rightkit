@@ -160,7 +160,7 @@ impl DaemonState {
             shutdown_tx: Arc::new(tokio::sync::watch::channel(false).0),
             routing_cache: Arc::new(Mutex::new(HashMap::new())),
             session_plugin_activations: Arc::new(Mutex::new(
-                coderight_plugins::SessionPluginActivations::new(),
+                rightkit_agent_plugins::SessionPluginActivations::new(),
             )),
             session_plugin_unloads: Arc::new(Mutex::new(HashMap::new())),
             mutation_journal_reports: Arc::new(Mutex::new(HashMap::new())),

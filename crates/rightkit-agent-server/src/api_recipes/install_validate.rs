@@ -94,7 +94,7 @@ async fn install_recipe_url_handler(
 async fn validate_recipe_handler(
     State(state): State<DaemonState>,
     Json(body): Json<ValidateRecipeRequest>,
-) -> Json<coderight_recipes::RecipeValidationRun> {
+) -> Json<rightkit_agent_recipes::RecipeValidationRun> {
     let catalog = recipe_validation_catalog(&state, &body.recipe);
     Json(validate_recipe_with_catalog(
         &body.recipe,
@@ -118,7 +118,7 @@ fn install_recipe_document(
         format!("recipe-validation-{}", now_millis()),
         now_iso(),
     );
-    if validation.verdict == coderight_recipes::RecipeVerdict::Block {
+    if validation.verdict == rightkit_agent_recipes::RecipeVerdict::Block {
         return Err(RecipeApiError::bad_request(serde_json::json!({
             "error": "recipe validation failed",
             "validation": validation,

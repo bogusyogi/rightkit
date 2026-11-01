@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use coderight_skills::{SkillCategory, SkillEffects, SkillLifecycle, SkillManifest};
+use rightkit_agent_host_traits::skill_host::{SkillCategory, SkillEffects, SkillLifecycle, SkillManifest};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::path::{Path as FsPath, PathBuf};

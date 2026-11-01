@@ -152,11 +152,11 @@ fn recipe_cli_resolves_installed_id_and_deeplink() {
     let mut store = RecipeStore::new();
     store.install(InstalledRecipe {
         id: "installed-cli".to_string(),
-        source: coderight_recipes::RecipeSource::Inline,
+        source: rightkit_agent_recipes::RecipeSource::Inline,
         source_uri: None,
         title: recipe.title.clone(),
         version: recipe.version.clone(),
-        checksum: coderight_recipes::recipe_checksum(&recipe),
+        checksum: rightkit_agent_recipes::recipe_checksum(&recipe),
         trusted: true,
         recipe,
         installed_at: now_iso(),

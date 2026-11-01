@@ -19,7 +19,7 @@ async fn run_skill_proposal_benchmark_handler(
     let gate_mode = body
         .gate_mode
         .or_else(|| proposal_gate_mode(&state.skill_dirs, &proposal.slug))
-        .unwrap_or(coderight_skills::SkillGateMode::Hard);
+        .unwrap_or(rightkit_agent_host_traits::skill_host::SkillGateMode::Hard);
     let threshold = body
         .threshold
         .unwrap_or_else(|| default_skill_benchmark_threshold(gate_mode));

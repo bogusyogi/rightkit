@@ -41,7 +41,7 @@ pub(crate) fn plugin_routes() -> Router<DaemonState> {
 fn extension_execution_diagnostics_json() -> serde_json::Value {
     serde_json::json!({
         "schema_version": "coderight.plugins.execution-trust.v1",
-        "extension_execution": coderight_plugins::extension_trust_catalog(),
+        "extension_execution": rightkit_agent_plugins::extension_trust_catalog(),
     })
 }
 
@@ -94,7 +94,7 @@ async fn list_plugins_handler(
             let install_dir = state.plugin_dir.join(&p.id);
             let mut json = plugin_manifest_json_with_provenance(p, &install_dir);
             // Attach rollback versions for UI chip: installed vs update vs rollback available
-            let loader = coderight_plugins::PluginLoader::new(state.plugin_dir.clone());
+            let loader = rightkit_agent_plugins::PluginLoader::new(state.plugin_dir.clone());
             let rollback_versions = loader.available_rollback_versions(&p.id);
             if let Some(obj) = json.as_object_mut() {
                 obj.insert(
@@ -652,11 +652,11 @@ async fn rollback_plugin_handler(
         let source_path = if entry.source_path.as_os_str().is_empty() {
             if entry.source_url.trim().is_empty() {
                 // No package source: fallback to snapshot restore via PluginLoader
-                let loader = coderight_plugins::PluginLoader::new(state.plugin_dir.clone());
+                let loader = rightkit_agent_plugins::PluginLoader::new(state.plugin_dir.clone());
                 loader
                     .rollback(&id, &req.target_version)
                     .map_err(|e| match e {
-                        coderight_plugins::PluginError::NotFound(_) => StatusCode::NOT_FOUND,
+                        rightkit_agent_plugins::PluginError::NotFound(_) => StatusCode::NOT_FOUND,
                         _ => StatusCode::INTERNAL_SERVER_ERROR,
                     })?;
                 let middleware_count = refresh_runtime_plugins(&state);
@@ -720,11 +720,11 @@ async fn rollback_plugin_handler(
         })));
     }
     // No catalog entry: use filesystem snapshots
-    let loader = coderight_plugins::PluginLoader::new(state.plugin_dir.clone());
+    let loader = rightkit_agent_plugins::PluginLoader::new(state.plugin_dir.clone());
     loader
         .rollback(&id, &req.target_version)
         .map_err(|e| match e {
-            coderight_plugins::PluginError::NotFound(_) => StatusCode::NOT_FOUND,
+            rightkit_agent_plugins::PluginError::NotFound(_) => StatusCode::NOT_FOUND,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         })?;
     let middleware_count = refresh_runtime_plugins(&state);
@@ -757,7 +757,7 @@ async fn list_plugin_versions_handler(
         .iter()
         .find(|p| p.id == id)
         .map(|p| p.version.clone());
-    let loader = coderight_plugins::PluginLoader::new(state.plugin_dir.clone());
+    let loader = rightkit_agent_plugins::PluginLoader::new(state.plugin_dir.clone());
     let rollback_versions = loader.available_rollback_versions(&id);
     // Also collect marketplace versions for the same id
     let catalog = load_plugin_marketplace(&state.plugin_marketplace_path)
@@ -914,7 +914,7 @@ async fn clear_session_plugins_handler(
 }
 
 fn set_plugin_enabled(dir: &FsPath, id: &str, enabled: bool) -> Result<(), StatusCode> {
-    let mut loader = coderight_plugins::PluginLoader::new(dir.to_path_buf());
+    let mut loader = rightkit_agent_plugins::PluginLoader::new(dir.to_path_buf());
     loader
         .discover()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -924,8 +924,8 @@ fn set_plugin_enabled(dir: &FsPath, id: &str, enabled: bool) -> Result<(), Statu
         loader.disable(id)
     };
     result.map_err(|e| match e {
-        coderight_plugins::PluginError::NotFound(_) => StatusCode::NOT_FOUND,
-        coderight_plugins::PluginError::Io(_) | coderight_plugins::PluginError::Parse(_) => {
+        rightkit_agent_plugins::PluginError::NotFound(_) => StatusCode::NOT_FOUND,
+        rightkit_agent_plugins::PluginError::Io(_) | rightkit_agent_plugins::PluginError::Parse(_) => {
             StatusCode::INTERNAL_SERVER_ERROR
         }
     })

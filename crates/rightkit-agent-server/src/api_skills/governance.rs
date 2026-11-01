@@ -195,7 +195,7 @@ fn record_skill_proposal_benchmark(
     }
     let gate_mode = body
         .gate_mode
-        .unwrap_or(coderight_skills::SkillGateMode::Hard);
+        .unwrap_or(rightkit_agent_host_traits::skill_host::SkillGateMode::Hard);
     let score = body
         .score_continuous
         .unwrap_or(if body.passed { 1.0 } else { 0.0 });

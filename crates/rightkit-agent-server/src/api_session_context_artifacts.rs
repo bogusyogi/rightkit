@@ -332,19 +332,21 @@ fn discover_capability_index(
     let mut skill_roots = Vec::new();
     if let Some(state) = state_dir_for_discovery() {
         skill_roots.push((
-            coderight_skills::manifest::SkillSourceScope::User,
+            rightkit_agent_host_traits::skill_host::manifest::SkillSourceScope::User,
             state.join("skills"),
         ));
     }
     skill_roots.push((
-        coderight_skills::manifest::SkillSourceScope::WorkspaceCompatibility,
+        rightkit_agent_host_traits::skill_host::manifest::SkillSourceScope::WorkspaceCompatibility,
         workspace.join(".claude/skills"),
     ));
     skill_roots.push((
-        coderight_skills::manifest::SkillSourceScope::Workspace,
+        rightkit_agent_host_traits::skill_host::manifest::SkillSourceScope::Workspace,
         workspace.join(".coderight/skills"),
     ));
-    for skill in coderight_skills::manifest::discover_skill_roots(&skill_roots) {
+    for skill in
+        rightkit_agent_host_traits::skill_host::manifest::discover_skill_roots(&skill_roots)
+    {
         let mut risks = scan_declaration_risks(&skill.manifest.body);
         if !skill.manifest.effects.allowed_tools.is_empty()
             || !skill.manifest.effects.disallowed_tools.is_empty()

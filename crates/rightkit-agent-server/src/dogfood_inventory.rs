@@ -1,7 +1,7 @@
 //! Machine inventory dump for the dogfood qualification harness.
 //!
 //! Emits the two authorities that have no HTTP surface — the Clap grammar and
-//! the shared slash registry (`COMMAND_SPECS`) — as sorted, deterministic JSON.
+//! the shared slash registry (`command_specs()`) — as sorted, deterministic JSON.
 //! The daemon OpenAPI operation set is served live at `/api/contract`, so it is
 //! captured harness-side, not here.
 //!
@@ -18,7 +18,7 @@
 //! implying full conflict coverage.
 
 use clap::{Command as ClapCommand, CommandFactory};
-use coderight_skills::commands::COMMAND_SPECS;
+use rightkit_agent_host_traits::skill_host::command_specs;
 
 use crate::cli::Cli;
 
@@ -29,7 +29,7 @@ pub(crate) fn inventory_json() -> String {
     cli.sort();
     cli.dedup();
 
-    let mut slash: Vec<String> = COMMAND_SPECS.iter().map(slash_descriptor).collect();
+    let mut slash: Vec<String> = command_specs().iter().map(slash_descriptor).collect();
     slash.sort();
     slash.dedup();
 
@@ -115,7 +115,9 @@ fn arg_descriptor(arg: &clap::Arg) -> String {
     )
 }
 
-fn slash_descriptor(spec: &coderight_skills::commands::CommandSpec) -> String {
+fn slash_descriptor(
+    spec: &rightkit_agent_host_traits::skill_host::commands::CommandSpec,
+) -> String {
     let mut aliases: Vec<&str> = spec.aliases.to_vec();
     aliases.sort_unstable();
     let mut args: Vec<String> = spec

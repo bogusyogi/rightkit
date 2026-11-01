@@ -22,6 +22,9 @@ qualification = ["rightkit-agent-engine-core/qualification"]
 fastembed = ["rightkit-onnx/session", "rightkit-agent-tools/coding_tools-embeddings"]
 
 [dependencies]
+rightkit-agent-host-traits = { version = "0.1.1", path = "../rightkit-agent-host-traits" }
+rightkit-agent-plugins = { version = "0.1.0", path = "../rightkit-agent-plugins" }
+rightkit-agent-recipes = { version = "0.1.0", path = "../rightkit-agent-recipes" }
 rightkit-onnx = { version = "0.2.9", path = "../rightkit-onnx", features = ["agent_ort"], default-features = false }
 rightkit-agent-engine-protocol = { version = "0.1.0", path = "../rightkit-agent-engine-protocol" }
 rightkit-agent-engine-core = { version = "0.1.0", path = "../rightkit-agent-engine-core" }

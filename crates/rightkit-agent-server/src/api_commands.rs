@@ -5,7 +5,9 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use coderight_skills::{CommandAction, CommandRegistry, CommandResult, SlashCommand};
+use rightkit_agent_host_traits::skill_host::{
+    CommandAction, CommandRegistry, CommandResult, SlashCommand,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::path::{Path as FsPath, PathBuf};
@@ -336,7 +338,7 @@ fn plugin_command_rows(plugin_dir: &FsPath) -> Vec<CommandRow> {
 fn find_plugin_command(
     plugin_dir: &FsPath,
     command: &str,
-) -> Option<(coderight_plugins::PluginManifest, PathBuf)> {
+) -> Option<(rightkit_agent_plugins::PluginManifest, PathBuf)> {
     plugin_manifests_with_roots(plugin_dir)
         .into_iter()
         .find(|(manifest, _)| {
@@ -345,7 +347,7 @@ fn find_plugin_command(
 }
 
 async fn execute_plugin_command(
-    manifest: coderight_plugins::PluginManifest,
+    manifest: rightkit_agent_plugins::PluginManifest,
     root: PathBuf,
     cmd: &SlashCommand,
 ) -> CommandResult {
@@ -361,10 +363,10 @@ async fn execute_plugin_command(
             };
         }
     };
-    match coderight_plugins::run_plugin_entry_with_policy_and_adapter(
+    match rightkit_agent_plugins::run_plugin_entry_with_policy_and_adapter(
         &entry,
         &root,
-        coderight_plugins::PluginInvocation {
+        rightkit_agent_plugins::PluginInvocation {
             kind: "command".into(),
             name: cmd.name.clone(),
             args: serde_json::json!(cmd.args),
@@ -484,7 +486,7 @@ mod tests {
     /// executor bound from the same table row.
     #[test]
     fn every_listed_builtin_has_a_live_executor() {
-        use coderight_skills::commands::CommandRegistry;
+        use rightkit_agent_host_traits::skill_host::commands::CommandRegistry;
 
         let registry = CommandRegistry::new();
         for row in shared_table_command_rows() {

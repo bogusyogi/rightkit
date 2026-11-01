@@ -603,7 +603,7 @@ fn structured_terminal_message(
 fn render_scheduled_recipe(
     state: &DaemonState,
     entry: &ScheduleEntry,
-) -> Result<Option<coderight_recipes::RenderedRecipe>, String> {
+) -> Result<Option<rightkit_agent_recipes::RenderedRecipe>, String> {
     let Some(recipe_id) = entry
         .source_recipe_id
         .as_deref()
@@ -627,7 +627,7 @@ fn record_scheduled_recipe_run(
     state: &DaemonState,
     entry: &ScheduleEntry,
     session_id: &str,
-    rendered: &coderight_recipes::RenderedRecipe,
+    rendered: &rightkit_agent_recipes::RenderedRecipe,
 ) {
     let Some(recipe_id) = entry.source_recipe_id.clone() else {
         return;

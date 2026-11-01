@@ -5,7 +5,7 @@ use axum::{
     routing::get,
     Router,
 };
-use coderight_skills::CommandResult;
+use rightkit_agent_host_traits::skill_host::CommandResult;
 use rightkit_memory::backend::{CallContext, MemoryBackendError, MemoryEntry};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -341,7 +341,7 @@ fn command_ok(output: impl Into<String>) -> CommandResult {
     CommandResult {
         success: true,
         output: output.into(),
-        action: coderight_skills::CommandAction::None,
+        action: rightkit_agent_host_traits::skill_host::CommandAction::None,
     }
 }
 
@@ -349,7 +349,7 @@ fn command_error(output: impl Into<String>) -> CommandResult {
     CommandResult {
         success: false,
         output: output.into(),
-        action: coderight_skills::CommandAction::None,
+        action: rightkit_agent_host_traits::skill_host::CommandAction::None,
     }
 }
 

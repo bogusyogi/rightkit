@@ -25,7 +25,7 @@ mod tests {
 
     #[test]
     fn plugin_row_matches_fixture_contract() {
-        let manifest = coderight_plugins::PluginManifest {
+        let manifest = rightkit_agent_plugins::PluginManifest {
             id: "fixture-plugin".into(),
             name: "Fixture Plugin".into(),
             version: "1.0.0".into(),
@@ -38,7 +38,7 @@ mod tests {
             prompts: Vec::new(),
             middleware: Vec::new(),
             ui_slots: Vec::new(),
-            sandbox: coderight_plugins::PluginSandboxPolicy::default(),
+            sandbox: rightkit_agent_plugins::PluginSandboxPolicy::default(),
             enabled: true,
         };
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
@@ -127,7 +127,7 @@ mod tests {
 
     fn test_marketplace_entry() -> PluginMarketplaceEntry {
         PluginMarketplaceEntry {
-            manifest: coderight_plugins::PluginManifest {
+            manifest: rightkit_agent_plugins::PluginManifest {
                 id: "signed-fixture".into(),
                 name: "Signed Fixture".into(),
                 version: "1.0.0".into(),
@@ -140,7 +140,7 @@ mod tests {
                 prompts: Vec::new(),
                 middleware: Vec::new(),
                 ui_slots: Vec::new(),
-                sandbox: coderight_plugins::PluginSandboxPolicy::default(),
+                sandbox: rightkit_agent_plugins::PluginSandboxPolicy::default(),
                 enabled: true,
             },
             downloads: 0,

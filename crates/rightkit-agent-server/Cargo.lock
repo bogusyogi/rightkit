@@ -4274,8 +4274,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-host-traits"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
+ "serde",
  "serde_json",
 ]
 
@@ -4328,6 +4329,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-agent-recipes"
+version = "0.1.0"
+dependencies = [
+ "jsonschema",
+ "rightkit-fs",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rightkit-agent-server"
 version = "0.1.0"
 dependencies = [
@@ -4359,8 +4370,11 @@ dependencies = [
  "rightkit-agent-engine-runtime-resources",
  "rightkit-agent-engine-storage",
  "rightkit-agent-engine-tasks",
+ "rightkit-agent-host-traits",
  "rightkit-agent-orchestration",
+ "rightkit-agent-plugins",
  "rightkit-agent-policy",
+ "rightkit-agent-recipes",
  "rightkit-agent-tools",
  "rightkit-agents",
  "rightkit-app-settings",

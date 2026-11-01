@@ -5,8 +5,8 @@ use axum::{
     routing::get,
     Router,
 };
-use coderight_skills::{CommandAction, CommandResult};
 use rightkit_agent_engine_protocol::TranscriptMessage;
+use rightkit_agent_host_traits::skill_host::{CommandAction, CommandResult};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 

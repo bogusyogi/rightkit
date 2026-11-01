@@ -195,13 +195,13 @@ async fn slash_diff_reports_real_git_status_and_patch() {
 
 #[tokio::test]
 async fn slash_review_returns_auditor_code_review_action() {
-    let review = coderight_skills::commands::CommandRegistry::new()
+    let review = rightkit_agent_host_traits::skill_host::commands::CommandRegistry::new()
         .execute("review", &["focus on test coverage".to_string()])
         .expect("review command handler");
 
     assert!(review.success);
     assert!(review.output.contains("read-only auditor review"));
-    let coderight_skills::CommandAction::ConductGoal(action) = review.action else {
+    let rightkit_agent_host_traits::skill_host::CommandAction::ConductGoal(action) = review.action else {
         panic!("review must produce a conductor goal");
     };
     assert!(action.contains("categorized as `code-review`"));

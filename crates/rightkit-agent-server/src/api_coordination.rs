@@ -5,7 +5,7 @@ use axum::{
     routing::{delete, get},
     Router,
 };
-use coderight_skills::{CommandAction, CommandResult};
+use rightkit_agent_host_traits::skill_host::{CommandAction, CommandResult};
 use serde_json::{json, Map, Value};
 
 use crate::api::{lock_recover, DaemonState};

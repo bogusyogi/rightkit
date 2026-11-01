@@ -893,10 +893,10 @@ fn bare_canonical_command_names_reach_the_parser_in_slash_form() {
     assert_eq!(slash_form("/status"), "/status");
     assert_eq!(slash_form("session list"), "/session list");
     // Every registered command, bare or slashed, parses once normalised.
-    for spec in coderight_skills::commands::COMMAND_SPECS {
+    for spec in rightkit_agent_host_traits::skill_host::command_specs() {
         let typed = slash_form(spec.name);
         assert!(
-            coderight_skills::commands::SlashCommand::parse(&typed).is_some(),
+            rightkit_agent_host_traits::skill_host::commands::SlashCommand::parse(&typed).is_some(),
             "{typed} must parse as a slash command"
         );
     }

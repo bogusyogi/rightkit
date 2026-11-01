@@ -67,7 +67,7 @@ pub(crate) fn rollback_plugin(
     plugin_id: &str,
     target_version: &str,
 ) -> Result<(), String> {
-    let loader = coderight_plugins::PluginLoader::new(plugin_dir.to_path_buf());
+    let loader = rightkit_agent_plugins::PluginLoader::new(plugin_dir.to_path_buf());
     loader
         .rollback(plugin_id, target_version)
         .map_err(|e| e.to_string())
@@ -75,7 +75,7 @@ pub(crate) fn rollback_plugin(
 
 /// Per-session activation helper — enable a plugin for a single session.
 pub(crate) fn enable_for_session(
-    activations: &mut coderight_plugins::SessionPluginActivations,
+    activations: &mut rightkit_agent_plugins::SessionPluginActivations,
     plugin_id: &str,
     session_id: &str,
 ) {
@@ -84,7 +84,7 @@ pub(crate) fn enable_for_session(
 
 /// Per-session activation helper — disable a plugin for a single session.
 pub(crate) fn disable_for_session(
-    activations: &mut coderight_plugins::SessionPluginActivations,
+    activations: &mut rightkit_agent_plugins::SessionPluginActivations,
     plugin_id: &str,
     session_id: &str,
 ) {
@@ -105,7 +105,7 @@ mod tests {
             ("alpha", "security", "2.0.0"),
         ] {
             plugins.push(PluginMarketplaceEntry {
-                manifest: coderight_plugins::PluginManifest {
+                manifest: rightkit_agent_plugins::PluginManifest {
                     id: id.to_string(),
                     name: format!("{} plugin", id),
                     version: ver.to_string(),
@@ -118,7 +118,7 @@ mod tests {
                     prompts: Vec::new(),
                     middleware: Vec::new(),
                     ui_slots: Vec::new(),
-                    sandbox: coderight_plugins::PluginSandboxPolicy::default(),
+                    sandbox: rightkit_agent_plugins::PluginSandboxPolicy::default(),
                     enabled: true,
                 },
                 downloads: 10,
@@ -172,7 +172,7 @@ mod tests {
         // Create v1 plugin dir
         let p1_dir = plugin_dir.join("alpha");
         std::fs::create_dir_all(&p1_dir).unwrap();
-        let m1 = coderight_plugins::PluginManifest {
+        let m1 = rightkit_agent_plugins::PluginManifest {
             id: "alpha".into(),
             name: "Alpha".into(),
             version: "1.0.0".into(),
@@ -185,7 +185,7 @@ mod tests {
             prompts: Vec::new(),
             middleware: Vec::new(),
             ui_slots: Vec::new(),
-            sandbox: coderight_plugins::PluginSandboxPolicy::default(),
+            sandbox: rightkit_agent_plugins::PluginSandboxPolicy::default(),
             enabled: true,
         };
         std::fs::write(p1_dir.join("plugin.json"), m1.to_json().unwrap()).unwrap();
@@ -198,7 +198,7 @@ mod tests {
         std::fs::copy(p1_dir.join("extra.txt"), snap.join("extra.txt")).unwrap();
 
         // Overwrite with v2
-        let m2 = coderight_plugins::PluginManifest {
+        let m2 = rightkit_agent_plugins::PluginManifest {
             version: "2.0.0".into(),
             ..m1.clone()
         };
@@ -207,7 +207,7 @@ mod tests {
 
         // Rollback to v1
         rollback_plugin(&plugin_dir, "alpha", "1.0.0").unwrap();
-        let restored = coderight_plugins::PluginManifest::from_json(
+        let restored = rightkit_agent_plugins::PluginManifest::from_json(
             &std::fs::read_to_string(p1_dir.join("plugin.json")).unwrap(),
         )
         .unwrap();
@@ -220,8 +220,8 @@ mod tests {
 
     #[test]
     fn per_session_activation_helpers() {
-        let mut activations = coderight_plugins::SessionPluginActivations::new();
-        let manifest = coderight_plugins::PluginManifest {
+        let mut activations = rightkit_agent_plugins::SessionPluginActivations::new();
+        let manifest = rightkit_agent_plugins::PluginManifest {
             id: "alpha".into(),
             name: "Alpha".into(),
             version: "1.0.0".into(),
@@ -234,7 +234,7 @@ mod tests {
             prompts: Vec::new(),
             middleware: Vec::new(),
             ui_slots: Vec::new(),
-            sandbox: coderight_plugins::PluginSandboxPolicy::default(),
+            sandbox: rightkit_agent_plugins::PluginSandboxPolicy::default(),
             enabled: false,
         };
         // Global disabled, but enabled for session s1

@@ -6,7 +6,7 @@ use axum::{
     Router,
 };
 use rightkit_agent_engine_protocol::{ArtifactRow, ContentTrust, ProtocolEvent, TranscriptMessage};
-use coderight_recipes::{
+use rightkit_agent_recipes::{
     build_recipe_deeplink, parse_recipe_deeplink, recipe_checksum, render_recipe, stable_recipe_id,
     validate_recipe_with_catalog, InstalledRecipe, Recipe, RecipeDeeplink, RecipeRun,
     RecipeRunStatus, RecipeSource, RecipeStore, RecipeStoreSnapshot, RenderedRecipe,

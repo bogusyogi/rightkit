@@ -69,7 +69,7 @@ pub fn cli_json(report: &DiagnosticsReport, verbose: bool) -> String {
         object.insert("dimensions".to_string(), dimensions_value);
         object.insert(
             "extension_execution".to_string(),
-            serde_json::to_value(coderight_plugins::extension_trust_catalog())
+            serde_json::to_value(rightkit_agent_plugins::extension_trust_catalog())
                 .unwrap_or_else(|_| serde_json::json!([])),
         );
     }

@@ -348,10 +348,9 @@ impl RuntimeNodeDispatcher {
                         })?
                 };
                 if !installed.trusted
-                    || !installed
-                        .latest_validation
-                        .as_ref()
-                        .is_some_and(|run| run.verdict != coderight_recipes::RecipeVerdict::Block)
+                    || !installed.latest_validation.as_ref().is_some_and(|run| {
+                        run.verdict != rightkit_agent_recipes::RecipeVerdict::Block
+                    })
                 {
                     return Err(DispatcherError::Runtime(format!(
                         "recipe `{id}` is not trusted and validated"
@@ -359,7 +358,7 @@ impl RuntimeNodeDispatcher {
                 }
                 let params = serde_json::from_str::<BTreeMap<String, String>>(inputs_json)
                     .map_err(|error| DispatcherError::Runtime(format!("recipe inputs: {error}")))?;
-                let rendered = coderight_recipes::render_recipe(&installed.recipe, &params)
+                let rendered = rightkit_agent_recipes::render_recipe(&installed.recipe, &params)
                     .map_err(|error| {
                         DispatcherError::Runtime(format!("recipe render: {}", error.message))
                     })?;
@@ -376,11 +375,11 @@ impl RuntimeNodeDispatcher {
                     .map_err(|_| {
                         DispatcherError::Runtime("recipe runtime policy rejected session".into())
                     })?;
-                let recipe_run = coderight_recipes::RecipeRun {
+                let recipe_run = rightkit_agent_recipes::RecipeRun {
                     id: format!("rr-{}", rightkit_agent_engine_protocol::uuid_v7()),
                     recipe_id: installed.id,
                     session_id: session_id.clone(),
-                    status: coderight_recipes::RecipeRunStatus::Running,
+                    status: rightkit_agent_recipes::RecipeRunStatus::Running,
                     params: rendered.params.clone(),
                     rendered_prompt_hash: rendered.rendered_prompt_hash.clone(),
                     result_artifact_id: None,

@@ -2,14 +2,14 @@ pub(crate) fn install_local_plugin(
     plugin_dir: &FsPath,
     source_path: &FsPath,
     overwrite: bool,
-) -> Result<(coderight_plugins::PluginManifest, PathBuf, bool), StatusCode> {
+) -> Result<(rightkit_agent_plugins::PluginManifest, PathBuf, bool), StatusCode> {
     if !source_path.is_dir() {
         return Err(StatusCode::BAD_REQUEST);
     }
     let manifest_path = source_path.join("plugin.json");
     let raw = std::fs::read_to_string(&manifest_path).map_err(|_| StatusCode::BAD_REQUEST)?;
     let manifest =
-        coderight_plugins::PluginManifest::from_json(&raw).map_err(|_| StatusCode::BAD_REQUEST)?;
+        rightkit_agent_plugins::PluginManifest::from_json(&raw).map_err(|_| StatusCode::BAD_REQUEST)?;
     if !validate_plugin_id(&manifest.id) {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -56,7 +56,7 @@ pub(crate) struct PluginMarketplaceCatalog {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PluginMarketplaceEntry {
-    pub(crate) manifest: coderight_plugins::PluginManifest,
+    pub(crate) manifest: rightkit_agent_plugins::PluginManifest,
     #[serde(default)]
     pub(crate) downloads: u64,
     #[serde(default)]

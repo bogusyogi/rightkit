@@ -5,7 +5,7 @@
 //! workspace is trusted, the project's `.claude/commands/` and
 //! `.coderight/commands/` (later roots override earlier ones). Parsing,
 //! discovery, `$ARGUMENTS`/`$1..$n` and `@file` live in
-//! `coderight_skills::custom_commands`; `!{cmd}` and backtick-bang run through
+//! `rightkit_agent_host_traits::skill_host::custom_commands`; `!{cmd}` and backtick-bang run through
 //! the policy-backed `inline_shell_runner::expand_custom_command`, so an
 //! unapproved shell command is never executed.
 //!
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use coderight_skills::custom_commands::{
+use rightkit_agent_host_traits::skill_host::custom_commands::{
     discover, expand_file_references, listing, resolve, substitute_arguments, CommandScope,
     CustomCommand,
 };
@@ -344,7 +344,7 @@ mod tests {
     fn render_substitutes_arguments_and_file_references() {
         let ws = tempfile::tempdir().unwrap();
         write(ws.path(), "notes.txt", "remember\n");
-        let cmd = coderight_skills::custom_commands::parse_command(
+        let cmd = rightkit_agent_host_traits::skill_host::custom_commands::parse_command(
             "fix",
             "---\ndescription: Fix\n---\nFix $1 ($ARGUMENTS) using @notes.txt",
             CommandScope::Project,
@@ -365,12 +365,14 @@ mod tests {
 
     #[test]
     fn bare_name_resolves_namespaced_command() {
-        let cmds = vec![coderight_skills::custom_commands::parse_command(
-            "team:deploy",
-            "go",
-            CommandScope::Project,
-            Path::new("d.md"),
-        )];
+        let cmds = vec![
+            rightkit_agent_host_traits::skill_host::custom_commands::parse_command(
+                "team:deploy",
+                "go",
+                CommandScope::Project,
+                Path::new("d.md"),
+            ),
+        ];
         let ws = tempfile::tempdir().unwrap();
         let out = expand_by_name(
             &cmds,
@@ -385,12 +387,14 @@ mod tests {
 
     #[test]
     fn frontmatter_tools_and_model_become_turn_overrides() {
-        let cmds = vec![coderight_skills::custom_commands::parse_command(
-            "audit",
-            "---\nallowed-tools: Read, Grep\nmodel: fast-model\n---\nlook $1",
-            CommandScope::Project,
-            Path::new("a.md"),
-        )];
+        let cmds = vec![
+            rightkit_agent_host_traits::skill_host::custom_commands::parse_command(
+                "audit",
+                "---\nallowed-tools: Read, Grep\nmodel: fast-model\n---\nlook $1",
+                CommandScope::Project,
+                Path::new("a.md"),
+            ),
+        ];
         let ws = tempfile::tempdir().unwrap();
         let o = expand_by_name(
             &cmds,
@@ -499,12 +503,14 @@ mod tests {
 
     #[test]
     fn all_unknown_entries_keep_the_normal_toolset() {
-        let cmds = vec![coderight_skills::custom_commands::parse_command(
-            "odd",
-            "---\nallowed-tools: Teleport\n---\nhi",
-            CommandScope::User,
-            Path::new("o.md"),
-        )];
+        let cmds = vec![
+            rightkit_agent_host_traits::skill_host::custom_commands::parse_command(
+                "odd",
+                "---\nallowed-tools: Teleport\n---\nhi",
+                CommandScope::User,
+                Path::new("o.md"),
+            ),
+        ];
         let ws = tempfile::tempdir().unwrap();
         let o = expand_by_name(
             &cmds,
@@ -540,7 +546,7 @@ mod tests {
         let ws = tempfile::tempdir().unwrap();
         let marker = ws.path().join("ran.txt");
         let body = format!("a !{{echo hi > \"{}\"}} b", marker.display());
-        let cmd = coderight_skills::custom_commands::parse_command(
+        let cmd = rightkit_agent_host_traits::skill_host::custom_commands::parse_command(
             "sh",
             &body,
             CommandScope::User,
@@ -559,12 +565,14 @@ mod tests {
 
     #[test]
     fn expand_by_name_finds_namespaced_commands_case_insensitively() {
-        let cmds = vec![coderight_skills::custom_commands::parse_command(
-            "team:deploy",
-            "go $1",
-            CommandScope::Project,
-            Path::new("d.md"),
-        )];
+        let cmds = vec![
+            rightkit_agent_host_traits::skill_host::custom_commands::parse_command(
+                "team:deploy",
+                "go $1",
+                CommandScope::Project,
+                Path::new("d.md"),
+            ),
+        ];
         let ws = tempfile::tempdir().unwrap();
         let out = expand_by_name(
             &cmds,

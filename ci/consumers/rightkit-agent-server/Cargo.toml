@@ -8,3 +8,4 @@ publish = false
 
 [dependencies]
 rightkit-agent-server = { version = "=0.1.0" }
+rightkit-agent-host-traits = { version = "=0.1.1" }

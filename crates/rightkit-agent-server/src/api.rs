@@ -89,19 +89,19 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use coderight_recipes::RecipeStore;
-use coderight_skills::{CommandAction, CommandResult, SlashCommand};
 use rightkit_agent_engine_core::agents::WEBSITE_DESIGNER_SYSTEM_PROMPT;
 use rightkit_agent_engine_core::Conduit;
 use rightkit_agent_engine_protocol::{
     ContentTrust, ProtocolEvent, TranscriptMessage, TrustEnvelope,
 };
 use rightkit_agent_engine_runtime_middleware::{MiddlewarePhase, RuntimeSpan};
+use rightkit_agent_host_traits::skill_host::{CommandAction, CommandResult, SlashCommand};
 use rightkit_agent_orchestration::registry::AgentRegistry;
 use rightkit_agent_orchestration::{
     ClassifierComplexity, ClassifierOutcome, DispatchClassifier, DispatchDecision, DispatchRouter,
     ExecutionStrategy, JudgeSource,
 };
+use rightkit_agent_recipes::RecipeStore;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
