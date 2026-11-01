@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-agent-skills",
+  "capabilities": [
+    {
+      "capability": "agent-skills",
+      "summary": "Agent skills and slash-command grammar: skill discovery, manifests, the shared command table and interactive effects; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}
