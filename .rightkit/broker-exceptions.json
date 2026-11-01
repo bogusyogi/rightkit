@@ -11,13 +11,14 @@
         "rust:rightkit-daemon",
         "npm:@rightkit/build-control-policy",
         "npm:@rightkit/release",
-        "rust:rightkit-qa"
+        "rust:rightkit-qa",
+        "rust:rightkit-credentials"
       ],
       "hosts": [
         "mac",
         "dell"
       ],
-      "note": "Lasts until these units are published (Adrian 2026-10-31: 'exception lasts for what i asked for, till the time it's published'). rightkit-license removed: 0.2.6 published 2026-10-31. npm:@rightkit/release added: HeardRight needs the --no-broker gate it carries ('Any blockers it has must be ... published. Immediately.')."
+      "note": "Lasts until these units are published (Adrian 2026-10-31: 'exception lasts for what i asked for, till the time it's published'). rightkit-license removed: 0.2.6 published 2026-10-31. npm:@rightkit/release added: HeardRight needs the --no-broker gate it carries ('Any blockers it has must be ... published. Immediately.'). 2026-11-01: rust:rightkit-credentials added (the tool route that enrols the updater credential provider HeardRight's installers need; Adrian 2026-11-01: \"i need a fucking installer from both of you\"; the trusted 0.6.16 gate has no --to tool)."
     },
     {
       "id": "adrian-2026-11-01-e2e-app",
