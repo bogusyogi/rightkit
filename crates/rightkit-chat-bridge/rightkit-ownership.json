@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-chat-bridge",
+  "capabilities": [
+    {
+      "capability": "chat-bridge",
+      "summary": "Chat between AI chats: envelopes, linked computers and the device link, native delivery into running Claude and Codex chats (hooks, desktop), receipts, the chat skill and hook installer. The host app supplies its brand and state folder.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

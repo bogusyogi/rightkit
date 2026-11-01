@@ -606,6 +606,9 @@ pub fn derive_status(inputs: &StatusInputs<'_>) -> StatusDecision {
 
 // ----- ReportV2 ---------------------------------------------------------------
 
+type ResolveFn<'a> = &'a dyn Fn(&str) -> Option<Vec<u8>>;
+type DiffTagFn<'a> = &'a dyn Fn(&str, u32, u32) -> DiffTag;
+
 /// Inputs for lifting a writer's v1 report into v2.
 pub struct LiftContext<'a> {
     pub scope: ReportScope,
@@ -613,9 +616,9 @@ pub struct LiftContext<'a> {
     /// when the path is not in scope. `None` here means positioning is
     /// unavailable (no scoped bytes): anchors are not attempted and are never
     /// reported as failed.
-    pub resolve: Option<&'a dyn Fn(&str) -> Option<Vec<u8>>>,
+    pub resolve: Option<ResolveFn<'a>>,
     /// Diff tag for an anchor (diff modes); `None` when not in a diff mode.
-    pub diff_tag: Option<&'a dyn Fn(&str, u32, u32) -> DiffTag>,
+    pub diff_tag: Option<DiffTagFn<'a>>,
     /// Provider-declared exactness for a finding's rule class. Absent means
     /// every finding is heuristic.
     pub exactness: Option<&'a dyn Fn(&Finding) -> Exactness>,
@@ -634,10 +637,7 @@ impl<'a> LiftContext<'a> {
         Self::with_resolver(scope, None)
     }
 
-    fn with_resolver(
-        scope: ReportScope,
-        resolve: Option<&'a dyn Fn(&str) -> Option<Vec<u8>>>,
-    ) -> Self {
+    fn with_resolver(scope: ReportScope, resolve: Option<ResolveFn<'a>>) -> Self {
         Self {
             scope,
             resolve,

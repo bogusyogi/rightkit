@@ -184,7 +184,8 @@ fn open_key(parent: *mut c_void, name: &str) -> io::Result<Option<RegistryKey>> 
     let status = unsafe { RegOpenKeyExW(parent, wide(name).as_ptr(), 0, 0x20019, &mut key) };
     match status {
         0 => Ok(Some(RegistryKey(key))),
-        2 => Ok(None),
+        // ERROR_FILE_NOT_FOUND, or ERROR_KEY_DELETED: a profile being deleted right now is already gone.
+        2 | 1018 => Ok(None),
         n => Err(io::Error::from_raw_os_error(n)),
     }
 }
@@ -417,7 +418,8 @@ pub(super) fn registered_profiles() -> io::Result<Vec<(String, String)>> {
                 &mut bytes,
             )
         };
-        if status == 2 {
+        // ERROR_FILE_NOT_FOUND, or ERROR_KEY_DELETED while another process deletes that profile.
+        if status == 2 || status == 1018 {
             continue;
         }
         if status != 0 {

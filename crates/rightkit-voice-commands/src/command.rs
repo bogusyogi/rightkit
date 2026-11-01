@@ -43,7 +43,8 @@ pub enum CommandAction {
         page: bool,
     },
     /// Destructive power action with explicit variant. Rust enforces delay
-    /// + cancel semantics (no arbitrary shutdown command strings over IPC).
+    /// and cancel semantics (no arbitrary shutdown command strings over IPC).
+    ///
     /// `requires_confirm` is always true for user-facing power commands;
     /// the dispatch layer must show a confirmation UI before executing.
     Power {

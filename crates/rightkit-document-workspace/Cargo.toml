@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-document-workspace"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Document workspace store: recent files, pinned files and folders, per-document view state and tab session in one SQLite file, with corruption quarantine and path purge."
@@ -17,6 +17,22 @@ path = "src/lib.rs"
 serde = { version = "1", features = ["derive"] }
 walkdir = { version = "2.5.0" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
+rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
+rightkit-app-settings = { version = "0.3.0", path = "../rightkit-app-settings" }
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
+rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
+serde_json = "1.0.154"
+base64 = "0.23.1"
+getrandom = "0.4.3"
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+dirs = "7.0.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Storage_FileSystem"] }
 
 [workspace]
 

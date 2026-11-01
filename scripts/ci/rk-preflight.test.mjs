@@ -123,13 +123,13 @@ test("the plan-job contract commands come from publish.yml itself, never from a 
   const fs = require("node:fs"), path = require("node:path");
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
   const commands = planCommandsFromWorkflow(root, { execPath: "NODE" });
-  assert.ok(commands.length >= 4, "the real workflow step runs at least four commands");
+  assert.equal(commands.length, 1, "the real workflow step runs the one shared publish-preflight command");
   assert.ok(commands.every(([exe, args]) => exe === "NODE" && args.length >= 1 && args.every((a) => /^[A-Za-z0-9_./@-]+$/.test(a))));
-  assert.ok(commands.some(([, args]) => args.join(" ") === "scripts/ci/workflow-contract.mjs .github/workflows/publish.yml"));
+  assert.ok(commands.some(([, args]) => args.join(" ") === "scripts/ci/publish-preflight.mjs"));
   const real = fs.readFileSync(path.join(root, ".github", "workflows", "publish.yml"), "utf8");
   const renamed = real.replace(PLAN_CONTRACT_STEP, "Something else");
   assert.throws(() => planCommandsFromWorkflow(root, { readFile: () => renamed }), /no plan step named/);
-  const shelly = real.replace("node scripts/ci/reviewed-workflow-contract.mjs", "node scripts/ci/reviewed-workflow-contract.mjs && rm -rf /");
+  const shelly = real.replace("node scripts/ci/publish-preflight.mjs", "node scripts/ci/publish-preflight.mjs && rm -rf /");
   assert.throws(() => planCommandsFromWorkflow(root, { readFile: () => shelly }), /not a plain node command/);
 });
 

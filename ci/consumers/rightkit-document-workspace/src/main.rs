@@ -1,4 +1,4 @@
-//! Registry consumer for rightkit-document-workspace 0.1.0: builds against the published API only.
+//! Registry consumer for rightkit-document-workspace 0.1.1: builds against the published API only.
 use rightkit_document_workspace::Db;
 
 fn check(ok: bool, what: &str) {
@@ -25,6 +25,16 @@ fn main() {
         "a recorded file is listed as recent",
     );
     check(db.purge_user_paths().is_ok(), "stored paths purge");
+    check(
+        rightkit_document_workspace::document_io::natural_cmp("img2", "img10").is_lt(),
+        "natural ordering compares digit runs numerically",
+    );
+    check(
+        serde_json::to_string(&rightkit_document_workspace::WorkspaceError::Io("x".into()))
+            .map(|s| s == r#"{"code":"io","message":"x"}"#)
+            .unwrap_or(false),
+        "errors serialize as code and message",
+    );
     drop(db);
     let _ = std::fs::remove_dir_all(&dir);
     println!("rightkit-document-workspace consumer: all checks passed");

@@ -5,7 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cargoRecipe, nativeFixture, planRuns, parseRuns, executeRuns, cargoRunArgs, NATIVE_HELPER, planNativeHelper, stageNativeHelper, nativeHelperExecute } from "./consumer-recipes.mjs";
-const unit = { name: "rightkit-logs", version: "0.3.6" };
+const crateVersion = (name) => /^version\s*=\s*"([^"]+)"/m.exec(fs.readFileSync(new URL(`../../crates/${name}/Cargo.toml`, import.meta.url), "utf8"))[1];
+// The committed recipes pin the crate's current version; the fixture follows it.
+const unit = { name: "rightkit-logs", version: crateVersion("rightkit-logs") };
 const committedRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 // Committed recipes pin each crate's current version; read it from the manifest so a version bump never breaks these tests.
@@ -22,7 +24,7 @@ test("PK identity binds executable source, every file, exact dependency & select
   const { root, dir } = fixture(t); const recipe = cargoRecipe({ root, unit });
   assert.equal(recipe.evidence.id, "ci/consumers/rightkit-logs/src/main.rs");
   assert.equal(recipe.evidence.pkId, "PK11");
-  assert.deepEqual(recipe.evidence.dependency, { name: unit.name, version: "=0.3.6", defaultFeatures: false, features: [] });
+  assert.deepEqual(recipe.evidence.dependency, { name: unit.name, version: `=${unit.version}`, defaultFeatures: false, features: [] });
   assert.equal(Object.keys(recipe.evidence.files).length, 2);
   fs.appendFileSync(path.join(dir, "src/main.rs"), "// changed API prescription\n"); assert.throws(() => cargoRecipe({ root, unit }), /differs from reviewed PK11 inventory/);
 });
@@ -47,8 +49,7 @@ test("reviewed inventory admits only existing locked PK examples", () => {
   // The reviewed base set must stay; new crates add their own reviewed entries.
   for (const name of ["rightkit-agent-tools", "rightkit-agents", "rightkit-align", "rightkit-android", "rightkit-app-settings", "rightkit-asr", "rightkit-audio", "rightkit-automation", "rightkit-browser", "rightkit-cache", "rightkit-channel-memory", "rightkit-child-process", "rightkit-compose", "rightkit-contracts", "rightkit-crash", "rightkit-credentials", "rightkit-crypto", "rightkit-daemon", "rightkit-db", "rightkit-device", "rightkit-docs", "rightkit-embed", "rightkit-ffmpeg", "rightkit-file-watch", "rightkit-fs", "rightkit-fsindex", "rightkit-google-identity", "rightkit-hooks", "rightkit-hotkeys", "rightkit-http", "rightkit-identity", "rightkit-job-queue", "rightkit-license", "rightkit-llm", "rightkit-logs", "rightkit-mcp", "rightkit-models", "rightkit-motion", "rightkit-oauth", "rightkit-ocr", "rightkit-onnx", "rightkit-overlay", "rightkit-overlay-win", "rightkit-ownership", "rightkit-pdf", "rightkit-platform-rules", "rightkit-playback", "rightkit-qa", "rightkit-qa-driver", "rightkit-record", "rightkit-review", "rightkit-sandbox", "rightkit-search", "rightkit-send", "rightkit-sidecar", "rightkit-speech-client", "rightkit-spend", "rightkit-sync", "rightkit-sync-keys", "rightkit-tauri-shell", "rightkit-time", "rightkit-transcript", "rightkit-tts", "rightkit-tts-qwen", "rightkit-tts-qwen-sys", "rightkit-typeset", "rightkit-vad", "rightkit-vault", "rightkit-workflow"]) assert.ok(Object.hasOwn(inventory.cargo, name), name);
   for (const [name, entry] of Object.entries(inventory.cargo)) assert.match(entry.pkId, /^PK\d{2,3}$/, name);
-  for (const [name, version, pkId] of [["rightkit-fs", "0.4.6", "PK01"], ["rightkit-logs", "0.3.5", "PK11"], ["rightkit-speech-client", "0.4.0", "PK15"], ["rightkit-onnx", "0.2.7", "PK18"], ["rightkit-asr", "0.3.0", "PK18"], ["rightkit-qa-driver", "0.7.0", "PK14"], ["rightkit-android", "0.3.0", "PK09"], ["rightkit-google-identity", "0.2.0", "PK10"], ["rightkit-vault", "0.2.0", "PK13"], ["rightkit-docs", "0.1.2", "PK16"], ["rightkit-record", "0.3.3", "PK17"], ["rightkit-align", "0.1.0", "PK21"], ["rightkit-sync-keys", "0.1.0", "PK22"]]) {
-    assert.ok(version); // the listed version documents the pin at review time; the recipe is checked at the current one
+  for (const [name, pkId] of [["rightkit-fs", "PK01"], ["rightkit-logs", "PK11"], ["rightkit-speech-client", "PK15"], ["rightkit-onnx", "PK18"], ["rightkit-asr", "PK18"], ["rightkit-qa-driver", "PK14"], ["rightkit-android", "PK09"], ["rightkit-google-identity", "PK10"], ["rightkit-vault", "PK13"], ["rightkit-docs", "PK16"], ["rightkit-record", "PK17"], ["rightkit-align", "PK21"], ["rightkit-sync-keys", "PK22"]]) {
     const { evidence } = cargoRecipe({ root: committedRoot, unit: { name, version: committedVersion(name) } });
     assert.equal(evidence.pkId, pkId); assert.deepEqual(evidence.files, inventory.cargo[name].files);
   }

@@ -4233,6 +4233,8 @@ mod tests {
 
     #[test]
     fn any_deny_read_entry_is_refused_before_a_profile_exists() {
+        // It reads the registered profiles, which the sweep tests of this binary change.
+        let _serial = one_sweep_test_at_a_time();
         let root = scratch_dir("deny-any");
         let inside = root.join("secrets");
         std::fs::create_dir_all(&inside).unwrap();

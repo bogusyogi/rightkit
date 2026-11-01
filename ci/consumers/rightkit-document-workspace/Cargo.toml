@@ -7,5 +7,6 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-document-workspace = { version = "=0.1.0" }
+rightkit-document-workspace = { version = "=0.1.1" }
 
+serde_json = "1.0.154"

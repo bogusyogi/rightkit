@@ -8,6 +8,8 @@
 #[cfg(all(not(debug_assertions), feature = "fake-engine"))]
 compile_error!("fake-engine is restricted to development/test builds");
 
+#[cfg(feature = "channel-recipe")]
+pub mod channel_recipe;
 pub mod engine;
 pub mod error;
 pub mod generated_source;

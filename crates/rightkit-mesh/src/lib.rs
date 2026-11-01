@@ -36,6 +36,9 @@ pub mod settings;
 pub mod sync;
 pub mod transfer;
 
+#[cfg(feature = "devicelink")]
+pub mod devicelink;
+
 mod util;
 
 pub use caps::{

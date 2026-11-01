@@ -192,9 +192,33 @@ pub fn article_extract_from_html(
     bytes_read: usize,
     html: String,
 ) -> Result<ArticleExtract, String> {
+    article_extract_from_html_filtered(
+        request_url,
+        final_url,
+        status,
+        content_type,
+        elapsed_ms,
+        bytes_read,
+        html,
+        true,
+    )
+}
+
+/// [`article_extract_from_html`] with the fit filters switched by `fit_filter`.
+#[allow(clippy::too_many_arguments)]
+pub fn article_extract_from_html_filtered(
+    request_url: &str,
+    final_url: String,
+    status: u16,
+    content_type: Option<String>,
+    elapsed_ms: u128,
+    bytes_read: usize,
+    html: String,
+    fit_filter: bool,
+) -> Result<ArticleExtract, String> {
     let title = extract_title(&html);
     let text = readable_text(&html)?;
-    let (pruned_text, fit_text) = apply_article_filters(&text, true);
+    let (pruned_text, fit_text) = apply_article_filters(&text, fit_filter);
     Ok(ArticleExtract {
         title,
         text: pruned_text,

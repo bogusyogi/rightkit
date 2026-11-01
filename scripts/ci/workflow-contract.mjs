@@ -454,7 +454,7 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const packSealAt = stepsOf(pack).findIndex((s) => /node scripts\/ci\/publish\.mjs pack/.test(s.run ?? ""));
   const packUploadAt = stepsOf(pack).findIndex((s) => /actions\/upload-artifact@/.test(s.uses ?? "") && s.with?.name === "publish-packed");
   check(packBindAt > packSealAt && packSealAt >= 0 && packBindAt < packUploadAt && stepsOf(pack).filter((s) => /publish-admission\.mjs bind/.test(s.run ?? "")).length === 1 && stepsOf(pack)[packBindAt].if === undefined && same(stepsOf(pack)[packBindAt].env, PACK_BIND_ENV), `pack must bind the sealed archive to the qualification receipt (${PACK_BIND_RUN}) after sealing and before uploading publish-packed`);
-  check(stepsOf(plan).some((s) => /node scripts\/ci\/workflow-contract\.mjs/.test(s.run ?? "")), "plan must run this contract before planning");
+  check(stepsOf(plan).some((s) => /^\s*node scripts\/ci\/publish-preflight\.mjs\s*$/.test(s.run ?? "")), "plan must run node scripts/ci/publish-preflight.mjs (this contract and the rest of the publish route's checks) before planning");
 
   // Linux verification: only the units the plan requires on Linux, only when there are any, through the same gate and receipt.
   check(verifyLinux && !("strategy" in verifyLinux) && verifyLinux?.["runs-on"] === LINUX_HOST_LABEL, `verify-linux must run on ${LINUX_HOST_LABEL} with no matrix`);
@@ -887,7 +887,7 @@ export const MUTATIONS = [
   ["an action is unpinned", edit((j) => { j.verify.steps[0].uses = "actions/checkout@v7"; })],
   ["a checkout keeps credentials", edit((j) => { j.verify.steps[0].with["persist-credentials"] = "true"; })],
   ["an input is interpolated into a script", edit((j) => { j.verify.steps.at(-3).run = 'echo "${{ inputs.units }}"'; })],
-  ["plan stops running the contract", edit((j) => { j.plan.steps = j.plan.steps.filter((s) => !/workflow-contract/.test(s.run ?? "")); })],
+  ["plan stops running the contract", edit((j) => { j.plan.steps = j.plan.steps.filter((s) => !/publish-preflight/.test(s.run ?? "")); })],
   ["verify skips the unit gate", edit((j) => { j.verify.steps = j.verify.steps.filter((s) => !/gate\.mjs/.test(s.run ?? "")); })],
   ["verify receipt loses its managed Chrome root", edit((j) => { delete j.verify.steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).env.RIGHTKIT_CHROME_FOR_TESTING_ROOT; })],
   ["verify receipt uses another Chrome root", edit((j) => { j.verify.steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).env.RIGHTKIT_CHROME_FOR_TESTING_ROOT = `${RT}/other-chrome`; })],
