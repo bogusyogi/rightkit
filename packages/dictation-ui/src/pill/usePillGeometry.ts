@@ -17,9 +17,9 @@
 // [48, 140, 260]ms re-report cadence + dependency list).
 
 import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from "react";
-import { getPlatform } from "../hooks/usePlatform";
-import { invoke } from "../lib/tauri";
-import type { Mode } from "./pillBars";
+import { getPlatform } from "../hooks/usePlatform.js";
+import { invoke } from "../lib/tauri.js";
+import type { Mode } from "./pillBars.js";
 
 // MUST equal `.hr-pill.idle` width in pillStyles.ts. This is the footprint the
 // idle hover shell expands OUT of; if the two drift the expand starts from the

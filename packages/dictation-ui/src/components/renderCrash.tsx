@@ -15,9 +15,9 @@
 import type { ErrorBoundaryProps } from "@rightkit/react-shell/react";
 import { RIGHTKIT_CRASH_WINDOW_ERROR_COMMAND, scrubWindowCrashText } from "@rightkit/logs";
 import type { ErrorInfo } from "react";
-import { logs } from "../lib/logs";
-import { invoke } from "../lib/tauri";
-import { hostAppName } from "../appName";
+import { logs } from "../lib/logs.js";
+import { invoke } from "../lib/tauri.js";
+import { hostAppName } from "../appName.js";
 
 export const RENDER_CRASH_LABEL = `${hostAppName()} hit an unexpected error in this window.`;
 

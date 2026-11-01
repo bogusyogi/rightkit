@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { ProgressBar } from "@rightkit/react-shell/react";
-import Icon from "./Icon";
+import Icon from "./Icon.js";
 import {
   useVoiceConversation,
   type PendingVoiceResponse,
   type VoiceConversationOptions,
-} from "../hooks/useVoiceConversation";
+} from "../hooks/useVoiceConversation.js";
 
 export interface VoiceConversationProps
   extends Omit<VoiceConversationOptions, "enabled"> {

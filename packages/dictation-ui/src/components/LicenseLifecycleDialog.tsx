@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import { cx, ui } from "../lib/ui";
+import { cx, ui } from "../lib/ui.js";
 
 // Native `<dialog>` focus trap: `showModal()` (not the `open` attribute) is
 // what makes the browser own focus containment, Escape-to-cancel, and the

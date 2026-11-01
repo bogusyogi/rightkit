@@ -10,8 +10,8 @@
 // out-of-order patch completions cannot overwrite newer settings snapshots.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "../lib/tauri";
-import type { SettingsBlob, PatchValue } from "../types/settings";
+import { invoke } from "../lib/tauri.js";
+import type { SettingsBlob, PatchValue } from "../types/settings.js";
 import {
   applyOptimisticSettingsPatch,
   createSettingsCoordinator,
@@ -19,7 +19,7 @@ import {
   rollbackOptimisticSettingsPatch,
   settingsSnapshotEqual,
   subscribeToSettingsUpdates,
-} from "./settingsSync";
+} from "./settingsSync.js";
 
 export interface UseSettings {
   data: SettingsBlob;

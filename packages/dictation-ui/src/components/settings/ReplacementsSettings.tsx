@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Plus, X } from "@phosphor-icons/react";
-import type { PatchFn } from "../../types/settings";
-import { cx, ui } from "../../lib/ui";
+import type { PatchFn } from "../../types/settings.js";
+import { cx, ui } from "../../lib/ui.js";
 import {
   DictationPanel,
   dictationAddButton,
@@ -10,7 +10,7 @@ import {
   dictationInput,
   dictationRow,
   dictationRowRemove,
-} from "./DictationSection";
+} from "./DictationSection.js";
 
 interface Props {
   loaded: boolean;

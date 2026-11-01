@@ -6,8 +6,8 @@
 // merges these into its results; choosing one navigates to the page and reveals the row (see
 // `revealSetting`). Ids must match the `data-setting-id` values in the pages.
 
-import type { TabKey } from "../components/Sidebar";
-import type { OS } from "../hooks/usePlatform";
+import type { TabKey } from "../components/Sidebar.js";
+import type { OS } from "../hooks/usePlatform.js";
 
 export interface SettingEntry {
   /** Matches the row's `data-setting-id` attribute, e.g. `settings.input-device`. */

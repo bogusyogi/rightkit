@@ -5,11 +5,11 @@ import type { ReactNode } from "react";
 import type { AutoUpdateStatus } from "@rightkit/app-update";
 import type { NavGroup } from "@rightkit/react-shell";
 import { House, ClockCounterClockwise, Keyboard, TextAa, Sparkle, GearSix, Info, Crown, ArrowRight, DeviceMobile } from "@phosphor-icons/react";
-import { invoke } from "../lib/tauri";
-import { isMac } from "../hooks/usePlatform";
-import { useSettings } from "../hooks/useSettings";
-import { getLicenseLifecycle, subscribeLicenseLifecycle } from "../lib/licenseLifecycle";
-import SidebarUpdateStatus from "./SidebarUpdateStatus";
+import { invoke } from "../lib/tauri.js";
+import { isMac } from "../hooks/usePlatform.js";
+import { useSettings } from "../hooks/useSettings.js";
+import { getLicenseLifecycle, subscribeLicenseLifecycle } from "../lib/licenseLifecycle.js";
+import SidebarUpdateStatus from "./SidebarUpdateStatus.js";
 
 export type TabKey =
   | "home"

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import { focusConnectedOrPageDestination } from "../lib/settingsRegistry";
+import { focusConnectedOrPageDestination } from "../lib/settingsRegistry.js";
 
 // The shell's command palette unmounts without returning focus, so after
 // Escape/outside-click (or a palette navigation) focus drops to <body>.

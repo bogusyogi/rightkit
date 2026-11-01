@@ -4,7 +4,7 @@
 // `{ code, reason? }` for account commands. This module turns those into the copy the UI has always
 // shown; nothing a server said ever reaches the screen.
 
-import { licenseText, usLicenseWords } from "../licenseLifecycle";
+import { licenseText, usLicenseWords } from "../licenseLifecycle.js";
 
 // The US-English wrapper over the package's licence messages is defined in `licenseLifecycle.ts`.
 export { licenseText, usLicenseWords };

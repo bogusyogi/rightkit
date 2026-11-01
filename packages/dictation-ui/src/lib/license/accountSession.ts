@@ -18,8 +18,8 @@
 // (iOS-native) Sign in with Apple. There is intentionally no password field, no username field, and
 // no client-side password hashing anywhere in this module.
 
-import { invoke } from "../tauri";
-import { accountCommandError } from "./errors";
+import { invoke } from "../tauri.js";
+import { accountCommandError } from "./errors.js";
 
 /** `{ signedIn, email, expiresAt }`. `expiresAt` is a Unix-SECONDS display estimate (the native
  * view carries milliseconds; this wrapper keeps the unit the settings UI has always used). */

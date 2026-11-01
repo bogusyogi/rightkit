@@ -9,7 +9,7 @@
 // where a component needs bespoke per-event logic.
 
 import { useEffect, useRef } from "react";
-import { listen } from "../lib/tauri";
+import { listen } from "../lib/tauri.js";
 
 export function useTauriEvent<T>(
   event: string,

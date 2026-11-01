@@ -33,9 +33,9 @@ export function modeFor(ev: PillEvent): Mode | null {
 }
 
 // Re-exported from the shared helper so PillOverlay.tsx's existing
-// `import { ..., mmss, ... } from "./pillBars"` keeps working unchanged (see
+// `import { ..., mmss, ... } from "./pillBars.js"` keeps working unchanged (see
 // src/lib/time.ts for why this moved out of an inline definition here).
-export { mmss } from "../lib/time";
+export { mmss } from "../lib/time.js";
 
 // --- Recording / processing bar readout -----------------------------------
 // Direct port of the Swift pill's bar buffer (PillModel.swift:386-413,

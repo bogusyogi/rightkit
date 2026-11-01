@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { AppWindow, FileAudio } from "@phosphor-icons/react";
-import type { HistoryItem } from "../../lib/homeMetrics";
-import { invoke } from "../../lib/tauri";
-import { cx } from "../../lib/ui";
-import { targetLabel } from "./historyUtils";
+import type { HistoryItem } from "../../lib/homeMetrics.js";
+import { invoke } from "../../lib/tauri.js";
+import { cx } from "../../lib/ui.js";
+import { targetLabel } from "./historyUtils.js";
 
 // Real application icons. The backend command `app_icon_png` resolves a
 // process (by exe path when known, else by name) to a `data:image/png;base64`

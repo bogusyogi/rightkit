@@ -3,7 +3,7 @@
 // component is gone.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "../lib/tauri";
+import { invoke } from "../lib/tauri.js";
 
 export interface MicDevice {
   id: number;

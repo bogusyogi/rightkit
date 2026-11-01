@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import VoiceConversation from "./VoiceConversation";
+import VoiceConversation from "./VoiceConversation.js";
 
 const controller = {
   end: vi.fn(async () => undefined),
@@ -13,7 +13,7 @@ const controller = {
   toggleMute: vi.fn(),
 };
 
-vi.mock("../hooks/useVoiceConversation", () => ({
+vi.mock("../hooks/useVoiceConversation.js", () => ({
   useVoiceConversation: () => controller,
 }));
 

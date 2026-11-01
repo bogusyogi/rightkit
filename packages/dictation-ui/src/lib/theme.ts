@@ -1,6 +1,6 @@
 import { applyBodyFont, createThemeStore } from "@rightkit/react-shell";
 import { applyBrand, applyTokens, prefersDark, type BrandFile } from "@rightkit/theme";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 export type LegacyThemeChoice = "auto" | "ember" | "ember-light";
 export type ShellThemeChoice = "system" | "light" | "dark";

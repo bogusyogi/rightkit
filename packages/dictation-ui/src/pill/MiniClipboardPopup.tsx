@@ -1,12 +1,12 @@
 import { useDismiss } from "@rightkit/platform-ui/headless";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke, listen } from "../lib/tauri";
-import { pillTooltipProps } from "./pillTooltip";
+import { invoke, listen } from "../lib/tauri.js";
+import { pillTooltipProps } from "./pillTooltip.js";
 import MiniClipboard, {
   MINI_CLIPBOARD_CSS,
   type MiniClipboardItem,
   type MiniClipboardMode,
-} from "./MiniClipboard";
+} from "./MiniClipboard.js";
 
 const CSS = `
 html,body,#root{margin:0;width:100%;height:100%;background:transparent;overflow:hidden}

@@ -1,4 +1,4 @@
-import { isMac } from "../hooks/usePlatform";
+import { isMac } from "../hooks/usePlatform.js";
 import type React from "react";
 import { useEffect, useState } from "react";
 import {
@@ -22,7 +22,7 @@ import {
   setFeatureReelTransientPause,
   shouldFeatureReelAutoAdvance,
   toggleFeatureReelAutoAdvance,
-} from "./featureReelState";
+} from "./featureReelState.js";
 
 /** Background images for the reel slides. The host supplies its own artwork (setFeatureReelImages). */
 export interface FeatureReelImages {

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 
-import { logs } from "./logs";
+import { logs } from "./logs.js";
 
 /// Restart after an update installs.
 ///

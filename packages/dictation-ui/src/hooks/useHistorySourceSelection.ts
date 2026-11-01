@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { usePlatform } from "./usePlatform";
+import { usePlatform } from "./usePlatform.js";
 import {
   DEFAULT_SOURCE_SELECTION,
   loadSourceSelection,
   saveSourceSelection,
   type SourceSelection,
-} from "../pages/history/historyUtils";
+} from "../pages/history/historyUtils.js";
 
 const SOURCE_SELECTION_CHANGED = "heardright-history-source-selection-changed";
 

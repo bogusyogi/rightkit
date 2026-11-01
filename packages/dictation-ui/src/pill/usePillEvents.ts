@@ -24,9 +24,9 @@
 // src-tauri/tests/pill_lifecycle_contract_tests.rs).
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { invoke, listen } from "../lib/tauri";
-import { modeFor, type Mode, type PillEvent } from "./pillBars";
-import { animatePillIntroBloom, playPillIntroSwell } from "./usePillAnimation";
+import { invoke, listen } from "../lib/tauri.js";
+import { modeFor, type Mode, type PillEvent } from "./pillBars.js";
+import { animatePillIntroBloom, playPillIntroSwell } from "./usePillAnimation.js";
 
 interface HistoryItem {
   delivery_id: string;

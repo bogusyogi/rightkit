@@ -10,13 +10,13 @@ import {
   isPro,
   licenseUpdateHeaders,
   licenseUpdateInstallHeaders,
-} from "./license";
-import { invoke, listen } from "./tauri";
-import { logs } from "./logs";
-import { getPlatform } from "../hooks/usePlatform";
-import { createHostAutoUpdateClient } from "./heardRightAutoUpdateClient";
-import { relaunchForUpdate } from "./relaunchForUpdate";
-import type { SettingsBlob } from "../types/settings";
+} from "./license.js";
+import { invoke, listen } from "./tauri.js";
+import { logs } from "./logs.js";
+import { getPlatform } from "../hooks/usePlatform.js";
+import { createHostAutoUpdateClient } from "./heardRightAutoUpdateClient.js";
+import { relaunchForUpdate } from "./relaunchForUpdate.js";
+import type { SettingsBlob } from "../types/settings.js";
 
 type AppStatePayload = { state?: string };
 

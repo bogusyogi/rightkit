@@ -29,7 +29,7 @@ import {
   recordingBarPixelHeight,
   recordingDisplayBars,
   type Mode,
-} from "./pillBars";
+} from "./pillBars.js";
 
 export interface PillAnimation {
   // Written by the view's pinned pill://event listener; read by the timer loop.

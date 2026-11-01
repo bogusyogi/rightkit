@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import { PageShell as SharedPageShell } from "@rightkit/react-shell/react";
-import { getPlatform, isMac } from "../hooks/usePlatform";
-import type { TabKey } from "./Sidebar";
-import { cx } from "../lib/ui";
-import { HomeStatsMeta } from "./TitleBar";
-import { hostAppName } from "../appName";
+import { getPlatform, isMac } from "../hooks/usePlatform.js";
+import type { TabKey } from "./Sidebar.js";
+import { cx } from "../lib/ui.js";
+import { HomeStatsMeta } from "./TitleBar.js";
+import { hostAppName } from "../appName.js";
 
 export const HERO_GLOW = "radial-gradient(120% 160% at 88% -20%, color-mix(in srgb, var(--hero-accent) 16%, var(--hero-surface)) 0%, color-mix(in srgb, var(--hero-accent) 5%, var(--hero-surface)) 42%, var(--hero-surface) 100%)";
 

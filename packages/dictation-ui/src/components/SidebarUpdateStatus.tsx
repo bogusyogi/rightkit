@@ -7,10 +7,10 @@ import {
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { memo } from "react";
-import { APP_VERSION, openPricing } from "../lib/license";
-import { checkForAvailableUpdate, installAvailableUpdateAndRelaunch } from "../lib/autoUpdates";
-import { relaunchForUpdate } from "../lib/relaunchForUpdate";
-import { cx } from "../lib/ui";
+import { APP_VERSION, openPricing } from "../lib/license.js";
+import { checkForAvailableUpdate, installAvailableUpdateAndRelaunch } from "../lib/autoUpdates.js";
+import { relaunchForUpdate } from "../lib/relaunchForUpdate.js";
+import { cx } from "../lib/ui.js";
 
 const actionClass =
   "has-tip inline-grid h-6 w-6 shrink-0 place-items-center rounded-[var(--radius-sm)] border border-transparent bg-transparent text-[var(--muted)] transition-[background-color,border-color,color,transform] duration-150 ease-[var(--ease-out-strong)] hover:border-[color-mix(in_srgb,var(--line),transparent_10%)] hover:bg-[var(--surface-hover)] hover:text-[var(--accent)] active:scale-[0.96] focus-visible:outline-none focus-visible:[box-shadow:var(--focus-ring)]";

@@ -48,14 +48,14 @@ export {
   viewShowsPro,
   type LicenseStorageOperation,
   type LicenseStorageState,
-} from "./license/core";
+} from "./license/core.js";
 
 export type { LicenseView } from "@rightkit/license";
 
 export {
   redeemWindowsLinkCode,
   requestWindowsLinkCode,
-} from "./license/windowsLink";
+} from "./license/windowsLink.js";
 
 export {
   beginAccountMagicLink,
@@ -69,11 +69,11 @@ export {
   signOutAccount,
   type AccountDeviceRow,
   type AccountSessionStatus,
-} from "./license/accountSession";
+} from "./license/accountSession.js";
 
 export {
   getProBridgeStatus,
   setProBridgeConsumptionSuppressed,
   setProBridgeSyncEnabled,
   type ProBridgeStatus,
-} from "./license/proBridge";
+} from "./license/proBridge.js";

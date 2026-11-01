@@ -5,22 +5,22 @@
 // modal. Only the toggle-on path enables polish after a save.
 
 import { useEffect, useRef, useState } from "react";
-import ErrorBanner from "../components/ErrorBanner";
-import Toggle from "../components/ui/Toggle";
+import ErrorBanner from "../components/ErrorBanner.js";
+import Toggle from "../components/ui/Toggle.js";
 import {
   CompactSettingRow,
   CompactSettingsGroup,
-} from "../components/settings/CompactSettingsGroup";
-import { useSettings } from "../hooks/useSettings";
-import { invoke } from "../lib/tauri";
-import { openPricing } from "../lib/license";
-import { getLicenseLifecycle, subscribeLicenseLifecycle } from "../lib/licenseLifecycle";
-import { AI_POLISH_PRIVACY_NOTICE } from "../lib/privacyDisclosure";
-import { cx, ui } from "../lib/ui";
-import { isMac } from "../hooks/usePlatform";
-import PageShell from "../components/PageShell";
-import ApiKeysPanel from "./polish/ApiKeysPanel";
-import { SmartPolishCard } from "./polish/PolishCards";
+} from "../components/settings/CompactSettingsGroup.js";
+import { useSettings } from "../hooks/useSettings.js";
+import { invoke } from "../lib/tauri.js";
+import { openPricing } from "../lib/license.js";
+import { getLicenseLifecycle, subscribeLicenseLifecycle } from "../lib/licenseLifecycle.js";
+import { AI_POLISH_PRIVACY_NOTICE } from "../lib/privacyDisclosure.js";
+import { cx, ui } from "../lib/ui.js";
+import { isMac } from "../hooks/usePlatform.js";
+import PageShell from "../components/PageShell.js";
+import ApiKeysPanel from "./polish/ApiKeysPanel.js";
+import { SmartPolishCard } from "./polish/PolishCards.js";
 
 type L3KeyStatus = {
   groq_saved: boolean;

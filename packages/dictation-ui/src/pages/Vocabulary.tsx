@@ -9,11 +9,11 @@
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Plus, UploadSimple, X } from "@phosphor-icons/react";
-import { invoke } from "../lib/tauri";
-import type { VocabularyEntry, VocabularySuggestion } from "../types/vocabulary";
-import ErrorBanner from "../components/ErrorBanner";
-import { cx, ui } from "../lib/ui";
-import { useSettings } from "../hooks/useSettings";
+import { invoke } from "../lib/tauri.js";
+import type { VocabularyEntry, VocabularySuggestion } from "../types/vocabulary.js";
+import ErrorBanner from "../components/ErrorBanner.js";
+import { cx, ui } from "../lib/ui.js";
+import { useSettings } from "../hooks/useSettings.js";
 import {
   DictationPanel,
   dictationAddButton,
@@ -22,9 +22,9 @@ import {
   dictationInput,
   dictationRow,
   dictationRowRemove,
-} from "../components/settings/DictationSection";
-import SnippetsSettings from "../components/settings/SnippetsSettings";
-import ReplacementsSettings from "../components/settings/ReplacementsSettings";
+} from "../components/settings/DictationSection.js";
+import SnippetsSettings from "../components/settings/SnippetsSettings.js";
+import ReplacementsSettings from "../components/settings/ReplacementsSettings.js";
 
 const AddIcon = memo(function AddIcon() {
   return <Plus aria-hidden="true" className="h-4 w-4" />;

@@ -4,7 +4,7 @@
 // a BYOK provider API key; those Mac sync paths are separate work outside
 // this tranche. No "sync now": publish/consume are launch-driven only.
 
-import { invoke } from "../tauri";
+import { invoke } from "../tauri.js";
 
 /** Status of this Mac's Apple-device Pro continuity: the local sync
  * preference, whether iCloud Keychain is reachable, whether this device
