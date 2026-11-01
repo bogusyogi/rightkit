@@ -35,9 +35,11 @@ import { requireDoorRun, gateStateDir } from "./gate-stages.mjs";
 export const LOCAL_OPERATOR = "agent (local-build grant)";
 export const LOCAL_HOST_POLICY_REASON = "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run";
 export const LOCAL_WIN32_HOST_POLICY_REASON = "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); published from the Windows host, the macOS run is not part of this receipt";
-// The hosts `--local` accepts and the host policy each records in the evidence.
-export const LOCAL_HOST_POLICIES = Object.freeze({ darwin: "darwin-only", win32: "win32-only" });
-const localHostPolicyReason = (platform) => (platform === "win32" ? LOCAL_WIN32_HOST_POLICY_REASON : LOCAL_HOST_POLICY_REASON);
+export const LOCAL_LINUX_HOST_POLICY_REASON = "GATE-CONTRACT Linux direct origin (GB-29, rightkit#1341): compiled and qualified locally with no broker; the macOS and Windows qualification is the publish run's own native verify jobs";
+// The hosts `--local` accepts and the host policy each records in the evidence. A Linux direct origin records "linux-direct": it is
+// not a single-host policy (isDarwinOnlyPolicy / isWin32OnlyPolicy stay false), so both native hosts are still required on CI.
+export const LOCAL_HOST_POLICIES = Object.freeze({ darwin: "darwin-only", win32: "win32-only", linux: "linux-direct" });
+const localHostPolicyReason = (platform) => (platform === "win32" ? LOCAL_WIN32_HOST_POLICY_REASON : platform === "linux" ? LOCAL_LINUX_HOST_POLICY_REASON : LOCAL_HOST_POLICY_REASON);
 const STEP_TIMEOUT_MS = 30 * 60 * 1000;
 
 export class LocalPublishError extends Error {
@@ -410,7 +412,7 @@ function testEnv(deps, isAssetGated) {
 function assertLocalHost(deps, workspaceRoot, kind) {
   const platform = deps.platform ?? process.platform;
   if (!(deps.localBuildGranted ?? localBuildGranted)(workspaceRoot)) refuse(`--local needs the local-build grant: a committed ${LOCAL_BUILD_FILE} (allow "build-test-publish") naming this repository at ${workspaceRoot}`);
-  if (!Object.hasOwn(LOCAL_HOST_POLICIES, platform)) refuse(`--local publishes from the Mac only (host policy: darwin-only) or from Windows (host policy: win32-only); this host is ${platform}`);
+  if (!Object.hasOwn(LOCAL_HOST_POLICIES, platform)) refuse(`--local runs on the Mac (host policy: darwin-only), Windows (host policy: win32-only) or a Linux direct origin (linux-direct); this host is ${platform}`);
   // The npm path reads the registry token from the macOS Keychain and ships a Developer-ID-signed helper: Mac only.
   if (kind === "npm" && platform !== "darwin") refuse(`publish npm --local needs the macOS Keychain npm token and runs on the Mac only; Windows publishes crates (publish cargo --local); this host is ${platform}`);
   return platform;

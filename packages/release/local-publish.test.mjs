@@ -720,7 +720,8 @@ test('win32: a crate publishes from Windows with win32-only evidence the unchang
 test('win32: refused without the grant, for npm (Keychain token and signed helper are Mac only) and on other hosts; nothing is written', async () => {
   const cargoRoot = workspace({ kind: 'cargo' });
   await refused(harness(cargoRoot, 'cargo', { platform: 'win32', localBuildGranted: () => false }).run(), /local-build grant/);
-  await refused(harness(cargoRoot, 'cargo', { platform: 'linux' }).run(), /Mac only.*win32-only.*this host is linux/);
+  await refused(harness(cargoRoot, 'cargo', { platform: 'freebsd' }).run(), /darwin-only.*win32-only.*linux-direct.*this host is freebsd/);
+  await refused(harness(workspace(), 'npm', { platform: 'linux' }).run(), /npm --local needs the macOS Keychain npm token and runs on the Mac only.*this host is linux/);
   assert.equal(fs.existsSync(path.join(cargoRoot, 'release-evidence')), false);
   const npmRoot = workspace();
   const npm = harness(npmRoot, 'npm', { platform: 'win32' });

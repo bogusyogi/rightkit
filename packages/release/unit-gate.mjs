@@ -428,7 +428,7 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
           // GB-29: the direct-origin qualification is written and verified exactly as the hosted side will. Dispatching it needs the publish workflow's `direct` admission input, which is the
           // reserved publication authorization (GC-T22): nothing is dispatched from a direct host until that input exists.
           const written = directQualification();
-          throw new Error(`RK_DIRECT_RELEASE_HELD: the direct-origin qualification ${written} was written and verified; the committed publish workflow admits \`broker\` only, and adding \`direct\` is the reserved publication authorization (GATE-CONTRACT GC-T22, GC-L01), so nothing was dispatched`);
+          throw new Error(`RK_DIRECT_RELEASE_HELD: the direct-origin qualification ${written} was written and verified; a direct host has no broker dispatch adapter, so dispatch publish.yml from main with admission=direct and this file as the qualification input (rightkit#1341); nothing was dispatched from here`);
         }
         requireBrokerHost(executor); // a direct host has no broker receipts to carry: refuse for that reason, not for the missing receipts
         const qualification = writeQualification({ report, artifact, unit, commit, tree, runtime, executor });
