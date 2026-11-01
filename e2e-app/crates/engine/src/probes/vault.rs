@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use rightkit_credentials::{Config as CredConfig, MemoryBackend, Namespace, Secret, Store};
+use rightkit_credentials::{Secret, Store};
 use rightkit_http::{AddressPolicy, Client, ClientConfig};
 use rightkit_vault::{
     BlobStore, Config, CredentialsClientSecret, CredentialsKeyCache, Error, HttpServerKeySource,
@@ -173,10 +173,7 @@ impl BlobStore for FileBlob {
 }
 
 fn cred_store() -> Result<Store, String> {
-    let ns = Namespace::new("e2e.rightkit.vault").map_err(|e| format!("namespace: {e}"))?;
-    Ok(Store::open(
-        CredConfig::new(ns).backend(Arc::new(MemoryBackend::new())),
-    ))
+    super::device_store("vault")
 }
 
 fn client() -> Arc<Client> {

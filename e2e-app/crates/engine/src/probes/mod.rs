@@ -31,6 +31,20 @@ impl Ctx {
 
 pub type Probe = fn(&Ctx) -> Result<Value, String>;
 
+/// A real OS credential store (Keychain, Credential Manager) in a namespace no other call shares, so each call is its own
+/// "device": `app.rightsuite.rke2e.probe.<pid>.<tag>.<n>`, non-interactive (a store that would prompt is a failure).
+pub fn device_store(tag: &str) -> Result<rightkit_credentials::Store, String> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    let name = format!(
+        "app.rightsuite.rke2e.probe.{}.{tag}.{n}",
+        std::process::id()
+    );
+    let ns = rightkit_credentials::Namespace::new(name).map_err(|e| format!("namespace: {e}"))?;
+    Ok(rightkit_credentials::Store::open(rightkit_credentials::Config::new(ns)).non_interactive())
+}
+
 pub mod agent_tools;
 pub mod agents;
 pub mod align;

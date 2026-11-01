@@ -31,7 +31,7 @@ url = "2"
 serde = { version = "1", features = ["derive"] }
 
 # Every other RightKit crate, from source: each is exercised by a real probe (src/probes/<crate>.rs).
-rightkit-agents = { path = "../../../crates/rightkit-agents" }
+rightkit-agents = { path = "../../../crates/rightkit-agents", features = ["session"] }
 rightkit-align = { path = "../../../crates/rightkit-align" }
 rightkit-asr = { path = "../../../crates/rightkit-asr" }
 rightkit-audio = { path = "../../../crates/rightkit-audio" }
@@ -71,7 +71,7 @@ rightkit-search = { path = "../../../crates/rightkit-search" }
 rightkit-send = { path = "../../../crates/rightkit-send" }
 rightkit-speech-client = { path = "../../../crates/rightkit-speech-client" }
 rightkit-spend = { path = "../../../crates/rightkit-spend" }
-rightkit-sync = { path = "../../../crates/rightkit-sync" }
+rightkit-sync = { path = "../../../crates/rightkit-sync", features = ["cipher"] }
 rightkit-sync-keys = { path = "../../../crates/rightkit-sync-keys" }
 rightkit-time = { path = "../../../crates/rightkit-time" }
 rightkit-transcript = { path = "../../../crates/rightkit-transcript" }

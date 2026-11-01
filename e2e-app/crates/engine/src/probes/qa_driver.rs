@@ -184,8 +184,8 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
         || "json::s escaping is wrong".into(),
     )?;
     ensure(
-        rightkit_qa_driver::keys::appkit::chord("cmd+a").is_some()
-            && rightkit_qa_driver::keys::appkit::chord("cmd+nonsense-key").is_none(),
+        rightkit_qa_driver::keys::chord("cmd+a").is_some()
+            && rightkit_qa_driver::keys::chord("cmd+nonsense-key").is_none(),
         || "keys::appkit::chord is wrong".into(),
     )?;
 

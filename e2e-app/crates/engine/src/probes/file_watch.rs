@@ -103,7 +103,7 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     while start.elapsed() < DEADLINE && seen.is_none() {
         if let Ok(ev) = watcher.recv_timeout(Duration::from_millis(250)) {
             match ev {
-                WatchEvent::Create(p) | WatchEvent::Modify(p)
+                WatchEvent::Create(ref p) | WatchEvent::Modify(ref p)
                     if p.file_name().map(|n| n == "typed.txt").unwrap_or(false) =>
                 {
                     seen = Some(format!("{ev:?}"));

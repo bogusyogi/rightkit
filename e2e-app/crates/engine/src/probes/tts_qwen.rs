@@ -1,7 +1,7 @@
 //! rightkit-tts-qwen: Qwen3-TTS model resolution and validation: the conventional files are resolved in the model folder
 //! (`RIGHTKIT_TTS_MODEL_DIR`, else the rightkit-tts per-user default) and the GGUF header and vocoder are validated. Synthesis is
 //! rightkit-tts's probe. No model on this host is a reported failure naming the folder looked in.
-use rightkit_tts_qwen::{load_and_validate, ModelPaths};
+use qts::{load_and_validate, ModelPaths};
 use serde_json::{json, Value};
 
 pub fn probe(_ctx: &super::Ctx) -> Result<Value, String> {

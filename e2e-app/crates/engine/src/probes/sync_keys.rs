@@ -4,18 +4,14 @@
 //!
 //! Needs: `rightkit-credentials` as a direct engine dependency (the key manager is built over its `Store`; the probe uses its
 //! in-memory backend so no OS keychain item is created).
-use std::sync::Arc;
 
-use rightkit_credentials::{Config, MemoryBackend, Namespace, Store};
+use rightkit_credentials::Store;
 use rightkit_sync_keys::transfer::{Approver, Requester, TransferContext};
 use rightkit_sync_keys::{account_scope, Error, InstallOutcome, KeyManager, KeyProvider, ZoneKeys};
 use serde_json::{json, Value};
 
 fn store() -> Result<Store, String> {
-    let ns = Namespace::new("e2e.rightkit.sync-keys").map_err(|e| format!("namespace: {e}"))?;
-    Ok(Store::open(
-        Config::new(ns).backend(Arc::new(MemoryBackend::new())),
-    ))
+    super::device_store("sync-keys")
 }
 
 /// One full handshake up to the point where both devices show a code. The approver may use another context.
