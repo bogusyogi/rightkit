@@ -608,7 +608,7 @@ test("[GB-29] --to release on a direct Linux origin writes and verifies the dire
   let released = 0;
   assert.equal(await run({ to: "release", releaser: async () => { released += 1; return {}; } }), 1);
   assert.equal(released, 0, "nothing is dispatched");
-  assert.match(errs.join("\n"), /RK_DIRECT_RELEASE_HELD: the direct-origin qualification .* was written and verified; the committed publish workflow admits `broker` only/);
+  assert.match(errs.join("\n"), /RK_DIRECT_RELEASE_HELD: the direct-origin qualification .* was written and verified; a direct host has no broker dispatch adapter, so dispatch publish.yml from main with admission=direct/);
   assert.equal(qualification().directOrigin.executor.kind, "direct");
   assert.equal(s.reports.at(-1).stages.release.ok, false);
 });
