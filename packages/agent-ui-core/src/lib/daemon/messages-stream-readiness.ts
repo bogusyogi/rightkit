@@ -1,7 +1,7 @@
-import type { DaemonConfig, GoalSnapshotV1, ProtocolEvent } from "../types";
-import { requestDaemonApi } from "../generated/daemon-openapi";
-import type { Attachment } from "./config-host";
-import type { ReferenceMeta } from "../types/references";
+import type { DaemonConfig, GoalSnapshotV1, ProtocolEvent } from "../types.js";
+import { requestDaemonApi } from "../generated/daemon-openapi.js";
+import type { Attachment } from "./config-host.js";
+import type { ReferenceMeta } from "../types/references.js";
 
 export async function orchestrate(
   config: DaemonConfig,

@@ -10,8 +10,8 @@ import { Copy } from "@phosphor-icons/react/dist/icons/Copy";
 import { LockSimple } from "@phosphor-icons/react/dist/icons/LockSimple";
 import { X } from "@phosphor-icons/react/dist/icons/X";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
-import { KIND_LABEL } from "../Toolbar";
-import { copyText, isLocalFileDoc } from "../sidebar/SidebarPathUtils";
+import { KIND_LABEL } from "../Toolbar.js";
+import { copyText, isLocalFileDoc } from "../sidebar/SidebarPathUtils.js";
 import { useEditText } from "@rightkit/document-core/app/useEditText";
 
 // Same formats the DocStatsPill counts — the only surfaces with a live text buffer.

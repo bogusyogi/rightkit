@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
-import type { HtmlBlockHistoryEntry } from "./useHtmlPreviewLifecycle";
-import type { HtmlSafeBlockTarget } from "./sourceMap";
+import type { HtmlBlockHistoryEntry } from "./useHtmlPreviewLifecycle.js";
+import type { HtmlSafeBlockTarget } from "./sourceMap.js";
 
 interface Args {
   readOnly: boolean;

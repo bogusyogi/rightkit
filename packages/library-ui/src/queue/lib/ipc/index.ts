@@ -4,17 +4,17 @@ import { getCurrentWebview as tauriCurrentWebview } from "@tauri-apps/api/webvie
 import { getCurrentWindow as tauriCurrentWindow } from "@tauri-apps/api/window";
 import { open as tauriOpenDialog, save as tauriSaveDialog } from "@tauri-apps/plugin-dialog";
 import { createShell, type Shell } from "@rightkit/tauri-shell";
-import type { Tab } from "../../components/NavTabs";
-import type { JobInfo } from "../../contract";
-import type * as QaBackend from "./qaMock";
-import { qaModeEnabled } from "./qaGate";
+import type { Tab } from "../../components/NavTabs.js";
+import type { JobInfo } from "../../contract.js";
+import type * as QaBackend from "./qaMock.js";
+import { qaModeEnabled } from "./qaGate.js";
 
 export type QaInitialState = { tab: Tab; jobs: JobInfo[]; detailId: string | null };
 
-// Static build-time gate. vite.config defines import.meta.env.VITE_RIGHTKIT_QA as a literal,
+// Static build-time gate. vite.config defines import.meta.env?.VITE_RIGHTKIT_QA as a literal,
 // so in a release build QA_BUILD is the constant false, `isQaMode` below is the constant false, and
 // the bundler drops qaMock and every `isQaMode` branch in the app (a const, not a reassigned let).
-const QA_BUILD = import.meta.env.VITE_RIGHTKIT_QA === "1";
+const QA_BUILD = import.meta.env?.VITE_RIGHTKIT_QA === "1";
 
 let qa: typeof QaBackend | null = null;
 
@@ -33,7 +33,7 @@ export let save: typeof tauriSaveDialog = tauriSaveDialog;
 /** Call once before the app graph is imported. Resolves at once in a release build. */
 export async function initIpc(search: string = window.location.search): Promise<void> {
   if (!isQaMode) return;
-  const backend = await import("./qaMock");
+  const backend = await import("./qaMock.js");
   // QA-only platform override (`?qaPlatform=`); the QA entry is never part of a release build.
   const qaPlatform = await import("@rightkit/platform-ui/qa");
   qaPlatform.bootstrapQaPlatform({ query: search });

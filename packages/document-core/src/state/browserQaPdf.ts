@@ -28,8 +28,8 @@ import type {
   PdfTextIsland,
   PreparePdfSaveRequest,
   PreparedPdfSave,
-} from "../documents/pdf/pdfEditModel";
-import { qaDocumentForPath } from "./browserQa";
+} from "../documents/pdf/pdfEditModel.js";
+import { qaDocumentForPath } from "./browserQa.js";
 
 // -------------------------------------------------------------------------------------------
 // byte/base64/sha helpers

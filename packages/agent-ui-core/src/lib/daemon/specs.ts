@@ -11,8 +11,8 @@ import type {
   SpecImplementResponse,
   SpecPlanResponse,
   SpecTrace,
-} from "../types";
-import { requestDaemonApi } from "../generated/daemon-openapi";
+} from "../types.js";
+import { requestDaemonApi } from "../generated/daemon-openapi.js";
 
 export interface CreateSpecRequest {
   workspaceRoot: string;

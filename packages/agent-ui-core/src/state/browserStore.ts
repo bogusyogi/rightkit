@@ -10,7 +10,7 @@ import type {
   DevServer,
   ScreenshotEnvelope,
   StoredAnnotation,
-} from "../types/browserWorkspace";
+} from "../types/browserWorkspace.js";
 
 export interface BrowserWorkspaceState {
   summary: BrowserWorkspaceSummary | null;

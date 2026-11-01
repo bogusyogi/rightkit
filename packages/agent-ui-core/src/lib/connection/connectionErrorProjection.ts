@@ -1,5 +1,5 @@
-import type { RecoveryVariant } from "./recovery/recoveryPolicy";
-import { hostAppName } from "../../appName";
+import type { RecoveryVariant } from "./recovery/recoveryPolicy.js";
+import { hostAppName } from "../../appName.js";
 
 export type ConnectionTarget = "local" | "remote";
 export type ConnectionErrorKind =

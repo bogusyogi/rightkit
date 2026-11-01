@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { QA_BUILD } from "@rightkit/agent-ui-core/qaBuild";
 import { useLegalStore } from "@rightkit/agent-ui-core/state/legal";
-import LegalAcceptance from "./LegalAcceptance";
+import LegalAcceptance from "./LegalAcceptance.js";
 
 /**
  * Gates every the host app window (main app shell AND the onboarding window — see `main.tsx`) behind

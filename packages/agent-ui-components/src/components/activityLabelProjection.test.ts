@@ -5,7 +5,7 @@ import {
   activityFileChangeStats,
   activityRowDetail,
   type ActivityItem,
-} from "./activityLabelProjection";
+} from "./activityLabelProjection.js";
 
 const activity = (overrides: Partial<ActivityItem>): ActivityItem => ({
   kind: "tool", title: "Tool", complete: true, ...overrides,

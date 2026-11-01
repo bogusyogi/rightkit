@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { HistoryRow, Kind } from "../contract";
-import { invoke, open as openDialog } from "../lib/ipc";
-import { createRequestGate } from "../lib/requestGate";
-import { categoryForKind } from "../lib/jobDisplay";
+import type { HistoryRow, Kind } from "../contract.js";
+import { invoke, open as openDialog } from "../lib/ipc/index.js";
+import { createRequestGate } from "../lib/requestGate.js";
+import { categoryForKind } from "../lib/jobDisplay.js";
 import {
   countLabel,
   HISTORY_PAGE_SIZE,
@@ -10,17 +10,17 @@ import {
   mergeHistoryRows,
   nearBottom,
   type HistoryPage,
-} from "../lib/historyPage";
+} from "../lib/historyPage.js";
 import { createShortcutRegistry } from "@rightkit/react-shell";
 import { EmptyState } from "@rightkit/react-shell/react";
-import { errorTextClass } from "../lib/ui";
-import { LibraryList } from "./LibraryList";
+import { errorTextClass } from "../lib/ui.js";
+import { LibraryList } from "./LibraryList.js";
 import {
   LibraryToolbar,
   type CategoryFilter,
   type SortKey,
   type SourceFilter,
-} from "./LibraryToolbar";
+} from "./LibraryToolbar.js";
 
 interface Props {
   onOpen: (id: string) => void;

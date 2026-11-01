@@ -9,10 +9,10 @@ import {
 import { isUntitled, type LoadedDocument } from "@rightkit/document-core/documents/types";
 import { isWebTabKey } from "@rightkit/document-core/documents/web/webUrl";
 import { fileFingerprint, readDocument, revokePath } from "@rightkit/document-core/state/tauriBridge";
-import type { DocumentTabs } from "./useDocumentTabs";
-import { clearDraft, clearFileDraft } from "./documentDrafts";
+import type { DocumentTabs } from "./useDocumentTabs.js";
+import { clearDraft, clearFileDraft } from "./documentDrafts.js";
 import { toast } from "@rightkit/platform-ui/headless";
-import { resolveDocumentDrafts } from "./draftResolution";
+import { resolveDocumentDrafts } from "./draftResolution.js";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
 
 const CLOSED_STACK_MAX = 10;

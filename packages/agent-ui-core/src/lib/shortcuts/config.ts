@@ -1,4 +1,4 @@
-import type { ShortcutCombo } from "./bindings";
+import type { ShortcutCombo } from "./bindings.js";
 
 type ShortcutCategory = "session" | "models" | "panels" | "navigation" | "application";
 

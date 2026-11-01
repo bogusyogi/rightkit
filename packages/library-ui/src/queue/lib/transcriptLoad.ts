@@ -1,4 +1,4 @@
-import type { TranscriptDetail, TranscriptVariant } from "../contract";
+import type { TranscriptDetail, TranscriptVariant } from "../contract.js";
 
 // Injected so the load chain stays testable without the Tauri runtime.
 export type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;

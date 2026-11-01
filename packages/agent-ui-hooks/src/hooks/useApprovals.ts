@@ -4,7 +4,7 @@ import {
   buildStageDiffHunkPayload,
   type DiffHunk,
   type DiffHunkDecision,
-} from "../components/workbench/DiffView";
+} from "../components/workbench/DiffView.js";
 import type { DaemonConfig, MiddlewareDecisionEvidence, ProtocolEvent } from "@rightkit/agent-ui-core/lib/types";
 
 export interface PendingApproval {

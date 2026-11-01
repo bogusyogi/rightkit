@@ -2,7 +2,7 @@ import { usePlatform } from "@rightkit/platform-ui/react";
 import { CaptionControls, IconButton, Titlebar } from "@rightkit/react-shell/react";
 import { shellWindowAction } from "@rightkit/agent-ui-core/lib/shellWindow";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 type WindowAction = "minimize" | "toggle-maximize" | "close";
 

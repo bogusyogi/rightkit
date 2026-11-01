@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { saveViewState } from "../state/library";
+import { saveViewState } from "../state/library.js";
 import { isUntitled, type LoadedDocument, type ViewMeta, type ViewMode } from "@rightkit/document-core/documents/types";
-import { resolveDocumentDrafts } from "./draftResolution";
+import { resolveDocumentDrafts } from "./draftResolution.js";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
 
 /**

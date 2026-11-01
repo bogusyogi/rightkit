@@ -2,7 +2,7 @@
 // Uses a fake `fetch` to verify the wrapper issues correct URLs + JSON.
 
 import { describe, expect, it, vi } from "vitest";
-import { createBrowserWorkspaceClient } from "./browserWorkspace";
+import { createBrowserWorkspaceClient } from "./browserWorkspace.js";
 
 interface FetchCall {
   url: string;

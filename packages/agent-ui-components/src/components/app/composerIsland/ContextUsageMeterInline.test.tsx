@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { ContextUsageMeterInline } from "./ContextUsageMeterInline";
+import { ContextUsageMeterInline } from "./ContextUsageMeterInline.js";
 
 const baseProps = {
   contextPercent: 0,

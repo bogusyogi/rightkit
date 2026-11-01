@@ -16,7 +16,7 @@ import type {
   ScreenshotEnvelope,
   StoredAnnotation,
   ViewportInfo,
-} from "../../types/browserWorkspace";
+} from "../../types/browserWorkspace.js";
 
 export interface BrowserWorkspaceClient {
   getWorkspace(sessionId: string): Promise<BrowserWorkspaceSummary>;

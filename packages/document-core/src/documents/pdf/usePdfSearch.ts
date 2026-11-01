@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import type { SearchOptions, SearchProvider, SearchResult } from "../types";
-import { findLiteralMatches } from "../searchUtils";
-import { MARK_ACTIVE_BG, MARK_BG, highlightSpan, type Match } from "./pdfShared";
+import type { SearchOptions, SearchProvider, SearchResult } from "../types.js";
+import { findLiteralMatches } from "../searchUtils.js";
+import { MARK_ACTIVE_BG, MARK_BG, highlightSpan, type Match } from "./pdfShared.js";
 
 const NO_RESULT: SearchResult = { count: 0, activeIndex: -1 };
 export const PDF_SEARCH_CACHE_MAX_BYTES = 8 * 1024 * 1024;

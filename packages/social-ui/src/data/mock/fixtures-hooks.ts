@@ -1,8 +1,8 @@
 // RIGHTKIT-PENDING #383: ported version saved in /Volumes/D/scratch/postright/port-wip/full-port.patch
 // Invented hook test sets for the mock: one decided, one open. Brief references, bodies, openings, job ids
 // and pull ids are fictional. Values are invented integers as exact text, as the engine returns them.
-import type { HookTestSet } from "../types";
-import { SCOPE_ALPHA, SCOPE_BETA } from "./fixtures-optimise";
+import type { HookTestSet } from "../types.js";
+import { SCOPE_ALPHA, SCOPE_BETA } from "./fixtures-optimise.js";
 
 export const FIXTURE_HOOK_TESTS: HookTestSet[] = [
   {

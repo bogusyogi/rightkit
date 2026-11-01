@@ -3,8 +3,8 @@
 // two posts, one unavailable metric and one manual export. The other channels have nothing, so they show the empty state.
 // The latest value of each metric is derived from the observations in latestAnalytics (mockDataSource.ts), so the two
 // cannot drift apart.
-import type { AnalyticsObservation, AnalyticsPost, MetricImport } from "../types";
-import { SCOPE_ALPHA } from "./fixtures-optimise";
+import type { AnalyticsObservation, AnalyticsPost, MetricImport } from "../types.js";
+import { SCOPE_ALPHA } from "./fixtures-optimise.js";
 
 const POST_ONE = "fixture-job-analytics-1";
 const POST_TWO = "fixture-job-analytics-2";

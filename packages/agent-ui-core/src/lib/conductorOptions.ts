@@ -1,7 +1,7 @@
-import { CLI_PROVIDER_IDS, getProviderDisplay, type CliProviderId } from "./cliProviders";
-import type { DaemonCliProvider } from "./daemon/cli-providers";
-import type { DriverBindingStatus, DriverKind, ExternalDriverKind } from "./types";
-import { hostAppName } from "../appName";
+import { CLI_PROVIDER_IDS, getProviderDisplay, type CliProviderId } from "./cliProviders.js";
+import type { DaemonCliProvider } from "./daemon/cli-providers.js";
+import type { DriverBindingStatus, DriverKind, ExternalDriverKind } from "./types.js";
+import { hostAppName } from "../appName.js";
 
 /** One selectable model inside a conductor's nested models submenu. */
 export interface ConductorModelOption {

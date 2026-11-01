@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ReferenceMeta } from "../types/references";
-import { sendMessage } from "./messages-stream-readiness";
+import type { ReferenceMeta } from "../types/references.js";
+import { sendMessage } from "./messages-stream-readiness.js";
 
 const reference: ReferenceMeta = {
   id: "repo:stablyai/orca",

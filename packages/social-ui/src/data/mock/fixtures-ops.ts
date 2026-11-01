@@ -7,7 +7,7 @@ import type {
   PublishJob,
   ReconcileResult,
   ThreadItem,
-} from "../types";
+} from "../types.js";
 
 const b3 = (hex: string) => `blake3:${hex}`;
 

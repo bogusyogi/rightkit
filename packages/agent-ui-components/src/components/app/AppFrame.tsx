@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import CommandPalette, { type UtilityTarget } from "@rightkit/agent-ui-core/components/CommandPalette";
-import TitleBar, { type TitleBarPane } from "../TitleBar";
+import TitleBar, { type TitleBarPane } from "../TitleBar.js";
 import {
   AppFrame as RightKitAppFrame,
   ShellProvider,
@@ -9,15 +9,15 @@ import {
 } from "@rightkit/react-shell/react";
 import { shellThemeStore } from "@rightkit/agent-ui-core/state/themeStore";
 import { defaultToastBus } from "@rightkit/react-shell";
-import AppBody from "./AppBody";
-import SettingsModal from "../settings/SettingsModal";
+import AppBody from "./AppBody.js";
+import SettingsModal from "../settings/SettingsModal.js";
 import { listCliAccountProfiles, loginCliProvider } from "@rightkit/agent-ui-core/lib/daemon/config-host";
 import { CLI_PROVIDER_IDS } from "@rightkit/agent-ui-core/lib/cliProviders";
 import { usePaletteStore } from "@rightkit/agent-ui-core/state/paletteStore";
 import { useSidePanelStore } from "@rightkit/agent-ui-core/state/sidePanelStore";
 import { useRightPanelStore, type RightPanelTab } from "@rightkit/agent-ui-core/state/rightPanelStore";
 import { projectLayoutOrDefault, useLayoutStore, type DockSurface } from "@rightkit/agent-ui-core/state/layoutStore";
-import type { Pane as WorkbenchPane } from "../WorkbenchContent";
+import type { Pane as WorkbenchPane } from "../WorkbenchContent.js";
 import { deriveUpdateOverlay } from "@rightkit/app-update";
 import { UpdateOverlay } from "@rightkit/app-update/react";
 import { useUpdateStatus } from "@rightkit/agent-ui-hooks/hooks/useUpdateStatus";
@@ -73,7 +73,7 @@ export default function AppFrame(props: {
   setProviderKeyDrafts: AppBodyProps["setProviderKeyDrafts"];
   onSaveProviderKeyDraft: (provider: string) => void;
   onRemoveProviderKey: (provider: string) => void;
-  surfaces: ReturnType<typeof import("../../hooks/app/useAppSurfaces").useAppSurfaces>;
+  surfaces: ReturnType<typeof import("../../hooks/app/useAppSurfaces.js").useAppSurfaces>;
   health: AppBodyProps["health"];
   commands: CommandPaletteProps["commands"];
   runSlashCommand: (input: string) => void;

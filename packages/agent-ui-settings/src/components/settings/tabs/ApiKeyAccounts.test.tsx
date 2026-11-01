@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import ApiKeyAccounts from "./ApiKeyAccounts";
+import ApiKeyAccounts from "./ApiKeyAccounts.js";
 
 afterEach(() => vi.unstubAllGlobals());
 

@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { errorMessage } from "../../state/errors";
+import { errorMessage } from "../../state/errors.js";
 import {
   inTauriWebview,
   registeredPreviewSrc,
   revokePreview,
   type PreviewKind,
-} from "./previewFrame";
+} from "./previewFrame.js";
 
 export type PreviewFrameSource =
   /** Registration in flight: render no iframe yet. */

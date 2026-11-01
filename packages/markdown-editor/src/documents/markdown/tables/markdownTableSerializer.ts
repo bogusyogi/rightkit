@@ -4,7 +4,7 @@ import {
   MARKDOWN_TABLE_MAX_ROWS,
   type MarkdownTableAlignment,
   normalizeTableAlignment,
-} from "./markdownTableSchema";
+} from "./markdownTableSchema.js";
 
 export interface GfmTableSerializerOptions {
   readonly serializeUnknownInline?: (node: ProseMirrorNode) => string;

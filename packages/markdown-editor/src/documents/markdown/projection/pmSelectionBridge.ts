@@ -10,10 +10,10 @@
 
 import type { Node as ProseMirrorNode } from "prosemirror-model";
 import { AllSelection, NodeSelection, type Selection } from "prosemirror-state";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import type { MarkdownSelectionHint } from "../core/MarkdownDocumentTypes";
-import { parseToTree } from "../parseMarkdown";
-import { normalizeSoftWraps } from "./pmToMarkdown";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import type { MarkdownSelectionHint } from "../core/MarkdownDocumentTypes.js";
+import { parseToTree } from "../parseMarkdown.js";
+import { normalizeSoftWraps } from "./pmToMarkdown.js";
 
 // ---------------------------------------------------------------------------
 // Helpers: raw text leaves

@@ -1,7 +1,7 @@
 import { Button, ErrorBoundary as ShellErrorBoundary } from "@rightkit/react-shell/react";
 import React, { useCallback, useState } from "react";
-import Icon from "./Icon";
-import { hostAppName } from "../appName";
+import Icon from "./Icon.js";
+import { hostAppName } from "../appName.js";
 
 /**
  * Per-pane error boundary. A crash inside one workbench surface shows a compact fallback scoped to

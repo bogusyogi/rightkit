@@ -1,19 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { documentFormatEntries } from "../../documents/documentFormats";
+import { documentFormatEntries } from "../../documents/documentFormats.js";
 import {
   fileAssociationStatus,
   inTauri,
   isBrowserQaMode,
   openFileAssociationSettings,
   setFileAssociationDefaults,
-} from "../../state/tauriBridge";
+} from "../../state/tauriBridge.js";
 import type {
   FileAssociationFormatStatus,
   FileAssociationStatus,
   MarkdownUtiHandlerStatus,
-} from "../../state/tauriBridge";
-import { isMac, isWindows } from "../../platform";
-import { hostAppName } from "../../appName";
+} from "../../state/tauriBridge.js";
+import { isMac, isWindows } from "../../platform.js";
+import { hostAppName } from "../../appName.js";
 
 export const SUPPORTED_ASSOCIATION_FORMATS = [
   { id: "md", label: "Markdown" },

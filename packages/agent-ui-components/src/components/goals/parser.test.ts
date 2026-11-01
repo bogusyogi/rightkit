@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { parseGoals } from "./parser";
+import { parseGoals } from "./parser.js";
 
 describe("parseGoals — canonical forms", () => {
   it("parses [goal-XYZ: complete] evidence as a complete update", () => {

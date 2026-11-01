@@ -1,4 +1,4 @@
-import type { DoctorReport } from './api';
+import type { DoctorReport } from './api.js';
 
 /** Pick the first present scalar field from a doctor report. */
 export function pick(doctor: DoctorReport | null, ...keys: string[]): string | null {

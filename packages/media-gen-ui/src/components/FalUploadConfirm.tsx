@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
-import { errorCode, errorDetails } from '../lib/api';
-import { useConfirm } from '../lib/confirm';
+import { errorCode, errorDetails } from '../lib/api.js';
+import { useConfirm } from '../lib/confirm.js';
 
 /** Engine error code for a local reference image that has not been approved for upload. */
 export const FAL_UPLOAD_CONFIRM_CODE = 'upload_confirmation_required';

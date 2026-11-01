@@ -11,7 +11,7 @@
  */
 import { Button } from "@rightkit/react-shell/react";
 import { useEffect, useMemo, useState } from "react";
-import { errorMessage } from "../lib/engine";
+import { errorMessage } from "../lib/engine.js";
 import {
   autoeditApply,
   editplanList,
@@ -19,10 +19,10 @@ import {
   type PlanTake,
   type StoredPlan,
   type CutPreset,
-} from "../lib/media";
-import { formatSeconds } from "../lib/project";
+} from "../lib/media.js";
+import { formatSeconds } from "../lib/project.js";
 
-import type { EditSession } from "./adapter";
+import type { EditSession } from "./adapter.js";
 
 /** Item kind (snake_case) → the spec's Change groups. */
 function groupOf(item: PlanItem): "Retakes" | "Pacing" | "Structure" {

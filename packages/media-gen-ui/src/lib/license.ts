@@ -11,7 +11,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { createLicenseClient, type LicenseInvoke, type LicenseListen } from '@rightkit/license';
-import { engineCommand, isTauri, loadBrowserMock } from './api';
+import { engineCommand, isTauri, loadBrowserMock } from './api.js';
 
 // Browser preview (`vite`, dev only): the mock answers `rightkit_license_status` with a Free licence and
 // refuses every mutation. Release builds outside Tauri have no licence host.

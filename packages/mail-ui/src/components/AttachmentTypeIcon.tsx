@@ -1,4 +1,4 @@
-import { attachmentTypeInfo } from "../lib/attachmentTypes";
+import { attachmentTypeInfo } from "../lib/attachmentTypes.js";
 
 interface Props {
   filename: string;

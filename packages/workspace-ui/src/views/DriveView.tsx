@@ -9,9 +9,9 @@ import { Button, Dialog, IconButton, Skeleton, SegmentedControl, Input, Select }
 import { setPref } from "@rightkit/mail-ui/lib/preferences";
 import { useAppStore } from "@rightkit/mail-ui/store/index";
 import { useDrive, FOLDER_MIME } from "@rightkit/mail-ui/hooks/useDrive";
-import { DriveFileMenu } from "./DriveFileMenu";
-import { DrivePreviewModal } from "./DrivePreviewModal";
-import { fileGlyph } from "./driveFileGlyph";
+import { DriveFileMenu } from "./DriveFileMenu.js";
+import { DrivePreviewModal } from "./DrivePreviewModal.js";
+import { fileGlyph } from "./driveFileGlyph.js";
 import {
   listDriveFiles,
   driveStorageQuota,

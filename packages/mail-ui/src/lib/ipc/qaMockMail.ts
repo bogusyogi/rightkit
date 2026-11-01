@@ -1,5 +1,5 @@
-import type { InvokeArgs } from "./qaMockTypes";
-import { QA_LABELS, QA_THREADS } from "./qaMockData";
+import type { InvokeArgs } from "./qaMockTypes.js";
+import { QA_LABELS, QA_THREADS } from "./qaMockData.js";
 
 export function listThreads(args: InvokeArgs) {
   const label = typeof args?.label === "string" ? args.label : "INBOX";

@@ -1,6 +1,6 @@
 import type { ModelEntry, ModelsBackend } from '@rightkit/onboarding';
-import { fetchLocalImageProfiles, installLocalImageProfile, pauseLocalImageInstall } from './api';
-import type { LocalImageProfile } from './types';
+import { fetchLocalImageProfiles, installLocalImageProfile, pauseLocalImageInstall } from './api.js';
+import type { LocalImageProfile } from './types.js';
 
 function progressOf(p: LocalImageProfile): number {
   if (p.install_state === 'installed') return 1;

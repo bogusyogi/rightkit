@@ -1,0 +1,2 @@
+/* Every stylesheet this package's components use. Hosts import "<package>/styles.css" once (Node cannot import CSS from JS). */
+@import "pdfjs-dist/web/pdf_viewer.css";

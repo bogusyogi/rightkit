@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { errorMessage, setVastKey, vastKeyStatus } from '../lib/api';
-import { parseVastKey, vastKeyStatusText, type VastKeyStatus } from '../views/vast-key-logic';
+import { errorMessage, setVastKey, vastKeyStatus } from '../lib/api.js';
+import { parseVastKey, vastKeyStatusText, type VastKeyStatus } from '../views/vast-key-logic.js';
 import { Badge, Button, Input } from '@rightkit/react-shell/react';
 
 /** Settings control that saves or removes the Vast.ai key through the engine's credential path. */

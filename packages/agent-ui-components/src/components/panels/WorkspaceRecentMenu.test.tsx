@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import WorkspaceRecentMenu from "./WorkspaceRecentMenu";
+import WorkspaceRecentMenu from "./WorkspaceRecentMenu.js";
 import { useWorkspaceStore } from "@rightkit/agent-ui-core/state/workspaceStore";
 
 const RECENTS = [

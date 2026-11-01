@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { acquireResource, updateResource } from "../../app/resourceCensus";
+import { acquireResource, updateResource } from "../../app/resourceCensus.js";
 
 /** Rectangle for the native PDFKit view, in window CSS pixels. */
 export interface NativePdfFrame {

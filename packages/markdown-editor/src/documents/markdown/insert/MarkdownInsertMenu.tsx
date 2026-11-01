@@ -23,10 +23,10 @@ import { Sigma } from "@phosphor-icons/react/dist/icons/Sigma";
 import { Table } from "@phosphor-icons/react/dist/icons/Table";
 import { TextHOne } from "@phosphor-icons/react/dist/icons/TextHOne";
 import type { Icon } from "@phosphor-icons/react";
-import { MARKDOWN_INSERT_TEMPLATES, type MarkdownInsertTemplate } from "./markdownInsertTemplates";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import type { MarkdownTextEdit } from "../core/types";
-import { insertMarkdownTable } from "../tables/markdownTableCommands";
+import { MARKDOWN_INSERT_TEMPLATES, type MarkdownInsertTemplate } from "./markdownInsertTemplates.js";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import type { MarkdownTextEdit } from "../core/types.js";
+import { insertMarkdownTable } from "../tables/markdownTableCommands.js";
 
 const INSERT_GROUPS = [
   { label: "Text", kinds: ["heading", "bulleted-list", "numbered-list", "quote", "divider"] },

@@ -73,7 +73,7 @@ import {
   openEventStream,
   replayEventPages,
 } from "@rightkit/agent-ui-core/lib/daemon";
-import { useSessionEvents } from "./useSessionEvents";
+import { useSessionEvents } from "./useSessionEvents.js";
 
 const mockedGetTranscript = vi.mocked(getTranscript);
 const mockedGetSessionEventHistory = vi.mocked(getSessionEventHistory);

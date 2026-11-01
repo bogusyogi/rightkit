@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SubAgentState } from "@rightkit/agent-ui-core/hooks/useSubAgents";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 function fmtTokens(value: number | undefined): string {
   const n = value ?? 0;

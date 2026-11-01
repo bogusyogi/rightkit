@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { archiveProgress, type ArchiveProgress } from "../lib/ipc";
+import { archiveProgress, type ArchiveProgress } from "../lib/ipc.js";
 
 /**
  * Backs the search-coverage honesty banner (Lane C2). Fetches ArchiveProgress

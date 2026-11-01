@@ -5,7 +5,7 @@ import {
   orderedTaskIds,
   taskSwitcherColumnCount,
   TaskSwitcherUi,
-} from "./taskSwitcher";
+} from "./taskSwitcher.js";
 
 describe("TaskSwitcherUi", () => {
   it("contains only the ten most recently visited started tasks", () => {

@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import type { TranscriptMessage } from "./types";
+import type { TranscriptMessage } from "./types.js";
 import {
   literalFindRegex,
   markdownSearchMatches,
   MAX_TRANSCRIPT_SEARCH_MATCHES,
   searchTranscript,
   TranscriptSearch,
-} from "./transcriptSearch";
+} from "./transcriptSearch.js";
 
 describe("transcript search", () => {
   it("keeps literal search case-insensitive and unicode-safe", () => {

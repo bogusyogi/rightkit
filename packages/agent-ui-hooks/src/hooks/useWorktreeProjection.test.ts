@@ -7,7 +7,7 @@ import {
   removeProjectWorktree,
 } from "@rightkit/agent-ui-core/lib/worktrees/worktreeProjectionManager";
 import type { WorktreeMetadata } from "@rightkit/agent-ui-core/lib/worktrees/worktreeProjectionManager";
-import { useWorktreeProjection } from "./useWorktreeProjection";
+import { useWorktreeProjection } from "./useWorktreeProjection.js";
 
 vi.mock("@rightkit/agent-ui-core/lib/worktrees/worktreeProjectionManager", () => ({
   createWorktree: vi.fn(),

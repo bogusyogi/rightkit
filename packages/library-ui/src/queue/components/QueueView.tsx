@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { JobInfo, MediaSpec } from "../contract";
-import { isQaMode, qaState } from "../lib/ipc";
-import { selectWorkbenchJobId } from "../lib/workbench";
-import { PasteBar } from "./PasteBar";
-import { QueueBoard } from "./QueueBoard";
-import { WorkbenchPreview } from "./WorkbenchPreview";
+import type { JobInfo, MediaSpec } from "../contract.js";
+import { isQaMode, qaState } from "../lib/ipc/index.js";
+import { selectWorkbenchJobId } from "../lib/workbench.js";
+import { PasteBar } from "./PasteBar.js";
+import { QueueBoard } from "./QueueBoard.js";
+import { WorkbenchPreview } from "./WorkbenchPreview.js";
 
 type QueueViewProps = {
   jobs: JobInfo[];

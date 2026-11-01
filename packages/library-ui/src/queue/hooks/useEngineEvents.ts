@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import type { DisplayJob, EngineLifecycleEvent, JobEvent } from "../contract";
-import { formatInvokeError } from "../lib/errorMessage";
-import { invoke, listen } from "../lib/ipc";
-import { lifecycleFromState } from "../lib/ipc/streamEvents";
-import type { EngineStreamHandlers } from "../lib/ipc/streamEvents";
-import { subscribeEngine } from "../lib/ipc/subscribe";
-import { notifyReady } from "../lib/notify";
-import { applyJobEvent, bufferEarlyEvent } from "../lib/jobState";
+import type { DisplayJob, EngineLifecycleEvent, JobEvent } from "../contract.js";
+import { formatInvokeError } from "../lib/errorMessage.js";
+import { invoke, listen } from "../lib/ipc/index.js";
+import { lifecycleFromState } from "../lib/ipc/streamEvents.js";
+import type { EngineStreamHandlers } from "../lib/ipc/streamEvents.js";
+import { subscribeEngine } from "../lib/ipc/subscribe.js";
+import { notifyReady } from "../lib/notify.js";
+import { applyJobEvent, bufferEarlyEvent } from "../lib/jobState.js";
 
 type SetJobs = React.Dispatch<React.SetStateAction<DisplayJob[]>>;
 type SetErr = React.Dispatch<React.SetStateAction<string | null>>;

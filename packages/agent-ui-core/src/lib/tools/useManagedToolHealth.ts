@@ -4,7 +4,7 @@ import {
   projectManagedToolHealth,
   type ManagedToolHealth,
   type ManagedToolProbe,
-} from "./managedToolHealth";
+} from "./managedToolHealth.js";
 
 export interface UseManagedToolHealthOptions {
   toolId: string;

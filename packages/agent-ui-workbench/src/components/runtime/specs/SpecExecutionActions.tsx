@@ -1,4 +1,4 @@
-import type { SpecExecutionActionsProps } from "./types";
+import type { SpecExecutionActionsProps } from "./types.js";
 
 function ActionButton({
   disabled,

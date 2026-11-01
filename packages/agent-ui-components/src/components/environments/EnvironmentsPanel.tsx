@@ -18,7 +18,7 @@ import { useEffect, useState } from "react";
 import { useEnvironmentsStore } from "@rightkit/agent-ui-core/state/environmentsStore";
 import { environmentKindLabel } from "@rightkit/agent-ui-core/lib/daemon/delivery-environments-attention";
 import type { DaemonConfig, EnvironmentRecord } from "@rightkit/agent-ui-core/lib/types";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 interface EnvironmentsPanelProps {
   config: DaemonConfig | null;

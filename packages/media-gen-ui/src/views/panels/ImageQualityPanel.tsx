@@ -3,9 +3,8 @@
 // hands Generate the rendered prompt + engine params, so an approved recipe can
 // run unattended; anything else stays gated until review.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import './video.css';
-import type { StudioPanelProps } from './types';
-import { errorText } from '../../lib/engine-error';
+import type { StudioPanelProps } from './types.js';
+import { errorText } from '../../lib/engine-error.js';
 import {
   RECIPE_SLOTS,
   buildPreflightInput,
@@ -16,10 +15,10 @@ import {
   type IntentInfo,
   type LibrariesResult,
   type RecipeSlot
-} from './image-quality';
-import { usd } from './video-quality';
+} from './image-quality.js';
+import { usd } from './video-quality.js';
 import { Badge, Button, Input, Notice, Pill, Select, Toggle } from '@rightkit/react-shell/react';
-import { readUiSetting, writeUiSetting } from '../../lib/settings-backend';
+import { readUiSetting, writeUiSetting } from '../../lib/settings-backend.js';
 
 export const ImageQualityPanelKinds: string[] = ['image'];
 

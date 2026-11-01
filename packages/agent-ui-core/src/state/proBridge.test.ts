@@ -7,7 +7,7 @@ import {
   redeemWindowsLinkCode,
   setProBridgeSyncEnabled,
   suppressProBridgeConsumption,
-} from "./proBridge";
+} from "./proBridge.js";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 

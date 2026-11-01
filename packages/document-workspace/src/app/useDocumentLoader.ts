@@ -1,5 +1,5 @@
 import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
-import { isMarkdownFormat } from "../documents/capabilities";
+import { isMarkdownFormat } from "../documents/capabilities.js";
 import {
   isUnsupportedBinary,
   type LoadedDocument,
@@ -13,12 +13,12 @@ import {
   webTabPath,
 } from "@rightkit/document-core/documents/web/webUrl";
 import { openFileDialog, readDocument, grantKnownFileToken } from "@rightkit/document-core/state/tauriBridge";
-import { recordRecent, type FileEntry } from "../state/library";
-import type { DocumentTabs } from "./useDocumentTabs";
-import { readFileDraft, clearFileDraft } from "./documentDrafts";
+import { recordRecent, type FileEntry } from "../state/library.js";
+import type { DocumentTabs } from "./useDocumentTabs.js";
+import { readFileDraft, clearFileDraft } from "./documentDrafts.js";
 import { errorMessage } from "@rightkit/document-core/state/errors";
 import { logError, logEvent, logPerf } from "@rightkit/document-core/state/diagnostics";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 export interface OpenDocumentOptions {
   /** Add the tab without activating it. */
@@ -146,19 +146,19 @@ export function useDocumentLoader({
         // production code is unaffected because every browser/embedded WebView has DOMMatrix.
         switch (loaded.format) {
           case "html":
-            void import("../documents/html/HtmlDocument").catch(() => {});
-            void import("../documents/txt/TxtEditor").catch(() => {}); // HTML source drawer uses CodeMirror
+            void import("../documents/html/HtmlDocument.js").catch(() => {});
+            void import("../documents/txt/TxtEditor.js").catch(() => {}); // HTML source drawer uses CodeMirror
             break;
           case "md":
-            void import("../documents/markdown/MarkdownSplitPane").catch(() => {});
+            void import("../documents/markdown/MarkdownSplitPane.js").catch(() => {});
             void import("@rightkit/markdown-editor/documents/markdown/MarkdownCoreProvider").catch(() => {});
-            void import("../documents/txt/TxtEditor").catch(() => {});
+            void import("../documents/txt/TxtEditor.js").catch(() => {});
             break;
           case "mdx":
-            void import("../documents/mdx/MdxSplitPane").catch(() => {});
+            void import("../documents/mdx/MdxSplitPane.js").catch(() => {});
             void import("@rightkit/markdown-editor/documents/mdx/mdxCompiler").catch(() => {});
-            void import("../documents/markdown/MarkdownSplitPane").catch(() => {}); // shared TxtEditor + outline code
-            void import("../documents/txt/TxtEditor").catch(() => {});
+            void import("../documents/markdown/MarkdownSplitPane.js").catch(() => {}); // shared TxtEditor + outline code
+            void import("../documents/txt/TxtEditor.js").catch(() => {});
             break;
           case "docx":
             void import("@rightkit/docx-editor/documents/docx/DocxPane").catch(() => {});
@@ -167,12 +167,12 @@ export function useDocumentLoader({
             void import("@rightkit/document-core/documents/pdf/PdfViewer").catch(() => {});
             break;
           case "image":
-            void import("../documents/ImageDocument").catch(() => {});
+            void import("../documents/ImageDocument.js").catch(() => {});
             break;
           // "txt" reuses TxtEditor's chunk too; the prefetch is idempotent.
           case "txt":
           case "web":
-            void import("../documents/txt/TxtEditor").catch(() => {});
+            void import("../documents/txt/TxtEditor.js").catch(() => {});
             break;
           default:
             break;

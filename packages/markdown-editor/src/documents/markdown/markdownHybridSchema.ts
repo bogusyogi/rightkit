@@ -1,5 +1,5 @@
 import { type Node as PmNode, type NodeSpec, Schema } from "prosemirror-model";
-import { markdownTableNodeSpecs } from "./tables/markdownTableSchema";
+import { markdownTableNodeSpecs } from "./tables/markdownTableSchema.js";
 
 export const markdownHybridSchema = new Schema({
   nodes: {

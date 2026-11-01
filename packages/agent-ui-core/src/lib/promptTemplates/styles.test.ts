@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BUILT_IN_STYLES, mergeStyles, validateCustomStyle } from "./styles";
+import { BUILT_IN_STYLES, mergeStyles, validateCustomStyle } from "./styles.js";
 
 describe("prompt template styles", () => {
   it("ports the fourteen five-level built-ins with unique IDs", () => {

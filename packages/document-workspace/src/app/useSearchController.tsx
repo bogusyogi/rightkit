@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { FindBar } from "./FindBar";
+import { FindBar } from "./FindBar.js";
 import type { LoadedDocument, SearchProvider } from "@rightkit/document-core/documents/types";
-import { buildCrossDocProvider } from "./useCrossDocSearch";
+import { buildCrossDocProvider } from "./useCrossDocSearch.js";
 
 /** Formats whose find surface registers asynchronously, so Find may open before its provider exists. */
 const EARLY_FIND_FORMATS = new Set(["html", "docx", "md", "mdx"]);

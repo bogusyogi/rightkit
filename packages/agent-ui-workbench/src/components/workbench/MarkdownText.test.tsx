@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import MarkdownText from "./MarkdownText";
+import MarkdownText from "./MarkdownText.js";
 
 describe("MarkdownText", () => {
   it("renders markdown tables as semantic transcript tables", () => {

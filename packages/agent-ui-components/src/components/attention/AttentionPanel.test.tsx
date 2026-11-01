@@ -99,7 +99,7 @@ vi.mock("@rightkit/agent-ui-core/state/attentionStore", () => {
   return { useAttentionStore };
 });
 
-import AttentionPanel from "./AttentionPanel";
+import AttentionPanel from "./AttentionPanel.js";
 
 const baseConfig = { url: "http://127.0.0.1:1", token: "x" };
 

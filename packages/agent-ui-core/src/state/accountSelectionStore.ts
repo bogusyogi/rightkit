@@ -3,8 +3,8 @@ import {
   fetchAccountSelection,
   putProjectDefaultAccount,
   putSessionAccount,
-} from "../lib/accounts/accounts";
-import type { DaemonConfig } from "../lib/types";
+} from "../lib/accounts/accounts.js";
+import type { DaemonConfig } from "../lib/types.js";
 
 export const ACCOUNT_SELECTION_STORAGE_KEY = "cr.accounts.selection.v1";
 

@@ -9,7 +9,7 @@ import {
   postInteractiveScrollTop,
   postInteractiveSelectAll,
   postInteractiveZoomReset,
-} from "./htmlInteractiveProtocol";
+} from "./htmlInteractiveProtocol.js";
 
 interface Args {
   active: boolean;

@@ -1,4 +1,4 @@
-import { bytes, type ChromeSnapshots } from "../api";
+import { bytes, type ChromeSnapshots } from "../api.js";
 
 const dateText = (secs: number) => new Date(secs * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 

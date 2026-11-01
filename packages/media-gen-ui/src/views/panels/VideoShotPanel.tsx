@@ -2,9 +2,8 @@
 // recipe libraries, and the guarded preflight → approved run (rule: no I2V run
 // without a validated shot contract and storyboard start/end frames).
 import { useEffect, useMemo, useRef, useState } from 'react';
-import './video.css';
-import type { StudioPanelProps } from './types';
-import { errorText } from '../../lib/engine-error';
+import type { StudioPanelProps } from './types.js';
+import { errorText } from '../../lib/engine-error.js';
 import {
   ASPECTS,
   RECIPE_PICKERS,
@@ -24,9 +23,9 @@ import {
   type RecipeLibrary,
   type TemplateInfo,
   type Venture
-} from './video-quality';
+} from './video-quality.js';
 import { Badge, Button, Checkbox, Input, Notice, Pill, Select as RkSelect, Toggle } from '@rightkit/react-shell/react';
-import { readUiSetting, writeUiSetting } from '../../lib/settings-backend';
+import { readUiSetting, writeUiSetting } from '../../lib/settings-backend.js';
 
 export const VideoShotPanelKinds: string[] = ['video'];
 

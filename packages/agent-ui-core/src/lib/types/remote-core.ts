@@ -1,5 +1,5 @@
-import type { DiagnosticsCheck, DiagnosticsStatus } from "./health-support";
-import type { ContentTrust } from "./protocol-core";
+import type { DiagnosticsCheck, DiagnosticsStatus } from "./health-support.js";
+import type { ContentTrust } from "./protocol-core.js";
 
 export interface TeamDefinition {
   name: string;

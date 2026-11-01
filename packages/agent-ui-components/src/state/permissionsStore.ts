@@ -16,7 +16,7 @@ import {
 import type {
   PermissionRuleDraft,
   PersistentPermissionRuleDraft,
-} from "../components/settings/types";
+} from "../components/settings/types.js";
 import type {
   DaemonConfig,
   PermissionDenialRow,

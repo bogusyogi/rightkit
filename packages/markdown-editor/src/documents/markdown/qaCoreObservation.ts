@@ -1,7 +1,7 @@
 import { EditorView } from "@codemirror/view";
-import type { MarkdownDocumentCore } from "./core/MarkdownDocumentCore";
-import { createInitialMarkdownSourceMap } from "./core/buildMarkdownSourceMap";
-import { MarkdownNodeIdFactory } from "./core/MarkdownNodeIdFactory";
+import type { MarkdownDocumentCore } from "./core/MarkdownDocumentCore.js";
+import { createInitialMarkdownSourceMap } from "./core/buildMarkdownSourceMap.js";
+import { MarkdownNodeIdFactory } from "./core/MarkdownNodeIdFactory.js";
 import type { EditorView as MarkdownEditorView } from "prosemirror-view";
 
 // Read-only oracle for compiled-app QA. User edits still travel through native editor input.

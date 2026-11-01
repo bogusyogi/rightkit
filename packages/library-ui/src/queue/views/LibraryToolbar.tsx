@@ -1,8 +1,8 @@
 import { cx } from "@rightkit/react-shell/react";
 import { CheckSquare, Download, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
 import type { ChangeEvent } from "react";
-import type { Kind } from "../contract";
-import { buttonClass, inputClass, mutedTextClass } from "../lib/ui";
+import type { Kind } from "../contract.js";
+import { buttonClass, inputClass, mutedTextClass } from "../lib/ui.js";
 
 export type SortKey = "newest" | "oldest" | "longest" | "shortest";
 export type SourceFilter = "all" | "local" | "remote";

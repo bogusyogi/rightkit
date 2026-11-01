@@ -4,8 +4,8 @@ import {
   REFERENCE_MAX_PER_SESSION,
   REFERENCE_STORAGE_KEY,
   type ReferenceObject,
-} from "../lib/types/references";
-import { useReferenceStore } from "./referenceStore";
+} from "../lib/types/references.js";
+import { useReferenceStore } from "./referenceStore.js";
 
 function makeImageRef(id: string, overrides: Partial<ReferenceObject> = {}): ReferenceObject {
   return {

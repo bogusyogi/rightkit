@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import type React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { useComposerEditorProjection } from "./useComposerEditorProjection";
+import { useComposerEditorProjection } from "./useComposerEditorProjection.js";
 
 describe("useComposerEditorProjection", () => {
   it("exposes selection and imperative insertion without owning submit", () => {

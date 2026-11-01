@@ -1,7 +1,7 @@
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import { EmptyState } from "@rightkit/react-shell/react";
 import type { MessageHistoryRow } from "@rightkit/agent-ui-core/lib/types";
-import { formatIsoTime } from "./runtimeUtils";
+import { formatIsoTime } from "./runtimeUtils.js";
 
 export default function MessagesRuntimePanel({
   messages,

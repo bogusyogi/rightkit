@@ -1,4 +1,4 @@
-import { engineCall } from "./engine";
+import { engineCall } from "./engine.js";
 
 // Typed client for the external-microphone alignment method served by
 // cutright-engine (crates/cutright-engine/src/mic_cmd.rs). The engine exposes

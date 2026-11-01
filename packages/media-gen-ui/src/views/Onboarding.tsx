@@ -1,22 +1,21 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { LEGAL_DOCUMENTS_HASH, type LegalDocumentId } from '../legal/documents';
+import { LEGAL_DOCUMENTS_HASH, type LegalDocumentId } from '../legal/documents.js';
 import { Card, Badge, CaptionControls, Notice } from '@rightkit/react-shell/react';
 import { Onboarding, modelsStep, type OnboardingStep } from '@rightkit/onboarding';
-import '@rightkit/onboarding/onboarding.css';
-import { KeyRow } from '../components/KeyRow';
-import { ImportEnvButton } from '../components/ImportEnvButton';
-import { errorMessage, fetchApps, fetchCredentialStatus, fetchLocalImageRuntime, type CredentialRuntime, type InstalledApp } from '../lib/api';
-import { useApp } from '../lib/app-state';
-import { pick, scalarRows } from '../lib/doctor';
-import { createLocalModelsBackend } from '../lib/local-models-backend';
-import { LAST_STEP_ID, LEGAL_VERSION, legalReceiptPort, legalStepConfig } from '../lib/onboarding';
-import { isMac, platformOS } from '../lib/platform';
-import { settingsBackend } from '../lib/settings-backend';
-import { setupStepDef, type SetupStepFacts, type SetupStepId } from '../lib/setup-steps';
-import type { LocalImageRuntimeStatus } from '../lib/types';
-import { WINDOW_CONTROLS } from '../lib/windowControls';
-import { LegalDocumentView } from './LegalDocument';
-import { hostAppName } from "../appName";
+import { KeyRow } from '../components/KeyRow.js';
+import { ImportEnvButton } from '../components/ImportEnvButton.js';
+import { errorMessage, fetchApps, fetchCredentialStatus, fetchLocalImageRuntime, type CredentialRuntime, type InstalledApp } from '../lib/api.js';
+import { useApp } from '../lib/app-state.js';
+import { pick, scalarRows } from '../lib/doctor.js';
+import { createLocalModelsBackend } from '../lib/local-models-backend.js';
+import { LAST_STEP_ID, legalVersion, legalReceiptPort, legalStepConfig } from '../lib/onboarding.js';
+import { isMac, platformOS } from '../lib/platform.js';
+import { settingsBackend } from '../lib/settings-backend.js';
+import { setupStepDef, type SetupStepFacts, type SetupStepId } from '../lib/setup-steps.js';
+import type { LocalImageRuntimeStatus } from '../lib/types.js';
+import { WINDOW_CONTROLS } from '../lib/windowControls.js';
+import { LegalDocumentView } from './LegalDocument.js';
+import { hostAppName } from "../appName.js";
 
 function Row({ k, children }: { k: string; children: ReactNode }) {
   return <div className="setting"><span>{k}</span><span className="selectable" style={{ color: 'var(--ink-2)', textAlign: 'right', overflowWrap: 'anywhere' }}>{children}</span></div>;
@@ -174,7 +173,7 @@ export function Setup({ onDone }: { onDone: () => void }) {
       <Onboarding
         settings={settingsBackend}
         legal={legal}
-        requiredVersion={LEGAL_VERSION}
+        requiredVersion={legalVersion()}
         requiredDocumentsHash={LEGAL_DOCUMENTS_HASH}
         legalReceipt={legalReceiptPort}
         steps={steps}

@@ -1,7 +1,7 @@
 import { ExternalLink, FileText, FolderOpen } from "lucide-react";
-import { invoke } from "../lib/ipc";
-import { buttonClass } from "../lib/ui";
-import { runTranscriptFileAction } from "../lib/transcriptActions";
+import { invoke } from "../lib/ipc/index.js";
+import { buttonClass } from "../lib/ui.js";
+import { runTranscriptFileAction } from "../lib/transcriptActions.js";
 
 type TranscriptFileActionsProps = {
   /** The saved transcript's id; null hides every action until the detail loads. */

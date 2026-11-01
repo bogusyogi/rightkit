@@ -27,7 +27,7 @@ let started = false;
 let manualCheckInProgress = false;
 let interactiveInstall: Promise<AutoUpdateStatus> | null = null;
 function initialStatus(): AutoUpdateStatus {
-  if (!import.meta.env.DEV || typeof window === "undefined") return { kind: "idle" };
+  if (!import.meta.env?.DEV || typeof window === "undefined") return { kind: "idle" };
   const params = new URLSearchParams(window.location.search);
   if (params.get("qa") !== "1") return { kind: "idle" };
   switch (params.get("qa-update")) {

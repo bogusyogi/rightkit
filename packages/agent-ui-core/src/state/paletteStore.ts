@@ -2,10 +2,10 @@
 // is RightKit's `CommandPalette`, driven through its controlled props in components/CommandPalette.tsx.
 import { create } from "zustand";
 
-import type { IconName } from "../components/Icon";
-import type { CommandInfo } from "../lib/daemon/sessions-permissions";
-import type { SkillItem } from "../lib/types";
-import type { WorkspaceMention } from "../lib/daemon/workspace-health";
+import type { IconName } from "../components/Icon.js";
+import type { CommandInfo } from "../lib/daemon/sessions-permissions.js";
+import type { SkillItem } from "../lib/types.js";
+import type { WorkspaceMention } from "../lib/daemon/workspace-health.js";
 import { rankCommands } from "@rightkit/platform-ui/headless";
 
 export type PaletteScope = "global" | "slash" | "mention";

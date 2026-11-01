@@ -6,12 +6,12 @@
  * selectors, from inside `useMemo`, and from tests.
  */
 
-import type { MarkdownNodeId } from "./MarkdownNodeIdFactory";
+import type { MarkdownNodeId } from "./MarkdownNodeIdFactory.js";
 import type {
   MarkdownSourceMap,
   MarkdownSourceNode,
   MarkdownSourceNodeKind,
-} from "./MarkdownSourceMap";
+} from "./MarkdownSourceMap.js";
 
 /**
  * Returns every top-level node in source order. A node is

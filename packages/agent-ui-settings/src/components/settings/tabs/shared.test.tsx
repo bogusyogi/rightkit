@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { diagnosticsCardStatusClass, diagnosticsLabel, diagnosticsStatusClass } from "./shared";
+import { diagnosticsCardStatusClass, diagnosticsLabel, diagnosticsStatusClass } from "./shared.js";
 
 describe("status-tone mapping (single source for Diagnostics, Execution, MCP)", () => {
   it("labels pass/warn/block correctly", () => {

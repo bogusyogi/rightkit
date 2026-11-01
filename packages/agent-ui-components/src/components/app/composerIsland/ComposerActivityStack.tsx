@@ -3,8 +3,8 @@ import type { SubAgentState } from "@rightkit/agent-ui-core/hooks/useSubAgents";
 import type { GoalSnapshotV1 } from "@rightkit/agent-ui-core/lib/types";
 import { ProgressBar } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import { goalStatusLabel } from "../composerBarHelpers";
-import { formatTokens } from "./format";
+import { goalStatusLabel } from "../composerBarHelpers.js";
+import { formatTokens } from "./format.js";
 
 export interface ComposerActivityStackProps {
   agents: SubAgentState[];

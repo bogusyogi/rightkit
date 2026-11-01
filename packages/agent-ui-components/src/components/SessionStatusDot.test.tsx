@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type { SessionRow } from "@rightkit/agent-ui-core/lib/types";
 import { useSessionAttentionStore } from "@rightkit/agent-ui-core/state/sessionAttentionStore";
-import SessionStatusDot from "./SessionStatusDot";
+import SessionStatusDot from "./SessionStatusDot.js";
 
 const session = (status: string): SessionRow =>
   ({

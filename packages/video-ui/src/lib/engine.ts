@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { EngineEvent as ShellEngineEvent } from "@rightkit/tauri-shell";
 
-import type { EngineFrame } from "./progress";
-import { shell } from "./shell";
+import type { EngineFrame } from "./progress.js";
+import { shell } from "./shell.js";
 
 // the host app view model adapted from shared engine lifecycle snapshots.
 export type EngineState = "starting" | "ready" | "restarting" | "failed" | "stopped";
@@ -64,7 +64,7 @@ export async function engineCall<T = unknown>(method: string, params: Record<str
 
 export const revealPath = (path: string) => invoke<void>("reveal_path", { path });
 
-export type { EngineEvent, EngineFrame } from "./progress";
+export type { EngineEvent, EngineFrame } from "./progress.js";
 
 /** Every engine event payload (`{call, id, tag, event}`), lifecycle frames included. */
 export const onEngineRaw = (handler: (payload: ShellEngineEvent) => void): Promise<() => void> =>

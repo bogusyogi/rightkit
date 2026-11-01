@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { onEngineEvent } from "../lib/engine";
-import { beginProgress, initialProgress, type ProgressState, reduceFrame, seedFromStatus } from "../lib/progress";
+import { onEngineEvent } from "../lib/engine.js";
+import { beginProgress, initialProgress, type ProgressState, reduceFrame, seedFromStatus } from "../lib/progress.js";
 
-export type { ProgressState } from "../lib/progress";
+export type { ProgressState } from "../lib/progress.js";
 
 /** Progress of the one engine call the UI is currently following (by tag, then frame id). */
 export function useProgress() {

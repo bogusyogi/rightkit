@@ -6,7 +6,7 @@
 //             code "genright_outdated" carries `contract version <found> is not supported (need <required>)`
 //             or `lacks capability <name> v<n>` in its message; anything else means the engine failed to run.
 
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 export type HostState = "checking" | "ready" | "missing" | "outdated" | "unavailable";
 
 export type HostInfo = {

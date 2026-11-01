@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { DaemonConfig } from "@rightkit/agent-ui-core/lib/types/settings-plugins";
 import type { WorkspaceEntry } from "@rightkit/agent-ui-core/lib/types/workspace-files";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 /** The daemon's recoverable-trash receipt for one workspace entry. */
 export interface DeletedWorkspaceEntry {

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { TranscriptMessage } from "../types";
+import type { TranscriptMessage } from "../types.js";
 import {
   createTranscriptRenderCache,
   layoutTranscriptRows,
   projectTranscriptGroups,
   transcriptRenderFingerprint,
   transcriptViewportWindow,
-} from "./longTranscriptRender";
+} from "./longTranscriptRender.js";
 import source from "./longTranscriptRender.ts?raw";
 
 const user = (id: string, content: string): TranscriptMessage => ({

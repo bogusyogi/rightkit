@@ -16,11 +16,11 @@ import {
 import { moveIndex } from "@rightkit/platform-ui/headless";
 import type { DocFormat, LoadedDocument } from "@rightkit/document-core/documents/types";
 import { isUntitled } from "@rightkit/document-core/documents/types";
-import { FileTypeIcon } from "../../documents/FileTypeIcon";
-import { LiveTitle } from "../LiveTitle";
-import { Popover } from "../sidebar/SidebarPrimitives";
-import { pathFolder } from "../sidebar/SidebarPathUtils";
-import { useTabDirty } from "./useTabDirty";
+import { FileTypeIcon } from "../../documents/FileTypeIcon.js";
+import { LiveTitle } from "../LiveTitle.js";
+import { Popover } from "../sidebar/SidebarPrimitives.js";
+import { pathFolder } from "../sidebar/SidebarPathUtils.js";
+import { useTabDirty } from "./useTabDirty.js";
 
 /** Type-filter groups — brief: All, PDF, Markdown (md+mdx), Word (docx), Images, HTML, Text.
  *  Formats outside these groups (web previews, unknowns) are reachable through All + search. */

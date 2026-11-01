@@ -13,7 +13,6 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import "../../../styles/explorer.css";
 import { CaretDown } from "@phosphor-icons/react/dist/icons/CaretDown";
 import { CaretRight } from "@phosphor-icons/react/dist/icons/CaretRight";
 import { Cloud } from "@phosphor-icons/react/dist/icons/Cloud";
@@ -25,7 +24,7 @@ import { FileText } from "@phosphor-icons/react/dist/icons/FileText";
 import { Folder } from "@phosphor-icons/react/dist/icons/Folder";
 import { HardDrives } from "@phosphor-icons/react/dist/icons/HardDrives";
 import { House } from "@phosphor-icons/react/dist/icons/House";
-import { FileTypeIcon } from "../../../documents/FileTypeIcon";
+import { FileTypeIcon } from "../../../documents/FileTypeIcon.js";
 import type { DocFormat } from "@rightkit/document-core/documents/types";
 import {
   explorerListDir,
@@ -33,10 +32,10 @@ import {
   explorerWatchDir,
   onExplorerChanged,
   type ExplorerEntry,
-} from "../../../state/explorer";
+} from "../../../state/explorer.js";
 import { parseHostError } from "@rightkit/document-core/state/tauriBridge";
-import { childNameOnPath, pathInside, rowKindOf } from "./explorerState";
-import { hostAppName } from "../../../appName";
+import { childNameOnPath, pathInside, rowKindOf } from "./explorerState.js";
+import { hostAppName } from "../../../appName.js";
 
 // ── Data model ─────────────────────────────────────────────────────────────
 

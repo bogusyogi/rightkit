@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { assetUrl, errorCode, errorMessage, isHeldJob, isTauri, resolveJob, studio } from '../lib/api';
-import { heldActionLabel, heldActions, heldConsequence, heldExplanation, heldLabel, isRecoveredCode, type HeldAction } from '../lib/held-job';
-import { useApp } from '../lib/app-state';
-import { useConfirm } from '../lib/confirm';
+import { assetUrl, errorCode, errorMessage, isHeldJob, isTauri, resolveJob, studio } from '../lib/api.js';
+import { heldActionLabel, heldActions, heldConsequence, heldExplanation, heldLabel, isRecoveredCode, type HeldAction } from '../lib/held-job.js';
+import { useApp } from '../lib/app-state.js';
+import { useConfirm } from '../lib/confirm.js';
 import { Card, Badge, Button, Checkbox, EmptyState, Input, Notice, ProgressBar, SegmentedControl, Select } from '@rightkit/react-shell/react';
-import { providerName, usd } from '../components/ui';
+import { providerName, usd } from '../components/ui.js';
 import { MediaPlayer } from '@rightkit/media-ui';
 import {
   MAX_BATCH_LINES,
@@ -30,16 +30,15 @@ import {
   type VoiceList,
   type VoicePresets,
   type VoiceModelsStatus
-} from './voices-logic';
-import './voices.css';
-import { hostAppName } from "../appName";
+} from './voices-logic.js';
+import { hostAppName } from "../appName.js";
 
 /** The in-memory studio.voices.* stand-in: a DEV build's browser mode only; a release build never contains it. */
-type VoicesMock = ReturnType<typeof import('./voices-mock').createMockVoicesEngine>;
+type VoicesMock = ReturnType<typeof import('./voices-mock.js').createMockVoicesEngine>;
 let mock: Promise<VoicesMock> | undefined;
 function loadMock(): Promise<VoicesMock> {
-  if (!import.meta.env.DEV) return Promise.reject(new Error(`${hostAppName()} needs the desktop app.`));
-  mock ??= import('./voices-mock').then((m) => m.createMockVoicesEngine());
+  if (!import.meta.env?.DEV) return Promise.reject(new Error(`${hostAppName()} needs the desktop app.`));
+  mock ??= import('./voices-mock.js').then((m) => m.createMockVoicesEngine());
   return mock;
 }
 

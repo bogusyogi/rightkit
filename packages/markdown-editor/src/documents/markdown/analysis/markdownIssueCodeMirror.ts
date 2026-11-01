@@ -8,7 +8,7 @@
  */
 
 import type { Diagnostic } from "@codemirror/lint";
-import type { MarkdownAnalysis } from "./types";
+import type { MarkdownAnalysis } from "./types.js";
 
 /**
  * Build CodeMirror diagnostics from the analysis result. The result

@@ -47,7 +47,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import type { PdfColor, PdfRect, PdfTextAppearance, PdfTextDraft } from "./pdfEditModel";
+import type { PdfColor, PdfRect, PdfTextAppearance, PdfTextDraft } from "./pdfEditModel.js";
 
 /** Default CSS px per PDF user-space unit when the caller does not supply the live viewport scale:
  *  96dpi CSS px over 72dpi PDF points, i.e. a viewer at 100% with pdf.js's PDF_TO_CSS_UNITS. */

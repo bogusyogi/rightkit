@@ -1,5 +1,5 @@
-import { invoke } from "./invoke";
-import type { Thread } from "./mail";
+import { invoke } from "./invoke.js";
+import type { Thread } from "./mail.js";
 
 export type SemanticState =
   | "off"

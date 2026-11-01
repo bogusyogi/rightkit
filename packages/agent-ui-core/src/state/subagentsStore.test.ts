@@ -5,7 +5,7 @@ import {
   type SubagentLifecycleEvent,
   type SubagentsIpcAdapter,
   useSubagentsStore,
-} from "./subagentsStore";
+} from "./subagentsStore.js";
 
 describe("subagents lifecycle store", () => {
   beforeEach(() => {

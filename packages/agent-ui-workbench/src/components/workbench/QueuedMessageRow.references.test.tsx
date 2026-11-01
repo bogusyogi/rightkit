@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import QueuedMessageRow from "./QueuedMessageRow";
+import QueuedMessageRow from "./QueuedMessageRow.js";
 
 describe("QueuedMessageRow references", () => {
   it("renders queued skill and repository metadata before delivery", () => {

@@ -21,8 +21,8 @@ import {
   getRunChangesInventory,
   getRunChangesSummary,
   undoRunChange,
-} from "./runChangesClient";
-import { dispatch, useRunChangesState } from "./useRunChangesState";
+} from "./runChangesClient.js";
+import { dispatch, useRunChangesState } from "./useRunChangesState.js";
 import type { DaemonConfig } from "@rightkit/agent-ui-core/lib/types/settings-plugins";
 import { useWorkspaceStore } from "@rightkit/agent-ui-core/state/workspaceStore";
 import { useRightPanelStore } from "@rightkit/agent-ui-core/state/rightPanelStore";

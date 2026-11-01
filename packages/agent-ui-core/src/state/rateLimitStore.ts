@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { RateLimitEvent } from "../lib/accounts/accounts";
+import type { RateLimitEvent } from "../lib/accounts/accounts.js";
 
 type State = {
   /** Latest accountRateLimited event per session. */

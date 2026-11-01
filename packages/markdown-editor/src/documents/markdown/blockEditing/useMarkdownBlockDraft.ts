@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOptionalBlockDrafts } from "@rightkit/document-core/app/BlockDraftContext";
 import { createBlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
 import type { BlockDraftRegistry, BlockDraftSnapshot } from "@rightkit/document-core/app/blockDrafts";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import type { BlockKind } from "./types";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import type { BlockKind } from "./types.js";
 
 export function useMarkdownBlockDraft(
   core: MarkdownDocumentCore,

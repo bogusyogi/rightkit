@@ -2,13 +2,13 @@
  * Public contracts for the Markdown analysis layer.
  *
  * The analysis layer produces a structured list of {@link MarkdownIssue}s
- * over a {@link import("../core/MarkdownDocumentTypes").MarkdownCoreSnapshot}.
+ * over a {@link import("../core/MarkdownDocumentTypes.js").MarkdownCoreSnapshot}.
  * It never mutates the core; it only reads.
  */
 
-import type { MarkdownNodeId } from "../core/MarkdownNodeIdFactory";
-import type { MarkdownTextEdit } from "../core/types";
-import type { MarkdownSourceNode } from "../core/MarkdownSourceMap";
+import type { MarkdownNodeId } from "../core/MarkdownNodeIdFactory.js";
+import type { MarkdownTextEdit } from "../core/types.js";
+import type { MarkdownSourceNode } from "../core/MarkdownSourceMap.js";
 
 /**
  * Severity assigned to a {@link MarkdownIssue}. `error` blocks export;

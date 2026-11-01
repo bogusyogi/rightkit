@@ -3,7 +3,7 @@ import Icon from "@rightkit/agent-ui-core/components/Icon";
 import type { BenchmarkGateKind, SkillOptimizationRun } from "@rightkit/agent-ui-core/lib/types";
 import { OfflinePanel } from "@rightkit/agent-ui-settings/components/settings/tabs/shared";
 import { SkillProposalMeta } from "@rightkit/agent-ui-settings/components/settings/tabs/skills/SkillShared";
-import type { SkillTrainingPanelProps } from "./types";
+import type { SkillTrainingPanelProps } from "./types.js";
 
 export default function SkillTrainingRunDetail({
   selectedRun,

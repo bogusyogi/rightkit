@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Checkbox, ConfirmDialog, Select } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import type { ExecutionNetworkDefault, ExecutionNetworkProfile } from "@rightkit/agent-ui-core/lib/types";
-import type { NetworkProfileDraft } from "./types";
-import { TextSettingInput } from "./TextSettingInput";
+import type { NetworkProfileDraft } from "./types.js";
+import { TextSettingInput } from "./TextSettingInput.js";
 
 interface ExecutionNetworkProfilesPanelProps {
   profiles: ExecutionNetworkProfile[];

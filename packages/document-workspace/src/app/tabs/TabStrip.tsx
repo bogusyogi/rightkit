@@ -5,7 +5,7 @@
 // The active tab fuses into the page with the concave bottom-corner curves from
 // TabFuseCurves; inactive tabs sit on the chrome band with quiet hairline separators.
 // Styles: src/styles/tabs.css (imported below so the strip carries its own CSS).
-import { tabDomId } from "./tabIds";
+import { tabDomId } from "./tabIds.js";
 import {
   memo,
   useCallback,
@@ -24,14 +24,13 @@ import { Cards } from "@phosphor-icons/react/dist/icons/Cards";
 import { X } from "@phosphor-icons/react/dist/icons/X";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
 import { isUntitled } from "@rightkit/document-core/documents/types";
-import { FileTypeIcon } from "../../documents/FileTypeIcon";
+import { FileTypeIcon } from "../../documents/FileTypeIcon.js";
 import { shortcutLabel, isMac } from "@rightkit/document-core/platform";
-import { LiveTitle } from "../LiveTitle";
-import { useTabDirty } from "./useTabDirty";
-import { DocumentMenu } from "../sidebar/SidebarDocumentMenu";
-import { TabFuseCurves } from "./TabFuseCurves";
-import { TabOverview } from "./TabOverview";
-import "../../styles/tabs.css";
+import { LiveTitle } from "../LiveTitle.js";
+import { useTabDirty } from "./useTabDirty.js";
+import { DocumentMenu } from "../sidebar/SidebarDocumentMenu.js";
+import { TabFuseCurves } from "./TabFuseCurves.js";
+import { TabOverview } from "./TabOverview.js";
 
 /**
  * Everything the strip needs, supplied by the shell (App builds this once so the

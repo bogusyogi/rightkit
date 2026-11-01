@@ -1,4 +1,4 @@
-import type { DisplayJob, HistoryRow } from "../contract";
+import type { DisplayJob, HistoryRow } from "../contract.js";
 
 export type DesktopSource =
   | { type: "queue"; id: string; job: DisplayJob; title: string; searchText: string }

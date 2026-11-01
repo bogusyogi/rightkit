@@ -9,7 +9,7 @@ import {
   listToolsetGateways,
   setRuntimeMiddlewareEnabled,
 } from "@rightkit/agent-ui-core/lib/daemon";
-import type { ToolsetDraft } from "../../components/settings/types";
+import type { ToolsetDraft } from "../../components/settings/types.js";
 import { parseCommaList } from "@rightkit/agent-ui-core/lib/utils";
 import type {
   AwaySummary,

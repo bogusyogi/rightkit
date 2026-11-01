@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { preferenceManifest, validateApplyResponse } from "./ContextRuntimePanel";
+import { preferenceManifest, validateApplyResponse } from "./ContextRuntimePanel.js";
 
 const manifest = {
   schema_version: "1.3",

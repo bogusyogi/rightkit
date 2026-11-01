@@ -6,16 +6,16 @@
  * the filesystem or network.
  */
 
-import { nearestNodeAt } from "../core/markdownSourceMapIndexes";
-import type { MarkdownNodeId } from "../core/MarkdownNodeIdFactory";
+import { nearestNodeAt } from "../core/markdownSourceMapIndexes.js";
+import type { MarkdownNodeId } from "../core/MarkdownNodeIdFactory.js";
 import type {
   MarkdownInspectionEntry,
   MarkdownInspectionRequest,
   MarkdownInspectionResponse,
   MarkdownInspectionDetail,
-} from "./inspectionTypes";
-import type { MarkdownCoreSnapshot } from "../core/MarkdownDocumentTypes";
-import type { MarkdownSourceNode } from "../core/MarkdownSourceMap";
+} from "./inspectionTypes.js";
+import type { MarkdownCoreSnapshot } from "../core/MarkdownDocumentTypes.js";
+import type { MarkdownSourceNode } from "../core/MarkdownSourceMap.js";
 
 const DEFAULT_MAX_NODES = 3;
 const DEFAULT_SNIPPET_LENGTH = 240;

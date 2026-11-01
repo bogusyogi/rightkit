@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MarkdownTextBuffer } from "./MarkdownTextBuffer";
+import { MarkdownTextBuffer } from "./MarkdownTextBuffer.js";
 
 describe("MarkdownTextBuffer — raw/logical decomposition", () => {
   it("still rejects a line-ending vector that does not match the logical newlines", () => {

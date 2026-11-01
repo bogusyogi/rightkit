@@ -10,13 +10,13 @@ import type {
   SessionRow,
 } from "@rightkit/agent-ui-core/lib/types";
 import type { DriverKind } from "@rightkit/agent-ui-core/lib/types";
-import EditedFilesSection from "./EditedFilesSection";
+import EditedFilesSection from "./EditedFilesSection.js";
 import { encodeSessionShareCode } from "@rightkit/agent-ui-core/lib/sessionShareCode";
 import type { SessionShareStatus } from "@rightkit/agent-ui-core/lib/sessionShareCode";
 import { attentionStateForSession } from "@rightkit/agent-ui-core/state/sessionAttentionStore";
 import { projectName } from "@rightkit/agent-ui-core/lib/utils";
-import { VirtualSessionList } from "./VirtualSessionList";
-import type { VirtualSessionListRow } from "./VirtualSessionList";
+import { VirtualSessionList } from "./VirtualSessionList.js";
+import type { VirtualSessionListRow } from "./VirtualSessionList.js";
 // a11y-test: aria-label="Sessions" role="region" aria-label="Recent sessions" aria-current={isActive ? "page" : undefined} aria-label={`Delete session role="status" aria-live="polite"
 
 /// How many sessions the sidebar lists. Five hid finished runs entirely;

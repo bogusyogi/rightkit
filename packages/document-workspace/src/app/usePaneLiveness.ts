@@ -2,9 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
 import { documentHasPinnedState, type DocumentFormat } from "@rightkit/document-core/app/resourceCensus";
-import { dirtyPaneMayShell, liveDocumentPaths } from "./tabMountPolicy";
-import { loadTabWarmOrder, restoredTabWarmOrder, saveTabWarmOrder } from "./tabWarmOrder";
-import { nativeAutomationOwnsSession } from "./useDocumentRuntimeEffects";
+import { dirtyPaneMayShell, liveDocumentPaths } from "./tabMountPolicy.js";
+import { loadTabWarmOrder, restoredTabWarmOrder, saveTabWarmOrder } from "./tabWarmOrder.js";
+import { nativeAutomationOwnsSession } from "./useDocumentRuntimeEffects.js";
 import { scheduleAfterPaintOrDelay } from "@rightkit/document-core/app/deferredMount";
 
 interface PaneLivenessDeps {

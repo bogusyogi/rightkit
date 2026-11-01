@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 
-import SettingsModal from "./SettingsModal";
+import SettingsModal from "./SettingsModal.js";
 import settingsModalSource from "./SettingsModal.tsx?raw";
 import settingsTypesSource from "./types.ts?raw";
 

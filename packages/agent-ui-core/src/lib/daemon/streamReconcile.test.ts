@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ProtocolEvent, TranscriptMessage } from "../types";
+import type { ProtocolEvent, TranscriptMessage } from "../types.js";
 import {
   appendProtocolEvent,
   appendTranscriptMessage,
@@ -8,7 +8,7 @@ import {
   createStreamReconciler,
   isTerminalStreamEvent,
   shouldFlushBeforeEvent,
-} from "./streamReconcile";
+} from "./streamReconcile.js";
 
 const createdAt = "2026-08-29T00:00:00Z";
 

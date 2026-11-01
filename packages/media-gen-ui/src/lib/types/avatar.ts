@@ -1,4 +1,4 @@
-import type { ProcessInfo } from './runtime';
+import type { ProcessInfo } from './runtime.js';
 
 export type HeyGenAvatarType = 'digital_twin' | 'photo' | 'prompt';
 

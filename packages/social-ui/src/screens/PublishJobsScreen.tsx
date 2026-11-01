@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Badge, Button, EmptyState, PageShell, SkeletonRows, Table, TableBody, TableCaption, TableCell, TableHead, TableHeaderCell, TableRow } from "@rightkit/react-shell/react";
-import { ScopeSelect } from "../components/ScopeSelect";
-import { LoadError, MockBanner } from "../components/Shared";
-import { useAsync } from "../hooks/useAsync";
-import { shell } from "../lib/shell";
+import { ScopeSelect } from "../components/ScopeSelect.js";
+import { LoadError, MockBanner } from "../components/Shared.js";
+import { useAsync } from "../hooks/useAsync.js";
+import { shell } from "../lib/shell.js";
 import {
   groupDigits,
   instantLabel,
@@ -11,9 +11,9 @@ import {
   type OperatorScope,
   type PublishJobRecord,
   type PublishJobResolution,
-} from "../data";
-import { PUBLISH_RESOLUTION_LABEL, PUBLISH_STATE_LABEL, platformName } from "./labels";
-import { hostAppName } from "../appName";
+} from "../data/index.js";
+import { PUBLISH_RESOLUTION_LABEL, PUBLISH_STATE_LABEL, platformName } from "./labels.js";
+import { hostAppName } from "../appName.js";
 
 interface Props {
   source: DataSource;

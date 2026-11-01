@@ -1,4 +1,4 @@
-import type { DaemonConfig } from "../types";
+import type { DaemonConfig } from "../types.js";
 import type {
   CliAuthMode,
   CliDelegationPolicy,
@@ -7,7 +7,7 @@ import type {
   CliProviderAuthState,
   CliTransportKind,
   HarnessIsolationMode,
-} from "../types/cliProviders";
+} from "../types/cliProviders.js";
 
 export interface DaemonCliProvider {
   providerId: CliProviderId;

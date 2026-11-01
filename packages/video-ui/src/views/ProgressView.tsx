@@ -1,7 +1,7 @@
 import { Badge, Button, Card, EmptyState, PageShell } from "@rightkit/react-shell/react";
-import { type ProgressState } from "../hooks/useProgress";
-import { ErrorPanel, ProgressRow, timecode, Icon } from "../ui";
-import { hostAppName } from "../appName";
+import { type ProgressState } from "../hooks/useProgress.js";
+import { ErrorPanel, ProgressRow, timecode, Icon } from "../ui/index.js";
+import { hostAppName } from "../appName.js";
 
 function elapsedOf(progress: ProgressState): string | undefined {
   // Frames don't carry start times; show the render's out-time as elapsed.

@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { errorMessage, importCredentialsFromEnv } from '../lib/api';
+import { errorMessage, importCredentialsFromEnv } from '../lib/api.js';
 import { Button } from '@rightkit/react-shell/react';
-import { providerName } from './ui';
+import { providerName } from './ui.js';
 
 /** Development convenience: copy provider keys from environment variables into the keychain. */
 export function ImportEnvButton({ onDone }: { onDone: () => void }) {

@@ -6,7 +6,7 @@ import {
   parseVscodeTheme,
   useImportedThemeStore,
   vscodeThemeSlug,
-} from "./importedThemeStore";
+} from "./importedThemeStore.js";
 
 const vscode = (type: string, background: string, foreground: string, accent: string) => JSON.stringify({
   type,

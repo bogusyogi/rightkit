@@ -8,7 +8,7 @@ import {
   type RemoteClient,
   type RemoteHost,
 } from "@rightkit/agent-ui-core/lib/remote/remoteClient";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 export interface RemoteHostsPanelProps {
   open?: boolean;

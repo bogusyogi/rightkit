@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import DiagnosticsTab from "./DiagnosticsTab";
+import DiagnosticsTab from "./DiagnosticsTab.js";
 import type { DiagnosticsReport, SupportBundle } from "@rightkit/agent-ui-core/lib/types";
 
 function baseSupportBundle(overrides: Partial<SupportBundle> = {}): SupportBundle {

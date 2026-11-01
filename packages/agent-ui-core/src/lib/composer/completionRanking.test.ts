@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { CommandInfo } from "../daemon";
-import type { SkillItem } from "../types";
-import { rankComposerCompletions, rankMentionCompletions, rankSkillCompletions } from "./completionRanking";
+import type { CommandInfo } from "../daemon.js";
+import type { SkillItem } from "../types.js";
+import { rankComposerCompletions, rankMentionCompletions, rankSkillCompletions } from "./completionRanking.js";
 
 const command = (name: string): CommandInfo => ({ name, usage: `/${name}`, description: `${name} command` });
 const skill = (slug: string): SkillItem => ({

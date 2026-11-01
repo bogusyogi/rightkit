@@ -8,19 +8,19 @@ import {
   type ComponentProps,
   type RefObject,
 } from "react";
-import { effectiveReadEdit } from "./shell/readEdit";
-import { DocumentRouter } from "../documents/DocumentRouter";
-import { capabilitiesFor } from "../documents/capabilities";
+import { effectiveReadEdit } from "./shell/readEdit.js";
+import { DocumentRouter } from "../documents/DocumentRouter.js";
+import { capabilitiesFor } from "../documents/capabilities.js";
 import { isUntitled } from "@rightkit/document-core/documents/types";
 import type { LoadedDocument, SearchProvider, ViewMeta, ViewMode } from "@rightkit/document-core/documents/types";
 import type { DocxMenuApi } from "@rightkit/docx-editor/documents/docx/menuApi";
 import type { ImageSaveFunction } from "@rightkit/media-ui";
 import type { MarkdownExportApi } from "@rightkit/markdown-editor/documents/markdown/export/markdownExportTypes";
-import type { SourceEditorViewState } from "../documents/txt/TxtEditor";
+import type { SourceEditorViewState } from "../documents/txt/TxtEditor.js";
 import type { PdfSaveFunction } from "@rightkit/document-core/documents/pdf/pdfEditor";
 import type { PdfSavePlan } from "@rightkit/document-core/documents/pdf/pdfEditModel";
 import { PaneActiveContext } from "@rightkit/document-core/app/shell/docBar";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 // Inactive DOCX/PDF panes must not publish toolbar or view-state updates, but their callbacks also
 // must not change identity on every App render (their effects depend on these props).

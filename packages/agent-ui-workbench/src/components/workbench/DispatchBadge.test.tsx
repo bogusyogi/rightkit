@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { DispatchBadge } from "./DispatchBadge";
+import { DispatchBadge } from "./DispatchBadge.js";
 
 describe("DispatchBadge", () => {
   it("renders the execution strategy and exposes the rationale on hover", () => {

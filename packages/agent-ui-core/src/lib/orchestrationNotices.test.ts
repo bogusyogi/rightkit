@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { ProtocolEvent, TranscriptMessage } from "./types";
+import type { ProtocolEvent, TranscriptMessage } from "./types.js";
 import {
   insertOrchestrationNotice,
   insertOrchestrationNoticeFromRoster,
   mergeOrchestrationNotices,
   orchestrationNoticeForSpawn,
-} from "./orchestrationNotices";
+} from "./orchestrationNotices.js";
 
 const spawn: Extract<ProtocolEvent, { $kind: "subAgentSpawned" }> = {
   $kind: "subAgentSpawned",

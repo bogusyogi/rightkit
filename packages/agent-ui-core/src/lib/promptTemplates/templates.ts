@@ -1,4 +1,4 @@
-import type { SelectedStyle } from "./styles";
+import type { SelectedStyle } from "./styles.js";
 
 export type TemplateCategory =
   | "debugging"
@@ -25,7 +25,7 @@ export interface PromptTemplate {
   name: string;
   description?: string;
   category: TemplateCategory;
-  fields: Partial<import("./compilePrompt").ComposerFields>;
+  fields: Partial<import("./compilePrompt.js").ComposerFields>;
   recommendedRoles: string[];
   recommendedStyles: SelectedStyle[];
   builtIn: boolean;

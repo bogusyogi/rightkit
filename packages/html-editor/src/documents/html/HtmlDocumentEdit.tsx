@@ -1,5 +1,5 @@
 import { openDevtools } from "@rightkit/document-core/state/tauriBridge";
-import type { HtmlInspectTarget } from "./sourceMap";
+import type { HtmlInspectTarget } from "./sourceMap.js";
 import { useRef } from "react";
 import { floatingPanelStyle, useDismiss } from "@rightkit/platform-ui/headless";
 

@@ -1,8 +1,8 @@
 import { useCallback, useState, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from "react";
 import type { EditorView } from "@codemirror/view";
-import { postScrollToInspect } from "./htmlInteractiveProtocol";
+import { postScrollToInspect } from "./htmlInteractiveProtocol.js";
 import { scheduleAfterPaint } from "@rightkit/document-core/app/deferredMount";
-import { findSourceRange, parseAndMapSource, type HtmlInspectTarget, type SourceRange } from "./sourceMap";
+import { findSourceRange, parseAndMapSource, type HtmlInspectTarget, type SourceRange } from "./sourceMap.js";
 import { writeClipboardText } from "@rightkit/document-core/state/tauriBridge";
 
 export interface InspectMenuState {

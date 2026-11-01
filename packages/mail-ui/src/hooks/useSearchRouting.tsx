@@ -1,17 +1,17 @@
 import { useEffect, useRef } from "react";
-import { searchThreads, semanticSearch, type Thread } from "../lib/ipc";
-import { meaningOrKeyword } from "../lib/meaningSearch";
-import { FOLDER_LABEL } from "../lib/mail";
+import { searchThreads, semanticSearch, type Thread } from "../lib/ipc.js";
+import { meaningOrKeyword } from "../lib/meaningSearch.js";
+import { FOLDER_LABEL } from "../lib/mail.js";
 import {
   hasMorePages,
   nextSearchCursor,
   startSearchPager,
-} from "../lib/searchPaging";
+} from "../lib/searchPaging.js";
 import {
   searchAccountId,
   visibleThreadMatches,
-} from "../lib/searchRouting";
-import { useAppStore } from "../store";
+} from "../lib/searchRouting.js";
+import { useAppStore } from "../store/index.js";
 
 const DEBOUNCE_MS = 250;
 

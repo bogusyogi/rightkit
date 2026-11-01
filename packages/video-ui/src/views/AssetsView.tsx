@@ -1,9 +1,8 @@
 // Assets — docs/design/app-ui.md §3.7. Generated media library + the host app jobs.
 import { Badge, Button, EmptyState, Field, IconButton, Input, PageShell, SegmentedControl, Select, useToast } from "@rightkit/react-shell/react";
-import "./Assets.css";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { engineCall, errorMessage, revealPath } from "../lib/engine";
-import { type CaptionCue, captionsShow } from "../lib/media";
+import { engineCall, errorMessage, revealPath } from "../lib/engine.js";
+import { type CaptionCue, captionsShow } from "../lib/media.js";
 import {
   type GeneratedAsset,
   type HostInfo,
@@ -15,16 +14,16 @@ import {
   interpretJobs,
   interpretRecover,
   placeModesFor,
-} from "../lib/genright";
-import { type ModelRow, durationControl, formatUsd, ofKind, parseCatalog, pickModel } from "../lib/models";
-import { settingsSet } from "../lib/media";
-import { assetUrl } from "../lib/asset";
-import { pickFile } from "../lib/dialog";
+} from "../lib/genright.js";
+import { type ModelRow, durationControl, formatUsd, ofKind, parseCatalog, pickModel } from "../lib/models.js";
+import { settingsSet } from "../lib/media.js";
+import { assetUrl } from "../lib/asset.js";
+import { pickFile } from "../lib/dialog.js";
 import { MediaPlayer } from "@rightkit/media-ui";
 import { ImageViewer } from "@rightkit/media-ui/image";
-import { useMediaPlaybackId } from "../lib/mediaAdapters";
-import { Drawer, ErrorPanel, Icon, ProgressRow, Thumbnail, fileSize } from "../ui";
-import { hostAppName } from "../appName";
+import { useMediaPlaybackId } from "../lib/mediaAdapters.js";
+import { Drawer, ErrorPanel, Icon, ProgressRow, Thumbnail, fileSize } from "../ui/index.js";
+import { hostAppName } from "../appName.js";
 
 export function jobActionLabel(j: HostJob): "Cancel" | "Import now" | "Retry" | null {
   switch (j.state) {

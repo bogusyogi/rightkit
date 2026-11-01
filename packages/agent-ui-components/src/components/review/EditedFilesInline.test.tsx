@@ -1,9 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import EditedFilesInline from "./EditedFilesInline";
-import { INITIAL_RUN_CHANGES_STATE } from "./runChangesStore";
-import { resetStore } from "./useRunChangesState";
+import EditedFilesInline from "./EditedFilesInline.js";
+import { INITIAL_RUN_CHANGES_STATE } from "./runChangesStore.js";
+import { resetStore } from "./useRunChangesState.js";
 
 vi.mock("@rightkit/agent-ui-core/components/Icon", () => ({ default: () => <span aria-hidden="true" /> }));
 

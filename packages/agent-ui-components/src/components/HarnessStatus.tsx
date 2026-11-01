@@ -27,7 +27,7 @@ import {
   mutateCliProvider,
   type DaemonCliProvider,
 } from "@rightkit/agent-ui-core/lib/daemon/cli-providers";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 export interface HarnessStatusProps {
   /** Provider id of the binding whose attestation should be shown.

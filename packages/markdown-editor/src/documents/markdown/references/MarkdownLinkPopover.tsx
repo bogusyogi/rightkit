@@ -7,7 +7,7 @@ import {
 } from "react";
 import { useDismiss } from "@rightkit/platform-ui/headless";
 import { createShortcutRegistry } from "@rightkit/react-shell";
-import type { MarkdownLinkDraft, MarkdownLinkModel } from "./markdownLink";
+import type { MarkdownLinkDraft, MarkdownLinkModel } from "./markdownLink.js";
 
 export interface MarkdownLinkChoice {
   readonly key: string;

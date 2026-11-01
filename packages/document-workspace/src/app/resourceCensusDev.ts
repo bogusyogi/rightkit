@@ -41,7 +41,7 @@ type ResourceMatrixPlan =
     };
 
 function matrixTimeoutMs(): number {
-  const requested = Number(import.meta.env.VITE_RESOURCE_MATRIX_TIMEOUT_MS);
+  const requested = Number(import.meta.env?.VITE_RESOURCE_MATRIX_TIMEOUT_MS);
   return Number.isSafeInteger(requested) && requested >= 5_000 && requested <= 180_000
     ? requested
     : MATRIX_TIMEOUT_MS;
@@ -65,13 +65,13 @@ declare global {
 /** Install only in dev or an explicitly-built browser-QA artifact; production has no global. */
 export function installResourceCensusDevHook(): void {
   if (typeof window === "undefined") return;
-  if (!import.meta.env.DEV && import.meta.env.VITE_RIGHTKIT_BROWSER_QA !== "1") return;
+  if (!import.meta.env?.DEV && import.meta.env?.VITE_RIGHTKIT_BROWSER_QA !== "1") return;
   window.__viewrightResourceCensus = getResourceCensus;
   installResourceMatrixAutopilot();
 }
 
 function resourceMatrixFormat(): ResourceMatrixFormat | null {
-  const raw = import.meta.env.VITE_RESOURCE_MATRIX_FORMAT;
+  const raw = import.meta.env?.VITE_RESOURCE_MATRIX_FORMAT;
   return RESOURCE_MATRIX_FORMATS.has(raw as ResourceMatrixFormat)
     ? (raw as ResourceMatrixFormat)
     : null;
@@ -133,7 +133,7 @@ export function parseResourceMatrixPlan(raw: string | undefined): ResourceMatrix
 
 function resourceMatrixScenario(format: ResourceMatrixFormat): ResourceMatrixScenario | null {
   if (format === "shell") return "A";
-  const raw = import.meta.env.VITE_RESOURCE_MATRIX_SCENARIO;
+  const raw = import.meta.env?.VITE_RESOURCE_MATRIX_SCENARIO;
   return raw === "B" || raw === "E" ? raw : null;
 }
 
@@ -479,9 +479,9 @@ async function runResourceMatrixPlan(
  * commands solely as an append-only local artifact sink, & leaves all production behavior alone.
  */
 function installResourceMatrixAutopilot(): void {
-  if (import.meta.env.VITE_RESOURCE_MATRIX_AUTOPILOT !== "1") return;
-  const plan = parseResourceMatrixPlan(import.meta.env.VITE_RESOURCE_MATRIX_PLAN);
-  const planRunId = import.meta.env.VITE_RESOURCE_MATRIX_RUN_ID;
+  if (import.meta.env?.VITE_RESOURCE_MATRIX_AUTOPILOT !== "1") return;
+  const plan = parseResourceMatrixPlan(import.meta.env?.VITE_RESOURCE_MATRIX_PLAN);
+  const planRunId = import.meta.env?.VITE_RESOURCE_MATRIX_RUN_ID;
   if (plan && planRunId && "__TAURI_INTERNALS__" in window) {
     const startedAt = performance.now();
     const baseline = getResourceCensus();
@@ -520,7 +520,7 @@ function installResourceMatrixAutopilot(): void {
     return;
   }
   const format = resourceMatrixFormat();
-  const runId = import.meta.env.VITE_RESOURCE_MATRIX_RUN_ID;
+  const runId = import.meta.env?.VITE_RESOURCE_MATRIX_RUN_ID;
   const scenario = format ? resourceMatrixScenario(format) : null;
   if (!format || !scenario || !runId || !("__TAURI_INTERNALS__" in window)) return;
   const startedAt = performance.now();
@@ -551,9 +551,9 @@ function installResourceMatrixAutopilot(): void {
         format === "shell"
           ? null
           : {
-              source_filename: import.meta.env.VITE_RESOURCE_MATRIX_FIXTURE_FILENAME ?? null,
-              bytes: Number(import.meta.env.VITE_RESOURCE_MATRIX_FIXTURE_BYTES) || null,
-              sha256: import.meta.env.VITE_RESOURCE_MATRIX_FIXTURE_SHA256 ?? null,
+              source_filename: import.meta.env?.VITE_RESOURCE_MATRIX_FIXTURE_FILENAME ?? null,
+              bytes: Number(import.meta.env?.VITE_RESOURCE_MATRIX_FIXTURE_BYTES) || null,
+              sha256: import.meta.env?.VITE_RESOURCE_MATRIX_FIXTURE_SHA256 ?? null,
             },
       useful_paint_ms: error ? null : Math.max(0, usefulReadyAt - startedAt),
       peak_observed_ms: Math.max(0, performance.now() - startedAt),

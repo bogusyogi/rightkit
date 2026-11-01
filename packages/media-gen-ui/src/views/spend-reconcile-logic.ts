@@ -1,7 +1,7 @@
 // Pure logic for the Settings > Spend "Reconcile with an invoice" panel. No React, no runtime imports
 // (type imports only), so node tests load it directly. Nothing here contacts the engine or a provider.
 
-import type { SpendInvoiceLine, SpendInvoicePeriod, SpendPeriodAmounts, SpendReconcileDifferences, SpendReconcileInput, SpendReconcileResult } from '../lib/api';
+import type { SpendInvoiceLine, SpendInvoicePeriod, SpendPeriodAmounts, SpendReconcileDifferences, SpendReconcileInput, SpendReconcileResult } from '../lib/api.js';
 
 // ---------------------------------------------------------------------------------------------
 // Money

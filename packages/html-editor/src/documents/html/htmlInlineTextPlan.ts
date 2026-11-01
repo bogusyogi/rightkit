@@ -4,16 +4,16 @@
  * source surgery for block-editor "Done" commits, built on the shared
  * location kernel in `htmlPlanLocations.ts`.
  */
-import { decodeHtmlEntities, parseHtmlFragmentForBody } from "./sourceMap";
-import type { HtmlParseNode } from "./sourceMap";
-import type { HtmlSourcePatch, HtmlSourceRange } from "./htmlMutationEngine";
+import { decodeHtmlEntities, parseHtmlFragmentForBody } from "./sourceMap.js";
+import type { HtmlParseNode } from "./sourceMap.js";
+import type { HtmlSourcePatch, HtmlSourceRange } from "./htmlMutationEngine.js";
 import {
   htmlTextStyleCss,
   parseHtmlTextStyle,
   type HtmlTextStyleAttrs,
   type HtmlTextStyleProperty,
-} from "./htmlTextStyle";
-import { locationFromNode, patch, type HtmlElementLocation } from "./htmlPlanLocations";
+} from "./htmlTextStyle.js";
+import { locationFromNode, patch, type HtmlElementLocation } from "./htmlPlanLocations.js";
 
 // ── Inline text replace (narrow surgery for block-editor Done commits) ───────
 

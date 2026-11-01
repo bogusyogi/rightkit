@@ -6,9 +6,9 @@
 import { Button, Input, SegmentedControl, Select } from "@rightkit/react-shell/react";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
-import { assetUrl } from "../lib/asset";
-import { errorMessage } from "../lib/engine";
-import { HDR_UNAVAILABLE_NOTICE } from "../hooks/useHdrToSdr";
+import { assetUrl } from "../lib/asset.js";
+import { errorMessage } from "../lib/engine.js";
+import { HDR_UNAVAILABLE_NOTICE } from "../hooks/useHdrToSdr.js";
 import {
   colourGet,
   colourScopes,
@@ -24,7 +24,7 @@ import {
   type ColourScopes,
   type ColourSetResult,
   type ColourWheel,
-} from "../lib/media";
+} from "../lib/media.js";
 
 const MAX_POINTS = 16;
 const MAX_HSL = 6;

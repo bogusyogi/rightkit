@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import AssistantMessage from "./AssistantMessage";
+import AssistantMessage from "./AssistantMessage.js";
 
 function lastMessage(): HTMLElement {
   const nodes = screen.getAllByTestId("assistant-message");

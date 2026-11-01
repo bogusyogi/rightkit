@@ -11,7 +11,7 @@ import type {
   LocalImageProfile,
   LocalImageRuntimeStatus,
   LocalImageSubmitRequest
-} from '../../lib/types';
+} from '../../lib/types.js';
 
 export const ACTIVE_JOB_STATES: LocalImageJobState[] = ['queued', 'loading', 'submitting', 'running', 'finalizing', 'cancelling'];
 export const RETRYABLE_JOB_STATES: LocalImageJobState[] = ['failed', 'interrupted'];

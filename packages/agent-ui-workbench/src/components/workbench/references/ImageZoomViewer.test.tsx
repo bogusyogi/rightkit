@@ -1,7 +1,7 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import ImageZoomViewer from "./ImageZoomViewer";
+import ImageZoomViewer from "./ImageZoomViewer.js";
 
 describe("ImageZoomViewer", () => {
   afterEach(() => {

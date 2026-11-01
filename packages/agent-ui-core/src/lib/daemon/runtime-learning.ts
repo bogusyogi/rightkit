@@ -28,8 +28,8 @@ import type {
   TasteScore,
   TerminalBenchRunResult,
   TerminalBenchTask,
-} from "../types";
-import { requestDaemonApi } from "../generated/daemon-openapi";
+} from "../types.js";
+import { requestDaemonApi } from "../generated/daemon-openapi.js";
 
 export async function getTasks(
   config: DaemonConfig,

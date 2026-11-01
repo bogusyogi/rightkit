@@ -1,7 +1,7 @@
 import { EmptyState } from "@rightkit/react-shell/react";
 import { useState } from "react";
 import type { TeamDefinition } from "@rightkit/agent-ui-core/lib/types";
-import { formatTeamPresets } from "./runtimeUtils";
+import { formatTeamPresets } from "./runtimeUtils.js";
 import { ConfirmDialog } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 

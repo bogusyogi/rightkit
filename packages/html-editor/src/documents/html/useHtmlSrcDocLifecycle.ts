@@ -1,5 +1,5 @@
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
-import { LIVE_PREVIEW_DEBOUNCE_MS, structuralPart } from "./htmlDocumentShared";
+import { LIVE_PREVIEW_DEBOUNCE_MS, structuralPart } from "./htmlDocumentShared.js";
 
 interface Args {
   drawer: boolean;

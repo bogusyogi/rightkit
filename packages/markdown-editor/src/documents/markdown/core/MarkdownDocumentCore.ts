@@ -18,23 +18,23 @@
  */
 
 import { ChangeSet } from "@codemirror/state";
-import { MarkdownChangeMap } from "./MarkdownChangeMap";
-import { MarkdownHistory } from "./MarkdownHistory";
-import { MarkdownNodeIdFactory } from "./MarkdownNodeIdFactory";
-import { MarkdownTextBuffer } from "./MarkdownTextBuffer";
-import { createInitialMarkdownSourceMap } from "./buildMarkdownSourceMap";
-import { reconcileMarkdownSourceMap } from "./reconcileMarkdownSourceMap";
-import { diffLogicalMarkdown, willUseLcsBranch } from "./markdownLogicalDiff";
-import { splitRawMarkdownSource } from "./markdownTextEdits";
+import { MarkdownChangeMap } from "./MarkdownChangeMap.js";
+import { MarkdownHistory } from "./MarkdownHistory.js";
+import { MarkdownNodeIdFactory } from "./MarkdownNodeIdFactory.js";
+import { MarkdownTextBuffer } from "./MarkdownTextBuffer.js";
+import { createInitialMarkdownSourceMap } from "./buildMarkdownSourceMap.js";
+import { reconcileMarkdownSourceMap } from "./reconcileMarkdownSourceMap.js";
+import { diffLogicalMarkdown, willUseLcsBranch } from "./markdownLogicalDiff.js";
+import { splitRawMarkdownSource } from "./markdownTextEdits.js";
 import { incHistoryEntries, incSourceWrites } from "@rightkit/document-core/documents/perfEventCounters";
-import type { MarkdownSourceMap } from "./MarkdownSourceMap";
-import type { MarkdownNodeId } from "./MarkdownNodeIdFactory";
+import type { MarkdownSourceMap } from "./MarkdownSourceMap.js";
+import type { MarkdownNodeId } from "./MarkdownNodeIdFactory.js";
 import type {
   MarkdownAppliedCommand,
   MarkdownHistoryGroup,
   MarkdownResolvedTextEdit,
   MarkdownTextEdit,
-} from "./types";
+} from "./types.js";
 import type {
   MarkdownCommand,
   MarkdownCommitSummary,
@@ -44,7 +44,7 @@ import type {
   MarkdownDiagnostic,
   MarkdownDocumentCoreOptions,
   MarkdownSelectionHint,
-} from "./MarkdownDocumentTypes";
+} from "./MarkdownDocumentTypes.js";
 
 export type { MarkdownCommand, MarkdownCommitSummary };
 

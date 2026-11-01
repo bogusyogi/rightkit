@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { SessionRow } from "../lib/types";
+import type { SessionRow } from "../lib/types.js";
 import {
   attentionStateForSession,
   isActionableAttention,
   useSessionAttentionStore,
-} from "./sessionAttentionStore";
+} from "./sessionAttentionStore.js";
 
 const row = (id: string, status = "idle"): SessionRow =>
   ({

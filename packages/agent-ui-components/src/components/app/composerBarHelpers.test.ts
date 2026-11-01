@@ -7,7 +7,7 @@ import {
   skillStatusLabel,
   skillToolLabel,
   skillTriggerLabel,
-} from "./composerBarHelpers";
+} from "./composerBarHelpers.js";
 
 function skill(overrides: Partial<SkillItem> = {}): SkillItem {
   return {

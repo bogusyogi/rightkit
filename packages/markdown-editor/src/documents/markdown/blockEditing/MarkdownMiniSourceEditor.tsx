@@ -9,11 +9,11 @@
  */
 
 import { useEffect, useRef, type ReactNode } from "react";
-import type { BlockDraft } from "./types";
-import { updateDraftText, shouldCommitDraft } from "./blockDraft";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import type { BlockKind } from "./types";
-import { useMarkdownBlockDraft } from "./useMarkdownBlockDraft";
+import type { BlockDraft } from "./types.js";
+import { updateDraftText, shouldCommitDraft } from "./blockDraft.js";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import type { BlockKind } from "./types.js";
+import { useMarkdownBlockDraft } from "./useMarkdownBlockDraft.js";
 
 export interface MarkdownMiniSourceEditorProps {
   readonly draft?: BlockDraft;

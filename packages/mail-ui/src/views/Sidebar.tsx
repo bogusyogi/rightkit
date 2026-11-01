@@ -1,16 +1,16 @@
 import { useState } from "react";
 import { IconButton, NavList, type NavGroup } from "@rightkit/react-shell/react";
 import type { DragEvent as ReactDragEvent } from "react";
-import Icon from "../components/Icons";
-import { FOLDERS, FOLDER_ICON, userLabelsOf } from "../lib/mail";
-import { setPref } from "../lib/preferences";
-import { removeSavedSearch as removeSavedSearchFrom, SAVED_SEARCHES_KEY } from "../lib/savedSearches";
-import type { ThreadRef } from "../lib/ipc";
-import { useAppStore, APP_OF } from "../store";
-import { DriveNav } from "./nav/DriveNav";
-import { CalendarNav } from "./nav/CalendarNav";
-import { ContactsNav } from "./nav/ContactsNav";
-import { TasksNav } from "./nav/TasksNav";
+import Icon from "../components/Icons.js";
+import { FOLDERS, FOLDER_ICON, userLabelsOf } from "../lib/mail.js";
+import { setPref } from "../lib/preferences.js";
+import { removeSavedSearch as removeSavedSearchFrom, SAVED_SEARCHES_KEY } from "../lib/savedSearches.js";
+import type { ThreadRef } from "../lib/ipc.js";
+import { useAppStore, APP_OF } from "../store/index.js";
+import { DriveNav } from "./nav/DriveNav.js";
+import { CalendarNav } from "./nav/CalendarNav.js";
+import { ContactsNav } from "./nav/ContactsNav.js";
+import { TasksNav } from "./nav/TasksNav.js";
 
 interface Props {
   unreadFor: (id: string) => number;

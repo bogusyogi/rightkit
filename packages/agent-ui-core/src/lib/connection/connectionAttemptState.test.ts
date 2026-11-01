@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { createConnectionAttemptState } from "./connectionAttemptState";
+import { createConnectionAttemptState } from "./connectionAttemptState.js";
 
 type FakeProcess = { id: string };
 

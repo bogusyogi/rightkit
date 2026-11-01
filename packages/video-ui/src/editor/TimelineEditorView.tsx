@@ -14,30 +14,30 @@
  */
 import { IconButton, SegmentedControl } from "@rightkit/react-shell/react";
 import { useSegmentedControl } from "@rightkit/react-shell/headless";
-import { Icon } from "../ui";
+import { Icon } from "../ui/index.js";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import { engineCall, errorMessage } from "../lib/engine";
-import { assetUrl } from "../lib/asset";
+import { engineCall, errorMessage } from "../lib/engine.js";
+import { assetUrl } from "../lib/asset.js";
 import {
   editplanList,
   thumbnails,
   type CaptionCue,
   type StoredPlan,
-} from "../lib/media";
-import { baseName, formatSeconds, type ProjectShow } from "../lib/project";
+} from "../lib/media.js";
+import { baseName, formatSeconds, type ProjectShow } from "../lib/project.js";
 
-import { StagePlayer, useTimelinePreview } from "../components/Player";
+import { StagePlayer, useTimelinePreview } from "../components/Player.js";
 
 export type PreviewHost = ReturnType<typeof useTimelinePreview>;
-import { EditSession, errorText } from "./adapter";
-import { ChangesPanel } from "./ChangesPanel";
-import { Inspector } from "./Inspector";
-import { CaptionInspector } from "./CaptionInspector";
-import { buildEditorModel, type EditorModel } from "./model";
-import { clipRanges } from "./transcript";
-import type { CapabilityReport } from "./capabilities";
-import { Timeline, type PreviewSeek } from "./Timeline";
-import { TranscriptPanel } from "./TranscriptPanel";
+import { EditSession, errorText } from "./adapter.js";
+import { ChangesPanel } from "./ChangesPanel.js";
+import { Inspector } from "./Inspector.js";
+import { CaptionInspector } from "./CaptionInspector.js";
+import { buildEditorModel, type EditorModel } from "./model.js";
+import { clipRanges } from "./transcript.js";
+import type { CapabilityReport } from "./capabilities.js";
+import { Timeline, type PreviewSeek } from "./Timeline.js";
+import { TranscriptPanel } from "./TranscriptPanel.js";
 
 type Tab = "transcript" | "changes" | "inspect" | "captions";
 

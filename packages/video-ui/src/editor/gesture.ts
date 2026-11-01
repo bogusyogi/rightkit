@@ -4,7 +4,7 @@
  * transaction. Nothing here mutates the canonical timeline — the returned
  * `EditAction`s are proposals the engine validates.
  */
-import type { EditAction } from "./actions";
+import type { EditAction } from "./actions.js";
 import {
   moveAudioClip,
   moveClip,
@@ -12,8 +12,8 @@ import {
   trimAudioClip,
   trimClip,
   trimTitle,
-} from "./actions";
-import type { EditorClip, EditorModel } from "./model";
+} from "./actions.js";
+import type { EditorClip, EditorModel } from "./model.js";
 
 export type Edge = "in" | "out";
 

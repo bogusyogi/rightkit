@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@rightkit/dictation-ui/lib/tauri";
 import { cx, ui } from "@rightkit/dictation-ui/lib/ui";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 type HistoryRecoveryStatus = {
   reason: string;

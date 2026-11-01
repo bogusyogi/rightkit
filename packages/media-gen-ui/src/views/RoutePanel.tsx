@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { errorCode, errorDetails, errorText, fetchModelPriceFacts, fetchRoutePrefs, routeMedia, saveRoutePrefs, type MediaKind, type ModelPriceFacts, type RouteAlternative, type RoutePreferences, type RoutePrivacy, type RouteResult, type RouteSpend } from '../lib/api';
-import { ASSUMED_ROUNDING_SENTENCE, UNCONFIRMED_PRICE_LABEL, UNCONFIRMED_PRICE_SENTENCE, isAssumedRounding, isUnconfirmedPrice } from '../lib/gen-params';
-import type { SettingsSectionId, ViewId } from '../lib/nav';
+import { errorCode, errorDetails, errorText, fetchModelPriceFacts, fetchRoutePrefs, routeMedia, saveRoutePrefs, type MediaKind, type ModelPriceFacts, type RouteAlternative, type RoutePreferences, type RoutePrivacy, type RouteResult, type RouteSpend } from '../lib/api.js';
+import { ASSUMED_ROUNDING_SENTENCE, UNCONFIRMED_PRICE_LABEL, UNCONFIRMED_PRICE_SENTENCE, isAssumedRounding, isUnconfirmedPrice } from '../lib/gen-params.js';
+import type { SettingsSectionId, ViewId } from '../lib/nav.js';
 import { Badge, Button, Notice, Select } from '@rightkit/react-shell/react';
 import {
   PRIVACY_CHOICES,
@@ -18,8 +18,7 @@ import {
   stateLabels,
   type RouteLoad,
   type RouteView
-} from './route-panel-logic';
-import './route-panel.css';
+} from './route-panel-logic.js';
 
 export interface RoutePanelProps {
   kind: MediaKind;

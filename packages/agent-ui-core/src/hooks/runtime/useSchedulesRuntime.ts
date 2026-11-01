@@ -9,14 +9,14 @@ import {
   resumeSchedule,
   runScheduleNow,
   saveScheduleTimeZone,
-} from "../../lib/daemon";
+} from "../../lib/daemon.js";
 import type {
   DaemonConfig,
   ScheduleAdminAuditEvent,
   ScheduleRow,
   ScheduleWriteRequest,
-} from "../../lib/types";
-import { parseCommaList } from "../../lib/utils";
+} from "../../lib/types.js";
+import { parseCommaList } from "../../lib/utils.js";
 
 export interface ScheduleDraft {
   editingId: string | null;

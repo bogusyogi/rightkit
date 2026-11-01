@@ -5,7 +5,7 @@
  * times are `Ticks` (705_600_000 per second), gains are `MilliDb`
  * (thousandths of a dB), title spans are integer frames.
  */
-import { secondsToTicks, type TitleTemplate } from "../lib/project";
+import { secondsToTicks, type TitleTemplate } from "../lib/project.js";
 
 export type EditAction = Record<string, unknown> & { type: string };
 
@@ -161,7 +161,7 @@ export const positionTitle = (clipId: string, x: number, y: number): EditAction 
 export const swapTake = (clipId: string, source: string, inS: number, outS: number): EditAction => ({
   type: "swap_take", clip_id: clipId, source, source_in: secondsToTicks(inS), source_out: secondsToTicks(outS),
 });
-export const editCaption = (cueId: string, correction: import("./model").CaptionCorrection): EditAction => ({
+export const editCaption = (cueId: string, correction: import("./model.js").CaptionCorrection): EditAction => ({
   type: "edit_caption", cue_id: cueId, correction: {
     text: correction.text, start_frame: correction.start_frame, frames: correction.frames, position: correction.position,
   },

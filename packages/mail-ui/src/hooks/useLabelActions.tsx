@@ -1,9 +1,9 @@
 // Label catalog mutations (create / rename / delete / recolor) and opening a
 // custom-label view. Extracted from App. Each mutation hits Gmail then reloads
 // the active account's catalog.
-import { useAppStore } from "../store";
-import { showDialog } from "./dialog";
-import { setPref } from "../lib/preferences";
+import { useAppStore } from "../store/index.js";
+import { showDialog } from "./dialog.js";
+import { setPref } from "../lib/preferences.js";
 import {
   listLabels,
   gmailCreateLabel,
@@ -12,7 +12,7 @@ import {
   gmailSetLabelColor,
   relabel,
   type ThreadRef,
-} from "../lib/ipc";
+} from "../lib/ipc.js";
 
 export function useLabelActions() {
   const activeAccount = useAppStore((s) => s.activeAccount);

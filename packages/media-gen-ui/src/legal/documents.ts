@@ -1,20 +1,14 @@
 import { assertLegalManifest, type LegalDocumentDescriptor, type LegalManifest } from '@rightkit/legal/browser';
-import manifestJson from '@rightkit-host/legal/legal-manifest.json';
-import contract from '@rightkit-host/src/generated/legal-contract.json';
-import licenseSource from '@rightkit-host/legal/LICENSE.md?raw';
-import eulaSource from '@rightkit-host/legal/EULA.md?raw';
-import acceptableUseSource from '@rightkit-host/legal/ACCEPTABLE_USE.md?raw';
-import productScheduleSource from '@rightkit-host/legal/PRODUCT_SCHEDULE.md?raw';
-import privacyNoticeSource from '@rightkit-host/legal/PRIVACY_NOTICE.md?raw';
-import thirdPartyNoticesSource from '@rightkit-host/legal/THIRD_PARTY_NOTICES.md?raw';
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 /**
  * the host app legal documents. The document list, versions, treatments and hashes come from the
  * @rightkit/legal manifest that `legal-snapshot` writes (legal/legal-manifest.json, configured in
  * legal-snapshot.config.json); this module only pairs each manifest entry with its bundled text.
  */
-export const LEGAL_MANIFEST: LegalManifest = assertLegalManifest(manifestJson as unknown as LegalManifest);
+// Set once by the host at startup (configureLegal): a published package cannot import files of the app that installs it.
+// ES module exports are live bindings, so every importer sees the configured values.
+export let LEGAL_MANIFEST: LegalManifest;
 
 export type LegalDocumentId = 'genright-license' | 'genright-eula' | 'genright-acceptable-use' | 'genright-product-schedule' | 'genright-privacy-notice' | 'third-party-notices';
 
@@ -27,14 +21,7 @@ export interface LegalDocument {
 }
 
 /** Bundled text by manifest path. The text's hash is verified against the manifest by `legal-snapshot --final`. */
-const TEXT: Readonly<Record<string, string>> = {
-  'LICENSE.md': licenseSource,
-  'EULA.md': eulaSource,
-  'ACCEPTABLE_USE.md': acceptableUseSource,
-  'PRODUCT_SCHEDULE.md': productScheduleSource,
-  'PRIVACY_NOTICE.md': privacyNoticeSource,
-  'THIRD_PARTY_NOTICES.md': thirdPartyNoticesSource,
-};
+let TEXT: Readonly<Record<string, string>> = {};
 
 function toDocument(d: LegalDocumentDescriptor): LegalDocument {
   const content = TEXT[d.path];
@@ -43,16 +30,29 @@ function toDocument(d: LegalDocumentDescriptor): LegalDocument {
 }
 
 /** Documents listed on the first-run gate, in manifest order: agreements and the acknowledged privacy notice. */
-export const LEGAL_DOCUMENT_SOURCES: readonly LegalDocument[] = LEGAL_MANIFEST.documents.filter((d) => d.treatment !== 'notice').map(toDocument);
+export let LEGAL_DOCUMENT_SOURCES: readonly LegalDocument[] = [];
 
 /** Third-party notices: shown in Settings > Legal only, never part of the acceptance. */
-export const THIRD_PARTY_NOTICES: LegalDocument = toDocument(LEGAL_MANIFEST.documents.find((d) => d.role === 'third_party_notices')!);
+export let THIRD_PARTY_NOTICES: LegalDocument;
 
 /**
  * materialAcceptanceDigest of the manifest, precomputed by `legal-snapshot` into the gate contract so
  * the webview needs no crypto. Changes only when an agreed (material) document changes.
  */
-export const LEGAL_DOCUMENTS_HASH: string = contract.materialSha256;
+export let LEGAL_DOCUMENTS_HASH: string;
+
+/**
+ * Called once by the host at startup with its legal/legal-manifest.json, src/generated/legal-contract.json and the bundled
+ * text of each manifest document keyed by file name ('LICENSE.md', 'EULA.md', ...; a Vite host imports them with ?raw).
+ */
+export function configureLegal({ manifest, contract, texts }: { manifest: unknown; contract: { materialSha256: string }; texts: Record<string, string> }): void {
+  LEGAL_MANIFEST = assertLegalManifest(manifest as LegalManifest);
+  if (typeof contract?.materialSha256 !== 'string') throw new TypeError('configureLegal: the contract needs materialSha256');
+  TEXT = { ...texts };
+  LEGAL_DOCUMENT_SOURCES = LEGAL_MANIFEST.documents.filter((d) => d.treatment !== 'notice').map(toDocument);
+  THIRD_PARTY_NOTICES = toDocument(LEGAL_MANIFEST.documents.find((d) => d.role === 'third_party_notices')!);
+  LEGAL_DOCUMENTS_HASH = contract.materialSha256;
+}
 
 export const LEGAL_AGREEMENT_STATEMENT =
   `I have read and agree to the ${hostAppName()} Desktop License, End User License Agreement, Acceptable Use Policy, and Product Schedule, and I acknowledge the Privacy Notice.`;

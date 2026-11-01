@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assembleRenderJob, beginProgress, initialProgress, reduceFrame } from "./progress";
+import { assembleRenderJob, beginProgress, initialProgress, reduceFrame } from "./progress.js";
 
 describe("engine progress reducer", () => {
   it("starts a run for one tag", () => {

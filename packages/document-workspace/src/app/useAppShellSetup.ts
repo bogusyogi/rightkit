@@ -1,12 +1,12 @@
 import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
-import { useAppEffects } from "./useAppEffects";
-import { useFileDragOverlay } from "./useFileDragOverlay";
-import { useFormatApis } from "./useFormatApis";
-import { useDocumentContextMenu } from "./DocumentContextMenu";
+import { useAppEffects } from "./useAppEffects.js";
+import { useFileDragOverlay } from "./useFileDragOverlay.js";
+import { useFormatApis } from "./useFormatApis.js";
+import { useDocumentContextMenu } from "./DocumentContextMenu.js";
 import { useSettings } from "@rightkit/document-core/settings/settings";
-import type { useDocuments } from "./useDocuments";
-import type { useDocumentTabs } from "./useDocumentTabs";
-import type { SourceEditorViewState } from "../documents/txt/TxtEditor";
+import type { useDocuments } from "./useDocuments.js";
+import type { useDocumentTabs } from "./useDocumentTabs.js";
+import type { SourceEditorViewState } from "../documents/txt/TxtEditor.js";
 
 type Docs = ReturnType<typeof useDocuments>;
 type Tabs = ReturnType<typeof useDocumentTabs>;

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import ObservabilityRuntimePanel from "./ObservabilityRuntimePanel";
+import ObservabilityRuntimePanel from "./ObservabilityRuntimePanel.js";
 import type { MiddlewareRegistrySnapshot, RuntimeObservation, RuntimeSpan } from "@rightkit/agent-ui-core/lib/types";
 
 const emptyMiddleware: MiddlewareRegistrySnapshot = {

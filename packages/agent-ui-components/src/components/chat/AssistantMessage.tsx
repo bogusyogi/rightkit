@@ -1,5 +1,5 @@
 import RenderedMessageContent from "@rightkit/agent-ui-workbench/components/workbench/RenderedMessageContent";
-import ThinkingIndicator from "./ThinkingIndicator";
+import ThinkingIndicator from "./ThinkingIndicator.js";
 
 // AssistantMessage — left-aligned plain-text response on the chat canvas.
 // Optionally renders a ThinkingIndicator below the assistant text when

@@ -8,7 +8,7 @@ import {
   mutateCliProvider,
 } from "@rightkit/agent-ui-core/lib/daemon/cli-providers";
 
-import ProvidersTab from "./ProvidersTab";
+import ProvidersTab from "./ProvidersTab.js";
 
 vi.mock("@rightkit/agent-ui-core/lib/daemon/cli-providers", () => ({
   listCliProviders: vi.fn(),

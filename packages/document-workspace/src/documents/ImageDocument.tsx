@@ -1,7 +1,6 @@
 // the host app host for @rightkit/media-ui's image viewer/editor. Reproduces the former local
 // layout: tool panels in-flow above the stage inside the chrome toolbar, and only the capsule
 // docked into App's single document bar (via DocBar, which renders nothing for inactive panes).
-import "@rightkit/media-ui/styles.css";
 import { useState } from "react";
 import { CaretLeft } from "@phosphor-icons/react/dist/icons/CaretLeft";
 import { CaretRight } from "@phosphor-icons/react/dist/icons/CaretRight";
@@ -15,7 +14,7 @@ import { printImageDataUrl } from "@rightkit/document-core/app/documentPrinting"
 import { logError } from "@rightkit/document-core/state/diagnostics";
 import { toast } from "@rightkit/platform-ui/headless";
 import { acquireResource, updateResource, type ResourceKind } from "@rightkit/document-core/app/resourceCensus";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 const ADAPTERS: MediaAdapters = {
   icons: {

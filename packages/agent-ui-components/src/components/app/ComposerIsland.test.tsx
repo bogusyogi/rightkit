@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import ComposerIsland, { type ConductorOption } from "./ComposerIsland";
+import ComposerIsland, { type ConductorOption } from "./ComposerIsland.js";
 import type { PermissionMode } from "@rightkit/agent-ui-core/lib/daemon";
 import { CLAUDE_MODELS } from "@rightkit/agent-ui-core/lib/claudeModels";
 import type { CatalogModel } from "@rightkit/agent-ui-core/lib/types/inference";

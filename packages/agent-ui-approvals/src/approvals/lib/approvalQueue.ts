@@ -2,7 +2,7 @@
 // countdown, and the wording of a decision. No React, no IPC.
 
 import type { ApprovalDecision, ApprovalKind, PendingApproval } from "@rightkit/mail-ui/lib/ipc/agentApprovals";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 export const APPROVAL_TIMEOUT_MS = 15 * 60 * 1000;
 

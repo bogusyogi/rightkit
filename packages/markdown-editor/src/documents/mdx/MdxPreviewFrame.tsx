@@ -6,9 +6,9 @@
 // the iframe's) so the user can read + find + click into them.
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { compileMdx, type CompiledMdxModule, type MdxErrorKind } from "./mdxCompiler";
-import { mdxBridgeScript } from "./mdxBridgeScript";
-import { readMdxThemeVars } from "./mdxTheme";
+import { compileMdx, type CompiledMdxModule, type MdxErrorKind } from "./mdxCompiler.js";
+import { mdxBridgeScript } from "./mdxBridgeScript.js";
+import { readMdxThemeVars } from "./mdxTheme.js";
 import {
   isMdxCompileError,
   isMdxFindOpen,
@@ -20,8 +20,8 @@ import {
   postMdxCompiled,
   postMdxPrint,
   postMdxTheme,
-} from "./mdxProtocol";
-import { useMdxPreviewFind } from "./useMdxPreviewFind";
+} from "./mdxProtocol.js";
+import { useMdxPreviewFind } from "./useMdxPreviewFind.js";
 import { openExternal, grantRelativeFile } from "@rightkit/document-core/state/tauriBridge";
 import { normalizeLivePreviewUrl } from "@rightkit/document-core/documents/web/webUrl";
 import { formatFromPath } from "@rightkit/document-core/documents/types";

@@ -16,8 +16,8 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { ago, api, appsApi, bytes, isWindows, reclaimableNote, type CachedApps, type CleanupReport, type Status, type UpdateReport, type Volume } from "@rightkit/system-ui/api";
-import type { Account, Limit, NotchState } from "./Settings";
-import { systemReadings } from "./Monitor";
+import type { Account, Limit, NotchState } from "./Settings.js";
+import { systemReadings } from "./Monitor.js";
 import { Sparkline, levelColor } from "@rightkit/system-ui/components/Chart";
 import { lastMinutes, memPercent, useMetrics } from "@rightkit/system-ui/metrics";
 import { clearVisibleInterval, visibleInterval } from "@rightkit/system-ui/visible";

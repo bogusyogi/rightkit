@@ -1,14 +1,14 @@
 import { memo, type ReactNode, useMemo, useState } from "react";
-import type { JobInfo, Kind } from "../contract";
-import { isQaMode, qaState } from "../lib/ipc";
-import { categoryForKind } from "../lib/jobDisplay";
-import { countQueueChips, isRunningStage } from "../lib/queueView";
-import { buttonClass, panelClass } from "../lib/ui";
+import type { JobInfo, Kind } from "../contract.js";
+import { isQaMode, qaState } from "../lib/ipc/index.js";
+import { categoryForKind } from "../lib/jobDisplay.js";
+import { countQueueChips, isRunningStage } from "../lib/queueView.js";
+import { buttonClass, panelClass } from "../lib/ui.js";
 import { EmptyState, cx } from "@rightkit/react-shell/react";
-import { JobCard } from "./JobCard";
+import { JobCard } from "./JobCard.js";
 import { CircleSlash, RotateCcw, Trash2 } from "lucide-react";
-import { categoryIcon } from "./CategoryIcon";
-import { categoryToneClass } from "../lib/categoryDisplay";
+import { categoryIcon } from "./CategoryIcon.js";
+import { categoryToneClass } from "../lib/categoryDisplay.js";
 
 type FilterKey = "all" | "running" | "ready" | "needs";
 type CategoryFilter = "all" | "media" | "social" | "document" | "web";

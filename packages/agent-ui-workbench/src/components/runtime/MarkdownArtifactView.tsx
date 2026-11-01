@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { DaemonConfig } from "@rightkit/agent-ui-core/lib/types/settings-plugins";
 import { useWorkspaceFile } from "@rightkit/agent-ui-hooks/hooks/useWorkspaceFile";
 import { registerShortcut } from "@rightkit/agent-ui-core/lib/shortcuts/dispatcher";
-import MarkdownText from "../workbench/MarkdownText";
+import MarkdownText from "../workbench/MarkdownText.js";
 
 export interface MarkdownArtifactViewProps {
   config: DaemonConfig | null;

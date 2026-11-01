@@ -12,8 +12,8 @@ import {
 } from "@codemirror/view";
 import type { SearchProvider } from "@rightkit/document-core/documents/types";
 import type { TextMatch } from "@rightkit/document-core/documents/searchUtils";
-import type { SourceLanguage } from "./sourceFormatting";
-import type { SourceEditorViewState, SourceLinkPrefix } from "./sourceEditorTypes";
+import type { SourceLanguage } from "./sourceFormatting.js";
+import type { SourceEditorViewState, SourceLinkPrefix } from "./sourceEditorTypes.js";
 import type { MarkdownDocumentCore } from "@rightkit/markdown-editor/documents/markdown/core/MarkdownDocumentCore";
 import { bytesToBase64 } from "@rightkit/document-core/documents/base64";
 import {
@@ -32,8 +32,8 @@ import {
   searchHighlightField,
   sourceKeymap,
   sourceWrapExtension,
-} from "./sourceExtensions";
-import { sourceHighlightStyle } from "./sourceTheme";
+} from "./sourceExtensions.js";
+import { sourceHighlightStyle } from "./sourceTheme.js";
 import { acquireResource } from "@rightkit/document-core/app/resourceCensus";
 
 interface UseCodeMirrorSourceEditorArgs {

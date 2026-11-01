@@ -1,7 +1,7 @@
 ﻿import { useEffect, useRef } from "react";
 import { createShortcutRegistry } from "@rightkit/react-shell";
 import type { ShortcutDef } from "@rightkit/react-shell";
-import { capabilitiesFor } from "../documents/capabilities";
+import { capabilitiesFor } from "../documents/capabilities.js";
 import type { LoadedDocument, SearchProvider } from "@rightkit/document-core/documents/types";
 import type { DocxMenuApi } from "@rightkit/docx-editor/documents/docx/menuApi";
 

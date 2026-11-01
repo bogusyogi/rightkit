@@ -10,9 +10,9 @@
  * Implementation lives in `MarkdownDocumentCore.ts`.
  */
 
-import type { MarkdownSourceMap } from "./MarkdownSourceMap";
-import type { MarkdownNodeId } from "./MarkdownNodeIdFactory";
-import type { MarkdownHistoryGroup, MarkdownTextEdit } from "./types";
+import type { MarkdownSourceMap } from "./MarkdownSourceMap.js";
+import type { MarkdownNodeId } from "./MarkdownNodeIdFactory.js";
+import type { MarkdownHistoryGroup, MarkdownTextEdit } from "./types.js";
 
 /**
  * Identifier of an editor surface that subscribes to a document

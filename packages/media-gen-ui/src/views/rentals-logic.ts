@@ -5,8 +5,8 @@
  * contacts the engine and nothing here rents anything.
  */
 
-import { EngineError, toError } from '../lib/engine-error';
-import { hostAppName } from "../appName";
+import { EngineError, toError } from '../lib/engine-error.js';
+import { hostAppName } from "../appName.js";
 
 /** `enforcement` from `studio.models.rentals`, verbatim from rental.rs (HONEST_LIMITS). Shown when no listing has loaded yet. */
 export const RENTAL_ENFORCEMENT_TEXT =

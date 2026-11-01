@@ -1,7 +1,7 @@
 // Import form model and validation. Pure: the engine's dry run remains the authority on refusals.
 // Rules mirror docs/ENGINE-CLI.md "asset import": origin is required, cleared rights need licence evidence,
 // and scope is all three ids or none.
-import type { AssetImportRequest, AssetScope, ImportEvidence, ImportOrigin, ImportRightsStatus } from './types/library';
+import type { AssetImportRequest, AssetScope, ImportEvidence, ImportOrigin, ImportRightsStatus } from './types/library.js';
 
 export const IMPORT_ORIGIN_OPTIONS: Array<{ value: ImportOrigin; label: string }> = [
   { value: 'supplied', label: 'Supplied' },

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Notice, Slider } from '@rightkit/react-shell/react';
 import { canvasToArrayBuffer, validateExportCanvasSize } from '@rightkit/media-ui';
-import { isMaskEmpty, maskRgba, toSourcePoint, type MaskStroke, type MaskTool } from '../lib/mask-export';
+import { isMaskEmpty, maskRgba, toSourcePoint, type MaskStroke, type MaskTool } from '../lib/mask-export.js';
 
 interface Props {
   /** Displayable URL of the source image (the first reference image). */

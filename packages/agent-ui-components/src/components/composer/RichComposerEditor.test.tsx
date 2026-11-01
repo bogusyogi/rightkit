@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { RichComposerEditor } from "./RichComposerEditor";
+import { RichComposerEditor } from "./RichComposerEditor.js";
 
 describe("RichComposerEditor", () => {
   it("renders a plain-text editor with donor-compatible Enter and selection callbacks", () => {

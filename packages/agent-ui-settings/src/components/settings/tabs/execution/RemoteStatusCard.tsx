@@ -1,5 +1,5 @@
-import { diagnosticsCardStatusClass } from "../shared";
-import type { RemoteStatusCardProps } from "./types";
+import { diagnosticsCardStatusClass } from "../shared.js";
+import type { RemoteStatusCardProps } from "./types.js";
 
 export function RemoteStatusCard({ title, value, status, detail }: RemoteStatusCardProps) {
   return (

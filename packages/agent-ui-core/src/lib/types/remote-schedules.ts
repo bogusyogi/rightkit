@@ -1,2 +1,2 @@
-export * from "./remote-core";
-export * from "./schedules";
+export * from "./remote-core.js";
+export * from "./schedules.js";

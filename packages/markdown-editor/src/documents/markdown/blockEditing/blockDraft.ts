@@ -11,9 +11,9 @@
  * or Tauri. It can be unit-tested in isolation.
  */
 
-import type { BlockDraft, BlockEditorKind, BlockEditorOutcome, BlockKind } from "./types";
-import type { MarkdownNodeId } from "../core/MarkdownNodeIdFactory";
-import type { MarkdownTextEdit } from "../core/types";
+import type { BlockDraft, BlockEditorKind, BlockEditorOutcome, BlockKind } from "./types.js";
+import type { MarkdownNodeId } from "../core/MarkdownNodeIdFactory.js";
+import type { MarkdownTextEdit } from "../core/types.js";
 
 /**
  * Maximum time a draft may stay in the `active` state without an

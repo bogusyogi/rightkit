@@ -1,19 +1,19 @@
 import { isTauri } from "@rightkit/platform-ui";
 import { invoke } from "@tauri-apps/api/core";
-import { getResourceCensus, type ResourceCensus } from "../../app/resourceCensus";
-import { isMac, isWindows } from "../../platform";
-import { logEvent } from "../../state/diagnostics";
+import { getResourceCensus, type ResourceCensus } from "../../app/resourceCensus.js";
+import { isMac, isWindows } from "../../platform.js";
+import { logEvent } from "../../state/diagnostics.js";
 import {
   autopilotOnComplete,
   autopilotStatus,
   maybeAutoStartFromEnv,
   startAutopilot,
   stopAutopilot,
-} from "./pdfBenchAutopilot";
+} from "./pdfBenchAutopilot.js";
 
 export type PdfBenchLoadMode = "buffer" | "url-native" | "custom-range";
 
-// The harness is dev-only. Every export starts with a literal `import.meta.env.DEV` check (not a
+// The harness is dev-only. Every export starts with a literal `import.meta.env?.DEV` check (not a
 // helper call) so production builds fold each one to its no-op and the minifier drops the harness,
 // its storage keys and the autopilot. Env values are read by explicit key for the same reason: a
 // computed `import.meta.env[key]` makes Vite inline the whole env object.
@@ -139,7 +139,7 @@ let beginGeneration = 0;
 let latePageNavigator: ((requested: number) => number | null) | null = null;
 
 function benchEnabled(): boolean {
-  if (typeof window === "undefined" || !import.meta.env.DEV) return false;
+  if (typeof window === "undefined" || !import.meta.env?.DEV) return false;
   try {
     return localStorage.getItem(ENABLED_KEY) === "1";
   } catch {
@@ -148,7 +148,7 @@ function benchEnabled(): boolean {
 }
 
 export function isPdfBenchEnabled(): boolean {
-  return import.meta.env.DEV && benchEnabled();
+  return import.meta.env?.DEV && benchEnabled();
 }
 
 function normalizeMode(value: string | null): PdfBenchLoadMode {
@@ -167,7 +167,7 @@ export function getPdfBenchLoadMode(): PdfBenchLoadMode {
   // Browser QA and web previews can use data/blob/http URLs that do not promise byte-range
   // semantics. Custom range is a native macOS transport choice, so keep non-Tauri runtimes on
   // the portable full-buffer path unless benchmark mode explicitly overrides it.
-  if (!import.meta.env.DEV || !benchEnabled()) {
+  if (!import.meta.env?.DEV || !benchEnabled()) {
     return !isTauri() || isWindowsPdfRuntime() ? "buffer" : "custom-range";
   }
   try {
@@ -180,12 +180,12 @@ export function getPdfBenchLoadMode(): PdfBenchLoadMode {
 export function registerPdfBenchLatePageNavigator(
   navigator: ((requested: number) => number | null) | null,
 ): void {
-  if (!import.meta.env.DEV) return;
+  if (!import.meta.env?.DEV) return;
   latePageNavigator = navigator;
 }
 
 function latePageTarget(): number | null {
-  const raw = import.meta.env.VITE_PDF_BENCH_LATE_PAGE as string | undefined;
+  const raw = import.meta.env?.VITE_PDF_BENCH_LATE_PAGE as string | undefined;
   if (!raw || !/^\d+$/.test(raw)) return null;
   const value = Number(raw);
   return Number.isSafeInteger(value) && value > 0 ? value : null;
@@ -240,14 +240,14 @@ function envOrStored(key: string, env: string | undefined): string | null {
 }
 
 function fixtureIdentity() {
-  const bytesRaw = envOrStored(FIXTURE_BYTES_KEY, import.meta.env.VITE_PDF_BENCH_FIXTURE_BYTES);
+  const bytesRaw = envOrStored(FIXTURE_BYTES_KEY, import.meta.env?.VITE_PDF_BENCH_FIXTURE_BYTES);
   const bytes = bytesRaw && /^\d+$/.test(bytesRaw) ? Number(bytesRaw) : null;
-  const sha = envOrStored(FIXTURE_SHA256_KEY, import.meta.env.VITE_PDF_BENCH_FIXTURE_SHA256);
+  const sha = envOrStored(FIXTURE_SHA256_KEY, import.meta.env?.VITE_PDF_BENCH_FIXTURE_SHA256);
   return {
-    label: envOrStored(FIXTURE_LABEL_KEY, import.meta.env.VITE_PDF_BENCH_FIXTURE_LABEL),
+    label: envOrStored(FIXTURE_LABEL_KEY, import.meta.env?.VITE_PDF_BENCH_FIXTURE_LABEL),
     sourceFilename: envOrStored(
       SOURCE_FILENAME_KEY,
-      import.meta.env.VITE_PDF_BENCH_SOURCE_FILENAME,
+      import.meta.env?.VITE_PDF_BENCH_SOURCE_FILENAME,
     ),
     bytes: bytes !== null && Number.isSafeInteger(bytes) && bytes > 0 ? bytes : null,
     sha256: sha && /^[0-9a-f]{64}$/i.test(sha) ? sha.toLowerCase() : null,
@@ -408,7 +408,7 @@ export async function beginPdfBench(
   pdfjsVersion: string,
   mode = getPdfBenchLoadMode(),
 ): Promise<void> {
-  if (!import.meta.env.DEV) return;
+  if (!import.meta.env?.DEV) return;
   const enabled = benchEnabled();
   if (!enabled) return;
 
@@ -434,8 +434,8 @@ export async function beginPdfBench(
   const session: MutableSession = {
     url,
     mode,
-    run_id: String(import.meta.env.VITE_PDF_BENCH_RUN_ID ?? `run-${Date.now()}`),
-    launch_kind: (import.meta.env.VITE_PDF_BENCH_LAUNCH_KIND as string | undefined) ?? null,
+    run_id: String(import.meta.env?.VITE_PDF_BENCH_RUN_ID ?? `run-${Date.now()}`),
+    launch_kind: (import.meta.env?.VITE_PDF_BENCH_LAUNCH_KIND as string | undefined) ?? null,
     startedAt: performance.now(),
     startedIso: new Date().toISOString(),
     platform: navigator.platform,
@@ -505,7 +505,7 @@ export async function beginPdfBench(
 }
 
 export function markPdfBenchDocumentReady(url: string): void {
-  if (!import.meta.env.DEV) return;
+  if (!import.meta.env?.DEV) return;
   const session = active;
   if (!session || session.url !== url || session.documentReadyMs !== null) return;
   session.documentReadyMs = elapsed(session);
@@ -513,7 +513,7 @@ export function markPdfBenchDocumentReady(url: string): void {
 }
 
 export function markPdfBenchFirstCanvasPaint(url: string | undefined, page: number): void {
-  if (!import.meta.env.DEV) return;
+  if (!import.meta.env?.DEV) return;
   const session = active;
   if (!url || !session || session.url !== url) return;
   if (session.firstCanvasMs !== null) {
@@ -582,7 +582,7 @@ function markLatePagePaint(session: MutableSession, page: number): void {
 }
 
 export function markPdfBenchError(url: string, error: unknown): void {
-  if (!import.meta.env.DEV) return;
+  if (!import.meta.env?.DEV) return;
   const session = active;
   if (!session || session.url !== url || session.error) return;
   session.error = String((error as { message?: unknown })?.message ?? error);
@@ -611,7 +611,7 @@ function downloadJson(filename: string, value: unknown): void {
 }
 
 function installConsoleApi(): void {
-  if (typeof window === "undefined" || !import.meta.env.DEV) return;
+  if (typeof window === "undefined" || !import.meta.env?.DEV) return;
 
   const api = {
     status: () => ({

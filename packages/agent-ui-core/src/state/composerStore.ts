@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
-import type { Attachment } from "../lib/daemon";
-import { useReferenceStore } from "./referenceStore";
+import type { Attachment } from "../lib/daemon.js";
+import { useReferenceStore } from "./referenceStore.js";
 
 /** Composer permission mode (Phase 4 visual layer — Phase 4.5 will wire this
  * to the daemon's `session.mode` for actual tool enforcement). */

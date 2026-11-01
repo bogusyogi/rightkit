@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { Badge, Button, EmptyState, Field, Input, PageShell, SkeletonRows, Table, TableBody, TableCaption, TableCell, TableHead, TableHeaderCell, TableRow } from "@rightkit/react-shell/react";
-import { ScopeSelect } from "../components/ScopeSelect";
-import { LoadError, MockBanner } from "../components/Shared";
-import { useAsync } from "../hooks/useAsync";
+import { ScopeSelect } from "../components/ScopeSelect.js";
+import { LoadError, MockBanner } from "../components/Shared.js";
+import { useAsync } from "../hooks/useAsync.js";
 import {
   formatMilli,
   groupDigits,
@@ -13,8 +13,8 @@ import {
   type GateRecord,
   type GateRequiredRules,
   type OperatorScope,
-} from "../data";
-import { GATE_DISPOSITION_LABEL, GATE_VERDICT_LABEL } from "./labels";
+} from "../data/index.js";
+import { GATE_DISPOSITION_LABEL, GATE_VERDICT_LABEL } from "./labels.js";
 
 interface Props {
   source: DataSource;

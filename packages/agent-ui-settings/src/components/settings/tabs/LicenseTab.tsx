@@ -6,8 +6,8 @@ import { useUpdateStatus } from "@rightkit/agent-ui-hooks/hooks/useUpdateStatus"
 import { isLicensed, licenseClient, type LicenseView } from "@rightkit/agent-ui-core/state/license";
 import { notifyProBridgeAfterActivation, suppressProBridgeConsumption } from "@rightkit/agent-ui-core/state/proBridge";
 import type { UpdateState } from "@rightkit/agent-ui-core/state/updates";
-import AppleSyncPanel from "./AppleSyncPanel";
-import LinkComputerPanel from "./LinkComputerPanel";
+import AppleSyncPanel from "./AppleSyncPanel.js";
+import LinkComputerPanel from "./LinkComputerPanel.js";
 
 /**
  * The licence section (status, activate, deactivate, verify) is `@rightkit/settings-ui`'s

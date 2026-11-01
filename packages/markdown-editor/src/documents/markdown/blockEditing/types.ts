@@ -10,7 +10,7 @@
  *    math, footnote-reference, footnote-definition, code).
  */
 
-import type { MarkdownNodeId } from "../core/MarkdownNodeIdFactory";
+import type { MarkdownNodeId } from "../core/MarkdownNodeIdFactory.js";
 
 /**
  * Block-editor lifecycle states.

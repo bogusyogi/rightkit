@@ -1,9 +1,9 @@
 import { useDismiss } from "@rightkit/platform-ui/headless";
 import { useRef, useState } from "react";
-import type { AppShellHeaderProps } from "./types";
-import Icon from "../Icon";
-import { AgentIndicator, TaskIndicator } from "./RunIndicators";
-import type { TaskNode } from "../../lib/types";
+import type { AppShellHeaderProps } from "./types.js";
+import Icon from "../Icon.js";
+import { AgentIndicator, TaskIndicator } from "./RunIndicators.js";
+import type { TaskNode } from "../../lib/types.js";
 
 // Slim status strip rendered above the workbench area. The Claude Code
 // reference does not include a separate header row — the project chip and

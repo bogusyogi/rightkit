@@ -1,5 +1,5 @@
 // Reference only, deleted at QA close.
-import type { Brand, ImageStudioRequest, VideoStudioPreflightRequest } from './types';
+import type { Brand, ImageStudioRequest, VideoStudioPreflightRequest } from './types.js';
 
 export type CampaignChannel =
   | 'tiktok'

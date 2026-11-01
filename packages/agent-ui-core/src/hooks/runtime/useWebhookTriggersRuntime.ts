@@ -5,14 +5,14 @@ import {
   listWebhookTriggerAudit,
   listWebhookTriggers,
   patchWebhookTrigger,
-} from "../../lib/daemon";
+} from "../../lib/daemon.js";
 import type {
   DaemonConfig,
   PatchWebhookTriggerRequest,
   WebhookTrigger,
   WebhookTriggerDeliveryAuditRow,
   WebhookTriggerProvider,
-} from "../../lib/types";
+} from "../../lib/types.js";
 
 export interface WebhookTriggerDraft {
   editingId: string | null;

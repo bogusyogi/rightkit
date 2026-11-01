@@ -13,8 +13,8 @@
 // GAP (docs/rightkit-exceptions/M10.md N1): `@rightkit/settings-ui` publishes the async SettingsBackend
 // only, so this module is the synchronous cache over it.
 import type { SettingsBackend, SettingsSnapshot } from "@rightkit/settings-ui/core";
-import type { SavedSearch } from "../store/types";
-import type { ImageRule } from "./imageTrust";
+import type { SavedSearch } from "../store/types.js";
+import type { ImageRule } from "./imageTrust.js";
 
 interface Def<T> {
   make(): T;

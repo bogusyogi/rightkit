@@ -15,18 +15,18 @@ import { TextSelection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import { registerMarkdownDropTarget, type NativeDropPayload } from "@rightkit/document-core/app/dropCoordination";
 import { readRelativeAsset } from "@rightkit/document-core/state/tauriBridge";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import { markdownToPmDoc } from "../projection/pmFromMarkdown";
-import { pmDocToMarkdown } from "../projection/pmToMarkdown";
-import { assetPayloadBase64, captureLogicalBookmark } from "../projection/pmEditorState";
-import { commitPmTransactionToCore } from "../projection/pmProjectionSync";
-import { pmSelectionToLogicalRange } from "../projection/pmSelectionBridge";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import { markdownToPmDoc } from "../projection/pmFromMarkdown.js";
+import { pmDocToMarkdown } from "../projection/pmToMarkdown.js";
+import { assetPayloadBase64, captureLogicalBookmark } from "../projection/pmEditorState.js";
+import { commitPmTransactionToCore } from "../projection/pmProjectionSync.js";
+import { pmSelectionToLogicalRange } from "../projection/pmSelectionBridge.js";
 import {
   decodeBase64Bytes,
   NativeMarkdownAssetClient,
   validateMarkdownAsset,
-} from "./markdownAsset";
-import { DEFAULT_MARKDOWN_ASSET_SETTINGS } from "./markdownAssetSettings";
+} from "./markdownAsset.js";
+import { DEFAULT_MARKDOWN_ASSET_SETTINGS } from "./markdownAssetSettings.js";
 import {
   altPrefillFromFileName,
   insertLocalMarkdownImage,
@@ -34,8 +34,8 @@ import {
   kindForMime,
   mimeFromFileName,
   type MarkdownLogicalBookmark,
-} from "./markdownImage";
-import { smartPaste } from "./smartPaste";
+} from "./markdownImage.js";
+import { smartPaste } from "./smartPaste.js";
 
 /**
  * Options for {@link useMarkdownImageIngest}.

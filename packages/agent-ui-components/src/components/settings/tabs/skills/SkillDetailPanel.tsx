@@ -3,8 +3,8 @@ import { ConfirmDialog } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import type { SkillItem } from "@rightkit/agent-ui-core/lib/types";
 import { OfflinePanel } from "@rightkit/agent-ui-settings/components/settings/tabs/shared";
-import { SkillEffectsText } from "./SkillListPanel";
-import type { SkillDetailPanelProps } from "./types";
+import { SkillEffectsText } from "./SkillListPanel.js";
+import type { SkillDetailPanelProps } from "./types.js";
 
 export function SkillDetailPanel({
   selected,

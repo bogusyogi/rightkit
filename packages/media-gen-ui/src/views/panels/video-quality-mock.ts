@@ -1,7 +1,7 @@
 // Browser-mode (no Tauri) stand-in for studio.video_templates.*. The lists come
 // from the same packaged JSON the engine embeds; preflight and approve only
 // imitate the engine's shapes so the panel can be exercised in QA.
-import type { Draft, Recipe, RecipeLibrary } from './video-quality';
+import type { Draft, Recipe, RecipeLibrary } from './video-quality.js';
 
 type Json = Record<string, any>;
 

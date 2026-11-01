@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { BUILT_IN_ROLES } from "./roles";
-import { BUILT_IN_STYLES } from "./styles";
-import { BUILT_IN_TEMPLATES, TEMPLATE_CATEGORIES, type TemplateCategory } from "./templates";
-import { compilePrompt, EMPTY_FIELDS } from "./compilePrompt";
+import { BUILT_IN_ROLES } from "./roles.js";
+import { BUILT_IN_STYLES } from "./styles.js";
+import { BUILT_IN_TEMPLATES, TEMPLATE_CATEGORIES, type TemplateCategory } from "./templates.js";
+import { compilePrompt, EMPTY_FIELDS } from "./compilePrompt.js";
 
 describe("prompt template registry", () => {
   it("ports 108 built-in templates with valid categories and unique IDs", () => {

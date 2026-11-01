@@ -15,7 +15,7 @@ const { calls, enqueue } = vi.hoisted(() => {
   };
 });
 
-vi.mock("../lib/daemon/delivery-environments-attention", () => {
+vi.mock("../lib/daemon/delivery-environments-attention.js", () => {
   const handler: ProxyHandler<Record<string, unknown>> = {
     get(_target, prop) {
       return enqueue(String(prop));
@@ -39,8 +39,8 @@ vi.mock("../lib/daemon/delivery-environments-attention", () => {
   };
 });
 
-import { useEnvironmentsStore } from "./environmentsStore";
-import * as client from "../lib/daemon/delivery-environments-attention";
+import { useEnvironmentsStore } from "./environmentsStore.js";
+import * as client from "../lib/daemon/delivery-environments-attention.js";
 
 const baseConfig = { url: "http://127.0.0.1:1", token: "x" };
 const workspaceRoot = "/Users/me/code";

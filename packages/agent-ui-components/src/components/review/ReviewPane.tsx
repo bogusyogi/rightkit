@@ -28,9 +28,9 @@ import {
   getRunChangesSummary,
   recordRevisionComment,
   undoRunChange,
-} from "./runChangesClient";
-import { filterRowsForSearch, type RevisionComment } from "./runChangesStore";
-import { dispatch, getRunChangesStateSnapshot, useRunChangesState } from "./useRunChangesState";
+} from "./runChangesClient.js";
+import { filterRowsForSearch, type RevisionComment } from "./runChangesStore.js";
+import { dispatch, getRunChangesStateSnapshot, useRunChangesState } from "./useRunChangesState.js";
 import { stagePaths, unstagePaths } from "@rightkit/agent-ui-core/lib/daemon/delivery-environments-attention";
 import type { DaemonConfig } from "@rightkit/agent-ui-core/lib/types/settings-plugins";
 

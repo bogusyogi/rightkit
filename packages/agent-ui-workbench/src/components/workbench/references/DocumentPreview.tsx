@@ -1,7 +1,7 @@
 import { memo, useMemo, useState } from "react";
 
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import MarkdownText from "../MarkdownText";
+import MarkdownText from "../MarkdownText.js";
 import type { ReferenceObject } from "@rightkit/agent-ui-core/lib/types/references";
 
 // Document preview: rendered (Markdown) / source (raw) toggle for a

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Button, ConfirmDialog, EmptyState, Notice, PageShell, SkeletonRows, Toggle } from "@rightkit/react-shell/react";
-import { AccountChip, LoadError, MockBanner } from "../components/Shared";
-import { useAsync } from "../hooks/useAsync";
+import { AccountChip, LoadError, MockBanner } from "../components/Shared.js";
+import { useAsync } from "../hooks/useAsync.js";
 import {
   SOCIAL_PLATFORMS,
   accountOrdinals,
@@ -11,9 +11,9 @@ import {
   type DataSource,
   type SocialPlatform,
   type UnmappedAccount,
-} from "../data";
-import { ENTITLEMENT_LABEL, PLATFORM_LABEL, cooldownText, platformName, tokenText } from "./labels";
-import { hostAppName } from "../appName";
+} from "../data/index.js";
+import { ENTITLEMENT_LABEL, PLATFORM_LABEL, cooldownText, platformName, tokenText } from "./labels.js";
+import { hostAppName } from "../appName.js";
 
 interface Props {
   source: DataSource;

@@ -1,5 +1,5 @@
 import type { AuditLogView, LearningProposal, TasteProposal } from "@rightkit/agent-ui-core/lib/types";
-import { RuntimeEmpty, ScoreBar, panelWrap } from "./shared";
+import { RuntimeEmpty, ScoreBar, panelWrap } from "./shared.js";
 
 export function LearningPanel({
   rows,

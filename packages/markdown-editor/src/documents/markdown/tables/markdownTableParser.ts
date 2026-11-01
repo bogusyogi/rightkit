@@ -5,7 +5,7 @@ import {
   MARKDOWN_TABLE_MAX_ROWS,
   type MarkdownTableAlignment,
   normalizeTableAlignment,
-} from "./markdownTableSchema";
+} from "./markdownTableSchema.js";
 
 export interface MarkdownTableSourceRange {
   readonly prefix?: string;

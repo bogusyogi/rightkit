@@ -1,5 +1,5 @@
-import { OfflinePanel } from "../shared";
-import { diagnosticsStatusClass } from "./RemoteStatusCard";
+import { OfflinePanel } from "../shared.js";
+import { diagnosticsStatusClass } from "./RemoteStatusCard.js";
 import type { RemoteChannelsSnapshot } from "@rightkit/agent-ui-core/lib/types";
 
 function RemoteGatewayChannelRow({

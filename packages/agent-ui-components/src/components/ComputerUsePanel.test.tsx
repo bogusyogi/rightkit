@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import ComputerUsePanel, { type ComputerUseStatus } from "./ComputerUsePanel";
+import ComputerUsePanel, { type ComputerUseStatus } from "./ComputerUsePanel.js";
 
 const status: ComputerUseStatus = {
   platform: "darwin",

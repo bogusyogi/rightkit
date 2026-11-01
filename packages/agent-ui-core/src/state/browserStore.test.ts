@@ -2,7 +2,7 @@
 // Co-located; vitest-style assertions.
 
 import { describe, expect, it } from "vitest";
-import { useBrowserWorkspaceStore } from "./browserStore";
+import { useBrowserWorkspaceStore } from "./browserStore.js";
 
 describe("browserWorkspaceStore", () => {
   it("starts empty", () => {

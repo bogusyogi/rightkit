@@ -1,7 +1,7 @@
 // Wire shapes of the engine commands the desktop reads and writes. These mirror the Rust structs in
 // crates/protocol/src/{schema,calendar,accounts}.rs (snake_case, as serde writes them). Only the fields
 // the desktop uses are listed; the engine returns more.
-import type { JsonValue } from "../types";
+import type { JsonValue } from "../types.js";
 
 /** Every method the shell forwards. Keep in step with UI_METHODS in src-tauri/src/lib.rs. */
 export const UI_METHODS = [

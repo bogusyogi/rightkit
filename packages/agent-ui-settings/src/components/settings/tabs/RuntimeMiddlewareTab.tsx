@@ -1,6 +1,6 @@
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import type { MiddlewareRegistrySnapshot } from "@rightkit/agent-ui-core/lib/types";
-import { OfflinePanel } from "./shared";
+import { OfflinePanel } from "./shared.js";
 
 function formatMiddlewarePhase(phase: string) {
   return phase.replace(/([A-Z])/g, " $1").replace(/^./, (value) => value.toUpperCase());

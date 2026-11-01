@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import AwaySummaryCard from "./AwaySummaryCard";
+import AwaySummaryCard from "./AwaySummaryCard.js";
 import type { AwaySummary } from "@rightkit/agent-ui-core/lib/types";
 
 function baseSummary(overrides: Partial<AwaySummary> = {}): AwaySummary {

@@ -1,6 +1,6 @@
-import { OfflinePanel } from "../shared";
+import { OfflinePanel } from "../shared.js";
 import type { TelegramRemoteStatus, TelegramRemoteTest } from "@rightkit/agent-ui-core/lib/types";
-import { RemoteStatusCard } from "./RemoteStatusCard";
+import { RemoteStatusCard } from "./RemoteStatusCard.js";
 
 function telegramStatusLabel(state: string): string {
   switch (state) {

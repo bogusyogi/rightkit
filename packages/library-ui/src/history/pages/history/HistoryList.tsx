@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { HistoryItem } from "@rightkit/dictation-ui/lib/homeMetrics";
 import { cx, ui } from "@rightkit/dictation-ui/lib/ui";
-import { HistoryRow } from "./HistoryChrome";
+import { HistoryRow } from "./HistoryChrome.js";
 import {
   dayLabel,
   isLocallyDeletable,

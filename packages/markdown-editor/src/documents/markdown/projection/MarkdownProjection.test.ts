@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "prosemirror-model";
-import { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import { projectMarkdownToPm } from "./MarkdownProjection";
+import { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import { projectMarkdownToPm } from "./MarkdownProjection.js";
 
 const testSchema = new Schema({
   nodes: {

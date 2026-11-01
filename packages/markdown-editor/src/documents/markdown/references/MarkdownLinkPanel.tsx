@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
 import { useOptionalBlockDrafts } from "@rightkit/document-core/app/BlockDraftContext";
-import { buildMarkdownLinkEdit } from "./markdownLink";
+import { buildMarkdownLinkEdit } from "./markdownLink.js";
 import {
   FolderIndexCache,
   NativeFolderIndexClient,
   type FolderIndexClient,
   type MarkdownIndexedFile,
-} from "./folderIndex";
-import { MarkdownLinkPopover, type MarkdownLinkChoice } from "./MarkdownLinkPopover";
+} from "./folderIndex.js";
+import { MarkdownLinkPopover, type MarkdownLinkChoice } from "./MarkdownLinkPopover.js";
 import {
   applyMarkdownLinkCommand,
   headingFragment,
@@ -16,7 +16,7 @@ import {
   resolveMarkdownLinkModel,
   type MarkdownLinkSelectionInput,
   type MarkdownProtectedRange,
-} from "./markdownLink";
+} from "./markdownLink.js";
 
 export interface MarkdownLinkPanelProps {
   readonly core: MarkdownDocumentCore;

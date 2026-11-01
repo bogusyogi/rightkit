@@ -1,10 +1,10 @@
 import type { MutableRefObject, RefObject, WheelEventHandler } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import type { OutlineNode, Size } from "./pdfShared";
-import { PdfOutline } from "./PdfOutline";
-import { PdfThumbnails } from "./PdfThumbnails";
-import { PdfOcrLayer } from "./PdfOcrLayer";
-import type { OcrLine } from "./pdfOcr";
+import type { OutlineNode, Size } from "./pdfShared.js";
+import { PdfOutline } from "./PdfOutline.js";
+import { PdfThumbnails } from "./PdfThumbnails.js";
+import { PdfOcrLayer } from "./PdfOcrLayer.js";
+import type { OcrLine } from "./pdfOcr.js";
 
 export function PdfViewerBody({
   panel,

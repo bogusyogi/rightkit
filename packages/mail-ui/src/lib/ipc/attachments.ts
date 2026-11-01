@@ -1,5 +1,5 @@
-import { invoke } from "./invoke";
-import type { DriveFile } from "./workspace";
+import { invoke } from "./invoke.js";
+import type { DriveFile } from "./workspace.js";
 
 export interface AttachmentMeta {
   attachment_id: string;

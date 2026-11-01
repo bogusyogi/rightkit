@@ -1,21 +1,21 @@
 import { useMemo, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
 import type { Heading } from "mdast";
-import type { MarkdownCoreSnapshot } from "./core/MarkdownDocumentTypes";
-import { parseToTree } from "./parseMarkdown";
-import { buildBlocks } from "./semanticBlocks";
-import { SemanticBlock } from "./components";
+import type { MarkdownCoreSnapshot } from "./core/MarkdownDocumentTypes.js";
+import { parseToTree } from "./parseMarkdown.js";
+import { buildBlocks } from "./semanticBlocks.js";
+import { SemanticBlock } from "./components/index.js";
 import {
   BibliographyContext,
   MarkdownLinkContext,
   TableOfContentsContext,
   renderNodes,
-} from "./renderNodes";
-import { collectFootnotes, FootnotesContext } from "./footnotes";
-import { buildHeadingSlugs, HeadingSlugContext } from "./headingSlugs";
-import { nodeText } from "./semanticBlocks";
-import type { OutlineHeading } from "./Outline";
-import { firstSourceLine } from "./markdownTools";
-import { MarkdownSafeHtml, MarkdownSafeHtmlContext } from "./safeHtml/MarkdownSafeHtml";
+} from "./renderNodes.js";
+import { collectFootnotes, FootnotesContext } from "./footnotes.js";
+import { buildHeadingSlugs, HeadingSlugContext } from "./headingSlugs.js";
+import { nodeText } from "./semanticBlocks.js";
+import type { OutlineHeading } from "./Outline.js";
+import { firstSourceLine } from "./markdownTools.js";
+import { MarkdownSafeHtml, MarkdownSafeHtmlContext } from "./safeHtml/MarkdownSafeHtml.js";
 
 export interface MarkdownDocumentBodyProps {
   snapshot: MarkdownCoreSnapshot;

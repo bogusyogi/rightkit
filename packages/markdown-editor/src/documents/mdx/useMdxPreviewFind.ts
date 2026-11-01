@@ -5,7 +5,7 @@
 import type { RefObject } from "react";
 import type { SearchProvider } from "@rightkit/document-core/documents/types";
 import { usePreviewFind } from "@rightkit/document-core/documents/usePreviewFind";
-import { postMdxFindClear, postMdxFindQuery, postMdxFindStep } from "./mdxProtocol";
+import { postMdxFindClear, postMdxFindQuery, postMdxFindStep } from "./mdxProtocol.js";
 
 const MDX_FIND_PROTOCOL = {
   clear: postMdxFindClear,

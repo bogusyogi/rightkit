@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import TerminalPane from "./TerminalPane";
+import TerminalPane from "./TerminalPane.js";
 import type { ExecutionProcessRow, SessionRow } from "@rightkit/agent-ui-core/lib/types";
 
 const WIDTH_KEY = "cr.terminalPane.width.v1";

@@ -3,8 +3,8 @@ import { renderHook, act } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
-import { useDocumentTabs } from "./useDocumentTabs";
-import { useDocumentWatcher } from "./useDocumentWatcher";
+import { useDocumentTabs } from "./useDocumentTabs.js";
+import { useDocumentWatcher } from "./useDocumentWatcher.js";
 import { fileFingerprint } from "@rightkit/document-core/state/tauriBridge";
 
 const FILE_A = "D:\\docs\\a.txt";

@@ -40,10 +40,10 @@ import type {
   PreparePdfSave,
   PreparePdfSaveRequest,
   PreparedPdfSave,
-} from "./pdfEditModel";
+} from "./pdfEditModel.js";
 import { pdfDocumentInit, pdfWasmUrl } from "@rightkit/pdf-ui";
-import { withTimeout } from "./pdfShared";
-import { logEvent } from "../../state/diagnostics";
+import { withTimeout } from "./pdfShared.js";
+import { logEvent } from "../../state/diagnostics.js";
 
 // ---------------------------------------------------------------------------------------------
 // §9.4 in-memory preview composition

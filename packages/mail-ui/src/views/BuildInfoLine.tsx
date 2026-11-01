@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { buildInfo, BuildInfo } from "../lib/ipc";
+import { buildInfo, BuildInfo } from "../lib/ipc.js";
 
 /** One compact line naming this build: version, channel, short commit, date. */
 export function BuildInfoLine() {

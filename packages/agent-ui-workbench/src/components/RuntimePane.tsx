@@ -1,5 +1,5 @@
 import { Select } from "@rightkit/react-shell/react";
-import ComparePanel from "./ComparePanel";
+import ComparePanel from "./ComparePanel.js";
 import {
   AuditPanel,
   BenchmarksPanel,
@@ -9,24 +9,24 @@ import {
   ProposalsPanel,
   RolloutsPanel,
   TastePanel,
-} from "./RuntimePanels";
-import TeamsRuntimePanel from "./runtime/TeamsRuntimePanel";
-import SchedulesRuntimePanel from "./runtime/SchedulesRuntimePanel";
-import WebhookTriggersRuntimePanel from "./runtime/WebhookTriggersRuntimePanel";
-import ObservabilityRuntimePanel from "./runtime/ObservabilityRuntimePanel";
-import HarnessRadarPanel from "./runtime/HarnessRadarPanel";
-import SpecsRuntimePanel from "./runtime/SpecsRuntimePanel";
-import RecipesRuntimePanel from "./runtime/RecipesRuntimePanel";
-import MessagesRuntimePanel from "./runtime/MessagesRuntimePanel";
-import MemoryRuntimePanel from "./runtime/MemoryRuntimePanel";
-import ContextRuntimePanel from "./runtime/ContextRuntimePanel";
-import ReviewRoomPanel from "./runtime/ReviewRoomPanel";
-import ArtifactRowsPanel from "./runtime/ArtifactRowsPanel";
-import { AutomationsPanel, WorkflowInboxPanel } from "./runtime/WorkflowControlPanels";
-import { runtimeLabel } from "./runtime/runtimeTabs";
-import { RUNTIME_TABS } from "./runtime/runtimePaneTabs";
-import { renderRows } from "./runtime/runtimeTabsRenderRows";
-import type { RuntimePaneProps, RuntimeTab } from "./runtime/runtimePaneTypes";
+} from "./RuntimePanels.js";
+import TeamsRuntimePanel from "./runtime/TeamsRuntimePanel.js";
+import SchedulesRuntimePanel from "./runtime/SchedulesRuntimePanel.js";
+import WebhookTriggersRuntimePanel from "./runtime/WebhookTriggersRuntimePanel.js";
+import ObservabilityRuntimePanel from "./runtime/ObservabilityRuntimePanel.js";
+import HarnessRadarPanel from "./runtime/HarnessRadarPanel.js";
+import SpecsRuntimePanel from "./runtime/SpecsRuntimePanel.js";
+import RecipesRuntimePanel from "./runtime/RecipesRuntimePanel.js";
+import MessagesRuntimePanel from "./runtime/MessagesRuntimePanel.js";
+import MemoryRuntimePanel from "./runtime/MemoryRuntimePanel.js";
+import ContextRuntimePanel from "./runtime/ContextRuntimePanel.js";
+import ReviewRoomPanel from "./runtime/ReviewRoomPanel.js";
+import ArtifactRowsPanel from "./runtime/ArtifactRowsPanel.js";
+import { AutomationsPanel, WorkflowInboxPanel } from "./runtime/WorkflowControlPanels.js";
+import { runtimeLabel } from "./runtime/runtimeTabs.js";
+import { RUNTIME_TABS } from "./runtime/runtimePaneTabs.js";
+import { renderRows } from "./runtime/runtimeTabsRenderRows.js";
+import type { RuntimePaneProps, RuntimeTab } from "./runtime/runtimePaneTypes.js";
 
 export default function RuntimePane({
   artifacts,
@@ -357,4 +357,4 @@ export default function RuntimePane({
   );
 }
 
-export type { RuntimeTab } from "./runtime/runtimePaneTypes";
+export type { RuntimeTab } from "./runtime/runtimePaneTypes.js";

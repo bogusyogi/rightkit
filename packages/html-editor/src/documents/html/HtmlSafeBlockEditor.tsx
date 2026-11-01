@@ -14,26 +14,26 @@ import { baseKeymap } from "prosemirror-commands";
 import { EditorView } from "prosemirror-view";
 import { useBlockDrafts } from "@rightkit/document-core/app/BlockDraftContext";
 import type { BlockDraftIdentity, BlockDraftSnapshot } from "@rightkit/document-core/app/blockDrafts";
-import { htmlVisualSchema, parseHtmlToPm } from "./htmlPmParse";
-import { SYNTHESISED_FRAGMENT_MAP } from "./sourceMap";
+import { htmlVisualSchema, parseHtmlToPm } from "./htmlPmParse.js";
+import { SYNTHESISED_FRAGMENT_MAP } from "./sourceMap.js";
 import {
   projectHtmlForVisual,
   sanitizeHtmlPasteFragment,
-} from "./htmlVisualSanitize";
-import { trackHtmlProseMirror } from "./htmlResourceLifecycle";
+} from "./htmlVisualSanitize.js";
+import { trackHtmlProseMirror } from "./htmlResourceLifecycle.js";
 import {
   htmlTextOffsetFromPoint,
   htmlWordSelectionFromPoint,
   type HtmlInlineStyle,
-} from "./sourceMap";
-import type { RichBlockOp } from "./htmlOperationPlanner";
+} from "./sourceMap.js";
+import type { RichBlockOp } from "./htmlOperationPlanner.js";
 import {
   EMPTY_HTML_TEXT_STYLE,
   hasHtmlTextStyle,
   safeHtmlTextStyleValue,
   type HtmlTextStyleAttrs,
   type HtmlTextStyleProperty,
-} from "./htmlTextStyle";
+} from "./htmlTextStyle.js";
 import {
   editorTypographyForTag,
   type HtmlEditorToolbarState,
@@ -51,7 +51,7 @@ import {
   visualAttrsForTag,
   visualNodeForTag,
   wrapped,
-} from "./htmlPmBlockHelpers";
+} from "./htmlPmBlockHelpers.js";
 
 // The pure ProseMirror helpers moved to ./htmlPmBlockHelpers. Re-export the pieces other
 // modules already import from this file so its public surface is unchanged.
@@ -60,8 +60,8 @@ export {
   innerFromDoc,
   resolveMarkdownBlockRule,
   resolveOpaqueEditorBackground,
-} from "./htmlPmBlockHelpers";
-export type { HtmlEditorToolbarState } from "./htmlPmBlockHelpers";
+} from "./htmlPmBlockHelpers.js";
+export type { HtmlEditorToolbarState } from "./htmlPmBlockHelpers.js";
 
 /**
  * Narrow parent-facing controls for the transient rich-edit session. This is

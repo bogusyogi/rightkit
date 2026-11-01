@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { HtmlMutationError, commitHtmlMutation } from "../htmlMutationEngine";
-import { deleteNodePlan, moveSiblingPlan } from "../htmlOperationPlanner";
-import { sourceChecksum } from "../sourceMap";
-import { buildHtmlBlockIndex, findBlockIndexViolations } from "./htmlBlockIndex";
+import { HtmlMutationError, commitHtmlMutation } from "../htmlMutationEngine.js";
+import { deleteNodePlan, moveSiblingPlan } from "../htmlOperationPlanner.js";
+import { sourceChecksum } from "../sourceMap.js";
+import { buildHtmlBlockIndex, findBlockIndexViolations } from "./htmlBlockIndex.js";
 
 const FIXTURE = [
   "<!doctype html><html><head><title>t</title></head><body>",

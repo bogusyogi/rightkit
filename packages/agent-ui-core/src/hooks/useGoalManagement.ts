@@ -7,8 +7,8 @@ import {
   pauseGoal as pauseGoalApi,
   resumeGoal as resumeGoalApi,
   setGoal,
-} from "../lib/daemon";
-import type { DaemonConfig, GoalSnapshotV1, ProtocolEvent } from "../lib/types";
+} from "../lib/daemon.js";
+import type { DaemonConfig, GoalSnapshotV1, ProtocolEvent } from "../lib/types.js";
 
 interface UseGoalManagementOptions {
   config: DaemonConfig | null;

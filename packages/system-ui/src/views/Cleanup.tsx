@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Checkbox, ConfirmDialog, Notice, SegmentedControl } from "@rightkit/react-shell/react";
 import { invoke } from "@tauri-apps/api/core";
 import { ChevronRight } from "lucide-react";
-import { ago, bytes, isStale, isWindows, type ChromeSnapshots } from "../api";
-import { readKept, writeKept } from "../kept";
+import { ago, bytes, isStale, isWindows, type ChromeSnapshots } from "../api.js";
+import { readKept, writeKept } from "../kept.js";
 
 // Windows moves files to the Recycle Bin; the Mac moves them to the Trash.
 const TRASH = isWindows ? "Recycle Bin" : "Trash";
@@ -11,8 +11,7 @@ const KEPT_SELECTED = "pulse.hub.cleanup.selected";
 /** How each past move was measured, by activity id: a lower bound (≥) or an upper bound (up to). Absent means exact. */
 const KEPT_BOUNDS = "pulse.hub.cleanup.bounds";
 type MoveBound = "lower" | "upper";
-import { ChromeSnapshotsLine } from "./ChromeSnapshots";
-import "./cleanup.css";
+import { ChromeSnapshotsLine } from "./ChromeSnapshots.js";
 
 interface Finding {
   id: string;

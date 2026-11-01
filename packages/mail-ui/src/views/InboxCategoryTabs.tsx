@@ -1,6 +1,6 @@
 import { Button } from "@rightkit/react-shell/react";
-import Icon from "../components/Icons";
-import { CATEGORY_TABS } from "../lib/mail";
+import Icon from "../components/Icons.js";
+import { CATEGORY_TABS } from "../lib/mail.js";
 
 const CAT_ICON: Record<string, string> = {
   PRIMARY: "inbox",

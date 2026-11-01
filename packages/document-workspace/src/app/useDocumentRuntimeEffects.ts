@@ -16,11 +16,11 @@ import {
 } from "@rightkit/document-core/state/tauriBridge";
 import { clearSession, loadSession, saveSession } from "@rightkit/document-core/state/tauriBridge";
 import { toast } from "@rightkit/platform-ui/headless";
-import { readDraft } from "./documentDrafts";
+import { readDraft } from "./documentDrafts.js";
 import { scheduleAfterPaintOrDelay } from "@rightkit/document-core/app/deferredMount";
 import { listenForNativeDrops } from "@rightkit/document-core/app/dropCoordination";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
-import type { OpenDocumentOptions } from "./useDocumentLoader";
+import type { OpenDocumentOptions } from "./useDocumentLoader.js";
 
 /** Route native open-file events after the Markdown canvas has had a chance to consume image drops. */
 export function handleOpenFileEvent(path: string, open: (path: string) => Promise<unknown>): void {
@@ -84,19 +84,19 @@ function safelyUnlisten(listener: () => void): void {
 // `installResourceCensusDevHook`): in a production build these fold to constants and the
 // autopilot branches are dropped, whatever the build environment carries.
 const AUTOMATION_BUILD =
-  import.meta.env.DEV || import.meta.env.VITE_RIGHTKIT_BROWSER_QA === "1";
+  import.meta.env?.DEV || import.meta.env?.VITE_RIGHTKIT_BROWSER_QA === "1";
 
 export function nativeAutomationOwnsSession(): boolean {
   return (
     AUTOMATION_BUILD &&
-    (import.meta.env.VITE_PDF_BENCH_AUTOPILOT === "1" ||
-      import.meta.env.VITE_RESOURCE_MATRIX_AUTOPILOT === "1")
+    (import.meta.env?.VITE_PDF_BENCH_AUTOPILOT === "1" ||
+      import.meta.env?.VITE_RESOURCE_MATRIX_AUTOPILOT === "1")
   );
 }
 
 function benchmarkInitialOpenPaths(initialOpenPaths: string[]): string[] {
-  if (!AUTOMATION_BUILD || import.meta.env.VITE_PDF_BENCH_AUTOPILOT !== "1") return initialOpenPaths;
-  const fixturePath = String(import.meta.env.VITE_PDF_BENCH_FIXTURE_PATH ?? "").trim();
+  if (!AUTOMATION_BUILD || import.meta.env?.VITE_PDF_BENCH_AUTOPILOT !== "1") return initialOpenPaths;
+  const fixturePath = String(import.meta.env?.VITE_PDF_BENCH_FIXTURE_PATH ?? "").trim();
   return fixturePath ? [...new Set([...initialOpenPaths, fixturePath])] : initialOpenPaths;
 }
 

@@ -2,9 +2,9 @@
 // Invented publish pacing for the first two channels. The job ids, entry ids, remote account ids and details are
 // fictional, and no job here reached a platform. The third channel has one job that may run. The second channel
 // has nothing queued. One row is deliberately unreadable, so the screen shows that a row is never dropped.
-import type { PacingBlockedJob, PacingJob, PublishNextView, PublishQuota, UnreadableRow } from "../types";
-import { MOCK_NOW_UTC } from "./fixtures";
-import { SCOPE_ALPHA, SCOPE_BETA, SCOPE_GAMMA } from "./fixtures-optimise";
+import type { PacingBlockedJob, PacingJob, PublishNextView, PublishQuota, UnreadableRow } from "../types.js";
+import { MOCK_NOW_UTC } from "./fixtures.js";
+import { SCOPE_ALPHA, SCOPE_BETA, SCOPE_GAMMA } from "./fixtures-optimise.js";
 
 const DAY_RESETS_UTC = "2026-10-13T00:00:00Z";
 const DEFAULT_MIN_GAP_SECS = 900;

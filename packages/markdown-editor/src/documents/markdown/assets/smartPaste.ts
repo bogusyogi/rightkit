@@ -18,9 +18,9 @@
  *  - returns the resulting Markdown plus the queued asset ops.
  */
 
-import type { MarkdownTextEdit } from "../core/types";
-import type { MarkdownAssetMimeKind, MarkdownAssetPayload } from "./markdownAsset";
-import type { MarkdownAssetSettings } from "./markdownAssetSettings";
+import type { MarkdownTextEdit } from "../core/types.js";
+import type { MarkdownAssetMimeKind, MarkdownAssetPayload } from "./markdownAsset.js";
+import type { MarkdownAssetSettings } from "./markdownAssetSettings.js";
 
 /**
  * Clipboard payload accepted by the smart-paste pipeline.

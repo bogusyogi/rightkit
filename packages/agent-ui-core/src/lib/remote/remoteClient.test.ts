@@ -12,7 +12,7 @@ import {
   remoteStatus,
   remoteRelativeTime,
   shortRemoteFingerprint,
-} from "./remoteClient";
+} from "./remoteClient.js";
 
 afterEach(() => {
   invoke.mockReset();

@@ -9,7 +9,7 @@
  * when the count exceeds {@link MAX_SESSION_INDEX_ENTRIES}.
  */
 
-import type { MarkdownIndexedFile } from "./folderIndex";
+import type { MarkdownIndexedFile } from "./folderIndex.js";
 
 export const MAX_SESSION_INDEX_ENTRIES = 256;
 

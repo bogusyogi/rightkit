@@ -2,7 +2,7 @@ import * as React from "react";
 import type { EditorView } from "prosemirror-view";
 import { ModalShell } from "@rightkit/react-shell/react";
 import { DIALOG_SLOTS } from "@rightkit/document-core/app/chrome";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
 import {
   altPrefillFromFileName,
   insertImageUrl,
@@ -11,8 +11,8 @@ import {
   isImageMime,
   kindForMime,
   mimeFromFileName,
-} from "../assets/markdownImage";
-import { MAX_MARKDOWN_ASSET_BYTES, validateMarkdownAsset } from "../assets/markdownAsset";
+} from "../assets/markdownImage.js";
+import { MAX_MARKDOWN_ASSET_BYTES, validateMarkdownAsset } from "../assets/markdownAsset.js";
 
 export interface MarkdownImageDialogProps {
   readonly core: MarkdownDocumentCore;
@@ -39,7 +39,7 @@ export function MarkdownImageDialog(props: MarkdownImageDialogProps): React.Reac
     mime: string;
   } | null>(null);
   const [chosenKind, setChosenKind] = React.useState<
-    import("../assets/markdownAsset").MarkdownAssetMimeKind | null
+    import("../assets/markdownAsset.js").MarkdownAssetMimeKind | null
   >(null);
   const dialogRef = React.useRef<HTMLDivElement>(null);
   const restoreFocusRef = React.useRef<HTMLElement | null>(null);
@@ -67,7 +67,7 @@ export function MarkdownImageDialog(props: MarkdownImageDialogProps): React.Reac
     const kind =
       kindForMime(mimeGuess) ??
       (mimeFromFileName(file.name) as
-        | import("../assets/markdownAsset").MarkdownAssetMimeKind
+        | import("../assets/markdownAsset.js").MarkdownAssetMimeKind
         | null);
     if (!kind) {
       setError(`Unsupported image type: ${file.type || file.name.split(".").pop()}`);

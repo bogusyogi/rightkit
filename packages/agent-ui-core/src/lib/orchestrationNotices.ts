@@ -1,4 +1,4 @@
-import type { ProtocolEvent, TranscriptMessage } from "./types";
+import type { ProtocolEvent, TranscriptMessage } from "./types.js";
 
 type SubAgentSpawnedEvent = Extract<ProtocolEvent, { $kind: "subAgentSpawned" }>;
 

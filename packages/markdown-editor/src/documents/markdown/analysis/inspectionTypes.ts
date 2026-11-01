@@ -6,8 +6,8 @@
  * returns.
  */
 
-import type { MarkdownNodeId } from "../core/MarkdownNodeIdFactory";
-import type { MarkdownSourceRange } from "./types";
+import type { MarkdownNodeId } from "../core/MarkdownNodeIdFactory.js";
+import type { MarkdownSourceRange } from "./types.js";
 
 /**
  * One entry in the inspection response. The `snippet` is a

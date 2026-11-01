@@ -1,4 +1,4 @@
-import { HTML_INLINE_EDITABLE_SELECTOR, type HtmlInspectTarget } from "./sourceMap";
+import { HTML_INLINE_EDITABLE_SELECTOR, type HtmlInspectTarget } from "./sourceMap.js";
 
 /**
  * WKWebView suppresses callbacks registered inside a sandbox that intentionally omits

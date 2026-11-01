@@ -6,15 +6,15 @@ import Icon from "@rightkit/agent-ui-core/components/Icon";
 import PaneErrorBoundary from "@rightkit/agent-ui-core/components/PaneErrorBoundary";
 import AppearanceTab from "@rightkit/agent-ui-settings/components/settings/tabs/AppearanceTab";
 import { licenseTabSection } from "@rightkit/agent-ui-settings/components/settings/tabs/LicenseTab";
-import SettingsPaneContent from "./SettingsPaneContent";
+import SettingsPaneContent from "./SettingsPaneContent.js";
 import {
   SETTINGS_NAV_GROUPS,
   SETTINGS_NAV_ITEMS,
   type SettingsPaneProps,
   type SettingsTab,
   navItemForTab,
-} from "./types";
-import { hostAppName } from "../../appName";
+} from "./types.js";
+import { hostAppName } from "../../appName.js";
 
 export type SettingsModalProps = SettingsPaneProps;
 

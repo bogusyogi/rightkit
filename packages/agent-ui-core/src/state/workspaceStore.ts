@@ -14,7 +14,7 @@
 // retry surface, never an empty or duplicated rebuild.
 
 import { create } from "zustand";
-import type { WorkspaceEntry, WorkspaceRecentEntry } from "../lib/types/workspace-files";
+import type { WorkspaceEntry, WorkspaceRecentEntry } from "../lib/types/workspace-files.js";
 
 export interface WorkspaceTreePath {
   /** Workspace-relative directory path; "" → root. */

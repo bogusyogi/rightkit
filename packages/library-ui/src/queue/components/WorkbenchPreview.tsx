@@ -1,16 +1,16 @@
 import { cx } from "@rightkit/react-shell/react";
 import { memo, useCallback, useEffect, useMemo } from "react";
-import type { JobInfo, TranscriptDetail } from "../contract";
-import { invoke } from "../lib/ipc";
-import { isActiveStage, statusText } from "../lib/jobDisplay";
-import { loadTranscriptDetail } from "../lib/transcriptLoad";
-import { useFlash } from "../lib/flash";
-import { useTranscript } from "../lib/transcriptHooks";
-import { savedMediaKind } from "../lib/mediaSelection";
-import { countWords } from "../lib/queueView";
-import { copyTextToClipboard } from "../lib/workbench";
-import { TranscriptFileActions } from "./TranscriptFileActions";
-import { buttonClass, errorTextClass, mutedTextClass, panelClass } from "../lib/ui";
+import type { JobInfo, TranscriptDetail } from "../contract.js";
+import { invoke } from "../lib/ipc/index.js";
+import { isActiveStage, statusText } from "../lib/jobDisplay.js";
+import { loadTranscriptDetail } from "../lib/transcriptLoad.js";
+import { useFlash } from "../lib/flash.js";
+import { useTranscript } from "../lib/transcriptHooks.js";
+import { savedMediaKind } from "../lib/mediaSelection.js";
+import { countWords } from "../lib/queueView.js";
+import { copyTextToClipboard } from "../lib/workbench.js";
+import { TranscriptFileActions } from "./TranscriptFileActions.js";
+import { buttonClass, errorTextClass, mutedTextClass, panelClass } from "../lib/ui.js";
 import {
   Check,
   Clipboard,
@@ -20,7 +20,7 @@ import {
   Video,
   X,
 } from "lucide-react";
-import { JobStatePreview } from "./JobStatePreview";
+import { JobStatePreview } from "./JobStatePreview.js";
 
 type WorkbenchPreviewProps = {
   job: JobInfo | null;

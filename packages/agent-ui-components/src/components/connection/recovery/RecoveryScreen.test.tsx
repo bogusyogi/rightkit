@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
-import { RecoveryScreen } from "./RecoveryScreen";
+import { RecoveryScreen } from "./RecoveryScreen.js";
 
 describe("RecoveryScreen", () => {
   test("shows retry and both choices for an unreachable remote", () => {

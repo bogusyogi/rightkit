@@ -6,7 +6,7 @@ import {
   type MutableRefObject,
   type SetStateAction,
 } from "react";
-import { sourceChecksum } from "./sourceMap";
+import { sourceChecksum } from "./sourceMap.js";
 import { incIframeLoads, incPreviewGenerations } from "@rightkit/document-core/documents/perfEventCounters";
 
 interface HtmlReloadDeps {

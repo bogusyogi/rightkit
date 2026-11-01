@@ -1,12 +1,11 @@
 // Find phrases — docs/design/app-ui.md §3.6.
 import { Badge, Button, EmptyState, Field, IconButton, Input, PageShell, SearchIcon, useShortcuts, useToast } from "@rightkit/react-shell/react";
-import "./Phrases.css";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { errorMessage } from "../lib/engine";
-import { clipExport, type PhraseMatch, phraseSearch, sourceList } from "../lib/media";
-import { appendClip } from "../lib/project";
-import { RangePreview } from "../components/RangePreview";
-import { ErrorPanel, timecode, Icon } from "../ui";
+import { errorMessage } from "../lib/engine.js";
+import { clipExport, type PhraseMatch, phraseSearch, sourceList } from "../lib/media.js";
+import { appendClip } from "../lib/project.js";
+import { RangePreview } from "../components/RangePreview.js";
+import { ErrorPanel, timecode, Icon } from "../ui/index.js";
 
 type SourceRow = { id: string; name: string; path: string; exists: boolean; has_transcript: boolean };
 

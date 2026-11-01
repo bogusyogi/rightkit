@@ -8,7 +8,7 @@ import {
   SessionAuthMethodLine,
   SUBSCRIPTION_NOTICE_STORAGE_KEY,
   SubscriptionUsageNotice,
-} from "./AccountNotices";
+} from "./AccountNotices.js";
 
 const account = (slug: string, label: string, kind: Account["kind"] = "subscription"): Account => ({
   id: `${kind}/claude/${slug}`,

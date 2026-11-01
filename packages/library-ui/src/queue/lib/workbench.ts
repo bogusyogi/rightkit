@@ -1,5 +1,5 @@
-import type { JobInfo } from "../contract";
-import { getShell, isQaMode } from "./ipc";
+import type { JobInfo } from "../contract.js";
+import { getShell, isQaMode } from "./ipc/index.js";
 
 export function selectWorkbenchJobId(jobs: JobInfo[], currentId: string | null): string | null {
   const current = currentId ? jobs.find((job) => job.id === currentId) : null;

@@ -1,14 +1,14 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import ReviewPane from "./ReviewPane";
-import { INITIAL_RUN_CHANGES_STATE, reducer } from "./runChangesStore";
-import { resetStore } from "./useRunChangesState";
-import { getDiffBody, recordRevisionComment } from "./runChangesClient";
+import ReviewPane from "./ReviewPane.js";
+import { INITIAL_RUN_CHANGES_STATE, reducer } from "./runChangesStore.js";
+import { resetStore } from "./useRunChangesState.js";
+import { getDiffBody, recordRevisionComment } from "./runChangesClient.js";
 import { stagePaths, unstagePaths } from "@rightkit/agent-ui-core/lib/daemon/delivery-environments-attention";
 
-vi.mock("./runChangesClient", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./runChangesClient")>()),
+vi.mock("./runChangesClient.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./runChangesClient.js")>()),
   getDiffBody: vi.fn().mockResolvedValue({
     path: "src/app.tsx",
     rows: [

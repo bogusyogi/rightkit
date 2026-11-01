@@ -1,7 +1,7 @@
-import type WorkbenchContent from "../../components/WorkbenchContent";
-import type { Pane } from "../../components/WorkbenchContent";
+import type WorkbenchContent from "../../components/WorkbenchContent.js";
+import type { Pane } from "../../components/WorkbenchContent.js";
 import type { RuntimeTab } from "@rightkit/agent-ui-workbench/components/RuntimePane";
-import type { SettingsTab } from "../../components/settings/types";
+import type { SettingsTab } from "../../components/settings/types.js";
 import type { ScheduleDraft } from "@rightkit/agent-ui-core/hooks/runtime/useSchedulesRuntime";
 import type { WebhookTriggerDraft } from "@rightkit/agent-ui-core/hooks/runtime/useWebhookTriggersRuntime";
 import type {

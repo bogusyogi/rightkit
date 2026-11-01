@@ -3,8 +3,8 @@ import {
   projectActivePluginContributions,
   projectPluginContributions,
   projectPluginPermissions,
-} from "./pluginContributionProjection";
-import type { PluginManifest } from "./pluginContributionTypes";
+} from "./pluginContributionProjection.js";
+import type { PluginManifest } from "./pluginContributionTypes.js";
 
 function manifest(overrides: Partial<PluginManifest> = {}): PluginManifest {
   return {

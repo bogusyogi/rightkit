@@ -1,5 +1,5 @@
-import mediaTypes from "../generated/media-types.json";
-import type { AudioQuality, JobInfo, MediaSpec, VideoQuality } from "../contract";
+import mediaTypes from "../generated/media-types.json" with { type: "json" };
+import type { AudioQuality, JobInfo, MediaSpec, VideoQuality } from "../contract.js";
 
 /** Output choices exposed by the queue command strip. `images` saves the
  * post's image files (single image, carousel slides, profile batch) — #248. */

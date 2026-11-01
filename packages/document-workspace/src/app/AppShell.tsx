@@ -1,12 +1,12 @@
 import { AppFrame, Plane } from "@rightkit/react-shell/react";
-import { Sidebar } from "./Sidebar";
-import { Toolbar } from "./Toolbar";
-import { DocumentContextMenu } from "./DocumentContextMenu";
-import { ToastViewport } from "./ToastViewport";
-import { AppDialogsHost } from "./AppDialogsHost";
-import { DocumentPane } from "./DocumentPane";
-import { DropOverlay } from "./useFileDragOverlay";
-import { useAppContext } from "./AppProvider";
+import { Sidebar } from "./Sidebar.js";
+import { Toolbar } from "./Toolbar.js";
+import { DocumentContextMenu } from "./DocumentContextMenu.js";
+import { ToastViewport } from "./ToastViewport.js";
+import { AppDialogsHost } from "./AppDialogsHost.js";
+import { DocumentPane } from "./DocumentPane.js";
+import { DropOverlay } from "./useFileDragOverlay.js";
+import { useAppContext } from "./AppProvider.js";
 
 /** Layout shell: renders the sidebar, toolbar, document pane, and dialogs from the composed app state. */
 export function AppShell() {

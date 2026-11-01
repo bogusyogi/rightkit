@@ -3,10 +3,10 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { WorkspaceFileSaveOutcome } from "@rightkit/agent-ui-core/lib/types/workspace-files";
-import { useWorkspaceFile } from "./useWorkspaceFile";
-import { MEMORY_PATH, useMemoryFiles } from "./useMemoryFiles";
+import { useWorkspaceFile } from "./useWorkspaceFile.js";
+import { MEMORY_PATH, useMemoryFiles } from "./useMemoryFiles.js";
 
-vi.mock("./useWorkspaceFile", () => ({ useWorkspaceFile: vi.fn() }));
+vi.mock("./useWorkspaceFile.js", () => ({ useWorkspaceFile: vi.fn() }));
 
 const refresh = vi.fn(async () => {});
 const save = vi.fn<() => Promise<WorkspaceFileSaveOutcome>>(async () => ({

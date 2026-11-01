@@ -4,9 +4,9 @@
 // glass panel classes and the row look.
 import { useMemo, useRef } from "react";
 import { ContextMenu, type AnchorRect, type MenuItem } from "@rightkit/react-shell/react";
-import type { FileEntry } from "../../state/library";
-import { FileTypeIcon } from "../../documents/FileTypeIcon";
-import { menuItemClass, menuPanelClass } from "./SidebarPrimitives";
+import type { FileEntry } from "../../state/library.js";
+import { FileTypeIcon } from "../../documents/FileTypeIcon.js";
+import { menuItemClass, menuPanelClass } from "./SidebarPrimitives.js";
 
 type Anchor = Element | AnchorRect;
 

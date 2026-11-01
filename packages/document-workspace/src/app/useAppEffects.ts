@@ -3,8 +3,8 @@ import { toast } from "@rightkit/platform-ui/headless";
 import { logEvent, setDiagnosticsEnabled } from "@rightkit/document-core/state/diagnostics";
 import { getPersistenceStatus } from "@rightkit/document-core/state/tauriBridge";
 import { scheduleAfterPaint } from "@rightkit/document-core/app/deferredMount";
-import { syncActiveFormatSavers } from "./activeFormatSavers";
-import { hostAppName } from "../appName";
+import { syncActiveFormatSavers } from "./activeFormatSavers.js";
+import { hostAppName } from "../appName.js";
 
 type SyncArgs = Parameters<typeof syncActiveFormatSavers>;
 

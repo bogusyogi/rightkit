@@ -1,10 +1,10 @@
-﻿import type { SiteRootGrant } from "./htmlInline";
+﻿import type { SiteRootGrant } from "./htmlInline.js";
 import { readRelativeScript } from "@rightkit/document-core/state/tauriBridge";
-import { buildPreviewHtml, isLocalRelative, joinRel, siteRootRelativeReadPath } from "./htmlInline";
-import { bridgeScript } from "./htmlBridgeScript";
-import { htmlThemeStyleHtml } from "./htmlTheme";
-import { HTML_INLINE_EDITABLE_SELECTOR, htmlElementPathFromBody } from "./sourceMap";
-import { hostAppName } from "../../appName";
+import { buildPreviewHtml, isLocalRelative, joinRel, siteRootRelativeReadPath } from "./htmlInline.js";
+import { bridgeScript } from "./htmlBridgeScript.js";
+import { htmlThemeStyleHtml } from "./htmlTheme.js";
+import { HTML_INLINE_EDITABLE_SELECTOR, htmlElementPathFromBody } from "./sourceMap.js";
+import { hostAppName } from "../../appName.js";
 
 function isClassicScript(type: string | null): boolean {
   const t = (type ?? "").trim().toLowerCase();

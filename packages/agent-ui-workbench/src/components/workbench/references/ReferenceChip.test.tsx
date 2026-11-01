@@ -1,7 +1,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import ReferenceChip from "./ReferenceChip";
+import ReferenceChip from "./ReferenceChip.js";
 import type { ReferenceObject } from "@rightkit/agent-ui-core/lib/types/references";
 
 function makeRef(overrides: Partial<ReferenceObject> = {}): ReferenceObject {

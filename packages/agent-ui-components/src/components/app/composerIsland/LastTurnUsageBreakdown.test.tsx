@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import LastTurnUsageBreakdown from "./LastTurnUsageBreakdown";
+import LastTurnUsageBreakdown from "./LastTurnUsageBreakdown.js";
 
 const usage = {
   inputTokens: 1_200,

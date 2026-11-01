@@ -3,7 +3,7 @@ import { toast, useDismiss } from "@rightkit/platform-ui/headless";
 import { shortcutLabel } from "@rightkit/document-core/platform";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
 import type { createBlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
-import { resolveDocumentDrafts } from "./draftResolution";
+import { resolveDocumentDrafts } from "./draftResolution.js";
 
 type Registry = ReturnType<typeof createBlockDraftRegistry>;
 type PendingFullscreenDraft = { drafts: ReturnType<Registry["snapshotModified"]> };

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { errorMessage, studio } from '../lib/api';
+import { errorMessage, studio } from '../lib/api.js';
 import { Card, Badge, Button, EmptyState, Notice, SegmentedControl, Select } from '@rightkit/react-shell/react';
-import { Kv } from '../components/ui';
-import brandCatalog from '../studio-data/brands/brands.json';
-import { RecipeTemplatesArea } from './RecipeTemplates';
-import { RecipeCatalogueArea } from './RecipeCatalogue';
+import { Kv } from '../components/ui.js';
+import brandCatalog from '../studio-data/brands/brands.json' with { type: "json" };
+import { RecipeTemplatesArea } from './RecipeTemplates.js';
+import { RecipeCatalogueArea } from './RecipeCatalogue.js';
 
 interface LibraryItem {
   key: string;

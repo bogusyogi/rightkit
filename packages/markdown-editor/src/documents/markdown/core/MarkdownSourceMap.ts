@@ -16,7 +16,7 @@
  * nodes are what survives across reconciliations.
  */
 
-import type { MarkdownNodeId } from "./MarkdownNodeIdFactory";
+import type { MarkdownNodeId } from "./MarkdownNodeIdFactory.js";
 
 /**
  * The semantic kind of a tracked Markdown node. Unknown mdast types

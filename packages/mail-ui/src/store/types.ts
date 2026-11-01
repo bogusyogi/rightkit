@@ -1,5 +1,5 @@
-import type { ImageRule } from "../lib/imageTrust";
-import type { Folder } from "../lib/mail";
+import type { ImageRule } from "../lib/imageTrust.js";
+import type { Folder } from "../lib/mail.js";
 import type {
   DbHealth,
   AppLockStatus,
@@ -28,7 +28,7 @@ import type {
   ContactFull,
   AttachmentMeta,
   OutboxRow,
-} from "../lib/ipc";
+} from "../lib/ipc.js";
 
 export type View =
   | "inbox"

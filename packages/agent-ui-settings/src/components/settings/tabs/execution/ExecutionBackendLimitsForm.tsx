@@ -1,5 +1,5 @@
-import type { ResourceLimitsDraft, ResourceLimitsChange, ExecutionBackendConfig } from "./types";
-import { ResourceLimitInput } from "./TextSettingInput";
+import type { ResourceLimitsDraft, ResourceLimitsChange, ExecutionBackendConfig } from "./types.js";
+import { ResourceLimitInput } from "./TextSettingInput.js";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 
 interface ExecutionBackendLimitsFormProps {

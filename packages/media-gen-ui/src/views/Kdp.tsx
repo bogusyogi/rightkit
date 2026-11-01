@@ -1,23 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { assetUrl, errorCode, errorMessage, errorText, fetchJobResult, fetchJobStatus, isSuccessJob, isTauri, isTerminalJob, studio, submitGeneration, type GenerateRequest, type JobAsset } from '../lib/api';
-import { useApp } from '../lib/app-state';
-import { stageLabel } from '../lib/gen-params';
-import { IconLock, IconPlay } from '../components/icons';
-import { ErrorNote } from '../components/ErrorNote';
-import { FAL_UPLOAD_CONFIRM_FIELD, falUploadCount, falUploadNames, needsFalUploadConfirmation, useFalUploadConfirm } from '../components/FalUploadConfirm';
+import { assetUrl, errorCode, errorMessage, errorText, fetchJobResult, fetchJobStatus, isSuccessJob, isTauri, isTerminalJob, studio, submitGeneration, type GenerateRequest, type JobAsset } from '../lib/api.js';
+import { useApp } from '../lib/app-state.js';
+import { stageLabel } from '../lib/gen-params.js';
+import { IconLock, IconPlay } from '../components/icons.js';
+import { ErrorNote } from '../components/ErrorNote.js';
+import { FAL_UPLOAD_CONFIRM_FIELD, falUploadCount, falUploadNames, needsFalUploadConfirmation, useFalUploadConfirm } from '../components/FalUploadConfirm.js';
 import { Button, Card, EmptyState, Input, Notice, SegmentedControl } from '@rightkit/react-shell/react';
-import { Kv, usd } from '../components/ui';
+import { Kv, usd } from '../components/ui.js';
 import {
   addRoot, canRun, compactSource, estimateText, removeRoot, sourceSummary,
   type KdpDraft, type KdpRoot, type KdpSettings, type KdpSource, type KdpSources, type KdpStyles
-} from './kdp-model';
-import './kdp.css';
-import { hostAppName } from "../appName";
+} from './kdp-model.js';
+import { hostAppName } from "../appName.js";
 
 /** Engine in the desktop app; a local stand-in in browser QA (the shared mock has no studio.* commands). */
 function kdp<T>(name: string, input: Record<string, unknown> = {}): Promise<T> {
   if (isTauri()) return studio<T>(name, input);
-  if (import.meta.env.DEV) return import('./kdp-mock').then((m) => m.mockKdp<T>(name, input, (request) => submitGeneration(request as unknown as GenerateRequest)));
+  if (import.meta.env?.DEV) return import('./kdp-mock.js').then((m) => m.mockKdp<T>(name, input, (request) => submitGeneration(request as unknown as GenerateRequest)));
   return Promise.reject(new Error(`${hostAppName()} needs the desktop app.`));
 }
 

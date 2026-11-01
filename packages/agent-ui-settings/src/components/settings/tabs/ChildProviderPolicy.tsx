@@ -24,7 +24,7 @@ import {
   type CliProviderId,
 } from "@rightkit/agent-ui-core/lib/cliProviders";
 import type { CliDelegationPolicy } from "@rightkit/agent-ui-core/lib/types/cliProviders";
-import { hostAppName } from "../../../appName";
+import { hostAppName } from "../../../appName.js";
 
 export interface ChildProviderPolicyProps {
   policy: CliDelegationPolicy;

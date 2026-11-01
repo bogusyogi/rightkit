@@ -1,4 +1,4 @@
-import type { LoadedDocument, WebDocument } from "../types";
+import type { LoadedDocument, WebDocument } from "../types.js";
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 

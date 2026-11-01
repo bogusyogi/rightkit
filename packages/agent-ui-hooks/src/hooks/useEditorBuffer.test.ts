@@ -15,7 +15,7 @@ import type {
   WorkspaceFileSaveResponse,
 } from "@rightkit/agent-ui-core/lib/types/workspace-files";
 import { __resetEditorBuffers } from "@rightkit/agent-ui-core/state/editorBufferStore";
-import { useEditorBuffer } from "./useEditorBuffer";
+import { useEditorBuffer } from "./useEditorBuffer.js";
 
 const CONFIG: DaemonConfig = { url: "http://127.0.0.1:5057", token: "test-token" };
 

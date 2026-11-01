@@ -9,7 +9,7 @@ import {
   type RoomDisposition,
   type RoomEvent,
   type RoomSnapshot,
-} from "./reviewRoom";
+} from "./reviewRoom.js";
 
 export default function ReviewRoomPanel() {
   const [joinLink, setJoinLink] = useState("");

@@ -26,7 +26,7 @@
  *    when the source editor produces a single big insert.
  */
 
-import type { MarkdownTextEdit } from "./types";
+import type { MarkdownTextEdit } from "./types.js";
 
 /**
  * Maximum input length for the LCS branch. Beyond this, the
@@ -38,7 +38,7 @@ export const MAX_LOGICAL_DIFF_CHARS = 16 * 1024;
 /**
  * Compute the minimal ordered edit list transforming `oldSource` into
  * `newSource`. Edits are returned in source order and are safe to
- * apply as a batch to a {@link import("./MarkdownTextBuffer").MarkdownTextBuffer}.
+ * apply as a batch to a {@link import("./MarkdownTextBuffer.js").MarkdownTextBuffer}.
  *
  * Empty / identical inputs short-circuit to `[]`.
  */

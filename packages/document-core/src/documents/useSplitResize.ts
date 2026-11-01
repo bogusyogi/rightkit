@@ -1,5 +1,5 @@
 import { useCallback, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
-import { sourceWidthPercent } from "./splitResizeMath";
+import { sourceWidthPercent } from "./splitResizeMath.js";
 
 /**
  * Pointer-drag handler for the source/preview split divider: clamps the source pane between

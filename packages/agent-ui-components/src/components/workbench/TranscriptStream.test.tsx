@@ -10,8 +10,8 @@ import TranscriptStream, {
   TranscriptEmptyState,
 } from "@rightkit/agent-ui-workbench/components/workbench/TranscriptStream";
 import type { ProtocolEvent } from "@rightkit/agent-ui-core/lib/types";
-import { INITIAL_RUN_CHANGES_STATE } from "../review/runChangesStore";
-import { resetStore } from "../review/useRunChangesState";
+import { INITIAL_RUN_CHANGES_STATE } from "../review/runChangesStore.js";
+import { resetStore } from "../review/useRunChangesState.js";
 
 describe("ToolCallCard", () => {
   it("renders tool name and parsed arg=value pairs in the header", () => {

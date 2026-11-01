@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import type { MarkdownDocumentCore } from "../../core/MarkdownDocumentCore";
-import { useMarkdownBlockDraft } from "../useMarkdownBlockDraft";
-import { MarkdownBlockDraftStatus } from "../MarkdownBlockDraftStatus";
+import type { MarkdownDocumentCore } from "../../core/MarkdownDocumentCore.js";
+import { useMarkdownBlockDraft } from "../useMarkdownBlockDraft.js";
+import { MarkdownBlockDraftStatus } from "../MarkdownBlockDraftStatus.js";
 
 export function MarkdownRawBlockEditor({
   core,

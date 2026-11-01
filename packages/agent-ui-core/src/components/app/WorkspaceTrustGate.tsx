@@ -1,6 +1,6 @@
-import Icon from "../Icon";
-import type { WorkspaceTrustLevel, WorkspaceTrustStatus } from "../../lib/types";
-import { hostAppName } from "../../appName";
+import Icon from "../Icon.js";
+import type { WorkspaceTrustLevel, WorkspaceTrustStatus } from "../../lib/types.js";
+import { hostAppName } from "../../appName.js";
 export default function WorkspaceTrustGate({
   workspaceRoot,
   trust,

@@ -7,7 +7,7 @@ import {
   pathJoin,
   pathParent,
   useWorkspaceStore,
-} from "./workspaceStore";
+} from "./workspaceStore.js";
 
 describe("workspaceStore", () => {
   it("normalizes paths", () => {

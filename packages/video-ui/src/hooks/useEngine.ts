@@ -5,7 +5,7 @@ import {
   engineDoctor,
   engineStatus,
   errorMessage,
-} from "../lib/engine";
+} from "../lib/engine.js";
 
 const POLL_MS = 1000;
 

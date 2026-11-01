@@ -26,8 +26,8 @@ import {
   MARKDOWN_TABLE_MIN_ROWS,
   type MarkdownTableAlignment,
   normalizeTableAlignment,
-} from "./markdownTableSchema";
-import { setMarkdownTransactionIntent } from "../projection/markdownTransactionIntent";
+} from "./markdownTableSchema.js";
+import { setMarkdownTransactionIntent } from "../projection/markdownTransactionIntent.js";
 
 function dispatchTableTransaction(dispatch: (transaction: Transaction) => void) {
   return (transaction: Transaction) =>

@@ -1,4 +1,4 @@
-import type { SubAgentState } from "../../hooks/useSubAgents";
+import type { SubAgentState } from "../../hooks/useSubAgents.js";
 
 // Props shared by the rendered BackgroundTasksPanel and the legacy
 // AgentRail surface (the legacy surface was deleted 2026-07-16; the

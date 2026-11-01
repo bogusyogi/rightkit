@@ -10,8 +10,8 @@ import { useComposerStore } from "@rightkit/agent-ui-core/state/composerStore";
 import { useDiagnosticsStore } from "@rightkit/agent-ui-core/state/diagnosticsStore";
 import { useExecutionStore } from "@rightkit/agent-ui-core/state/executionStore";
 import { useLocalModelStore } from "@rightkit/agent-ui-core/state/localModelStore";
-import { useMcpStore } from "./mcpStore";
-import { usePermissionsStore } from "./permissionsStore";
+import { useMcpStore } from "./mcpStore.js";
+import { usePermissionsStore } from "./permissionsStore.js";
 import { useTelegramStore } from "@rightkit/agent-ui-core/state/telegramStore";
 
 /** Composer fields that App.tsx forwards. History navigation also needs the

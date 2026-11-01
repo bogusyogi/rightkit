@@ -1,8 +1,8 @@
 import { Button, IconButton, Notice, useToast } from "@rightkit/react-shell/react";
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { useEngine } from "../hooks/useEngine";
-import { useProgress } from "../hooks/useProgress";
+import { useEngine } from "../hooks/useEngine.js";
+import { useProgress } from "../hooks/useProgress.js";
 import {
   type AssembleForm,
   type AssembleInput,
@@ -13,32 +13,31 @@ import {
   loadPending,
   newAssembleId,
   savePending,
-} from "../lib/assemble";
-import { pickFolder } from "../lib/dialog";
-import { engineCall, errorCode, errorMessage } from "../lib/engine";
-import { type BundleImportResult, SETTINGS_CHANGED, bundleImport, projectsList, rendersList, settingsGet, storageStatus } from "../lib/media";
-import { type ProjectShow, baseName, projectInit, projectShow } from "../lib/project";
-import { Home, loadRecent, rememberProject } from "../views/Home";
-import { ProgressView } from "../views/ProgressView";
-import { PromptPanel } from "../views/PromptPanel";
-import { TimelineView } from "../views/TimelineView";
-import { SourcesView } from "../views/SourcesView";
-import { AutoEditView } from "../views/AutoEditView";
-import { ShortsView } from "../views/ShortsView";
-import { PhrasesView } from "../views/PhrasesView";
-import { RetentionView } from "../views/RetentionView";
-import { AssetsView } from "../views/AssetsView";
-import { ExportsView } from "../views/ExportsView";
-import { SettingsView } from "../views/SettingsView";
+} from "../lib/assemble.js";
+import { pickFolder } from "../lib/dialog.js";
+import { engineCall, errorCode, errorMessage } from "../lib/engine.js";
+import { type BundleImportResult, SETTINGS_CHANGED, bundleImport, projectsList, rendersList, settingsGet, storageStatus } from "../lib/media.js";
+import { type ProjectShow, baseName, projectInit, projectShow } from "../lib/project.js";
+import { Home, loadRecent, rememberProject } from "../views/Home.js";
+import { ProgressView } from "../views/ProgressView.js";
+import { PromptPanel } from "../views/PromptPanel.js";
+import { TimelineView } from "../views/TimelineView.js";
+import { SourcesView } from "../views/SourcesView.js";
+import { AutoEditView } from "../views/AutoEditView.js";
+import { ShortsView } from "../views/ShortsView.js";
+import { PhrasesView } from "../views/PhrasesView.js";
+import { RetentionView } from "../views/RetentionView.js";
+import { AssetsView } from "../views/AssetsView.js";
+import { ExportsView } from "../views/ExportsView.js";
+import { SettingsView } from "../views/SettingsView.js";
 import { AppShell, StatusRow, useShortcuts, type Command, type NavGroup } from "@rightkit/react-shell/react";
-import { shellBridge } from "../lib/shell";
-import { setUpdateBusy } from "../lib/services";
-import { mediaScopeAllow } from "../lib/media";
-import { editorShortcuts } from "../editor/keys";
-import { useTimelinePreview } from "./Player";
-import { Icon } from "../ui";
-import "./Workspace.css";
-import { hostAppName } from "../appName";
+import { shellBridge } from "../lib/shell.js";
+import { setUpdateBusy } from "../lib/services.js";
+import { mediaScopeAllow } from "../lib/media.js";
+import { editorShortcuts } from "../editor/keys.js";
+import { useTimelinePreview } from "./Player.js";
+import { Icon } from "../ui/index.js";
+import { hostAppName } from "../appName.js";
 
 type Tab =
   | "projects"

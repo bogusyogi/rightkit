@@ -9,7 +9,7 @@
  * range so the UI can jump to it on click.
  */
 
-import type { MarkdownSourceNode } from "../core/MarkdownSourceMap";
+import type { MarkdownSourceNode } from "../core/MarkdownSourceMap.js";
 
 export type OutlineNodeKind = "frontmatter" | "heading";
 

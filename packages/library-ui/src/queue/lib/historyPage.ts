@@ -1,4 +1,4 @@
-import type { HistoryRow } from "../contract";
+import type { HistoryRow } from "../contract.js";
 
 /** Mirror of `scraperight_protocol::HistoryPage`. */
 export interface HistoryPage {

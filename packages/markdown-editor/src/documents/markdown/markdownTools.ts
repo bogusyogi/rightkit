@@ -1,11 +1,11 @@
 import type { Heading, RootContent } from "mdast";
-import { parseToTree } from "./parseMarkdown";
-import { nodeText } from "./semanticBlocks";
-import { buildHeadingSlugs } from "./headingSlugs";
-import type { OutlineHeading } from "./Outline";
-import type { MarkdownSourceMap } from "./core/MarkdownSourceMap";
-import { stripMarkdown } from "./export/exportMarkdown";
-import { hostAppName } from "../../appName";
+import { parseToTree } from "./parseMarkdown.js";
+import { nodeText } from "./semanticBlocks.js";
+import { buildHeadingSlugs } from "./headingSlugs.js";
+import type { OutlineHeading } from "./Outline.js";
+import type { MarkdownSourceMap } from "./core/MarkdownSourceMap.js";
+import { stripMarkdown } from "./export/exportMarkdown.js";
+import { hostAppName } from "../../appName.js";
 
 export interface MarkdownHeading {
   depth: number;

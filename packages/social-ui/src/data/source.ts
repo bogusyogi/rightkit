@@ -52,7 +52,7 @@ import type {
   InboxStats,
   PublishNextView,
   PublishQuota,
-} from "./types";
+} from "./types.js";
 
 /**
  * Codes the engine returns that types.ts does not list. They are declared here, not in types.ts,

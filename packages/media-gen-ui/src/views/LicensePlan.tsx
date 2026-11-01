@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { isPro, type LicenseView } from '@rightkit/license';
-import { licenseClient } from '../lib/license';
+import { licenseClient } from '../lib/license.js';
 import { Card } from '@rightkit/react-shell/react';
 
 /** What Pro adds. Keep in step with the gating table in crates/genright-engine/src/entitlement.rs. */

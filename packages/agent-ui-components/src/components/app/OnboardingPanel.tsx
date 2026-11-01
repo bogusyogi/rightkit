@@ -1,8 +1,8 @@
 import { useState } from "react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import { projectName } from "@rightkit/agent-ui-core/lib/utils";
-import type { RunTarget } from "../../hooks/useShellUiState";
-import { hostAppName } from "../../appName";
+import type { RunTarget } from "../../hooks/useShellUiState.js";
+import { hostAppName } from "../../appName.js";
 // a11y-test: role="group" aria-label="Start point options" — keep as single substring for matrix test
 export default function OnboardingPanel({
   status,

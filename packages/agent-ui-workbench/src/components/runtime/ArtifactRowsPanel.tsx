@@ -1,7 +1,7 @@
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import { EmptyState } from "@rightkit/react-shell/react";
 import type { ArtifactRow } from "@rightkit/agent-ui-core/lib/types";
-import ArtifactTrustBadge from "./ArtifactTrustBadge";
+import ArtifactTrustBadge from "./ArtifactTrustBadge.js";
 
 // D14 — ArtifactRowsPanel.
 //

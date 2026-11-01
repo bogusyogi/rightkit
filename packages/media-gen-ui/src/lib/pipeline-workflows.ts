@@ -1,4 +1,4 @@
-import { errorMessage } from './engine-error';
+import { errorMessage } from './engine-error.js';
 
 /**
  * Pipeline workflows: named donor production pipelines (Vox Director,
@@ -665,7 +665,7 @@ export function applyGlossary(text: string, glossary: Array<[string, string]>): 
 }
 
 async function call<T>(verb: string, input: Record<string, unknown> = {}): Promise<T> {
-  const { studio } = await import('./api');
+  const { studio } = await import('./api.js');
   return studio<T>(`pipelines.${verb}`, input);
 }
 

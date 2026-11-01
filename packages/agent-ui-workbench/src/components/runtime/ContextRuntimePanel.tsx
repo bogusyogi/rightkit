@@ -2,7 +2,7 @@ import Icon from "@rightkit/agent-ui-core/components/Icon";
 import { EmptyState } from "@rightkit/react-shell/react";
 import { useCallback, useEffect, useState } from "react";
 import type { DaemonConfig } from "@rightkit/agent-ui-core/lib/types";
-import RuntimeStat from "./RuntimeStat";
+import RuntimeStat from "./RuntimeStat.js";
 
 type ContextState = "available" | "advertised" | "degraded" | "unavailable";
 type ContextComponent = { name: string; state: ContextState; reason?: string };

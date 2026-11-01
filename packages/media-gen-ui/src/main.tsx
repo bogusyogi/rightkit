@@ -1,15 +1,13 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+import App from './App.js';
 import { ErrorBoundary, ShellProvider } from '@rightkit/react-shell/react';
 import { installWindowCrashCapture } from '@rightkit/logs';
 import { invoke } from '@tauri-apps/api/core';
-import { startLicense } from './lib/license';
-import { installFrontendDiagnostics, logs } from './lib/logs';
-import { themeStore } from './lib/theme';
-import './styles.css';
-import '@rightkit/media-ui/styles.css';
-import { hostAppName } from "./appName";
+import { startLicense } from './lib/license.js';
+import { installFrontendDiagnostics, logs } from './lib/logs.js';
+import { themeStore } from './lib/theme.js';
+import { hostAppName } from "./appName.js";
 
 installFrontendDiagnostics();
 // Renderer errors and unhandled rejections go to the native crash recorder (scrubbed, rate-limited, local only).

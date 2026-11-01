@@ -7,14 +7,14 @@ import {
   type RefObject,
   type UIEventHandler,
 } from "react";
-import { capabilitiesFor } from "./capabilities";
-import { ErrorBoundary } from "../app/ErrorBoundary";
+import { capabilitiesFor } from "./capabilities.js";
+import { ErrorBoundary } from "../app/ErrorBoundary.js";
 import type { LoadedDocument, ReadEditMode, ViewMode, ViewMeta, SearchProvider } from "@rightkit/document-core/documents/types";
 import type { DocxMenuApi } from "@rightkit/docx-editor/documents/docx/menuApi";
 import type { ImageSaveFunction } from "@rightkit/media-ui";
 import type { HtmlPageBuffer } from "@rightkit/html-editor/documents/html/sessionTypes";
 import type { MarkdownExportApi } from "@rightkit/markdown-editor/documents/markdown/export/markdownExportTypes";
-import type { SourceEditorViewState } from "./txt/TxtEditor";
+import type { SourceEditorViewState } from "./txt/TxtEditor.js";
 import type { PdfSaveFunction } from "@rightkit/document-core/documents/pdf/pdfEditor";
 import type { PdfSavePlan } from "@rightkit/document-core/documents/pdf/pdfEditModel";
 import { type DiagnosticEvent, logEvent } from "@rightkit/document-core/state/diagnostics";
@@ -23,26 +23,26 @@ import { type DiagnosticEvent, logEvent } from "@rightkit/document-core/state/di
 // MarkdownSplitPane pulls the unified/remark engine (its preview) + lazies the CodeMirror source;
 // HtmlViewer pulls DOMPurify — all lazy so a cold launch or opening a plain TXT never pays for them.
 const MarkdownSplitPane = lazy(() =>
-  import("./markdown/MarkdownSplitPane").then((m) => ({ default: m.MarkdownSplitPane })),
+  import("./markdown/MarkdownSplitPane.js").then((m) => ({ default: m.MarkdownSplitPane })),
 );
 const MarkdownCoreProvider = lazy(() =>
   import("@rightkit/markdown-editor/documents/markdown/MarkdownCoreProvider").then((m) => ({ default: m.MarkdownCoreProvider })),
 );
 const MdxSplitPane = lazy(() =>
-  import("./mdx/MdxSplitPane").then((m) => ({ default: m.MdxSplitPane })),
+  import("./mdx/MdxSplitPane.js").then((m) => ({ default: m.MdxSplitPane })),
 );
 const HtmlDocument = lazy(() =>
-  import("./html/HtmlDocument").then((m) => ({ default: m.HtmlDocument })),
+  import("./html/HtmlDocument.js").then((m) => ({ default: m.HtmlDocument })),
 );
 const DocxPane = lazy(() => import("@rightkit/docx-editor/documents/docx/DocxPane").then((m) => ({ default: m.DocxPane })));
 const PdfViewer = lazy(() =>
   import("@rightkit/document-core/documents/pdf/NativePdfDocument").then((m) => ({ default: m.NativePdfDocument })),
 );
 const LivePreviewPane = lazy(() =>
-  import("./web/LivePreviewPane").then((m) => ({ default: m.LivePreviewPane })),
+  import("./web/LivePreviewPane.js").then((m) => ({ default: m.LivePreviewPane })),
 );
-const ImageViewer = lazy(() => import("./ImageDocument").then((m) => ({ default: m.ImageViewer })));
-const TextEditor = lazy(() => import("./txt/TxtEditor").then((m) => ({ default: m.TextEditor })));
+const ImageViewer = lazy(() => import("./ImageDocument.js").then((m) => ({ default: m.ImageViewer })));
+const TextEditor = lazy(() => import("./txt/TxtEditor.js").then((m) => ({ default: m.TextEditor })));
 
 // The image viewer's React key: the containing folder, so same-folder paging reuses one instance
 // (seamless swap) while a different folder remounts. Falls back to the full path if it has no parent.
@@ -218,12 +218,12 @@ function DocumentRouterImpl({
 
   useEffect(() => {
     if (doc.format === "md") {
-      void import("./markdown/MarkdownSplitPane");
+      void import("./markdown/MarkdownSplitPane.js");
       void import("@rightkit/markdown-editor/documents/markdown/MarkdownCoreProvider");
       // The source drawer (CodeMirror) is not needed for first paint: warm it after the preview
       // has painted so it stays off the cold-mount critical path but is ready when opened.
       const warmSource = () => {
-        void import("./txt/TxtEditor");
+        void import("./txt/TxtEditor.js");
       };
       if (typeof window.requestIdleCallback === "function") {
         window.requestIdleCallback(warmSource, { timeout: 2000 });
@@ -234,12 +234,12 @@ function DocumentRouterImpl({
       // MDX preview is a separate subtree (sandboxed iframe). The compile path lives in mdxCompiler
       // and the iframe runtime is bundled in mdxBridgeScript; the splitter + source editor are
       // shared with the markdown side, so we prefetch both formats' chunks on first open.
-      void import("./mdx/MdxSplitPane");
+      void import("./mdx/MdxSplitPane.js");
       void import("@rightkit/markdown-editor/documents/mdx/mdxCompiler");
-      void import("./markdown/MarkdownSplitPane"); // shared TxtEditor + outline code
-      void import("./txt/TxtEditor");
+      void import("./markdown/MarkdownSplitPane.js"); // shared TxtEditor + outline code
+      void import("./txt/TxtEditor.js");
     } else if (doc.format === "html") {
-      void import("./txt/TxtEditor");
+      void import("./txt/TxtEditor.js");
     }
   }, [doc.format]);
 

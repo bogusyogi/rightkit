@@ -1,6 +1,6 @@
 import { Button } from "@rightkit/react-shell/react";
-import type { ArchiveProgress } from "../lib/ipc";
-import { searchCoverageBannerText } from "../lib/searchCoverage";
+import type { ArchiveProgress } from "../lib/ipc.js";
+import { searchCoverageBannerText } from "../lib/searchCoverage.js";
 
 export function SearchCoverageBanner({
   coverage,

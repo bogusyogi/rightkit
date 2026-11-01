@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Button, EmptyState, PageShell, SkeletonRows, Table, TableBody, TableCaption, TableCell, TableHead, TableHeaderCell, TableRow } from "@rightkit/react-shell/react";
-import { ScopeSelect } from "../components/ScopeSelect";
-import { LoadError, MockBanner } from "../components/Shared";
-import { useAsync } from "../hooks/useAsync";
-import { shell } from "../lib/shell";
-import { groupDigits, instantLabel, type ChannelLink, type DataSource, type OperatorScope } from "../data";
-import { platformName } from "./labels";
-import { hostAppName } from "../appName";
+import { ScopeSelect } from "../components/ScopeSelect.js";
+import { LoadError, MockBanner } from "../components/Shared.js";
+import { useAsync } from "../hooks/useAsync.js";
+import { shell } from "../lib/shell.js";
+import { groupDigits, instantLabel, type ChannelLink, type DataSource, type OperatorScope } from "../data/index.js";
+import { platformName } from "./labels.js";
+import { hostAppName } from "../appName.js";
 
 interface Props {
   source: DataSource;

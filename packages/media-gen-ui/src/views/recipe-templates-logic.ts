@@ -15,8 +15,8 @@ import type {
   RecipeTemplateInput,
   RecipeTemplateSlot,
   RecipeViolation
-} from '../lib/api';
-import { hostAppName } from "../appName";
+} from '../lib/api.js';
+import { hostAppName } from "../appName.js";
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'heic', 'bmp', 'tif', 'tiff']);
 const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'webm', 'm4v', 'mkv', 'avi']);

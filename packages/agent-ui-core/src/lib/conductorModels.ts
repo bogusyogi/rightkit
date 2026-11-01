@@ -1,4 +1,4 @@
-import type { ModelCatalogEntry } from "./types";
+import type { ModelCatalogEntry } from "./types.js";
 
 export type ConductorRuntimeModel = {
   id: string;

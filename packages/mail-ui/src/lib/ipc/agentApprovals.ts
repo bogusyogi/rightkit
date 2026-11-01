@@ -1,4 +1,4 @@
-import { invoke } from "./invoke";
+import { invoke } from "./invoke.js";
 
 /** What the agent asked for. All four always wait for the user's click. */
 export type ApprovalKind = "send" | "forward" | "delete" | "attach";

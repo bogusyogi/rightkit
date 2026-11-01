@@ -25,7 +25,7 @@ import {
   type MarkdownLineEnding,
   type MarkdownTextEdit,
   type MarkdownTextParts,
-} from "./types";
+} from "./types.js";
 
 /**
  * Returns true if `offset` is a legal JS UTF-16 code-unit boundary

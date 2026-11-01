@@ -2,7 +2,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import SearchPanel, { debounce, formatResultCount, highlightMatch } from "./SearchPanel";
+import SearchPanel, { debounce, formatResultCount, highlightMatch } from "./SearchPanel.js";
 import type { WorkspaceSearchHit } from "@rightkit/agent-ui-core/lib/types/workspace-files";
 
 const searchHookMock = vi.hoisted(() => vi.fn());

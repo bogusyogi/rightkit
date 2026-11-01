@@ -1,4 +1,4 @@
-import type { Account, PublishJob } from "./types";
+import type { Account, PublishJob } from "./types.js";
 
 export interface AccountOrdinal {
   /** "Account A", "Account B". Unique within one venture and platform. */

@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { pdfDocumentInit, pdfWasmUrl } from "@rightkit/pdf-ui";
-import { recomposePdfPreview } from "./pdfSave";
-import { composePdfPreview } from "../../state/tauriBridge";
-import { logError } from "../../state/diagnostics";
-import { acquireResource } from "../../app/resourceCensus";
-import type { usePdfEditSession } from "./usePdfEditSession";
+import { recomposePdfPreview } from "./pdfSave.js";
+import { composePdfPreview } from "../../state/tauriBridge.js";
+import { logError } from "../../state/diagnostics.js";
+import { acquireResource } from "../../app/resourceCensus.js";
+import type { usePdfEditSession } from "./usePdfEditSession.js";
 
 interface PdfPreviewRecomposeDeps {
   documentPath: string;

@@ -5,7 +5,7 @@ import type {
   LocalProviderRouteSuggestion,
   OrchestrationSettings,
 } from "@rightkit/agent-ui-core/lib/types";
-import type { SettingsDraft } from "../types";
+import type { SettingsDraft } from "../types.js";
 import type { CatalogGroup } from "@rightkit/agent-ui-core/lib/types/inference";
 import type { DaemonConfig } from "@rightkit/agent-ui-core/lib/types";
 

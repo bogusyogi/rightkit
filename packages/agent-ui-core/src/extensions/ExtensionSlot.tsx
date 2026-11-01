@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { useExtensionRegistry } from "./extensionRegistry";
+import { useExtensionRegistry } from "./extensionRegistry.js";
 
 export interface ExtensionSlotProps {
   /** Semantic slot/component key registered by an extension. */

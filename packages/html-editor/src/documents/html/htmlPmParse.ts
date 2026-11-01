@@ -1,8 +1,8 @@
 import { Schema, type Node as PmNode } from "prosemirror-model";
-import type { FragmentSourceMap } from "./sourceMap";
-import { projectHtmlForVisual, sanitizeHtmlForVisual } from "./htmlVisualSanitize";
+import type { FragmentSourceMap } from "./sourceMap.js";
+import { projectHtmlForVisual, sanitizeHtmlForVisual } from "./htmlVisualSanitize.js";
 
-import { hasHtmlTextStyle, htmlTextStyleCss, parseHtmlTextStyle } from "./htmlTextStyle";
+import { hasHtmlTextStyle, htmlTextStyleCss, parseHtmlTextStyle } from "./htmlTextStyle.js";
 
 /**
  * ProseMirror schema for Safe block editing.

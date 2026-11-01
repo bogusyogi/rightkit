@@ -1,5 +1,5 @@
 import { Badge, Button, Notice } from '@rightkit/react-shell/react';
-import { IconLock, IconPlay } from '../components/icons';
+import { IconLock, IconPlay } from '../components/icons.js';
 
 interface Spec {
   eyebrow: string;

@@ -1,7 +1,7 @@
 import { EmptyState } from "@rightkit/react-shell/react";
 import type { HarnessRadarSnapshot } from "@rightkit/agent-ui-core/lib/types";
-import RuntimeStat from "./RuntimeStat";
-import { phaseLabel } from "./runtimeUtils";
+import RuntimeStat from "./RuntimeStat.js";
+import { phaseLabel } from "./runtimeUtils.js";
 export default function HarnessRadarPanel({
   snapshot,
   pendingPromotionId,

@@ -1,6 +1,5 @@
 import { Badge, Notice } from "@rightkit/react-shell/react";
-import { bytes, isWindows, type DriveCard, type HealthAlert, type HealthReading } from "../api";
-import "./health.css";
+import { bytes, isWindows, type DriveCard, type HealthAlert, type HealthReading } from "../api.js";
 
 const day = (secs: number) =>
   new Date(secs * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });

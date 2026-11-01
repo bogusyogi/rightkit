@@ -1,4 +1,4 @@
-import type { MediaKind } from '../../lib/api';
+import type { MediaKind } from '../../lib/api.js';
 
 /** What a studio panel inside the Generate workspace can see and change. */
 export interface StudioPanelProps {

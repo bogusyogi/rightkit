@@ -2,7 +2,7 @@
 // of AppSearchTopbar/Sidebar so it is unit-testable without mounting React
 // (this repo's test runner has no jsdom — see tests/shortcutFocusGuard.test.ts
 // for the same constraint). Persists as ONE preference key via src/lib/preferences.ts.
-import type { SavedSearch } from "../store/types";
+import type { SavedSearch } from "../store/types.js";
 
 export const SAVED_SEARCHES_KEY = "savedSearches";
 

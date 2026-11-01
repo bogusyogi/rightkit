@@ -1,4 +1,4 @@
-import { resolveImageRule, RIGHTKIT_IMG_BASE } from "../../../lib/imageTrust";
+import { resolveImageRule, RIGHTKIT_IMG_BASE } from "../../../lib/imageTrust.js";
 import {
   getThread,
   inlineImageRefs,
@@ -8,8 +8,8 @@ import {
   trustCheck,
   unreadCounts,
   type Thread,
-} from "../../../lib/ipc";
-import type { StoreGet } from "../../mk";
+} from "../../../lib/ipc.js";
+import type { StoreGet } from "../../mk.js";
 
 export async function openThreadAction(get: StoreGet, t: Thread) {
   const s = get();

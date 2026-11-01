@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import ChangedFilesCard from "./ChangedFilesCard";
-import { INITIAL_RUN_CHANGES_STATE } from "./runChangesStore";
-import { resetStore } from "./useRunChangesState";
+import ChangedFilesCard from "./ChangedFilesCard.js";
+import { INITIAL_RUN_CHANGES_STATE } from "./runChangesStore.js";
+import { resetStore } from "./useRunChangesState.js";
 
 const entry = {
   mutationId: "mutation-1",

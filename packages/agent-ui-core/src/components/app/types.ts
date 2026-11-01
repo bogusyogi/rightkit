@@ -1,4 +1,4 @@
-import type { HealthResponse } from "../../lib/types";
+import type { HealthResponse } from "../../lib/types.js";
 import type { ReactNode } from "react";
 
 export interface AppShellHeaderProps {

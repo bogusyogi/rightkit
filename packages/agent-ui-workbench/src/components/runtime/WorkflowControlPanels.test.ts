@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inboxKindLabel, summarizeWorkflowVersion } from "./WorkflowControlPanels";
+import { inboxKindLabel, summarizeWorkflowVersion } from "./WorkflowControlPanels.js";
 
 describe("workflow review inbox labels", () => {
   it("names each durable attention kind", () => {

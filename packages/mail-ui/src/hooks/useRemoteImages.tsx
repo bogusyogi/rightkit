@@ -3,9 +3,9 @@
 // mailright-img:// protocol) instead of letting the iframe hit the network.
 // Extracted from App. Owns the in-flight de-dupe set.
 import { useEffect, useRef } from "react";
-import { useAppStore } from "../store";
-import { fetchRemoteImage } from "../lib/ipc";
-import { MAX_REMOTE_IMAGES_PER_MESSAGE, remoteImageSrc } from "../lib/imageTrust";
+import { useAppStore } from "../store/index.js";
+import { fetchRemoteImage } from "../lib/ipc.js";
+import { MAX_REMOTE_IMAGES_PER_MESSAGE, remoteImageSrc } from "../lib/imageTrust.js";
 
 export function useRemoteImages() {
   const showImages = useAppStore((s) => s.showImages);

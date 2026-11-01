@@ -5,7 +5,7 @@ import {
   isTerminalFinding,
   receiptAnchor,
   type RoomFinding,
-} from "./reviewRoom";
+} from "./reviewRoom.js";
 
 describe("Review Room protocol projection", () => {
   it("uses the frozen five-state finding vocabulary", () => {

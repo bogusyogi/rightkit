@@ -2,7 +2,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { UtilityOverflowMenu } from "./AppBody";
+import { UtilityOverflowMenu } from "./AppBody.js";
 
 const onSelect = vi.fn();
 

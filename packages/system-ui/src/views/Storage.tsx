@@ -21,20 +21,18 @@ import {
   type ChangedRange,
   type Row,
   type Volume,
-} from "../api";
-import { KINDS, kindOf, squarify } from "../chart";
-import { readKept, writeKept } from "../kept";
-import { ESTIMATE, trashFreesNothing, upTo } from "./storageEstimate";
+} from "../api.js";
+import { KINDS, kindOf, squarify } from "../chart.js";
+import { readKept, writeKept } from "../kept.js";
+import { ESTIMATE, trashFreesNothing, upTo } from "./storageEstimate.js";
 
 // Windows has the Recycle Bin and File Explorer; the Mac has the Trash and Finder.
 const TRASH = isWindows ? "Recycle Bin" : "Trash";
 const FILE_MANAGER = isWindows ? "File Explorer" : "Finder";
-import { ChromeSnapshotsLine } from "./ChromeSnapshots";
-import { DriveHealthLine, DriveHealthPanel } from "./DriveHealth";
-import { Duplicates } from "./Duplicates";
-import "./health.css";
-import "./storage.css";
-import { clearVisibleInterval, visibleInterval } from "../visible";
+import { ChromeSnapshotsLine } from "./ChromeSnapshots.js";
+import { DriveHealthLine, DriveHealthPanel } from "./DriveHealth.js";
+import { Duplicates } from "./Duplicates.js";
+import { clearVisibleInterval, visibleInterval } from "../visible.js";
 
 const shortPath = (path: string) => path.replace(/^\/Users\/[^/]+/, "~");
 const VISIBLE_GROUPS = 6;

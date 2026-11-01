@@ -1,6 +1,6 @@
 import { renderMarkdownToHtml } from "@rightkit/doc-render";
-import { parseToTree } from "./parseMarkdown";
-import { nodeText } from "./semanticBlocks";
+import { parseToTree } from "./parseMarkdown.js";
+import { nodeText } from "./semanticBlocks.js";
 
 function escapeHtml(value: string): string {
   return value.replace(

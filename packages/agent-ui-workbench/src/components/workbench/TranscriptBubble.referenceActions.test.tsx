@@ -5,7 +5,7 @@ import type { TranscriptMessage } from "@rightkit/agent-ui-core/lib/types";
 import { useRightPanelStore } from "@rightkit/agent-ui-core/state/rightPanelStore";
 import { useSidePanelStore } from "@rightkit/agent-ui-core/state/sidePanelStore";
 import { useWorkspaceStore } from "@rightkit/agent-ui-core/state/workspaceStore";
-import { TranscriptBubble } from "./TranscriptBubble";
+import { TranscriptBubble } from "./TranscriptBubble.js";
 
 describe("TranscriptBubble reference actions", () => {
   beforeEach(() => {

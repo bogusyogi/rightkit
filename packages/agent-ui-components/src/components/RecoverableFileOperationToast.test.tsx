@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { RecoverableFileOperationToast } from "./RecoverableFileOperationToast";
+import { RecoverableFileOperationToast } from "./RecoverableFileOperationToast.js";
 
 describe("RecoverableFileOperationToast", () => {
   it("keeps undo visible for a successful trash operation", () => {

@@ -1,9 +1,9 @@
-import SpecArtifactSummary from "./specs/SpecArtifactSummary";
-import SpecConstitutionPanel from "./specs/SpecConstitutionPanel";
-import SpecDetailPane from "./specs/SpecDetailPane";
-import SpecListPane from "./specs/SpecListPane";
-import SpecTaskEditor from "./specs/SpecTaskEditor";
-import type { SpecConstitutionDraft, SpecDraft, SpecTaskDraft } from "./specs/types";
+import SpecArtifactSummary from "./specs/SpecArtifactSummary.js";
+import SpecConstitutionPanel from "./specs/SpecConstitutionPanel.js";
+import SpecDetailPane from "./specs/SpecDetailPane.js";
+import SpecListPane from "./specs/SpecListPane.js";
+import SpecTaskEditor from "./specs/SpecTaskEditor.js";
+import type { SpecConstitutionDraft, SpecDraft, SpecTaskDraft } from "./specs/types.js";
 import type {
   ConstitutionDecision,
   FeatureSpec,

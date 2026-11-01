@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deletePlanStep, movePlanStep, parseEditablePlan, updatePlanStep } from "./planEditing";
+import { deletePlanStep, movePlanStep, parseEditablePlan, updatePlanStep } from "./planEditing.js";
 
 describe("planEditing", () => {
   it("parses checklist-style plan steps without losing surrounding text", () => {

@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
-import { getLspStatus, saveLspConfig } from "../lib/daemon";
-import type { DaemonConfig, LspStatusView, LspWorkspaceServer } from "../lib/types";
+import { getLspStatus, saveLspConfig } from "../lib/daemon.js";
+import type { DaemonConfig, LspStatusView, LspWorkspaceServer } from "../lib/types.js";
 
 interface UseLspSettingsOptions {
   config: DaemonConfig | null;

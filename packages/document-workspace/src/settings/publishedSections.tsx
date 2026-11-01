@@ -15,10 +15,9 @@ import {
   createHostUpdatesAdapter,
   hasPendingExternalUpdate,
   openPendingExternalUpdate,
-} from "../state/updateLicense";
+} from "../state/updateLicense.js";
 import { useSettings } from "@rightkit/document-core/settings/settings";
-import "@rightkit/document-core/settings/rk-settings.css";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 /** the host app keeps its own settings store; this exposes the one key the published sections read. */
 function useRkContext(): SettingsContext {

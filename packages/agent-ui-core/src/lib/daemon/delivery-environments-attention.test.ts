@@ -7,8 +7,8 @@ import {
   groupAttentionByState,
   hasUrgentAttention,
   pickRuntimeSupportedEnvironment,
-} from "./delivery-environments-attention";
-import type { AttentionItem, AttentionState, EnvironmentRecord } from "../types";
+} from "./delivery-environments-attention.js";
+import type { AttentionItem, AttentionState, EnvironmentRecord } from "../types.js";
 
 const baseEnv = (overrides: Partial<EnvironmentRecord>): EnvironmentRecord => ({
   id: "local",

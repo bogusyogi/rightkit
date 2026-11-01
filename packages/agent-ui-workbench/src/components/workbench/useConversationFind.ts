@@ -4,7 +4,7 @@ import type { PendingApproval } from "@rightkit/agent-ui-hooks/hooks/useApproval
 import type { QueuedMessage } from "@rightkit/agent-ui-hooks/hooks/useQueuedMessages";
 import type { TranscriptMessage, UserQuestion } from "@rightkit/agent-ui-core/lib/types";
 import { MAX_TRANSCRIPT_SEARCH_MATCHES, searchTranscript } from "@rightkit/agent-ui-core/lib/transcriptSearch";
-import type { Pane } from "./WorkbenchContentProps";
+import type { Pane } from "./WorkbenchContentProps.js";
 import { registerShortcut } from "@rightkit/agent-ui-core/lib/shortcuts/dispatcher";
 
 const FIND_HIGHLIGHT_STYLE_ID = "cr-find-highlight-style";

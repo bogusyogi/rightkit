@@ -2,7 +2,7 @@
 // app (the UI preference document). Same contract: a revision per commit, `null` removes a key,
 // `expectedRevision` is compare-and-set. State lives for the page session only.
 
-import type { InvokeArgs } from "./qaMockTypes";
+import type { InvokeArgs } from "./qaMockTypes.js";
 
 const values: Record<string, unknown> = {};
 let revision = 0;

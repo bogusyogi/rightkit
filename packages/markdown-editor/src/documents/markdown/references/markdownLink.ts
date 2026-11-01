@@ -1,6 +1,6 @@
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import type { MarkdownCommitSummary } from "../core/MarkdownDocumentTypes";
-import type { MarkdownTextEdit } from "../core/types";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import type { MarkdownCommitSummary } from "../core/MarkdownDocumentTypes.js";
+import type { MarkdownTextEdit } from "../core/types.js";
 
 export type MarkdownLinkDialogMode = "insert" | "edit" | "protected";
 

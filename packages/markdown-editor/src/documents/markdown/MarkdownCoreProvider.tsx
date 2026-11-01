@@ -21,7 +21,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { MarkdownDocumentCore } from "./core/MarkdownDocumentCore";
+import { MarkdownDocumentCore } from "./core/MarkdownDocumentCore.js";
 
 interface MarkdownCoreContextValue {
   readonly core: MarkdownDocumentCore;
@@ -139,13 +139,13 @@ export function MarkdownCoreProvider({
 
   useEffect(() => {
     if (
-      import.meta.env.VITE_RIGHTKIT_BROWSER_QA !== "1" ||
+      import.meta.env?.VITE_RIGHTKIT_BROWSER_QA !== "1" ||
       new URLSearchParams(window.location.search).get("qa") !== "1"
     )
       return;
     let cancelled = false;
     let stop: (() => void) | undefined;
-    void import("./qaCoreObservation").then(({ observeQaMarkdownCore }) => {
+    void import("./qaCoreObservation.js").then(({ observeQaMarkdownCore }) => {
       if (!cancelled) stop = observeQaMarkdownCore(documentId, core);
     });
     return () => {

@@ -18,7 +18,7 @@ import {
 } from "@rightkit/app-update/native";
 import { isMac } from "@rightkit/document-core/platform";
 import { logError } from "@rightkit/document-core/state/diagnostics";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 export type UpdateState =
   | "idle"
@@ -39,7 +39,7 @@ export function resolvedAppVersion(): string {
 
   const message =
     `${hostAppName()} build is missing __APP_VERSION__; release/update version truth is unavailable.`;
-  if (import.meta.env.PROD) {
+  if (import.meta.env?.PROD) {
     throw new Error(message);
   }
   console.warn(`${message} Using ${FALLBACK_APP_VERSION} for this non-production harness.`);

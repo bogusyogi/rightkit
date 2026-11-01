@@ -13,7 +13,7 @@ import {
   UNASSIGNED_SHORTCUT,
   type ShortcutCombo,
 } from "@rightkit/agent-ui-core/lib/shortcuts/bindings";
-import ShortcutRecordingDialog from "./ShortcutRecordingDialog";
+import ShortcutRecordingDialog from "./ShortcutRecordingDialog.js";
 
 export const SHORTCUT_OVERRIDES_STORAGE_KEY = "coderight.shortcuts.v1";
 

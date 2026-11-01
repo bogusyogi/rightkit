@@ -1,5 +1,5 @@
-import VirtualizedCodeBlock, { type CodeLine } from "../VirtualizedCodeBlock";
-import MarkdownText from "./MarkdownText";
+import VirtualizedCodeBlock, { type CodeLine } from "../VirtualizedCodeBlock.js";
+import MarkdownText from "./MarkdownText.js";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import { parseBracketedNotice } from "@rightkit/agent-ui-core/lib/messageNotices";
 

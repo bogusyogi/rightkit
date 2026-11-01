@@ -2,8 +2,8 @@
 // Invented research digest and its applications for the mock. Topics, findings, sources and ids are
 // fictional. Sources use .example hosts, and the path:line source names no real file. The applied entry
 // carries the draft calendar entry id the engine would return; that draft has a placeholder caption.
-import type { DigestApplication, ResearchDigest } from "../types";
-import { SCOPE_ALPHA } from "./fixtures-optimise";
+import type { DigestApplication, ResearchDigest } from "../types.js";
+import { SCOPE_ALPHA } from "./fixtures-optimise.js";
 
 export const FIXTURE_DIGESTS: ResearchDigest[] = [
   {

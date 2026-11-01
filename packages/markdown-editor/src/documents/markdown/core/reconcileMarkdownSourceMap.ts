@@ -13,19 +13,19 @@
  * never reassigned to unrelated new nodes.
  */
 
-import { rangeOf, isValidRange } from "./MarkdownSourceMap";
+import { rangeOf, isValidRange } from "./MarkdownSourceMap.js";
 import type {
   MarkdownSourceMap,
   MarkdownSourceNode,
   MarkdownSourceNodeCandidate,
   MarkdownSourceRange,
-} from "./MarkdownSourceMap";
-import type { MarkdownNodeId } from "./MarkdownNodeIdFactory";
-import { buildMarkdownSourceMapCandidates } from "./buildMarkdownSourceMap";
+} from "./MarkdownSourceMap.js";
+import type { MarkdownNodeId } from "./MarkdownNodeIdFactory.js";
+import { buildMarkdownSourceMapCandidates } from "./buildMarkdownSourceMap.js";
 import GithubSlugger, { slug } from "github-slugger";
 import type { RootContent } from "mdast";
-import { nodeText } from "../semanticBlocks";
-import { parseToTree } from "../parseMarkdown";
+import { nodeText } from "../semanticBlocks.js";
+import { parseToTree } from "../parseMarkdown.js";
 
 /**
  * Inputs for {@link reconcileMarkdownSourceMap}.
@@ -50,7 +50,7 @@ export interface MarkdownReconcileOptions {
 
 /**
  * Minimal change-map surface used by reconciliation. The full
- * {@link import("./MarkdownChangeMap").MarkdownChangeMap} satisfies
+ * {@link import("./MarkdownChangeMap.js").MarkdownChangeMap} satisfies
  * this contract.
  */
 export interface MarkdownChangeMapLike {
@@ -65,7 +65,7 @@ export interface MarkdownChangeMapLike {
 
 /**
  * Minimal ID-factory surface used by reconciliation. The full
- * {@link import("./MarkdownNodeIdFactory").MarkdownNodeIdFactory}
+ * {@link import("./MarkdownNodeIdFactory.js").MarkdownNodeIdFactory}
  * satisfies this contract.
  */
 export interface MarkdownNodeIdFactoryLike {

@@ -1,14 +1,14 @@
-import type { ToolCall } from "./benchmarks-artifacts";
-import type { MiddlewareDecisionEvidence } from "./middleware-runtime";
+import type { ToolCall } from "./benchmarks-artifacts.js";
+import type { MiddlewareDecisionEvidence } from "./middleware-runtime.js";
 import type {
   OrchestrationObservation,
   TaskNode,
   TranscriptMessage,
   TrustEnvelope,
   VerificationIssue,
-} from "./protocol-core";
-import type { AgentRosterRow, UserQuestion } from "./protocol-ops";
-import type { ReferenceMeta } from "./references";
+} from "./protocol-core.js";
+import type { AgentRosterRow, UserQuestion } from "./protocol-ops.js";
+import type { ReferenceMeta } from "./references.js";
 
 export type GoalStepV1 = {
   id: string;

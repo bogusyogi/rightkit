@@ -4,7 +4,7 @@ import type {
   SpecListPaneProps,
   SpecSelectionCallbacks,
   SpecStatusBadgeProps,
-} from "./types";
+} from "./types.js";
 
 function SpecStatusBadge({ status }: SpecStatusBadgeProps) {
   const color =

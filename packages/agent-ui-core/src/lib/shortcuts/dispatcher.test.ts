@@ -1,6 +1,6 @@
 import { createShortcutRegistry } from "@rightkit/react-shell";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cancelPendingShortcut, registerShortcut, syncShortcutBindings } from "./dispatcher";
+import { cancelPendingShortcut, registerShortcut, syncShortcutBindings } from "./dispatcher.js";
 
 function key(keyValue: string, options: Partial<KeyboardEvent> = {}): KeyboardEvent {
   return {

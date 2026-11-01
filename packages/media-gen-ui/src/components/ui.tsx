@@ -48,7 +48,7 @@ export function formatBytes(bytes: number | null | undefined): string {
 }
 
 export function baseName(path: string, fallback = 'asset'): string {
-  if (path.startsWith('data:') || (import.meta.env.DEV && path.startsWith('browser-qa-mock:'))) return fallback;
+  if (path.startsWith('data:') || (import.meta.env?.DEV && path.startsWith('browser-qa-mock:'))) return fallback;
   return path.split(/[\\/]/).filter(Boolean).pop() || fallback;
 }
 

@@ -8,8 +8,8 @@ import { ClipboardText } from "@phosphor-icons/react/dist/icons/ClipboardText";
 import { FolderOpen } from "@phosphor-icons/react/dist/icons/FolderOpen";
 import { GlobeSimple } from "@phosphor-icons/react/dist/icons/GlobeSimple";
 import { NotePencil } from "@phosphor-icons/react/dist/icons/NotePencil";
-import { FileTypeIcon } from "../../documents/FileTypeIcon";
-import type { FileEntry } from "../../state/library";
+import { FileTypeIcon } from "../../documents/FileTypeIcon.js";
+import type { FileEntry } from "../../state/library.js";
 import { isMac, shortcutLabel } from "@rightkit/document-core/platform";
 
 export function StartPage({

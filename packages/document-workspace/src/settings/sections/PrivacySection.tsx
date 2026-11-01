@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "@rightkit/platform-ui/headless";
-import { drainSessionSaves } from "../../app/useDocumentRuntimeEffects";
+import { drainSessionSaves } from "../../app/useDocumentRuntimeEffects.js";
 import { ActionDialog, SegmentedControl } from "@rightkit/react-shell/react";
 import { SettingsGroup } from "@rightkit/settings-ui";
 import { DIALOG_SLOTS, cancelAction, dangerAction } from "@rightkit/document-core/app/chrome";
@@ -9,7 +9,7 @@ import { clearAllDiagnostics, collectDiagnosticsText } from "@rightkit/document-
 import { useSettings } from "@rightkit/document-core/settings/settings";
 import { onOff } from "@rightkit/document-core/settings/sections/onOff";
 import { writeClipboardText } from "@rightkit/document-core/state/tauriBridge";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 export function PrivacySection({ onHistoryPurged }: { onHistoryPurged?: () => void } = {}) {
   const { settings, update } = useSettings();

@@ -7,8 +7,8 @@ import type {
   DriverLifecycle,
   DriverSessionStatus,
   ExternalDriverKind,
-} from "../types";
-import { requestDaemonApi } from "../generated/daemon-openapi";
+} from "../types.js";
+import { requestDaemonApi } from "../generated/daemon-openapi.js";
 
 const capabilityHeaders = (capabilityToken: string) => ({
   "x-coderight-capability-token": capabilityToken,

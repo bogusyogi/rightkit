@@ -1,5 +1,5 @@
-import type { DaemonConfig } from "../types";
-import { requestDaemon } from "./delivery-environments-attention";
+import type { DaemonConfig } from "../types.js";
+import { requestDaemon } from "./delivery-environments-attention.js";
 
 export type WorkflowDefinition = {
   id: string;

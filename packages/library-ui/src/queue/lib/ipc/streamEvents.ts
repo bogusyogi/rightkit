@@ -1,4 +1,4 @@
-import type { EngineLifecycleEvent, JobEvent, JobInfo, JobKindEvent } from "../../contract";
+import type { EngineLifecycleEvent, JobEvent, JobInfo, JobKindEvent } from "../../contract.js";
 
 /** One ordered stream from the shell's `subscribe` command (#178). */
 export type StreamEvent =

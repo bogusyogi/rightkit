@@ -3,10 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { Badge, Button, ConfirmDialog, Input, SegmentedControl, useShortcuts } from "@rightkit/react-shell/react";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from "lucide-react";
 import { api, bytes, isWindows, type ProcessInspection, type ProcessRow, type Status } from "@rightkit/system-ui/api";
-import { useNotch, type NotchState } from "./Settings";
+import { useNotch, type NotchState } from "./Settings.js";
 import { AreaChart, levelColor, type Series } from "@rightkit/system-ui/components/Chart";
 import { memPercent, useMetrics, type Sample } from "@rightkit/system-ui/metrics";
-import "@rightkit/system-ui/views/monitor.css";
 import { clearVisibleInterval, visibleInterval } from "@rightkit/system-ui/visible";
 import { useActivityLease } from "@rightkit/system-ui/activityLease";
 

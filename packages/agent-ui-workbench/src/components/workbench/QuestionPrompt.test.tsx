@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
-import QuestionPrompt from "./QuestionPrompt";
+import QuestionPrompt from "./QuestionPrompt.js";
 import type { UserQuestion } from "@rightkit/agent-ui-core/lib/types";
 
 const questions: UserQuestion[] = [

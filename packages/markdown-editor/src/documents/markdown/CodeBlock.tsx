@@ -1,9 +1,8 @@
 import { useContext, useEffect, useState } from "react";
 import DOMPurify from "dompurify";
-import { MarkdownRenderTrackerContext } from "./export/MarkdownRenderTracker";
+import { MarkdownRenderTrackerContext } from "./export/MarkdownRenderTracker.js";
 import { ensureShikiLanguage, getShikiHighlighter } from "@rightkit/doc-render";
-import { SHIKI_DARK_THEME, SHIKI_LIGHT_THEME } from "./shikiThemes";
-import "./ProtectedBlock.css";
+import { SHIKI_DARK_THEME, SHIKI_LIGHT_THEME } from "./shikiThemes.js";
 import { writeClipboardText } from "@rightkit/document-core/state/tauriBridge";
 
 // Cache the sanitized highlighted HTML by (lang, code). Highlighting is async, so without this a

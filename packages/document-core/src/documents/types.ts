@@ -1,4 +1,4 @@
-import { formatEntryForExtension } from "./documentFormats";
+import { formatEntryForExtension } from "./documentFormats.js";
 
 export type DocFormat =
   | "md"

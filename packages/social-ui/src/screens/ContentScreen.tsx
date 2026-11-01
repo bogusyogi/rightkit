@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Badge, EmptyState, Field, PageShell, SkeletonRows, Table, TableBody, TableCaption, TableCell, TableHead, TableHeaderCell, TableRow } from "@rightkit/react-shell/react";
-import { ScopeSelect } from "../components/ScopeSelect";
-import { LoadError, MockBanner } from "../components/Shared";
-import { useAsync } from "../hooks/useAsync";
+import { ScopeSelect } from "../components/ScopeSelect.js";
+import { LoadError, MockBanner } from "../components/Shared.js";
+import { useAsync } from "../hooks/useAsync.js";
 import {
   groupDigits,
   instantLabel,
@@ -12,13 +12,13 @@ import {
   type ContentVariantCount,
   type DataSource,
   type OperatorScope,
-} from "../data";
+} from "../data/index.js";
 import {
   CONTENT_MEDIA_KIND_LABEL,
   CONTENT_STATE_LABEL,
   CONTENT_VARIANT_KIND_LABEL,
   CONTENT_VERDICT_LABEL,
-} from "./labels";
+} from "./labels.js";
 
 interface Props {
   source: DataSource;

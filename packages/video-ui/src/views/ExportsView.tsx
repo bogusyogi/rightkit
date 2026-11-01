@@ -1,8 +1,7 @@
 // Exports — docs/design/app-ui.md §3.5.
 import { Badge, Button, Checkbox, ContextMenu, EmptyState, Field, IconButton, Input, PageShell, Popover, Select, useToast } from "@rightkit/react-shell/react";
-import "./Exports.css";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { engineCall, errorMessage, onEngineEvent, revealPath } from "../lib/engine";
+import { engineCall, errorMessage, onEngineEvent, revealPath } from "../lib/engine.js";
 import {
   type QaReportRow,
   type QaResult,
@@ -23,15 +22,15 @@ import {
   settingsGet,
   sourceList,
   thumbnails,
-} from "../lib/media";
-import { assetUrl } from "../lib/asset";
-import { projectShow, type ProjectShow } from "../lib/project";
+} from "../lib/media.js";
+import { assetUrl } from "../lib/asset.js";
+import { projectShow, type ProjectShow } from "../lib/project.js";
 import { MediaPlayer } from "@rightkit/media-ui";
-import { isPlayable, mediaKind, useMediaPlaybackId } from "../lib/mediaAdapters";
-import { Drawer, ErrorPanel, Icon, ProgressRow, Thumbnail, fileSize, timecode } from "../ui";
-import type { ProgressState } from "../hooks/useProgress";
-import { BatchDelivery } from "./BatchDelivery";
-import { BundleExport } from "./BundleExport";
+import { isPlayable, mediaKind, useMediaPlaybackId } from "../lib/mediaAdapters.js";
+import { Drawer, ErrorPanel, Icon, ProgressRow, Thumbnail, fileSize, timecode } from "../ui/index.js";
+import type { ProgressState } from "../hooks/useProgress.js";
+import { BatchDelivery } from "./BatchDelivery.js";
+import { BundleExport } from "./BundleExport.js";
 
 type Preset = "youtube" | "reels" | "tiktok" | "square";
 

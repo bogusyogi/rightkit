@@ -8,21 +8,21 @@
   type ReactNode,
 } from "react";
 import type { RootContent, PhrasingContent } from "mdast";
-import { nodeText } from "./semanticBlocks";
-import { FootnotesContext, slug } from "./footnotes";
-import { HeadingSlugContext } from "./headingSlugs";
+import { nodeText } from "./semanticBlocks.js";
+import { FootnotesContext, slug } from "./footnotes.js";
+import { HeadingSlugContext } from "./headingSlugs.js";
 import type { CslEntry } from "@rightkit/doc-render";
 import { formatBibliographyEntry, formatCitation } from "@rightkit/doc-render";
-import type { OutlineHeading } from "./Outline";
-import { CodeBlock } from "./CodeBlock";
-import { MathBlock } from "./Math";
-import { MermaidBlock } from "./MermaidBlock";
+import type { OutlineHeading } from "./Outline.js";
+import { CodeBlock } from "./CodeBlock.js";
+import { MathBlock } from "./Math.js";
+import { MermaidBlock } from "./MermaidBlock.js";
 import { grantRelativeFile, openExternal, readRelativeAsset } from "@rightkit/document-core/state/tauriBridge";
 import { normalizeLivePreviewUrl } from "@rightkit/document-core/documents/web/webUrl";
 import { shortcutLabel } from "@rightkit/document-core/platform";
-import type { MarkdownIndexedFile } from "./references/folderIndex";
-import { defaultWikiLinkDisplay, resolveWikiLink } from "./wikiLinkResolver";
-import { MarkdownRenderTrackerContext } from "./export/MarkdownRenderTracker";
+import type { MarkdownIndexedFile } from "./references/folderIndex.js";
+import { defaultWikiLinkDisplay, resolveWikiLink } from "./wikiLinkResolver.js";
+import { MarkdownRenderTrackerContext } from "./export/MarkdownRenderTracker.js";
 
 export const MarkdownLinkContext = createContext<{
   documentPath?: string;

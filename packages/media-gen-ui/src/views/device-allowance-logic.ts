@@ -1,8 +1,8 @@
 // Pure text and parsing for the Settings > Spend "This device" allowance block. No React and no runtime
 // imports except the shared money helpers, so node tests load it directly. Nothing here contacts the engine.
 
-import type { DeviceAllowanceAuditRow, DeviceAllowanceView } from '../lib/api';
-import { formatUsd, parseUsd } from './spend-reconcile-logic';
+import type { DeviceAllowanceAuditRow, DeviceAllowanceView } from '../lib/api.js';
+import { formatUsd, parseUsd } from './spend-reconcile-logic.js';
 
 /** The scope line the block always shows: an allowance counts this device's spend and nothing else. */
 export const DEVICE_ALLOWANCE_SCOPE = 'This allowance applies to this device only.';

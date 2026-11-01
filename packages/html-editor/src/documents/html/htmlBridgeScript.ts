@@ -25,7 +25,7 @@ import {
   INTERACTIVE_HTML_PRINT_CONTENT,
   INTERACTIVE_HTML_EDIT_VISUAL,
   INTERACTIVE_HTML_EDIT_REFUSED,
-} from "./htmlInteractiveProtocol";
+} from "./htmlInteractiveProtocol.js";
 
 export const HTML_SURFACE_MESSAGE = "viewright:interactive-html-surface";
 

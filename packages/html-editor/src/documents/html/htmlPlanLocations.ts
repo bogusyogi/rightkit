@@ -6,9 +6,9 @@
  * builds on. This module is the dependency leaf of the planner set — the
  * table, inline-text, and dispatcher modules all import from here.
  */
-import { decodeHtmlEntities, parseHtmlTree } from "./sourceMap";
-import type { HtmlParseNode } from "./sourceMap";
-import type { HtmlSourcePatch, HtmlSourceRange } from "./htmlMutationEngine";
+import { decodeHtmlEntities, parseHtmlTree } from "./sourceMap.js";
+import type { HtmlParseNode } from "./sourceMap.js";
+import type { HtmlSourcePatch, HtmlSourceRange } from "./htmlMutationEngine.js";
 
 export class HtmlOperationError extends Error {
   constructor(

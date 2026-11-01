@@ -1,5 +1,5 @@
 import { Field } from "@rightkit/react-shell/react";
-import type { OperatorScope } from "../data";
+import type { OperatorScope } from "../data/index.js";
 
 /** The channel the suggestions and spend screens read. A native select, labelled, in the focus order. */
 export function ScopeSelect({

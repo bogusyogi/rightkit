@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { normalizeLivePreviewUrl } from "../documents/web/webUrl";
-import { getRecentUrls } from "../state/recentUrls";
+import { normalizeLivePreviewUrl } from "../documents/web/webUrl.js";
+import { getRecentUrls } from "../state/recentUrls.js";
 
 function looksLikeLocalPath(input: string) {
   return (
@@ -11,7 +11,7 @@ function looksLikeLocalPath(input: string) {
   );
 }
 import { ActionDialog, Button, IconButton, Input, type DialogAction } from "@rightkit/react-shell/react";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 // Presentational shell chrome for App: confirmation dialogs and the Open-URL dialog. Pure leaf
 // components — no app state, no file semantics. Extracted from App.tsx so the shell composition

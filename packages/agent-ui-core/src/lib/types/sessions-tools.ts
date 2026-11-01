@@ -1,4 +1,4 @@
-import type { InferenceSelection } from "./inference";
+import type { InferenceSelection } from "./inference.js";
 
 export type WorkspaceTrustLevel = "untrusted" | "trusted" | "sandboxed" | "locked";
 
@@ -111,4 +111,4 @@ export interface ToolGatewayStatus {
 export interface ToolGatewaySnapshot {
   gateways: ToolGatewayStatus[];
 }
-import type { DriverKind } from "./drivers";
+import type { DriverKind } from "./drivers.js";

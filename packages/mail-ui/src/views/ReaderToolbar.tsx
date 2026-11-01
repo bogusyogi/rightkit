@@ -1,12 +1,12 @@
 import { useRef } from "react";
 import { Button, ContextMenu, IconButton, Popover, type MenuItem, Input } from "@rightkit/react-shell/react";
-import Icon from "../components/Icons";
-import { computeListSource, userLabelsOf } from "../lib/mail";
-import { getReaderActions, isDraftThread, type ThreadAction } from "../lib/folderActions";
-import { useThreadView } from "../hooks/useThreadView";
-import { useAppStore } from "../store";
-import { deleteDrafts, bulkAction } from "../lib/ipc";
-import { clickTrace } from "../lib/telemetry";
+import Icon from "../components/Icons.js";
+import { computeListSource, userLabelsOf } from "../lib/mail.js";
+import { getReaderActions, isDraftThread, type ThreadAction } from "../lib/folderActions.js";
+import { useThreadView } from "../hooks/useThreadView.js";
+import { useAppStore } from "../store/index.js";
+import { deleteDrafts, bulkAction } from "../lib/ipc.js";
+import { clickTrace } from "../lib/telemetry.js";
 
 export function ReaderToolbar() {
   const labelWrapRef = useRef<HTMLDivElement>(null);

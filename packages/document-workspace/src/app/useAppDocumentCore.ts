@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
 import { createBlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
-import { useDocumentTabs } from "./useDocumentTabs";
-import { useViewState } from "./useViewState";
-import { useLibrary } from "./useLibrary";
-import { useDocuments } from "./useDocuments";
+import { useDocumentTabs } from "./useDocumentTabs.js";
+import { useViewState } from "./useViewState.js";
+import { useLibrary } from "./useLibrary.js";
+import { useDocuments } from "./useDocuments.js";
 
 /**
  * Document core: shared tab/edit state, view state, the recents/pins library, and the open/save/dirty/close

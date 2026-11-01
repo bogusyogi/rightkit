@@ -6,7 +6,7 @@ import {
   eventMatchesShortcutPrefix as shellEventMatchesShortcutPrefix,
   isShortcutPrefixHeld as shellIsShortcutPrefixHeld,
 } from "@rightkit/react-shell";
-import { isMacOS, normalizeCombo, UNASSIGNED_SHORTCUT, type ShortcutCombo } from "./bindings";
+import { isMacOS, normalizeCombo, UNASSIGNED_SHORTCUT, type ShortcutCombo } from "./bindings.js";
 
 /** The single-chord canonical form of a prefix combo, or undefined for unassigned, invalid or multi-chord combos. */
 function prefixChord(prefixCombo: ShortcutCombo): string | undefined {

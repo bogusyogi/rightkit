@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import PersistentTerminal, { TerminalSlot } from "./PersistentTerminal";
-import usePersistentTerminal from "../hooks/usePersistentTerminal";
+import PersistentTerminal, { TerminalSlot } from "./PersistentTerminal.js";
+import usePersistentTerminal from "../hooks/usePersistentTerminal.js";
 import type { DaemonConfig, ExecutionProcessRow } from "@rightkit/agent-ui-core/lib/types";
 
-vi.mock("../hooks/usePersistentTerminal", () => ({
+vi.mock("../hooks/usePersistentTerminal.js", () => ({
   default: vi.fn(),
 }));
 

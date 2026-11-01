@@ -3,14 +3,14 @@
 // via ReaderMessage (which owns the ⋯ menu via ReaderMoreMenu). Prop-less: reads
 // state from the store and handlers from useThreadView.
 import { memo } from "react";
-import { FindBar } from "../components/FindBar";
-import { unsubUrl, labelChip } from "../lib/mail";
-import { useThreadView } from "../hooks/useThreadView";
-import { openExternal } from "../lib/ipc";
-import { useAppStore } from "../store";
-import { useReaderFindProvider } from "../hooks/useReaderFindProvider";
-import { ReaderToolbar } from "./ReaderToolbar";
-import { ReaderMessage } from "./ReaderMessage";
+import { FindBar } from "../components/FindBar.js";
+import { unsubUrl, labelChip } from "../lib/mail.js";
+import { useThreadView } from "../hooks/useThreadView.js";
+import { openExternal } from "../lib/ipc.js";
+import { useAppStore } from "../store/index.js";
+import { useReaderFindProvider } from "../hooks/useReaderFindProvider.js";
+import { ReaderToolbar } from "./ReaderToolbar.js";
+import { ReaderMessage } from "./ReaderMessage.js";
 import { Button, SkeletonRows, Input } from "@rightkit/react-shell/react";
 
 function ReaderViewInner() {

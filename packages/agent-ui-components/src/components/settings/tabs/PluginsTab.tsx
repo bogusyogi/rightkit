@@ -1,13 +1,13 @@
 import { Checkbox } from "@rightkit/react-shell/react";
 import { useState, type ReactNode } from "react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import { hasPluginUpdate } from "../../../hooks/usePluginsRuntime";
+import { hasPluginUpdate } from "../../../hooks/usePluginsRuntime.js";
 import type { PluginManifest, PluginMarketplaceEntry } from "@rightkit/agent-ui-core/lib/types";
 import type {
   PluginInstallDraft,
   PluginMarketplaceInstallDraft,
   PluginMarketplaceSyncDraft,
-} from "../types";
+} from "../types.js";
 import InstalledPluginsList from "@rightkit/agent-ui-settings/components/settings/tabs/plugins/InstalledPluginsList";
 import PluginContributionHost from "@rightkit/agent-ui-settings/components/PluginContributionHost";
 import { projectDaemonPluginManifest } from "@rightkit/agent-ui-core/lib/pluginContributionProjection";

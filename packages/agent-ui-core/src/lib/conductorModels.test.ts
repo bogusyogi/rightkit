@@ -6,7 +6,7 @@ import {
   conductorRuntimeModelsFromCatalog,
   conductorSupportsThinkingLevels,
   resolveConductorRuntimeModelId,
-} from "./conductorModels";
+} from "./conductorModels.js";
 
 describe("conductor runtime models", () => {
   it("offers MiniMax M3 as a first-class conductor", () => {

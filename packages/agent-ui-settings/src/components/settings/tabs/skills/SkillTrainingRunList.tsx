@@ -1,6 +1,6 @@
 import type { SkillOptimizationRun } from "@rightkit/agent-ui-core/lib/types";
-import { OfflinePanel } from "../shared";
-import { skillTrainingStatusClass } from "./SkillShared";
+import { OfflinePanel } from "../shared.js";
+import { skillTrainingStatusClass } from "./SkillShared.js";
 
 export default function SkillTrainingRunList({
   runs,

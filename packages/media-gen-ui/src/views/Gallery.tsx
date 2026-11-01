@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { approveDraft, assetUrl, deleteAsset, errorMessage, errorText, fetchEngineSettings, fetchGallery, searchLibrary, studio } from '../lib/api';
-import { useApp } from '../lib/app-state';
-import type { GalleryArtifact, GalleryReport } from '../lib/types';
-import type { AssetFacts, AssetScope, LibraryHit } from '../lib/types/library';
+import { approveDraft, assetUrl, deleteAsset, errorMessage, errorText, fetchEngineSettings, fetchGallery, searchLibrary, studio } from '../lib/api.js';
+import { useApp } from '../lib/app-state.js';
+import type { GalleryArtifact, GalleryReport } from '../lib/types.js';
+import type { AssetFacts, AssetScope, LibraryHit } from '../lib/types/library.js';
 import { Badge, Button, Card, Checkbox, EmptyState, Input, Notice, Pill, SegmentedControl, Select } from '@rightkit/react-shell/react';
-import { Kv, baseName, relativeTime, usd } from '../components/ui';
+import { Kv, baseName, relativeTime, usd } from '../components/ui.js';
 import { MediaPlayer } from '@rightkit/media-ui';
 import { ImageViewer } from '@rightkit/media-ui/image';
-import { useConfirm } from '../lib/confirm';
-import { formatDuration } from '../lib/gen-params';
-import brandCatalog from '../studio-data/brands/brands.json';
+import { useConfirm } from '../lib/confirm.js';
+import { formatDuration } from '../lib/gen-params.js';
+import brandCatalog from '../studio-data/brands/brands.json' with { type: "json" };
 import {
   ALL,
   EYES_STATES,
@@ -31,11 +31,10 @@ import {
   type BrandInfo,
   type FilterFields,
   type GalleryFilters
-} from '../lib/gallery-filters';
-import { NOT_RECORDED, factsRows } from '../lib/asset-facts';
-import { LibraryResults, ImportPanel } from './GalleryLibrary';
-import './gallery.css';
-import { hostAppName } from "../appName";
+} from '../lib/gallery-filters.js';
+import { NOT_RECORDED, factsRows } from '../lib/asset-facts.js';
+import { LibraryResults, ImportPanel } from './GalleryLibrary.js';
+import { hostAppName } from "../appName.js";
 
 /** Artifacts fetched per page; the engine walks every root and returns newest first. */
 const GALLERY_PAGE = 200;

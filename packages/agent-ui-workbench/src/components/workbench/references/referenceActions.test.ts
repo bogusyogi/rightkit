@@ -8,7 +8,7 @@ import { useWorkspaceStore } from "@rightkit/agent-ui-core/state/workspaceStore"
 vi.mock("@rightkit/agent-ui-core/lib/secureStore", () => ({ openExternal: vi.fn().mockResolvedValue(undefined) }));
 
 import { openExternal } from "@rightkit/agent-ui-core/lib/secureStore";
-import { performReferenceAction } from "./referenceActions";
+import { performReferenceAction } from "./referenceActions.js";
 
 function reference(overrides: Partial<ReferenceMeta>): ReferenceMeta {
   return {

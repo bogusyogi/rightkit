@@ -1,5 +1,5 @@
-import { appendDiag, type Thread } from "../../../lib/ipc";
-import { keyOf } from "../../../lib/mail";
+import { appendDiag, type Thread } from "../../../lib/ipc.js";
+import { keyOf } from "../../../lib/mail.js";
 
 export const SLOW_SCOPE_MS = 250;
 

@@ -6,7 +6,7 @@
 // while an editor surface unmounts or the active file changes.
 
 import { create } from "zustand";
-import type { WorkspaceFileResponse, WorkspaceFileSaveResponse } from "../lib/types/workspace-files";
+import type { WorkspaceFileResponse, WorkspaceFileSaveResponse } from "../lib/types/workspace-files.js";
 
 /** Serializable view state supplied by an editor implementation. */
 export interface EditorViewState {

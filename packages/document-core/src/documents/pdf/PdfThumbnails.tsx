@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { boundedCanvasDpr, THUMB_W, viewportRotation } from "./pdfShared";
+import { boundedCanvasDpr, THUMB_W, viewportRotation } from "./pdfShared.js";
 import { thumbnailWindow } from "@rightkit/pdf-ui";
 
 const THUMB_ITEM_HEIGHT = Math.round(THUMB_W * 1.3) + 30;

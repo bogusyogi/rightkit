@@ -1,7 +1,7 @@
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import { EmptyState } from "@rightkit/react-shell/react";
 import type { MemoryEntryRow } from "@rightkit/agent-ui-core/lib/types";
-import { formatIsoTime } from "./runtimeUtils";
+import { formatIsoTime } from "./runtimeUtils.js";
 
 export default function MemoryRuntimePanel({
   entries,

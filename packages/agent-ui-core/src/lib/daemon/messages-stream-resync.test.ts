@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { DaemonConfig, ProtocolEvent } from "../types";
-import { openEventStream, replayEventPages } from "./messages-stream-readiness";
+import type { DaemonConfig, ProtocolEvent } from "../types.js";
+import { openEventStream, replayEventPages } from "./messages-stream-readiness.js";
 
 const config = { url: "http://daemon.test/", token: "tok" } as DaemonConfig;
 

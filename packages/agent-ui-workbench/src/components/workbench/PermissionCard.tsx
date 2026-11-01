@@ -13,7 +13,7 @@ import type { ReactElement } from "react";
 import type { PendingApproval as ApprovalState } from "@rightkit/agent-ui-hooks/hooks/useApprovals";
 import type { SessionRow } from "@rightkit/agent-ui-core/lib/types";
 import type { DiffHunk, DiffHunkDecision } from "@rightkit/agent-ui-hooks/components/workbench/DiffView";
-import { approvalActionLabel } from "./ApprovalDetails";
+import { approvalActionLabel } from "./ApprovalDetails.js";
 
 type PermissionCardApproval = Pick<ApprovalState, "id"> &
   Partial<Omit<ApprovalState, "id">> & {

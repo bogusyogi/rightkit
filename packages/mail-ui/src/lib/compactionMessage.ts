@@ -1,7 +1,7 @@
 // Pure result copy for "Compact database". No React, no IPC — unit-tested in
 // tests/compactionMessage.test.ts.
 import { formatBytes } from "@rightkit/settings-ui/core";
-import type { CompactionResult } from "./ipc/system";
+import type { CompactionResult } from "./ipc/system.js";
 
 export function compactionResultMessage(
   result: Pick<CompactionResult, "before_bytes" | "after_bytes" | "seconds" | "rebuild_registered">,

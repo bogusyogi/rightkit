@@ -7,7 +7,7 @@ import { ContextMenu, type MenuItem } from "@rightkit/react-shell/react";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
 import { revealInFileExplorer } from "@rightkit/document-core/state/tauriBridge";
 import { isMac } from "@rightkit/document-core/platform";
-import { compactMenuItemClass, menuPanelClass } from "./SidebarPrimitives";
+import { compactMenuItemClass, menuPanelClass } from "./SidebarPrimitives.js";
 import {
   breadcrumbPath,
   copyText,
@@ -15,7 +15,7 @@ import {
   pathBase,
   pathFolder,
   relativePath,
-} from "./SidebarPathUtils";
+} from "./SidebarPathUtils.js";
 
 export function DocumentMenu({
   menu,

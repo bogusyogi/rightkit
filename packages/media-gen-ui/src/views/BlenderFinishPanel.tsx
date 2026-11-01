@@ -5,7 +5,7 @@
 // this spec refuse adoption until that confirmation exists.
 import { useState } from 'react';
 import { Card, Button, Input, Notice, Pill } from '@rightkit/react-shell/react';
-import { approveDraft, errorText, studio } from '../lib/api';
+import { approveDraft, errorText, studio } from '../lib/api.js';
 
 interface SpecPreflight {
   path: string;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { compareCliVersions, projectCliUpdate, projectCliUpdates } from "./updateProjection";
+import { compareCliVersions, projectCliUpdate, projectCliUpdates } from "./updateProjection.js";
 
 const provider = { providerId: "codex", displayName: "Codex CLI", installed: true, binaryVersion: "v1.2.3" };
 

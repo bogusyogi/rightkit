@@ -4,8 +4,8 @@
 // (which is the in-drawer form behavior). Owns the two timers as refs.
 import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { useAppStore, composeEditorRef } from "../store";
-import { sanitizeHtml } from "../lib/html";
+import { useAppStore, composeEditorRef } from "../store/index.js";
+import { sanitizeHtml } from "../lib/html.js";
 import {
   type SendReq,
   sendEmail,
@@ -13,7 +13,7 @@ import {
   scheduleSend,
   archiveThread,
   finishQuit,
-} from "../lib/ipc";
+} from "../lib/ipc.js";
 
 export function useSend() {
   const compose = useAppStore((s) => s.compose);

@@ -1,4 +1,4 @@
-import type { DisplayJob } from "../contract";
+import type { DisplayJob } from "../contract.js";
 
 /**
  * Format a Tauri/RPC error for the existing error banner. Tauri returns the

@@ -8,26 +8,26 @@ import {
   type RefObject,
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { AttachmentPreviewModal } from "../components/AttachmentPreviewModal";
+import { AttachmentPreviewModal } from "../components/AttachmentPreviewModal.js";
 import { SkeletonRows } from "@rightkit/react-shell/react";
-import { useAppStore } from "../store";
-import { useInboxAttachmentPreview } from "../hooks/useInboxAttachmentPreview";
-import { useSearchCoverage } from "../hooks/useSearchCoverage";
+import { useAppStore } from "../store/index.js";
+import { useInboxAttachmentPreview } from "../hooks/useInboxAttachmentPreview.js";
+import { useSearchCoverage } from "../hooks/useSearchCoverage.js";
 import {
   FOLDER_LABEL,
   CATEGORY_LABEL_IDS,
   keyOf,
   computeListSource,
   hasInboxCategories,
-} from "../lib/mail";
-import { type Thread } from "../lib/ipc";
-import { InboxToolbar } from "./InboxToolbar";
-import { InboxCategoryTabs } from "./InboxCategoryTabs";
-import { InboxEmptyState } from "./InboxEmptyState";
-import { InboxFolderBanner } from "./InboxFolderBanner";
-import { InboxSearchChips } from "./InboxSearchChips";
-import { InboxVirtualList } from "./InboxVirtualList";
-import { SearchCoverageBanner } from "./SearchCoverageBanner";
+} from "../lib/mail.js";
+import { type Thread } from "../lib/ipc.js";
+import { InboxToolbar } from "./InboxToolbar.js";
+import { InboxCategoryTabs } from "./InboxCategoryTabs.js";
+import { InboxEmptyState } from "./InboxEmptyState.js";
+import { InboxFolderBanner } from "./InboxFolderBanner.js";
+import { InboxSearchChips } from "./InboxSearchChips.js";
+import { InboxVirtualList } from "./InboxVirtualList.js";
+import { SearchCoverageBanner } from "./SearchCoverageBanner.js";
 export function InboxView({
   scrollRef,
 }: {

@@ -1,4 +1,4 @@
-import type Sidebar from "../../components/Sidebar";
+import type Sidebar from "../../components/Sidebar.js";
 import type {
   DaemonConfig,
   ExecutionBackendRegistry,
@@ -6,7 +6,7 @@ import type {
   ModelCatalogEntry,
 } from "@rightkit/agent-ui-core/lib/types";
 import { projectName } from "@rightkit/agent-ui-core/lib/utils";
-import { buildConnectionLabel } from "./shared";
+import { buildConnectionLabel } from "./shared.js";
 
 type SetStatus = (value: string) => void;
 

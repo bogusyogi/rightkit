@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { rentalResolve, rentalTeardown, rentalsEnforce, rentalsList, studio } from '../lib/api';
-import { errorCode } from '../lib/engine-error';
-import { useConfirm } from '../lib/confirm';
+import { rentalResolve, rentalTeardown, rentalsEnforce, rentalsList, studio } from '../lib/api.js';
+import { errorCode } from '../lib/engine-error.js';
+import { useConfirm } from '../lib/confirm.js';
 import { Card, Badge, Button, Notice } from '@rightkit/react-shell/react';
 import {
   RENTAL_ENFORCEMENT_TEXT,
@@ -27,8 +27,8 @@ import {
   type RentalsEnforceReport,
   type RentalsListing,
   type RentalWorkerRecord,
-} from './rentals-logic';
-import { hostAppName } from "../appName";
+} from './rentals-logic.js';
+import { hostAppName } from "../appName.js";
 
 const POLL_MS = 30_000;
 

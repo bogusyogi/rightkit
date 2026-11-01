@@ -1,5 +1,5 @@
 // Reference only, deleted at QA close.
-import type { Brand, VideoStudioPreflightRequest } from './types';
+import type { Brand, VideoStudioPreflightRequest } from './types.js';
 
 export type MotionFlowType = 'classic_motion' | 'kinetic_motion';
 

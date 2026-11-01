@@ -15,7 +15,7 @@ export const LIVE_PREVIEW_DEBOUNCE_MS = 120;
 export function initialSourceDrawerOpen(): boolean {
   if (typeof window === "undefined") return false;
   // A dev/QA entry point only; the guard folds away in production builds.
-  if (!import.meta.env.DEV && import.meta.env.VITE_RIGHTKIT_BROWSER_QA !== "1") return false;
+  if (!import.meta.env?.DEV && import.meta.env?.VITE_RIGHTKIT_BROWSER_QA !== "1") return false;
   return new URLSearchParams(window.location.search).get("source") === "1";
 }
 

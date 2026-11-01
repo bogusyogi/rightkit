@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { errorMessage } from '../lib/api';
-import { copyText } from '../lib/shell';
-import { setHandoff, type HandoffView } from '../lib/handoff';
-import type { ViewId } from '../lib/nav';
+import { errorMessage } from '../lib/api.js';
+import { copyText } from '../lib/shell.js';
+import { setHandoff, type HandoffView } from '../lib/handoff.js';
+import type { ViewId } from '../lib/nav.js';
 import {
   productionApi,
   type BrandKit,
@@ -15,15 +15,13 @@ import {
   type ProductionTemplates,
   type ProductionValues,
   type SavedPack
-} from '../lib/production-api';
+} from '../lib/production-api.js';
 import { Badge, Button, Card, Checkbox, Input, Notice, Pill, SegmentedControl, Select, Toggle } from '@rightkit/react-shell/react';
-import { relativeTime } from '../components/ui';
-import { IconCheck, IconFilm, IconImage, IconMic } from '../components/icons';
-import './workspace.css';
-import './production.css';
-import { PipelineWorkflowsPanel } from './PipelineWorkflowsPanel';
-import { BlenderFinishPanel } from './BlenderFinishPanel';
-import { hostAppName } from "../appName";
+import { relativeTime } from '../components/ui.js';
+import { IconCheck, IconFilm, IconImage, IconMic } from '../components/icons.js';
+import { PipelineWorkflowsPanel } from './PipelineWorkflowsPanel.js';
+import { BlenderFinishPanel } from './BlenderFinishPanel.js';
+import { hostAppName } from "../appName.js";
 
 type Mode = 'campaign' | 'canvas' | 'brand' | 'director' | 'post' | 'pipelines';
 const MODES: Array<{ id: Mode; label: string }> = [

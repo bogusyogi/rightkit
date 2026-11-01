@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
-import { interruptRun } from "../lib/daemon";
-import type { DaemonConfig, ProtocolEvent } from "../lib/types";
+import { interruptRun } from "../lib/daemon.js";
+import type { DaemonConfig, ProtocolEvent } from "../lib/types.js";
 
 export type SubAgentStatus = "running" | "completed" | "cancelled";
 

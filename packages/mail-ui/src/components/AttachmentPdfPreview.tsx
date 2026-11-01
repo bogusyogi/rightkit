@@ -1,12 +1,11 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PdfViewer } from "@rightkit/pdf-ui";
-import "@rightkit/pdf-ui/styles.css";
-import AttachmentTypeIcon from "./AttachmentTypeIcon";
+import AttachmentTypeIcon from "./AttachmentTypeIcon.js";
 import {
   MAX_PDF_PAGES,
   pdfPasswordCopy,
   type PdfPasswordReason,
-} from "../lib/attachmentPdf";
+} from "../lib/attachmentPdf.js";
 
 import { Button, Input } from "@rightkit/react-shell/react";
 type PdfPasswordRequest = {

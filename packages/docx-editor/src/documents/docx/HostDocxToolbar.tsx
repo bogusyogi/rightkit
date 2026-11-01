@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
-import type { DocxHostToolbarContext } from "./eigenpalReact";
-import { useDocxCommandBridge } from "./useDocxCommandBridge";
+import type { DocxHostToolbarContext } from "./eigenpalReact.js";
+import { useDocxCommandBridge } from "./useDocxCommandBridge.js";
 import { shortcutLabel } from "@rightkit/document-core/platform";
 import { DocumentToolbarSearch, type DocumentSearchMode } from "@rightkit/document-core/documents/DocumentToolbarFind";
 import { DocumentToolbarShell } from "@rightkit/document-core/documents/DocumentToolbarShell";
@@ -25,7 +25,7 @@ import {
   IconImage,
   IconLink,
   IconOutline,
-} from "./toolbarIcons";
+} from "./toolbarIcons.js";
 import { DocBar } from "@rightkit/document-core/app/shell/docBar";
 
 // Curated font set (Word-common). Applied via the format bridge; no eigenpal UI.

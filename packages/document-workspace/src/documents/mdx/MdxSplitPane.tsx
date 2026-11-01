@@ -15,7 +15,7 @@ import { useEditText } from "@rightkit/document-core/app/useEditText";
 import { useMirroredEditText } from "@rightkit/document-core/documents/useMirroredEditText";
 import { useSplitResize } from "@rightkit/document-core/documents/useSplitResize";
 import type { SearchProvider } from "@rightkit/document-core/documents/types";
-import { MarkdownSourceDrawer, useMarkdownSourceDrawer } from "../markdown/MarkdownSplitPane";
+import { MarkdownSourceDrawer, useMarkdownSourceDrawer } from "../markdown/MarkdownSplitPane.js";
 import { MdxPreviewFrame } from "@rightkit/markdown-editor/documents/mdx/MdxPreviewFrame";
 import { DocumentToolbarSearch, type DocumentSearchMode } from "@rightkit/document-core/documents/DocumentToolbarFind";
 

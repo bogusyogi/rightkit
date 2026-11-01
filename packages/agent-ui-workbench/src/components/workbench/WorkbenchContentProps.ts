@@ -1,4 +1,4 @@
-import type { RuntimeTab } from "../RuntimePane";
+import type { RuntimeTab } from "../RuntimePane.js";
 import type { PendingApproval } from "@rightkit/agent-ui-hooks/hooks/useApprovals";
 import type { ScheduleDraft, WebhookTriggerDraft } from "@rightkit/agent-ui-hooks/hooks/useRuntimeAggregates";
 import type { QueuedMessage } from "@rightkit/agent-ui-hooks/hooks/useQueuedMessages";

@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { ScheduleAdminAuditEvent, ScheduleRow } from "@rightkit/agent-ui-core/lib/types";
 import { ConfirmDialog, Select } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import ScheduleEditor, { scheduleTimeZoneOptions } from "./ScheduleEditor";
+import ScheduleEditor, { scheduleTimeZoneOptions } from "./ScheduleEditor.js";
 import type { ScheduleDraft } from "@rightkit/agent-ui-hooks/hooks/useRuntimeAggregates";
 import {
   formatEpochMinute,
@@ -14,7 +14,7 @@ import {
   formatScheduleNextDue,
   formatScheduleRun,
   formatScheduleRunContext,
-} from "./runtimeUtils";
+} from "./runtimeUtils.js";
 
 export default function SchedulesRuntimePanel({
   schedules,

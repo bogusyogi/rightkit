@@ -24,8 +24,8 @@ import type {
   SkillProvenanceReviewResponse,
   SkillReadResponse,
   SkillSaveResponse,
-} from "../types";
-import { requestDaemonApi } from "../generated/daemon-openapi";
+} from "../types.js";
+import { requestDaemonApi } from "../generated/daemon-openapi.js";
 
 export interface BotProfileView {
   schemaVersion: 1;

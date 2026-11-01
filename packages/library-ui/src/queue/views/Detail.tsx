@@ -8,22 +8,22 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { JobEvent, TranscriptDetail, TranscriptVariant } from "../contract";
-import { invoke, listen, save as saveDialog } from "../lib/ipc";
-import { isTerminalStage } from "../lib/jobState";
-import { formatInvokeError } from "../lib/errorMessage";
-import { useFlash } from "../lib/flash";
-import { runTranscriptFileAction } from "../lib/transcriptActions";
-import { copyTextToClipboard } from "../lib/workbench";
-import { labelForSource, categoryForKind } from "../lib/jobDisplay";
-import { modKeyLabel } from "../lib/platform";
-import { isImageRow, savedMediaKind } from "../lib/mediaSelection";
-import { categoryIcon } from "../components/CategoryIcon";
+import type { JobEvent, TranscriptDetail, TranscriptVariant } from "../contract.js";
+import { invoke, listen, save as saveDialog } from "../lib/ipc/index.js";
+import { isTerminalStage } from "../lib/jobState.js";
+import { formatInvokeError } from "../lib/errorMessage.js";
+import { useFlash } from "../lib/flash.js";
+import { runTranscriptFileAction } from "../lib/transcriptActions.js";
+import { copyTextToClipboard } from "../lib/workbench.js";
+import { labelForSource, categoryForKind } from "../lib/jobDisplay.js";
+import { modKeyLabel } from "../lib/platform.js";
+import { isImageRow, savedMediaKind } from "../lib/mediaSelection.js";
+import { categoryIcon } from "../components/CategoryIcon.js";
 import { cx, ContextMenu, type MenuItem } from "@rightkit/react-shell/react";
 import { createShortcutRegistry } from "@rightkit/react-shell";
 import { moveIndex } from "@rightkit/platform-ui/headless";
-import { buttonClass, errorTextClass, mutedTextClass } from "../lib/ui";
-import { BackButton, DetailShell, TabButton } from "./DetailChrome";
+import { buttonClass, errorTextClass, mutedTextClass } from "../lib/ui.js";
+import { BackButton, DetailShell, TabButton } from "./DetailChrome.js";
 import {
   countEntryMatches,
   countMatches,
@@ -31,8 +31,8 @@ import {
   findTextForMarkdown,
   normalizeFindQuery,
   transcriptEntries,
-} from "./detailFind";
-import { useLicense } from "./settings/useLicense";
+} from "./detailFind.js";
+import { useLicense } from "./settings/useLicense.js";
 import {
   CarouselLayout,
   countWords,
@@ -43,9 +43,8 @@ import {
   textForTab,
   TranscriptBody,
   type DetailTab,
-} from "./DetailReader";
-import "./ClaudeReader.css";
-import { SourcePlatformIcon, sourcePlatform } from "../components/SourcePlatformIcon";
+} from "./DetailReader.js";
+import { SourcePlatformIcon, sourcePlatform } from "../components/SourcePlatformIcon.js";
 import {
   Check,
   ChevronUp,
@@ -63,7 +62,7 @@ import {
   Text,
   Video,
 } from "lucide-react";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 /** Width of the Save / More transcript menus (right-aligned under their trigger). */
 const MENU_WIDTH = 220;

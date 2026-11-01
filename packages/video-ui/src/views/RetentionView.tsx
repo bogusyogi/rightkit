@@ -1,9 +1,8 @@
 // Retention — docs/design/app-ui.md §3.6. Audience-retention CSV bound to one
 // exact render; drop-offs become cut proposals applied as one revision.
 import { Badge, Button, Card, Checkbox, EmptyState, Field, PageShell, useToast } from "@rightkit/react-shell/react";
-import "./Retention.css";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { errorMessage } from "../lib/engine";
+import { errorMessage } from "../lib/engine.js";
 import {
   type DropOff,
   type RenderFile,
@@ -14,10 +13,10 @@ import {
   retentionImport,
   retentionList,
   retentionShow,
-} from "../lib/media";
-import { assetUrl } from "../lib/asset";
-import { pickFile } from "../lib/dialog";
-import { ErrorPanel, timecode, Icon } from "../ui";
+} from "../lib/media.js";
+import { assetUrl } from "../lib/asset.js";
+import { pickFile } from "../lib/dialog.js";
+import { ErrorPanel, timecode, Icon } from "../ui/index.js";
 
 type RetentionRow = { name: string; render?: string; points: number; drop_offs?: number; revision?: number };
 

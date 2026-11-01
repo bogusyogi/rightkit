@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import RuntimePane from "@rightkit/agent-ui-workbench/components/RuntimePane";
 import TerminalPane from "@rightkit/terminal-ui/components/TerminalPane";
-import MemoryPane from "./MemoryPane";
+import MemoryPane from "./MemoryPane.js";
 import { useStreamingStore } from "@rightkit/agent-ui-core/state/streamingStore";
 import { useAttentionStore } from "@rightkit/agent-ui-core/state/attentionStore";
 // a11y-test: aria-label="Conversation" role="region" id="main-conversation"
@@ -15,7 +15,7 @@ import PlanPrompt from "@rightkit/agent-ui-workbench/components/workbench/PlanPr
 import ConversationFindBar from "@rightkit/agent-ui-workbench/components/workbench/ConversationFindBar";
 import TranscriptSearchBar from "@rightkit/agent-ui-workbench/components/workbench/TranscriptSearchBar";
 import SessionMinimap from "@rightkit/agent-ui-workbench/components/workbench/SessionMinimap";
-import LongTranscriptViewport from "./performance/LongTranscriptViewport";
+import LongTranscriptViewport from "./performance/LongTranscriptViewport.js";
 import SessionEmptyState from "@rightkit/agent-ui-workbench/components/workbench/SessionEmptyState";
 import AwaySummaryCard from "@rightkit/agent-ui-workbench/components/workbench/AwaySummaryCard";
 import RunAnnouncer from "@rightkit/agent-ui-workbench/components/workbench/RunAnnouncer";
@@ -35,31 +35,31 @@ import { toast } from "@rightkit/react-shell";
 import { useRightPanelStore } from "@rightkit/agent-ui-core/state/rightPanelStore";
 import { useSidePanelStore } from "@rightkit/agent-ui-core/state/sidePanelStore";
 import { projectLayoutOrDefault, useLayoutStore } from "@rightkit/agent-ui-core/state/layoutStore";
-import { useRunChangesInventory } from "./review/useRunChangesInventory";
-import EditedFilesInline from "./review/EditedFilesInline";
-import ChangedFilesCard from "./review/ChangedFilesCard";
-import { undoRunChange } from "./review/runChangesClient";
+import { useRunChangesInventory } from "./review/useRunChangesInventory.js";
+import EditedFilesInline from "./review/EditedFilesInline.js";
+import ChangedFilesCard from "./review/ChangedFilesCard.js";
+import { undoRunChange } from "./review/runChangesClient.js";
 import {
   dispatch as dispatchRunChanges,
   getRunChangesStateSnapshot,
-} from "./review/useRunChangesState";
+} from "./review/useRunChangesState.js";
 // C.1 orphan mounts — every former orphan is now transitively reachable from App.tsx via WorkbenchContent
-import GoalsPanel from "./GoalsPanel";
-import HarnessStatus from "./HarnessStatus";
-import SkillsChip from "./SkillsChip";
-import ContextUsageMeter from "./app/ContextUsageMeter";
-import AssistantMessage from "./chat/AssistantMessage";
-import UserMessage from "./chat/UserMessage";
-import { parseGoals } from "./goals/parser";
+import GoalsPanel from "./GoalsPanel.js";
+import HarnessStatus from "./HarnessStatus.js";
+import SkillsChip from "./SkillsChip.js";
+import ContextUsageMeter from "./app/ContextUsageMeter.js";
+import AssistantMessage from "./chat/AssistantMessage.js";
+import UserMessage from "./chat/UserMessage.js";
+import { parseGoals } from "./goals/parser.js";
 import MarkdownArtifactView from "@rightkit/agent-ui-workbench/components/runtime/MarkdownArtifactView";
 import { ToolsetBadge, ForkBadge, SafeModeBadge, SpecBadge } from "@rightkit/agent-ui-workbench/components/workbench/ContextBadges";
 import { DispatchBadge } from "@rightkit/agent-ui-workbench/components/workbench/DispatchBadge";
-import LastTurnUsageBreakdown from "./app/composerIsland/LastTurnUsageBreakdown";
+import LastTurnUsageBreakdown from "./app/composerIsland/LastTurnUsageBreakdown.js";
 import StructuredQuestionCard from "@rightkit/agent-ui-workbench/components/workbench/StructuredQuestionCard";
 import { useChatTimelineScroll } from "@rightkit/agent-ui-hooks/hooks/useChatTimelineScroll";
 import { useWorkspaceContextSwitch } from "@rightkit/agent-ui-hooks/hooks/useWorkspaceContextSwitch";
 import { useWorktreeProjection } from "@rightkit/agent-ui-hooks/hooks/useWorktreeProjection";
-import { humanizeToolName } from "./activityLabelProjection";
+import { humanizeToolName } from "./activityLabelProjection.js";
 import PermissionCard from "@rightkit/agent-ui-workbench/components/workbench/PermissionCard";
 import SessionActionBar from "@rightkit/agent-ui-workbench/components/workbench/SessionActionBar";
 import DocumentPreview from "@rightkit/agent-ui-workbench/components/workbench/references/DocumentPreview";
@@ -73,8 +73,8 @@ import { useComposerModeStore } from "@rightkit/agent-ui-core/state/composerMode
 import { useComposerScopeStore } from "@rightkit/agent-ui-core/state/composerScopeStore";
 import { useGoalsStore } from "@rightkit/agent-ui-core/state/goalsStore";
 import { useSubagentsStore } from "@rightkit/agent-ui-core/state/subagentsStore";
-import "./review";
-import { hostAppName } from "../appName";
+import "./review/index.js";
+import { hostAppName } from "../appName.js";
 
 export type Pane = "session" | "tasks" | "runtime" | "terminal" | "memory";
 

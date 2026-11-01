@@ -20,7 +20,7 @@ import type {
   RunChangesSummary,
   AnchorStatus,
   CommentKind,
-} from "./runChangesClient";
+} from "./runChangesClient.js";
 
 export interface RevisionComment {
   commentId: string;

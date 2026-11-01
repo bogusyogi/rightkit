@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { chooseSiteRoot, grantSiteRoot, revokeSiteRoot } from "@rightkit/document-core/state/tauriBridge";
-import type { SiteRootGrant } from "./htmlInline";
+import type { SiteRootGrant } from "./htmlInline.js";
 
 /**
  * One site-root grant per HTML tab, inferred in Rust from `entryPath` (nearest enclosing project

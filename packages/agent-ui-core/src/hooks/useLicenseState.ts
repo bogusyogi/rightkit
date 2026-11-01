@@ -1,20 +1,20 @@
 import { type MutableRefObject, useCallback, useEffect, useRef, useState } from "react";
 
-import { restartDaemon } from "../lib/daemon";
-import type { DaemonConfig } from "../lib/types";
+import { restartDaemon } from "../lib/daemon.js";
+import type { DaemonConfig } from "../lib/types.js";
 import {
   entitlementSignature,
   isLicensed,
   licenseClient,
   licenseErrorMessage,
   type LicenseView,
-} from "../state/license";
+} from "../state/license.js";
 import {
   checkForUpdate,
   downloadPendingUpdate,
   installPendingUpdate,
   type UpdateState,
-} from "../state/updates";
+} from "../state/updates.js";
 
 type LicenseAction = "check" | "install" | null;
 

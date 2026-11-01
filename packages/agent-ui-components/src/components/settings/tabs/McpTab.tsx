@@ -8,7 +8,7 @@ import type {
   McpServerScope,
   McpServerType,
 } from "@rightkit/agent-ui-core/lib/types";
-import type { McpDraft } from "../types";
+import type { McpDraft } from "../types.js";
 import { diagnosticsCardStatusClass, OfflinePanel } from "@rightkit/agent-ui-settings/components/settings/tabs/shared";
 
 function defaultMcpTrustPreset(type: McpServerType): string {

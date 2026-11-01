@@ -1,13 +1,13 @@
 import type { Mark, Node as ProseMirrorNode } from "prosemirror-model";
 import type { ListItem, PhrasingContent, Root, RootContent, Table, Text } from "mdast";
-import { parseToTree } from "../parseMarkdown";
-import { sourceSliceForPosition } from "../pmMarkdownSerialize";
-import { isCallout } from "../semanticBlocks";
-import { markdownHybridSchema } from "../markdownHybridSchema";
-import { parseGfmTable } from "../tables/markdownTableParser";
-import { parseCodeFenceSource } from "../codeFenceModel";
+import { parseToTree } from "../parseMarkdown.js";
+import { sourceSliceForPosition } from "../pmMarkdownSerialize.js";
+import { isCallout } from "../semanticBlocks.js";
+import { markdownHybridSchema } from "../markdownHybridSchema.js";
+import { parseGfmTable } from "../tables/markdownTableParser.js";
+import { parseCodeFenceSource } from "../codeFenceModel.js";
 import { incParseCount } from "@rightkit/document-core/documents/perfEventCounters";
-import { normalizeSoftWraps } from "./pmToMarkdown";
+import { normalizeSoftWraps } from "./pmToMarkdown.js";
 
 type Mdastish = Root | RootContent;
 

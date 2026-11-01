@@ -1,7 +1,7 @@
 import { createThemeStore, type ThemeChoice } from "@rightkit/react-shell";
 import { applyTokens, mix } from "@rightkit/theme";
-import { isQaMode } from "./ipc";
-import { hostAppName } from "../../appName";
+import { isQaMode } from "./ipc/index.js";
+import { hostAppName } from "../../appName.js";
 
 // the host app locked Right Suite identity.
 // Source: /brand SR, backed by D:\Claude\.claude\rules\brands.md.

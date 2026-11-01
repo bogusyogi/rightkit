@@ -3,11 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Pencil, X } from "lucide-react";
 import { Button, IconButton, SegmentedControl, Toggle, Input } from "@rightkit/react-shell/react";
-import { isWindows } from "../api";
+import { isWindows } from "../api.js";
 import { SettingRow, SettingsGroup } from "@rightkit/settings-ui/core";
-import { NeedsLine } from "./settingsKit";
-import { clearVisibleInterval, visibleInterval } from "../visible";
-import { CHAT_KIND_ORDER, chatKindName } from "../lib/chatKind";
+import { NeedsLine } from "./settingsKit.js";
+import { clearVisibleInterval, visibleInterval } from "../visible.js";
+import { CHAT_KIND_ORDER, chatKindName } from "../lib/chatKind.js";
 
 export type TrustChoice = "allow" | "ask" | "deny";
 

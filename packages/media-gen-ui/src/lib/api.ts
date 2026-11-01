@@ -2,21 +2,21 @@ import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core';
 
 export { isTauri };
 /**
- * Browser-preview mock: reachable only in `vite` dev (`import.meta.env.DEV`). Release builds replace the flag with
+ * Browser-preview mock: reachable only in `vite` dev (`import.meta.env?.DEV`). Release builds replace the flag with
  * `false`, so the mock module is neither imported nor bundled. Outside Tauri a release build has no engine to call.
  */
-type BrowserMock = typeof import('./browser-mock-api');
+type BrowserMock = typeof import('./browser-mock-api.js');
 export function loadBrowserMock(): Promise<BrowserMock> {
-  if (import.meta.env.DEV) return import('./browser-mock-api');
+  if (import.meta.env?.DEV) return import('./browser-mock-api.js');
   return Promise.reject(new Error(`${hostAppName()} needs the desktop app.`));
 }
 let devMockScene: ((seed: number) => string) | undefined;
-if (import.meta.env.DEV) void import('./browser-mock-api').then((m) => { devMockScene = m.mockScene; });
-import { toError } from './engine-error';
-import { priceFactsFromModalities, type ModelFacts, type ModelPriceFacts } from './gen-params';
-export type { ModelPriceFacts } from './gen-params';
-import type { RentalsEnforceReport, RentalsListing, RentalWorkerRecord } from '../views/rentals-logic';
-import type { AssetImportDryRun, AssetImportRequest, AssetImportResult, LibrarySearchRequest, LibrarySearchResult } from './types/library';
+if (import.meta.env?.DEV) void import('./browser-mock-api.js').then((m) => { devMockScene = m.mockScene; });
+import { toError } from './engine-error.js';
+import { priceFactsFromModalities, type ModelFacts, type ModelPriceFacts } from './gen-params.js';
+export type { ModelPriceFacts } from './gen-params.js';
+import type { RentalsEnforceReport, RentalsListing, RentalWorkerRecord } from '../views/rentals-logic.js';
+import type { AssetImportDryRun, AssetImportRequest, AssetImportResult, LibrarySearchRequest, LibrarySearchResult } from './types/library.js';
 import type {
   GalleryResponse,
   LocalImageJob,
@@ -26,11 +26,11 @@ import type {
   LocalImageReference,
   LocalImageRuntimeStatus,
   LocalImageSubmitRequest
-} from './types';
-import { hostAppName } from "../appName";
+} from './types.js';
+import { hostAppName } from "../appName.js";
 
-export { EngineError, errorCode, errorDetails, errorMessage, errorText, toError } from './engine-error';
-export type { EngineErrorDetails } from './engine-error';
+export { EngineError, errorCode, errorDetails, errorMessage, errorText, toError } from './engine-error.js';
+export type { EngineErrorDetails } from './engine-error.js';
 
 
 export type MediaKind = 'image' | 'video' | 'voice' | 'avatar' | 'music' | 'sfx' | 'upscale' | 'lipsync';
@@ -554,7 +554,7 @@ export function importAsset(request: AssetImportRequest): Promise<AssetImportRes
 /** URL a webview can load for an on-disk asset (or an inline data/mock asset). */
 export function assetUrl(path: string): string {
   if (path.startsWith('data:') || path.startsWith('blob:') || /^https?:/.test(path)) return path;
-  if (import.meta.env.DEV && path.startsWith('browser-qa-mock://')) return devMockScene ? devMockScene(path.length) : '';
+  if (import.meta.env?.DEV && path.startsWith('browser-qa-mock://')) return devMockScene ? devMockScene(path.length) : '';
   return isTauri() ? convertFileSrc(path) : `/api/artifact?path=${encodeURIComponent(path)}`;
 }
 

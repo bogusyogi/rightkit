@@ -1,13 +1,13 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
-import { useDaemon, daemonHeaders, eventStreamUrl } from './DaemonContext'
-import { type UsageState, EMPTY_USAGE } from '../components/UsagePanel'
-import { buildSessionMessageBody, hasOutgoingPayload } from './messagePayload'
+import { useDaemon, daemonHeaders, eventStreamUrl } from './DaemonContext.js'
+import { type UsageState, EMPTY_USAGE } from '../components/UsagePanel.js'
+import { buildSessionMessageBody, hasOutgoingPayload } from './messagePayload.js'
 import {
   messageFromProtocolEvent,
   type ProtocolEvent,
   type UsageUpdated,
-} from './sessionEventFormat'
+} from './sessionEventFormat.js'
 
 // ── UI message model ──────────────────────────────────────────────────────────
 

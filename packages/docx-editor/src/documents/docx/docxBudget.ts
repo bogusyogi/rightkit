@@ -1,4 +1,4 @@
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 /**
  * Pre-expansion budget for DOCX (ZIP) input. The container is already capped at 150 MB compressed
  * (src-tauri documents.rs MAX_BINARY_BYTES), but the vendored JSZip inflates with no aggregate or

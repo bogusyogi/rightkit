@@ -1,4 +1,4 @@
-import type { RuntimeTab } from "../RuntimePane";
+import type { RuntimeTab } from "../RuntimePane.js";
 
 export function renderRows<T>(rows: T[], pick: (row: T) => [string, string, string]) {
   if (rows.length === 0)

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import HarnessRadarPanel from "./HarnessRadarPanel";
+import HarnessRadarPanel from "./HarnessRadarPanel.js";
 import type { HarnessRadarSnapshot } from "@rightkit/agent-ui-core/lib/types";
 
 function baseSnapshot(overrides: Partial<HarnessRadarSnapshot> = {}): HarnessRadarSnapshot {

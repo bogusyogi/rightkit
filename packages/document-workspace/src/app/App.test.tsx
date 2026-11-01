@@ -63,7 +63,7 @@ vi.mock("@rightkit/document-core/state/tauriBridge", () => ({
   setSettingsMirror: vi.fn(async () => {}),
 }));
 
-vi.mock("../state/library", () => ({
+vi.mock("../state/library.js", () => ({
   listRecent: vi.fn(async () => []),
   listPins: vi.fn(async () => []),
   togglePin: vi.fn(async () => true),
@@ -80,9 +80,9 @@ vi.mock("@tauri-apps/api/window", () => ({
   }),
 }));
 
-vi.mock("../documents/DocumentRouter", () => ({ DocumentRouter: () => null }));
+vi.mock("../documents/DocumentRouter.js", () => ({ DocumentRouter: () => null }));
 
-import { App } from "./App";
+import { App } from "./App.js";
 
 afterEach(() => {
   cleanup(); // unmount between tests so window keydown listeners don't stack across App instances

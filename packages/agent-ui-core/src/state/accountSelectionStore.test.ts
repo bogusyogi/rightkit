@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useAccountSelectionStore } from "./accountSelectionStore";
+import { useAccountSelectionStore } from "./accountSelectionStore.js";
 
 const config = { url: "http://127.0.0.1:1", token: "t" };
 

@@ -18,10 +18,10 @@ import {
   setCodeBlockLanguage,
   setCodeBlockContent,
   type MarkdownCodeBlockModel,
-} from "../../editors/codeBlockModel";
-import type { MarkdownDocumentCore } from "../../core/MarkdownDocumentCore";
-import { useMarkdownBlockDraft } from "../useMarkdownBlockDraft";
-import { MarkdownBlockDraftStatus } from "../MarkdownBlockDraftStatus";
+} from "../../editors/codeBlockModel.js";
+import type { MarkdownDocumentCore } from "../../core/MarkdownDocumentCore.js";
+import { useMarkdownBlockDraft } from "../useMarkdownBlockDraft.js";
+import { MarkdownBlockDraftStatus } from "../MarkdownBlockDraftStatus.js";
 
 export interface MarkdownRawFenceEditorProps {
   readonly core: MarkdownDocumentCore;

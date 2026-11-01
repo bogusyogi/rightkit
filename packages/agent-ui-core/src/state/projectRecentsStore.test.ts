@@ -5,7 +5,7 @@ import {
   normalizeProjectPath,
   projectLabel,
   useProjectRecentsStore,
-} from "./projectRecentsStore";
+} from "./projectRecentsStore.js";
 
 beforeEach(() => {
   localStorage.clear();

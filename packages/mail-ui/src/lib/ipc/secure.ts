@@ -1,4 +1,4 @@
-import { invoke } from "./invoke";
+import { invoke } from "./invoke.js";
 
 // The licence record and the device identity have no renderer command any more: the licence is the
 // native client's (RightKit M12, `rightkit_license_*`, src/lib/license.ts) and the credentials never

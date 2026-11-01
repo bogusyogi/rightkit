@@ -1,5 +1,5 @@
 import { toast } from "@rightkit/platform-ui/headless";
-import { isMarkdownFormat } from "../documents/capabilities";
+import { isMarkdownFormat } from "../documents/capabilities.js";
 import { baseName } from "@rightkit/document-core/documents/types";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
 import type { MarkdownExportApi } from "@rightkit/markdown-editor/documents/markdown/export/markdownExportTypes";

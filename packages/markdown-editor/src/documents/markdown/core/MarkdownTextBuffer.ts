@@ -18,7 +18,7 @@
  */
 
 import { ChangeSet } from "@codemirror/state";
-import { MarkdownChangeMap } from "./MarkdownChangeMap";
+import { MarkdownChangeMap } from "./MarkdownChangeMap.js";
 import {
   countLogicalNewlines,
   logicalNewlineOffsets,
@@ -27,14 +27,14 @@ import {
   splitInsertion,
   splitRawMarkdownSource,
   validateMarkdownEdits,
-} from "./markdownTextEdits";
+} from "./markdownTextEdits.js";
 import type {
   MarkdownAppliedCommand,
   MarkdownLineEnding,
   MarkdownResolvedTextEdit,
   MarkdownTextEdit,
   MarkdownTextParts,
-} from "./types";
+} from "./types.js";
 
 /**
  * Apply result. `forward` is the resolved form of the input edits;

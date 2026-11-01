@@ -31,7 +31,7 @@ import {
   targetDisplay,
   timeLabel,
 } from "@rightkit/dictation-ui/pages/history/historyUtils";
-import { hostAppName } from "../../../appName";
+import { hostAppName } from "../../../appName.js";
 
 export type HistoryRetention = "forever" | "7_days" | "30_days" | "90_days" | "1_year";
 

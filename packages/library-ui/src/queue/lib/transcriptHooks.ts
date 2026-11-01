@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useRef } from "react";
-import type { TranscriptDetail } from "../contract";
+import type { TranscriptDetail } from "../contract.js";
 
 export interface TranscriptState {
   detail: TranscriptDetail | null;

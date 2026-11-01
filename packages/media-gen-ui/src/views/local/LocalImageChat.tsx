@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { assetUrl, errorMessage, importLocalImageReference, isTauri, setLocalImageIdleUnload, setLocalImageMemoryMode, submitLocalImage } from '../../lib/api';
-import type { LocalImageArtifact, LocalImageJob, LocalImageMemoryStatus, LocalImageMessage, LocalImageProfile, LocalImageReference } from '../../lib/types';
-import { ErrorNote } from '../../components/ErrorNote';
+import { assetUrl, errorMessage, importLocalImageReference, isTauri, setLocalImageIdleUnload, setLocalImageMemoryMode, submitLocalImage } from '../../lib/api.js';
+import type { LocalImageArtifact, LocalImageJob, LocalImageMemoryStatus, LocalImageMessage, LocalImageProfile, LocalImageReference } from '../../lib/types.js';
+import { ErrorNote } from '../../components/ErrorNote.js';
 import { Card, Badge, Button, IconButton, Input, Notice, Pill, ProgressBar, Select } from '@rightkit/react-shell/react';
-import type { LocalImageLive } from './useLocalImageLive';
+import type { LocalImageLive } from './useLocalImageLive.js';
 import {
   AUTO_SCHEDULER, RESOLUTIONS, SAMPLERS, SCHEDULERS, buildSubmitRequest, conversationActivity, conversationLabel, defaultSettings,
   fileName, formatMemoryMb, isActiveJob, isRetryable, jobStatusLabel, orderConversations, runtimeLabel, runtimeNeedsWarning, type SettingsForm
-} from './logic';
-import './local.css';
+} from './logic.js';
 
 type Prep = { state: 'pending' | 'ready' | 'failed'; reference?: LocalImageReference; error?: string };
 

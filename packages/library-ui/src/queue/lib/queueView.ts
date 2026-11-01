@@ -1,5 +1,5 @@
-import type { JobInfo, Kind } from "../contract";
-import { categoryForKind, isActiveStage } from "./jobDisplay";
+import type { JobInfo, Kind } from "../contract.js";
+import { categoryForKind, isActiveStage } from "./jobDisplay.js";
 
 export type ChipCategory = "media" | "social" | "document" | "web";
 

@@ -1,7 +1,6 @@
-import "./FinishedEdit.css";
-import type { ProjectShow } from "../lib/project";
-import type { ProgressState } from "../hooks/useProgress";
-import { TimelineEditorView, type PreviewHost } from "../editor/TimelineEditorView";
+import type { ProjectShow } from "../lib/project.js";
+import type { ProgressState } from "../hooks/useProgress.js";
+import { TimelineEditorView, type PreviewHost } from "../editor/TimelineEditorView.js";
 
 /**
  * Finished edit screen (docs/design/app-ui.md §3.4). Thin host: the whole

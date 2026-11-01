@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Card, Button, Notice } from '@rightkit/react-shell/react';
-import { errorMessage, studio } from '../lib/api';
+import { errorMessage, studio } from '../lib/api.js';
 
 export interface ProviderBalance {
   provider: string;

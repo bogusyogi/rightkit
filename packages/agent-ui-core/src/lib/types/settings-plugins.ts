@@ -1,5 +1,5 @@
-import type { MiddlewareEffect, MiddlewarePhase } from "./middleware-runtime";
-import type { InferenceSelection } from "./inference";
+import type { MiddlewareEffect, MiddlewarePhase } from "./middleware-runtime.js";
+import type { InferenceSelection } from "./inference.js";
 
 export interface DaemonConfig {
   url: string;

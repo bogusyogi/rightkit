@@ -1,7 +1,7 @@
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import type { LocalModelCatalog, LocalModelProbeResult } from "@rightkit/agent-ui-core/lib/types";
-import { DiagnosticsStat } from "../shared";
-import { hostAppName } from "../../../../appName";
+import { DiagnosticsStat } from "../shared.js";
+import { hostAppName } from "../../../../appName.js";
 
 export function ModelSettingsEmptyState({ onOpenWorkspace }: { onOpenWorkspace: () => void }) {
   return (

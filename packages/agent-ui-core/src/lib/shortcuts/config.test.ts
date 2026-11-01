@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SHORTCUT_SCHEMA } from "./config";
-import { normalizeCombo, parseShortcut } from "./bindings";
+import { SHORTCUT_SCHEMA } from "./config.js";
+import { normalizeCombo, parseShortcut } from "./bindings.js";
 
 describe("shortcut config", () => {
   it("keeps the declarative inventory grouped and bounded", () => {

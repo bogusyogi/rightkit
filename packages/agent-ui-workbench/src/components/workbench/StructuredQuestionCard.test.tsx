@@ -5,8 +5,8 @@ import { getPlatform } from "@rightkit/platform-ui";
 import {
   buildStructuredQuestionAnswers,
   type StructuredQuestion,
-} from "./StructuredQuestionCard";
-import StructuredQuestionCard from "./StructuredQuestionCard";
+} from "./StructuredQuestionCard.js";
+import StructuredQuestionCard from "./StructuredQuestionCard.js";
 import { rightKitShortcuts } from "@rightkit/agent-ui-core/lib/shortcuts/dispatcher";
 
 // The card's keys are registry bindings; AppBody attaches the registry to the window in the app.

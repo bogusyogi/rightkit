@@ -3,9 +3,7 @@ import DOMPurify from "dompurify";
 // Static side-effect import so Vite reliably injects KaTeX's stylesheet — a dynamic import() of the
 // CSS wasn't being injected, which left super/subscripts and fraction limits overlapping. This
 // loads with the (already lazy) markdown chunk, so cold launch / non-markdown opens don't pay for it.
-import "katex/dist/katex.min.css";
-import { MarkdownRenderTrackerContext } from "./export/MarkdownRenderTracker";
-import "./ProtectedBlock.css";
+import { MarkdownRenderTrackerContext } from "./export/MarkdownRenderTracker.js";
 
 // Lazy-load the KaTeX engine only when a document actually contains math.
 let katexPromise: Promise<typeof import("katex").default> | null = null;

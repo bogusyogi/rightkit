@@ -1,5 +1,5 @@
-import { invoke } from "./invoke";
-import type { ThreadRef } from "./mail";
+import { invoke } from "./invoke.js";
+import type { ThreadRef } from "./mail.js";
 
 export interface OutAttachment {
   filename: string;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { BlockDraftSnapshot } from "@rightkit/document-core/app/blockDrafts";
-import { sourceChecksum, type HtmlSafeBlockTarget } from "./sourceMap";
+import { sourceChecksum, type HtmlSafeBlockTarget } from "./sourceMap.js";
 
 interface HtmlInframeTargetDeps {
   safeIframeRef: RefObject<HTMLIFrameElement | null>;

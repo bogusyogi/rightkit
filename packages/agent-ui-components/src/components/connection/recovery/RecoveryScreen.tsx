@@ -8,7 +8,7 @@ import {
   resolveRecoveryNextStep,
   type RecoveryVariant,
 } from "@rightkit/agent-ui-core/lib/connection/recovery/recoveryPolicy";
-import { hostAppName } from "../../../appName";
+import { hostAppName } from "../../../appName.js";
 
 export type { RecoveryVariant } from "@rightkit/agent-ui-core/lib/connection/recovery/recoveryPolicy";
 

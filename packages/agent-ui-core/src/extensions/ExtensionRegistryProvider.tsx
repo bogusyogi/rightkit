@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { ExtensionRegistryContext } from "./extensionRegistry";
-import type { ExtensionRegistry } from "./extensionRegistry";
+import { ExtensionRegistryContext } from "./extensionRegistry.js";
+import type { ExtensionRegistry } from "./extensionRegistry.js";
 
 /**
  * Shares one registry instance with all descendant ExtensionSlot components.

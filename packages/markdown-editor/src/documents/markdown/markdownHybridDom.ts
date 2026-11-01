@@ -3,7 +3,7 @@ import type { EditorView } from "prosemirror-view";
 import { selectElementContents, selectVisualLineAtPoint } from "@rightkit/document-core/documents/scopedSelectAll";
 import type { TextNodeMapping } from "@rightkit/document-core/documents/searchUtils";
 import { getVisibleTextNodes } from "@rightkit/document-core/documents/searchUtils";
-import { markdownToPmDoc } from "./projection/pmFromMarkdown";
+import { markdownToPmDoc } from "./projection/pmFromMarkdown.js";
 
 export function selectBlockFromLeftEdge(
   root: HTMLElement,

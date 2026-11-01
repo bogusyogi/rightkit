@@ -7,7 +7,7 @@ import {
   isMissingHealthEndpointError,
   isStaleConnectionError,
   projectConnectionError,
-} from "./connectionErrorProjection";
+} from "./connectionErrorProjection.js";
 
 const GATE_401 = '401: {"reason":"no_cookie"}';
 

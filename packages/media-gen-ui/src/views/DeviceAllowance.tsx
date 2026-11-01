@@ -1,9 +1,9 @@
 import { Card, Button, Input, Notice } from '@rightkit/react-shell/react';
 import { useCallback, useEffect, useState } from 'react';
-import { fetchSpendAllowance, setSpendAllowance, type DeviceAllowanceView } from '../lib/api';
-import { EngineError, toError } from '../lib/engine-error';
-import { formatUsd } from './spend-reconcile-logic';
-import { DEVICE_ALLOWANCE_SCOPE, allowanceStatusText, auditRowText, parseAllowanceAmount, sharedAllowanceText } from './device-allowance-logic';
+import { fetchSpendAllowance, setSpendAllowance, type DeviceAllowanceView } from '../lib/api.js';
+import { EngineError, toError } from '../lib/engine-error.js';
+import { formatUsd } from './spend-reconcile-logic.js';
+import { DEVICE_ALLOWANCE_SCOPE, allowanceStatusText, auditRowText, parseAllowanceAmount, sharedAllowanceText } from './device-allowance-logic.js';
 
 /** The engine's message without its code: codes are not shown as copy. */
 function errorMessage(error: unknown): string {

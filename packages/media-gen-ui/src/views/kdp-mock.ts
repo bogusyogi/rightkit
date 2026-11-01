@@ -1,6 +1,6 @@
 // Browser-mode (no Tauri) stand-in for the studio.kdp.* engine commands, so the
 // view can be exercised in QA. Mirrors the shapes in crates/genright-studio/src/kdp.rs.
-import type { KdpDraft, KdpSettings, KdpSources, KdpStyles } from './kdp-model';
+import type { KdpDraft, KdpSettings, KdpSources, KdpStyles } from './kdp-model.js';
 
 /** Submits the built request to the (mock) engine; injected so this file stays dependency-free. */
 export type KdpSubmit = (request: Record<string, unknown>) => Promise<{ job_id: string; status: string; est_usd: number }>;

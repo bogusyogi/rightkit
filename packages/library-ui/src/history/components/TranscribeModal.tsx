@@ -6,7 +6,7 @@ import { cx } from "@rightkit/dictation-ui/lib/ui";
 // Split out of the entry chunk with the other non-critical surfaces — the
 // Transcribe page parses on first modal open, not at every window load.
 const TranscribeSurface = lazy(() =>
-  import("../pages/Transcribe").then((m) => ({ default: m.TranscribeSurface })),
+  import("../pages/Transcribe.js").then((m) => ({ default: m.TranscribeSurface })),
 );
 
 // Native `<dialog>` focus trap: `showModal()` (not the `open` attribute) is

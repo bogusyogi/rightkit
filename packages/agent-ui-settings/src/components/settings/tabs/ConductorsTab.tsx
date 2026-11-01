@@ -18,7 +18,7 @@ import {
   stopDriver,
 } from "@rightkit/agent-ui-core/lib/daemon";
 import { CodeBlock } from "@rightkit/doc-render";
-import { hostAppName } from "../../../appName";
+import { hostAppName } from "../../../appName.js";
 
 const DRIVER_LABELS: Record<string, string> = {
   codex: "Codex",

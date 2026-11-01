@@ -1,11 +1,11 @@
 // Portable bundle — write this project to a folder that can be imported elsewhere (bundle.export).
 import { Button, useToast } from "@rightkit/react-shell/react";
 import { useEffect, useState } from "react";
-import { pickFolder } from "../lib/dialog";
-import { errorMessage, onEngineEvent, revealPath } from "../lib/engine";
-import { type BundleExportResult, type BundleMedia, bundleExport } from "../lib/media";
-import { baseName } from "../lib/project";
-import { ProgressRow, fileSize, Icon } from "../ui";
+import { pickFolder } from "../lib/dialog.js";
+import { errorMessage, onEngineEvent, revealPath } from "../lib/engine.js";
+import { type BundleExportResult, type BundleMedia, bundleExport } from "../lib/media.js";
+import { baseName } from "../lib/project.js";
+import { ProgressRow, fileSize, Icon } from "../ui/index.js";
 
 const TAG = "bundle-export";
 

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Badge, Button, Notice, PageShell, SegmentedControl, SkeletonRows } from "@rightkit/react-shell/react";
-import { AccountChip, LoadError, MockBanner } from "../components/Shared";
-import { useAsync } from "../hooks/useAsync";
+import { AccountChip, LoadError, MockBanner } from "../components/Shared.js";
+import { useAsync } from "../hooks/useAsync.js";
 import {
   accountOrdinals,
   instantLabel,
@@ -11,8 +11,8 @@ import {
   type ModerationAction,
   type ModerationCapability,
   type ThreadItem,
-} from "../data";
-import { PLATFORM_LABEL } from "./labels";
+} from "../data/index.js";
+import { PLATFORM_LABEL } from "./labels.js";
 
 type Filter = "open" | "snoozed" | "resolved";
 

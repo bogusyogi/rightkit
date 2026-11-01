@@ -14,7 +14,7 @@ export interface DaemonContextValue extends DaemonConfig {
 
 function readConfig(): DaemonConfig {
   const p = new URLSearchParams(window.location.search)
-  const env = import.meta.env as ImportMetaEnv & {
+  const env = (import.meta.env ?? {}) as ImportMetaEnv & {
     VITE_RIGHTKIT_DAEMON_URL?: string
     VITE_RIGHTKIT_DAEMON_TOKEN?: string
   }

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { TranscriptMessage } from "./types";
+import type { TranscriptMessage } from "./types.js";
 import {
   assistantToolCalls,
   isInternalRunFailure,
   isInternalTranscriptMessage,
   normalizeTranscriptMessage,
   visibleTranscriptMessages,
-} from "./transcriptMessages";
+} from "./transcriptMessages.js";
 
 describe("transcript message normalization", () => {
   it("treats persisted assistant messages without toolCalls as no-tool turns", () => {

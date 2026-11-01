@@ -1,14 +1,14 @@
 import { memo, useState } from "react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import ReasoningBlock from "./ReasoningBlock";
-import RenderedMessageContent from "./RenderedMessageContent";
-import TrustBadge from "./TrustBadge";
+import ReasoningBlock from "./ReasoningBlock.js";
+import RenderedMessageContent from "./RenderedMessageContent.js";
+import TrustBadge from "./TrustBadge.js";
 import DiffView, { looksLikeDiff } from "@rightkit/agent-ui-hooks/components/workbench/DiffView";
-import ReferenceChipStrip from "./references/ReferenceChipStrip";
+import ReferenceChipStrip from "./references/ReferenceChipStrip.js";
 import type { TranscriptDensity, TranscriptMessage } from "@rightkit/agent-ui-core/lib/types";
 import { normalizeTranscriptDensity, visibleToolCallNames } from "@rightkit/agent-ui-core/lib/transcriptGroups";
 import type { TranscriptGroup } from "@rightkit/agent-ui-core/lib/transcriptGroups";
-import { performReferenceAction } from "./references/referenceActions";
+import { performReferenceAction } from "./references/referenceActions.js";
 import {
   parseExternalizedOutput,
   formatBytes,

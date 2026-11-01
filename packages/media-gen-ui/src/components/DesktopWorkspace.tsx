@@ -1,25 +1,25 @@
 import { useState, useSyncExternalStore, type ReactNode } from 'react';
 import { AppShell, Badge, Pill, StatusRow } from '@rightkit/react-shell/react';
 import type { NavGroup } from '@rightkit/react-shell';
-import { jobIsActive, useApp } from '../lib/app-state';
-import { doctorHealthy } from '../lib/doctor';
-import { VIEW_TITLES, settingsSectionOrDefault, type SettingsSectionId, type ViewId } from '../lib/nav';
-import { themeStore } from '../lib/theme';
-import { Generate } from '../views/Generate';
-import { Gallery } from '../views/Gallery';
-import { Jobs } from '../views/Jobs';
-import { Settings } from '../views/Settings';
-import { ComingSoon } from '../views/ComingSoon';
-import { Kdp } from '../views/Kdp';
-import { Motion } from '../views/Motion';
-import { Production } from '../views/Production';
-import { Voices } from '../views/Voices';
-import { Avatars } from '../views/Avatars';
-import { Recipes } from '../views/Recipes';
-import { TemplateSwap } from '../views/TemplateSwap';
-import { WINDOW_CONTROLS } from '../lib/windowControls';
-import { IconAvatar, IconBook, IconGrid, IconImage, IconLayers, IconList, IconMic, IconMotion, IconRecipe, IconVideo } from './icons';
-import { usd } from './ui';
+import { jobIsActive, useApp } from '../lib/app-state.js';
+import { doctorHealthy } from '../lib/doctor.js';
+import { VIEW_TITLES, settingsSectionOrDefault, type SettingsSectionId, type ViewId } from '../lib/nav.js';
+import { themeStore } from '../lib/theme.js';
+import { Generate } from '../views/Generate.js';
+import { Gallery } from '../views/Gallery.js';
+import { Jobs } from '../views/Jobs.js';
+import { Settings } from '../views/Settings.js';
+import { ComingSoon } from '../views/ComingSoon.js';
+import { Kdp } from '../views/Kdp.js';
+import { Motion } from '../views/Motion.js';
+import { Production } from '../views/Production.js';
+import { Voices } from '../views/Voices.js';
+import { Avatars } from '../views/Avatars.js';
+import { Recipes } from '../views/Recipes.js';
+import { TemplateSwap } from '../views/TemplateSwap.js';
+import { WINDOW_CONTROLS } from '../lib/windowControls.js';
+import { IconAvatar, IconBook, IconGrid, IconImage, IconLayers, IconList, IconMic, IconMotion, IconRecipe, IconVideo } from './icons.js';
+import { usd } from './ui.js';
 
 interface NavItem {
   id: ViewId;
@@ -38,7 +38,7 @@ const GROUPS: Array<{ title: string; items: NavItem[] }> = [
 export function DesktopWorkspace({ onOpenSetup }: { onOpenSetup: () => void }) {
   const app = useApp();
   const [view, setView] = useState<ViewId>(() => {
-    const qa = import.meta.env.DEV ? (new URLSearchParams(window.location.search).get('qaView') as ViewId | null) : null;
+    const qa = import.meta.env?.DEV ? (new URLSearchParams(window.location.search).get('qaView') as ViewId | null) : null;
     return qa && qa in VIEW_TITLES ? qa : 'image';
   });
   // The Settings section a navigation asked for, and a counter that remounts Settings on every visit so it opens there.

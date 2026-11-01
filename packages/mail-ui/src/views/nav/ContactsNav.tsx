@@ -4,9 +4,9 @@
 // reads as intentional rather than empty.
 import { useEffect } from "react";
 import { NavList } from "@rightkit/react-shell/react";
-import Icon from "../../components/Icons";
-import { useAppStore } from "../../store";
-import { listContactGroups } from "../../lib/ipc";
+import Icon from "../../components/Icons.js";
+import { useAppStore } from "../../store/index.js";
+import { listContactGroups } from "../../lib/ipc.js";
 
 export function ContactsNav() {
   const activeAccount = useAppStore((s) => s.activeAccount);

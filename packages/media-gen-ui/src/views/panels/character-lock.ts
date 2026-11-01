@@ -1,5 +1,5 @@
-import { errorCode, errorDetails, errorMessage, errorText } from '../../lib/engine-error';
-import { isUnconfirmedPrice } from '../../lib/gen-params';
+import { errorCode, errorDetails, errorMessage, errorText } from '../../lib/engine-error.js';
+import { isUnconfirmedPrice } from '../../lib/gen-params.js';
 
 // Logic for the character/LoRA panel: character catalog, references, aesthetic
 // LoRAs, the generation lock (studio.characters.lock) and the gated fal training
@@ -256,11 +256,11 @@ export function lockRefusal(error: unknown): LockRefusal {
 
 async function call<T>(verb: string, input: Record<string, unknown> = {}): Promise<T> {
   try {
-    const { studio } = await import('../../lib/api');
+    const { studio } = await import('../../lib/api.js');
     return await studio<T>(`characters.${verb}`, input);
   } catch (error) {
-    if (import.meta.env.DEV && /Unsupported browser QA mock/i.test(errorMessage(error))) {
-      const { mockCharacters } = await import('./character-mock');
+    if (import.meta.env?.DEV && /Unsupported browser QA mock/i.test(errorMessage(error))) {
+      const { mockCharacters } = await import('./character-mock.js');
       return (await mockCharacters(verb, input)) as T;
     }
     throw error;
@@ -284,11 +284,11 @@ export const characters = {
    */
   train: async (plan: TrainPlan, input: Record<string, unknown>): Promise<TrainStatus> => {
     try {
-      const { approveDraft } = await import('../../lib/api');
+      const { approveDraft } = await import('../../lib/api.js');
       return await approveDraft<TrainStatus>('character_training', plan.plan_id, plan.plan_id, input);
     } catch (error) {
-      if (import.meta.env.DEV && /Unsupported browser QA mock/i.test(errorMessage(error))) {
-        const { mockCharacters } = await import('./character-mock');
+      if (import.meta.env?.DEV && /Unsupported browser QA mock/i.test(errorMessage(error))) {
+        const { mockCharacters } = await import('./character-mock.js');
         return (await mockCharacters('train_approved', input)) as TrainStatus;
       }
       throw error;

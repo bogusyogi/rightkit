@@ -6,7 +6,7 @@ import {
   type WorkspaceMention,
 } from "@rightkit/agent-ui-core/lib/daemon";
 import type { SkillItem } from "@rightkit/agent-ui-core/lib/types";
-import { detectComposerMention, type ComposerMentionTrigger } from "../components/app/composerBarHelpers";
+import { detectComposerMention, type ComposerMentionTrigger } from "../components/app/composerBarHelpers.js";
 import {
   rankComposerCompletions,
   rankMentionCompletions,

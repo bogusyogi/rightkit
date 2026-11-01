@@ -5,7 +5,7 @@ import type { PermissionMode } from "@rightkit/agent-ui-core/lib/daemon";
 import type { CliAccountProfileView } from "@rightkit/agent-ui-core/lib/daemon/config-host";
 import type { LicenseView } from "@rightkit/agent-ui-core/state/license";
 import type { UpdateState } from "@rightkit/agent-ui-core/state/updates";
-import type { NewSessionControls } from "../Sidebar";
+import type { NewSessionControls } from "../Sidebar.js";
 import type { ConductorRuntimeModel } from "@rightkit/agent-ui-core/lib/conductorModels";
 import type { CliProviderId } from "@rightkit/agent-ui-core/lib/cliProviders";
 import type {
@@ -61,7 +61,7 @@ import type {
   SkillTrainingEpochDraft,
   SkillTrainingRunDraft,
   ToolsetDraft,
-} from "./types";
+} from "./types.js";
 import type { McpDiscoverPanelProps } from "@rightkit/agent-ui-settings/components/settings/marketplace/McpDiscoverPanel";
 import type { SkillMarketplaceProps } from "@rightkit/agent-ui-settings/components/settings/marketplace/SkillMarketplace";
 

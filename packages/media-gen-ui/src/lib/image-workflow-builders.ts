@@ -1,5 +1,5 @@
 // Reference only, deleted at QA close.
-import type { Brand, ImageStudioRequest } from './types';
+import type { Brand, ImageStudioRequest } from './types.js';
 
 export interface ImageWorkflowFormValues {
   brand?: Brand;

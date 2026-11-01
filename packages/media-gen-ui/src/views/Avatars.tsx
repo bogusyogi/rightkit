@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { assetUrl, errorCode, errorMessage, studio, type MediaKind } from '../lib/api';
-import { useApp } from '../lib/app-state';
+import { assetUrl, errorCode, errorMessage, studio, type MediaKind } from '../lib/api.js';
+import { useApp } from '../lib/app-state.js';
 import { Badge, Card, Checkbox, Button, EmptyState, Input, Notice, SegmentedControl, Select } from '@rightkit/react-shell/react';
-import { Kv } from '../components/ui';
+import { Kv } from '../components/ui.js';
 import { MediaPlayer } from '@rightkit/media-ui';
-import './gallery.css';
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 type AvatarType = 'twin' | 'photo' | 'prompt';
 type SourceKind = 'path' | 'url';

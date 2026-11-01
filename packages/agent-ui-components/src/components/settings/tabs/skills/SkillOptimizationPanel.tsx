@@ -1,7 +1,7 @@
 import { Checkbox } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import { SkillProvenanceReviewPanel } from "./SkillProvenanceReviewPanel";
-import type { SkillInstallFormPanelProps } from "./types";
+import { SkillProvenanceReviewPanel } from "./SkillProvenanceReviewPanel.js";
+import type { SkillInstallFormPanelProps } from "./types.js";
 
 export function SkillInstallFormPanel({
   draft,

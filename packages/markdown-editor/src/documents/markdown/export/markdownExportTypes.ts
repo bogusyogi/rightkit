@@ -1,4 +1,4 @@
-import type { MarkdownCoreSnapshot } from "../core/MarkdownDocumentTypes";
+import type { MarkdownCoreSnapshot } from "../core/MarkdownDocumentTypes.js";
 
 export type MarkdownExportTheme = "current" | "light";
 

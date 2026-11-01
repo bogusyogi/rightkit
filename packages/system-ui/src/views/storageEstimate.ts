@@ -1,4 +1,4 @@
-import { bytes } from "../api";
+import { bytes } from "../api.js";
 
 /** Wording for a size the scan could not prove would be freed. Same text as Cleanup's estimate note. */
 export const ESTIMATE = "An estimate from allocated size on disk, not file size. Hard links and clones can make the real gain smaller.";

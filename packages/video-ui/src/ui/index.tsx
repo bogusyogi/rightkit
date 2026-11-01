@@ -1,9 +1,8 @@
-import "./ui.css";
 import { useState, type ReactNode } from "react";
 import { Badge, Button, Card, IconButton, ModalShell, Notice, ProgressBar, cx } from "@rightkit/react-shell/react";
-import { Icon } from "./icons";
+import { Icon } from "./icons.js";
 
-export { Icon, type IconName } from "./icons";
+export { Icon, type IconName } from "./icons.js";
 
 export type Tone = "neutral" | "ok" | "warn" | "danger" | "info";
 

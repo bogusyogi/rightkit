@@ -2,8 +2,8 @@
 // Invented inbox events for the first channel, one channel with none, and the unmatched events. Recipient ids,
 // sender ids, texts and event ids are fictional. Two texts look like markup and a link on purpose: the screens
 // must show them as plain text, inert. No event here was received from a real platform.
-import type { InboxEvent, InboxStats, UnreadableRow } from "../types";
-import { SCOPE_ALPHA, SCOPE_GAMMA } from "./fixtures-optimise";
+import type { InboxEvent, InboxStats, UnreadableRow } from "../types.js";
+import { SCOPE_ALPHA, SCOPE_GAMMA } from "./fixtures-optimise.js";
 
 export interface FixtureInboxRow {
   event: InboxEvent;

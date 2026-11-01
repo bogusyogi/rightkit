@@ -2,7 +2,7 @@
 // conventions as library.ts: lazy invoke import so vitest never touches the Tauri API, browser-QA
 // stubs, and no-op returns outside Tauri.
 import { inTauri, isBrowserQaMode } from "@rightkit/document-core/state/tauriBridge";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 export type ExplorerLocationKind =
   | "home"

@@ -8,7 +8,7 @@
 //    inserts since the request started keep their live values.
 //  - The `cancelling` flag clears once a terminal state is acknowledged.
 
-import type { DisplayJob, JobEvent, Stage } from "../contract";
+import type { DisplayJob, JobEvent, Stage } from "../contract.js";
 
 export function isTerminalStage(stage: Stage): boolean {
   return stage === "done" || stage === "error" || stage === "cancelled";

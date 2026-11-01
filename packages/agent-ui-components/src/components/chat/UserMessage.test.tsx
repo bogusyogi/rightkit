@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import UserMessage from "./UserMessage";
+import UserMessage from "./UserMessage.js";
 
 function lastMessage(): HTMLElement {
   const nodes = screen.getAllByTestId("user-message");

@@ -4,7 +4,7 @@ import type { HtmlSafeBlockTarget } from "@rightkit/html-editor/documents/html/s
 import type { InspectMenuState } from "@rightkit/html-editor/documents/html/useHtmlInspect";
 import type { HtmlSafeBlockEditorHandle, HtmlEditorToolbarState } from "@rightkit/html-editor/documents/html/HtmlSafeBlockEditor";
 import { HtmlDocumentView } from "@rightkit/html-editor/documents/html/HtmlDocumentView";
-import { HtmlDocumentSource } from "./HtmlDocumentSource";
+import { HtmlDocumentSource } from "./HtmlDocumentSource.js";
 import { HtmlDocumentEdit } from "@rightkit/html-editor/documents/html/HtmlDocumentEdit";
 import {
   HtmlAddressRow,

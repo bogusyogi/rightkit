@@ -5,11 +5,11 @@ import type {
   SkillOptimizationRun,
   SkillProvenanceReviewResponse,
 } from "@rightkit/agent-ui-core/lib/types";
-import type { SkillInstallDraft, SkillTrainingEpochDraft, SkillTrainingRunDraft } from "../types";
+import type { SkillInstallDraft, SkillTrainingEpochDraft, SkillTrainingRunDraft } from "../types.js";
 import { OfflinePanel } from "@rightkit/agent-ui-settings/components/settings/tabs/shared";
-import { SkillsInstalledView, SkillsProposalsView, SkillsTabHeader } from "./skills/SkillsTabViews";
-import { SkillTrainingPanel } from "./skills/SkillTrainingPanel";
-import type { SkillLifecycleAction, SkillsView } from "./skills/types";
+import { SkillsInstalledView, SkillsProposalsView, SkillsTabHeader } from "./skills/SkillsTabViews.js";
+import { SkillTrainingPanel } from "./skills/SkillTrainingPanel.js";
+import type { SkillLifecycleAction, SkillsView } from "./skills/types.js";
 
 // UI contract anchors preserved across decomposition: hasInstalledSkills Composer skill library No skills installed Installed skills Composer mention preview @security-check showInstallForm Skill creation SkillEmptyStep Use the New skill action above grid gap-2 sm:grid-cols-2 rounded-lg border border-line bg-panel px-3 py-2 Review before use Insert from composer Trigger and lifecycle stay visible. Source path is inspectable before use.
 export default function SkillsTab({

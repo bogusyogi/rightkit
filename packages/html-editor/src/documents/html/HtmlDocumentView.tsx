@@ -1,12 +1,12 @@
-import type { SiteRootGrant } from "./htmlInline";
+import type { SiteRootGrant } from "./htmlInline.js";
 import { useCallback, useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
-import { HtmlViewer } from "./HtmlViewer";
+import { HtmlViewer } from "./HtmlViewer.js";
 import { BackToTopButton } from "@rightkit/document-core/documents/BackToTopButton";
-import { appColorScheme } from "./htmlInline";
+import { appColorScheme } from "./htmlInline.js";
 import { PreviewMessage } from "@rightkit/document-core/documents/PreviewMessage";
 import { formatFromPath, type SearchProvider } from "@rightkit/document-core/documents/types";
-import { sourceChecksum, type HtmlInspectTarget, type HtmlSafeBlockTarget } from "./sourceMap";
-import { trackHtmlIframe } from "./htmlResourceLifecycle";
+import { sourceChecksum, type HtmlInspectTarget, type HtmlSafeBlockTarget } from "./sourceMap.js";
+import { trackHtmlIframe } from "./htmlResourceLifecycle.js";
 import {
   releaseInspectableHtmlPreview,
   setDevtoolsShortcutScope,

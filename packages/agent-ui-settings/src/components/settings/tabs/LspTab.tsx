@@ -1,7 +1,7 @@
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import type { LspStatusView, LspWorkspaceServer } from "@rightkit/agent-ui-core/lib/types";
-import { OfflinePanel } from "./shared";
-import { hostAppName } from "../../../appName";
+import { OfflinePanel } from "./shared.js";
+import { hostAppName } from "../../../appName.js";
 export default function LspTab({
   status,
   draft,

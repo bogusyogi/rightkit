@@ -1,11 +1,10 @@
 import { Badge, Button, Card, Checkbox, EmptyState, Field, PageShell, SegmentedControl, Select, Slider, Toggle, useToast } from "@rightkit/react-shell/react";
-import "./Recipe.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { engineCall, onEngineRaw, errorCode, errorMessage } from "../lib/engine";
-import { assetUrl } from "../lib/asset";
-import { interpretAssetLibrary, type GeneratedAsset } from "../lib/genright";
-import { pickFile } from "../lib/dialog";
-import { baseName, projectShow, type ProjectShow } from "../lib/project";
+import { engineCall, onEngineRaw, errorCode, errorMessage } from "../lib/engine.js";
+import { assetUrl } from "../lib/asset.js";
+import { interpretAssetLibrary, type GeneratedAsset } from "../lib/genright.js";
+import { pickFile } from "../lib/dialog.js";
+import { baseName, projectShow, type ProjectShow } from "../lib/project.js";
 import {
   type CaptionPreview,
   type RecipeStageEvent,
@@ -28,10 +27,10 @@ import {
   sourceList,
   thumbnails,
   type ReframeSummary,
-} from "../lib/media";
-import { Drawer, ErrorPanel, ProgressRow, Thumbnail, timecode, Icon } from "../ui";
-import { RecipeLibrary } from "./RecipeLibrary";
-import { HDR_COLOR_PRESETS, HDR_UNAVAILABLE_NOTICE, useHdrToSdr } from "../hooks/useHdrToSdr";
+} from "../lib/media.js";
+import { Drawer, ErrorPanel, ProgressRow, Thumbnail, timecode, Icon } from "../ui/index.js";
+import { RecipeLibrary } from "./RecipeLibrary.js";
+import { HDR_COLOR_PRESETS, HDR_UNAVAILABLE_NOTICE, useHdrToSdr } from "../hooks/useHdrToSdr.js";
 
 type Style = "natural" | "tight" | "punchy";
 type Stage = { state: "running" | "done" | "failed" | "skipped"; fraction?: number; error?: string };

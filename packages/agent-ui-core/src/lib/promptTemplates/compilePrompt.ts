@@ -1,5 +1,5 @@
-import { mergeRoles, type RoleDefinition } from "./roles";
-import { mergeStyles, type StyleDefinition, type SelectedStyle } from "./styles";
+import { mergeRoles, type RoleDefinition } from "./roles.js";
+import { mergeStyles, type StyleDefinition, type SelectedStyle } from "./styles.js";
 
 // ── v2 interfaces ──
 
@@ -46,9 +46,9 @@ export function compilePrompt(
 
 // ── Re-exports for convenience ──
 
-export { BUILT_IN_TEMPLATES, TEMPLATE_CATEGORIES } from "./templates";
-export type { PromptTemplate, TemplateCategory } from "./templates";
-export { BUILT_IN_ROLES, mergeRoles, validateCustomRole } from "./roles";
-export type { RoleDefinition } from "./roles";
-export { BUILT_IN_STYLES, mergeStyles, validateCustomStyle } from "./styles";
-export type { StyleDefinition, SelectedStyle } from "./styles";
+export { BUILT_IN_TEMPLATES, TEMPLATE_CATEGORIES } from "./templates.js";
+export type { PromptTemplate, TemplateCategory } from "./templates.js";
+export { BUILT_IN_ROLES, mergeRoles, validateCustomRole } from "./roles.js";
+export type { RoleDefinition } from "./roles.js";
+export { BUILT_IN_STYLES, mergeStyles, validateCustomStyle } from "./styles.js";
+export type { StyleDefinition, SelectedStyle } from "./styles.js";

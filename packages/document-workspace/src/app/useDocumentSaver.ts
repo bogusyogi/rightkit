@@ -27,16 +27,16 @@ import {
   parseHostError,
   type WriteDocumentResult,
 } from "@rightkit/document-core/state/tauriBridge";
-import { recordRecent } from "../state/library";
-import type { DocumentTabs } from "./useDocumentTabs";
+import { recordRecent } from "../state/library.js";
+import type { DocumentTabs } from "./useDocumentTabs.js";
 import { defaultImageSaveName, editableImageOutputForPath } from "@rightkit/media-ui";
-import { clearDraft, clearFileDraft } from "./documentDrafts";
+import { clearDraft, clearFileDraft } from "./documentDrafts.js";
 import { errorMessage } from "@rightkit/document-core/state/errors";
 import { logEvent, logPerf, type DiagnosticEvent } from "@rightkit/document-core/state/diagnostics";
 import { toast } from "@rightkit/platform-ui/headless";
 import { incDiskWrites } from "@rightkit/document-core/documents/perfEventCounters";
 import type { ImageSaveFunction, ImageSavePayload } from "@rightkit/media-ui";
-import { resolveDocumentDrafts } from "./draftResolution";
+import { resolveDocumentDrafts } from "./draftResolution.js";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
 import type { PdfSaveFunction } from "@rightkit/document-core/documents/pdf/pdfEditor";
 import type { PdfCommitResult, PdfSavePlan } from "@rightkit/document-core/documents/pdf/pdfEditModel";

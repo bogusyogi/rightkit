@@ -5,12 +5,12 @@ import { useRef, useState, type ReactNode } from "react";
 import { IconButton } from "@rightkit/react-shell/react";
 import { Gear } from "@phosphor-icons/react/dist/icons/Gear";
 import { FolderSimple } from "@phosphor-icons/react/dist/icons/FolderSimple";
-import { FileTypeIcon } from "../../documents/FileTypeIcon";
+import { FileTypeIcon } from "../../documents/FileTypeIcon.js";
 import type { DocFormat } from "@rightkit/document-core/documents/types";
 import { shortcutLabel } from "@rightkit/document-core/platform";
-import type { SidebarProps } from "../Sidebar";
-import { ClockIcon, PanelIcon, PlusIcon } from "./SidebarIcons";
-import { NewOpenMenu, RecentsMenu } from "./SidebarMenus";
+import type { SidebarProps } from "../Sidebar.js";
+import { ClockIcon, PanelIcon, PlusIcon } from "./SidebarIcons.js";
+import { NewOpenMenu, RecentsMenu } from "./SidebarMenus.js";
 
 const RAIL_WIDTH = 52;
 

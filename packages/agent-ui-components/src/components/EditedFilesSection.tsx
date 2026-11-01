@@ -1,5 +1,5 @@
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import { useRunChangesState } from "./review/useRunChangesState";
+import { useRunChangesState } from "./review/useRunChangesState.js";
 import { useRightPanelStore } from "@rightkit/agent-ui-core/state/rightPanelStore";
 import { useSidePanelStore } from "@rightkit/agent-ui-core/state/sidePanelStore";
 

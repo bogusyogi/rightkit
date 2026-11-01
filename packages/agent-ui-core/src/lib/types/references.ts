@@ -5,7 +5,7 @@
 // never travel through ReferenceMeta — they live in the legacy `Attachment`
 // (`config-host.ts`) in-memory only and the chip strip renders the metadata.
 
-import type { ContentTrust } from "./protocol-core";
+import type { ContentTrust } from "./protocol-core.js";
 
 /** Stable identity for a reference. Generated client-side via `crypto.randomUUID()`. */
 export type ReferenceId = string;

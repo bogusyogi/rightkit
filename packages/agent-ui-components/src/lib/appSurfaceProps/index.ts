@@ -1,8 +1,8 @@
-export { buildHeaderProps, buildHeaderTitle, buildHeaderSubtitle } from "./shared";
-export type { AppShellHeaderProps } from "./shared";
-export { buildConnectionLabel } from "./shared";
-export { buildSidebarProps } from "./buildSidebarProps";
-export { buildSettingsPaneProps } from "./buildSettingsPaneProps";
-export { buildWorkbenchProps } from "./buildWorkbenchProps";
-export { buildComposerProps } from "./buildComposerProps";
-export { buildTrustGateProps, buildOnboardingPanelProps } from "./buildSessionSurfaceProps";
+export { buildHeaderProps, buildHeaderTitle, buildHeaderSubtitle } from "./shared.js";
+export type { AppShellHeaderProps } from "./shared.js";
+export { buildConnectionLabel } from "./shared.js";
+export { buildSidebarProps } from "./buildSidebarProps.js";
+export { buildSettingsPaneProps } from "./buildSettingsPaneProps.js";
+export { buildWorkbenchProps } from "./buildWorkbenchProps.js";
+export { buildComposerProps } from "./buildComposerProps.js";
+export { buildTrustGateProps, buildOnboardingPanelProps } from "./buildSessionSurfaceProps.js";

@@ -1,5 +1,5 @@
 import { SkillProposalMeta, skillProvenanceSeverityClass } from "@rightkit/agent-ui-settings/components/settings/tabs/skills/SkillShared";
-import type { SkillProvenanceReviewPanelProps } from "./types";
+import type { SkillProvenanceReviewPanelProps } from "./types.js";
 
 export function SkillProvenanceReviewPanel({ review }: SkillProvenanceReviewPanelProps) {
   return (

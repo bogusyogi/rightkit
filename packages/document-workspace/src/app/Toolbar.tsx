@@ -5,9 +5,9 @@ import { Titlebar } from "@rightkit/react-shell/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
 import { inTauri } from "@rightkit/document-core/state/tauriBridge";
-import { LiveTitle } from "./LiveTitle";
-import { useTabDirty } from "./tabs/useTabDirty";
-import { TabStrip, type TabStripProps } from "./tabs/TabStrip";
+import { LiveTitle } from "./LiveTitle.js";
+import { useTabDirty } from "./tabs/useTabDirty.js";
+import { TabStrip, type TabStripProps } from "./tabs/TabStrip.js";
 
 interface Props {
   doc: LoadedDocument | null;

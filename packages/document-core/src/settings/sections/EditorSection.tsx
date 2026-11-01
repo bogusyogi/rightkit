@@ -1,7 +1,7 @@
 import { SegmentedControl } from "@rightkit/react-shell/react";
 import { SettingsGroup } from "@rightkit/settings-ui";
-import { useSettings } from "../settings";
-import { onOff } from "./onOff";
+import { useSettings } from "../settings.js";
+import { onOff } from "./onOff.js";
 
 export function EditorSection() {
   const { settings, update, reset } = useSettings();

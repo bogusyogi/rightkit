@@ -12,15 +12,15 @@
 // StoreActionKey + Pick/Omit return types make tsc fail if an action is dropped
 // or duplicated wrong.
 import { create } from "zustand";
-import type { ComposeEditorHandle } from "../components/ComposeEditor";
-import type { AppState } from "./types";
-import { createFields } from "./fields";
-import { uiActions } from "./actions/ui";
-import { composeActions } from "./actions/compose";
-import { mailActions } from "./actions/mail";
+import type { ComposeEditorHandle } from "../components/ComposeEditor.js";
+import type { AppState } from "./types.js";
+import { createFields } from "./fields.js";
+import { uiActions } from "./actions/ui.js";
+import { composeActions } from "./actions/compose.js";
+import { mailActions } from "./actions/mail.js";
 
-export { APP_OF, UNDO_TOAST_MS } from "./types";
-export type { AppState, BulkAction, View } from "./types";
+export { APP_OF, UNDO_TOAST_MS } from "./types.js";
+export type { AppState, BulkAction, View } from "./types.js";
 
 // Shared handle to the live TipTap compose editor (was an App-local `useRef`).
 // A plain `{current}` object is a valid React ref; lifted here so ComposeView

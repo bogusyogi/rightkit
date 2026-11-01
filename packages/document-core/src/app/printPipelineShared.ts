@@ -1,6 +1,6 @@
-import { printCurrentWebview } from "../state/tauriBridge";
-import { isWindows } from "../platform";
-import { openPrintPreviewWindow } from "./nativePrintPreview";
+import { printCurrentWebview } from "../state/tauriBridge.js";
+import { isWindows } from "../platform.js";
+import { openPrintPreviewWindow } from "./nativePrintPreview.js";
 
 const PRINT_HOST_ATTR = "data-vr-print-host";
 const PRINT_ACTIVE_ATTR = "data-vr-print-active";

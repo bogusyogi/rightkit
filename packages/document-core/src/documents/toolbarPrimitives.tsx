@@ -10,7 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { createShortcutRegistry } from "@rightkit/react-shell";
-import { isMac } from "../platform";
+import { isMac } from "../platform.js";
 import {
   floatingPanelStyle,
   moveIndex,

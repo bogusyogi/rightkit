@@ -1,6 +1,6 @@
 // Browser-QA stand-in for the studio.catalog/recipes engine commands. Mirrors
 // crates/genright-studio/data shapes; never sends anything anywhere.
-import type { ApproveResult, ImageDraft, IntentsResult, LibrariesResult } from './image-quality';
+import type { ApproveResult, ImageDraft, IntentsResult, LibrariesResult } from './image-quality.js';
 
 const INTENTS: IntentsResult = {
   reference_limit: 14,

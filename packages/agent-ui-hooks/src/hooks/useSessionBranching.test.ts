@@ -10,7 +10,7 @@ vi.mock("@rightkit/agent-ui-core/lib/daemon", () => ({
 }));
 
 import { forkSession, rewindSession } from "@rightkit/agent-ui-core/lib/daemon";
-import { nextResponseForkTitle, useSessionBranching } from "./useSessionBranching";
+import { nextResponseForkTitle, useSessionBranching } from "./useSessionBranching.js";
 
 const config: DaemonConfig = { url: "http://127.0.0.1:0", token: "test" };
 

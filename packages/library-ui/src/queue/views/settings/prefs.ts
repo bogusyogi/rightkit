@@ -1,5 +1,5 @@
-import type { AudioQuality, VideoQuality } from "../../contract";
-import type { MediaMode } from "../../lib/mediaSelection";
+import type { AudioQuality, VideoQuality } from "../../contract.js";
+import type { MediaMode } from "../../lib/mediaSelection.js";
 
 /**
  * Per-device UI preferences that do not need the Rust engine.

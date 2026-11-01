@@ -2,7 +2,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { BrowserPane } from "./BrowserPane";
+import { BrowserPane } from "./BrowserPane.js";
 import { useBrowserWorkspaceStore } from "@rightkit/agent-ui-core/state/browserStore";
 
 const browserActions = vi.hoisted(() => {

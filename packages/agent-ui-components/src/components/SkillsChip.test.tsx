@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import SkillsChip from "./SkillsChip";
+import SkillsChip from "./SkillsChip.js";
 import type { SkillItem } from "@rightkit/agent-ui-core/lib/types";
 
 function makeSkill(slug: string, overrides: Partial<SkillItem> = {}): SkillItem {

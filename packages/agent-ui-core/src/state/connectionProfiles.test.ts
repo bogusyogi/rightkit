@@ -8,11 +8,11 @@ import {
   probeInferenceConnection,
   setDirectConnectionSecret,
   updateDirectConnection,
-} from "../lib/daemon/inference";
-import type { DirectConnection } from "../lib/types/inference";
-import { useConnectionProfilesStore } from "./connectionProfiles";
+} from "../lib/daemon/inference.js";
+import type { DirectConnection } from "../lib/types/inference.js";
+import { useConnectionProfilesStore } from "./connectionProfiles.js";
 
-vi.mock("../lib/daemon/inference", () => ({
+vi.mock("../lib/daemon/inference.js", () => ({
   createDirectConnection: vi.fn(),
   deleteDirectConnection: vi.fn(),
   listInferenceCatalog: vi.fn(),

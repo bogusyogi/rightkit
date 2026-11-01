@@ -19,7 +19,7 @@ vi.mock("@rightkit/agent-ui-core/lib/daemon", () => ({
 }));
 
 import { sendMessage } from "@rightkit/agent-ui-core/lib/daemon";
-import { useAppInteractionActions } from "./useAppInteractionActions";
+import { useAppInteractionActions } from "./useAppInteractionActions.js";
 
 describe("useAppInteractionActions typed references", () => {
   beforeEach(() => {

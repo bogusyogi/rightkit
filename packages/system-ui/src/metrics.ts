@@ -5,7 +5,7 @@
 
 import { useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { clearVisibleInterval, visibleInterval } from "./visible";
+import { clearVisibleInterval, visibleInterval } from "./visible.js";
 
 export interface Sample {
   /** Unix time, ms. */

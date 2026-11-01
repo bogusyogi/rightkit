@@ -6,7 +6,7 @@ import {
   RISKY_EXT,
   computeListSource,
   keyOf,
-} from "../../lib/mail";
+} from "../../lib/mail.js";
 import {
   unreadCounts,
   listThreads,
@@ -21,27 +21,27 @@ import {
   appendDiag,
   deleteDrafts,
   type Thread,
-} from "../../lib/ipc";
-import { appendPage, fetchNextSearchPage } from "../../lib/searchPaging";
-import type { AppState } from "../types";
-import { BULK_INVERSE, BULK_LABEL } from "../types";
-import type { ThreadRef } from "../../lib/ipc/mail";
-import type { StoreGet } from "../mk";
-import { showDialog } from "../../hooks/dialog";
-import { openThreadAction } from "./mail/openThread";
+} from "../../lib/ipc.js";
+import { appendPage, fetchNextSearchPage } from "../../lib/searchPaging.js";
+import type { AppState } from "../types.js";
+import { BULK_INVERSE, BULK_LABEL } from "../types.js";
+import type { ThreadRef } from "../../lib/ipc/mail.js";
+import type { StoreGet } from "../mk.js";
+import { showDialog } from "../../hooks/dialog.js";
+import { openThreadAction } from "./mail/openThread.js";
 import {
   refreshAction,
   refreshAfterSyncAction,
   refreshStaticSettingsAction,
-} from "./mail/refresh";
+} from "./mail/refresh.js";
 import {
   appendSlowDiag,
   mergeThreadRows,
   nowMs,
   perfVisibility,
   SLOW_SCOPE_MS,
-} from "./mail/helpers";
-import { hostAppName } from "../../appName";
+} from "./mail/helpers.js";
+import { hostAppName } from "../../appName.js";
 
 // Progress guard for "load older" pagination. `load_older` returns the count of
 // messages UPSERTED (re-fetched duplicates included), so a `before:<oldest>`

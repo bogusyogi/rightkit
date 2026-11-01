@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import type { SessionRow } from "@rightkit/agent-ui-core/lib/types";
-import SessionStatusDot from "./SessionStatusDot";
+import SessionStatusDot from "./SessionStatusDot.js";
 
 export interface VirtualSessionDividerRow {
   key: string;

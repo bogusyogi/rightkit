@@ -1,4 +1,4 @@
-import { capabilitiesFor } from "../../documents/capabilities";
+import { capabilitiesFor } from "../../documents/capabilities.js";
 import type { DocFormat, ReadEditMode } from "@rightkit/document-core/documents/types";
 
 /** Every editable format opens editable with its tools showing — the host app edits inline with no

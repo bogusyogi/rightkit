@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
-import type { TabStripProps } from "./tabs/TabStrip";
-import { isLocalFileDoc } from "./sidebar/SidebarPathUtils";
+import type { TabStripProps } from "./tabs/TabStrip.js";
+import { isLocalFileDoc } from "./sidebar/SidebarPathUtils.js";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
 
 type DocsApi = {

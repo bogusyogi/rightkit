@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getWorkspaceTree } from "@rightkit/agent-ui-core/lib/daemon/workspace-files";
 import { useWorkspaceStore } from "@rightkit/agent-ui-core/state/workspaceStore";
-import { useWorkspaceTree } from "./useWorkspaceTree";
+import { useWorkspaceTree } from "./useWorkspaceTree.js";
 
 vi.mock("@rightkit/agent-ui-core/lib/daemon/workspace-files", () => ({
   getWorkspaceTree: vi.fn(),

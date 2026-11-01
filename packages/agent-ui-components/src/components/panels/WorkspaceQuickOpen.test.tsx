@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import WorkspaceQuickOpen from "./WorkspaceQuickOpen";
+import WorkspaceQuickOpen from "./WorkspaceQuickOpen.js";
 
 const ENTRIES = [
   { name: "README.md", path: "README.md", kind: "file" as const },

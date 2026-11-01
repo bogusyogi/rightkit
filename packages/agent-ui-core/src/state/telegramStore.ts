@@ -5,15 +5,15 @@ import {
   getTelegramStatus,
   getTelegramTest,
   getTelegramUsers,
-} from "../lib/daemon";
+} from "../lib/daemon.js";
 import type {
   DaemonConfig,
   RemoteChannelsSnapshot,
   TelegramRemoteStatus,
   TelegramRemoteTest,
   TelegramRemoteUsers,
-} from "../lib/types";
-import { messageOf } from "../lib/utils";
+} from "../lib/types.js";
+import { messageOf } from "../lib/utils.js";
 
 /** Telegram / remote-channels settings: status, test, users, channel snapshot. */
 export type TelegramStoreState = {

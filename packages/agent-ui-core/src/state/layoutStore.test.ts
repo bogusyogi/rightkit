@@ -3,9 +3,9 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { projectLayoutOrDefault, readPersistedLayout, useLayoutStore } from "./layoutStore";
-import { useSidePanelStore } from "./sidePanelStore";
-import { useRightPanelStore } from "./rightPanelStore";
+import { projectLayoutOrDefault, readPersistedLayout, useLayoutStore } from "./layoutStore.js";
+import { useSidePanelStore } from "./sidePanelStore.js";
+import { useRightPanelStore } from "./rightPanelStore.js";
 
 function resetStores() {
   localStorage.clear();

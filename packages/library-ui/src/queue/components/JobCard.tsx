@@ -1,6 +1,6 @@
 import { memo } from "react";
-import type { JobInfo } from "../contract";
-import { invoke } from "../lib/ipc";
+import type { JobInfo } from "../contract.js";
+import { invoke } from "../lib/ipc/index.js";
 import {
   isActiveStage,
   outputLabelForJob,
@@ -8,10 +8,10 @@ import {
   retryTitle,
   labelForJob,
   statusText,
-} from "../lib/jobDisplay";
-import { showsOutputChip } from "../lib/queueView";
-import { categoryIcon } from "./CategoryIcon";
-import { buttonClass, errorTextClass, iconActionAccentClass, iconActionDangerClass } from "../lib/ui";
+} from "../lib/jobDisplay.js";
+import { showsOutputChip } from "../lib/queueView.js";
+import { categoryIcon } from "./CategoryIcon.js";
+import { buttonClass, errorTextClass, iconActionAccentClass, iconActionDangerClass } from "../lib/ui.js";
 import { Badge, IconButton, cx } from "@rightkit/react-shell/react";
 import { ArrowRight, LogIn, RefreshCcw, RotateCcw, Square, X } from "lucide-react";
 

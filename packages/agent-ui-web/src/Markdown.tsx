@@ -1,6 +1,5 @@
 import { useMemo, useState, createElement } from 'react'
-import './Markdown.css'
-import { safeLinkHref } from './markdownSecurity'
+import { safeLinkHref } from './markdownSecurity.js'
 
 function escapeHtml(text: string): string {
   const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }

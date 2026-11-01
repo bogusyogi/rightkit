@@ -5,7 +5,7 @@
 
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { clearVisibleInterval, visibleInterval } from "./visible";
+import { clearVisibleInterval, visibleInterval } from "./visible.js";
 
 const RENEW_MS = 4000;
 

@@ -11,9 +11,9 @@
  * so the host refreshes `project.show` and rebuilds — never silently
  * re-applied.
  */
-import type { CapabilityReport } from "./capabilities";
-import { supports } from "./capabilities";
-import type { EditAction } from "./actions";
+import type { CapabilityReport } from "./capabilities.js";
+import { supports } from "./capabilities.js";
+import type { EditAction } from "./actions.js";
 
 export type RevisionInfo = {
   cursor: number;

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, EmptyState, Notice, PageShell, SkeletonRows } from "@rightkit/react-shell/react";
-import { AccountChip, LoadError, MockBanner, PermalinkCopy } from "../components/Shared";
-import { useAsync } from "../hooks/useAsync";
-import { OUTCOME_UNKNOWN_EXPLANATION } from "./labels";
+import { AccountChip, LoadError, MockBanner, PermalinkCopy } from "../components/Shared.js";
+import { useAsync } from "../hooks/useAsync.js";
+import { OUTCOME_UNKNOWN_EXPLANATION } from "./labels.js";
 import {
   accountOrdinals,
   instantLabel,
@@ -13,7 +13,7 @@ import {
   type FailureItem,
   type FailureResolution,
   type ReconcileResult,
-} from "../data";
+} from "../data/index.js";
 
 interface Loaded {
   accounts: Account[];

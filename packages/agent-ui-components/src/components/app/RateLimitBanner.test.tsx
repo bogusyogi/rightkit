@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Account, RateLimitEvent } from "@rightkit/agent-ui-core/lib/accounts/accounts";
-import AccountModelPicker from "./AccountModelPicker";
-import RateLimitBanner from "./RateLimitBanner";
+import AccountModelPicker from "./AccountModelPicker.js";
+import RateLimitBanner from "./RateLimitBanner.js";
 
 const acct = (slug: string, label: string, ready = true): Account => ({
   id: `subscription/claude/${slug}`,

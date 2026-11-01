@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, IconButton, ModalShell, Table, TableBody, TableCell, TableRow } from "@rightkit/react-shell/react";
-import AttachmentTypeIcon from "./AttachmentTypeIcon";
-import Icon from "./Icons";
-import { AttachmentPdfPreview } from "./AttachmentPdfPreview";
+import AttachmentTypeIcon from "./AttachmentTypeIcon.js";
+import Icon from "./Icons.js";
+import { AttachmentPdfPreview } from "./AttachmentPdfPreview.js";
 import {
   inferAttachmentMime,
   isInlinePreviewableSpreadsheet,
@@ -10,7 +10,7 @@ import {
   isRenderableImageAttachment,
   isSpreadsheetAttachment,
   isTextLikeAttachment,
-} from "../lib/attachmentTypes";
+} from "../lib/attachmentTypes.js";
 
 export interface AttachmentPreviewPayload {
   filename: string;

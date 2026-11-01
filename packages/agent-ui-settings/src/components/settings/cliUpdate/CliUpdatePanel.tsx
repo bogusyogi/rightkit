@@ -1,5 +1,5 @@
 import type { ManagedCliUpdate } from "@rightkit/agent-ui-core/lib/cliUpdate/updateProjection";
-import { hostAppName } from "../../../appName";
+import { hostAppName } from "../../../appName.js";
 
 export interface CliUpdatePanelProps {
   updates: ManagedCliUpdate[];

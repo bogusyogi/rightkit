@@ -1,8 +1,8 @@
 import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import ReferenceLink from "./ReferenceLink";
-import { setInlineReferenceHostAction } from "./referenceRegistry";
+import ReferenceLink from "./ReferenceLink.js";
+import { setInlineReferenceHostAction } from "./referenceRegistry.js";
 import type { ReferenceObject } from "@rightkit/agent-ui-core/lib/types/references";
 
 // Mock the secureStore so we can assert the destination was passed through.

@@ -11,7 +11,7 @@ import {
 import { toast } from "@rightkit/platform-ui/headless";
 import { useSettings as useRkSettings, type SettingsValues } from "@rightkit/settings-ui";
 import { createContext, useCallback, useContext, useEffect, useMemo } from "react";
-import { SETTINGS_DOCUMENT_KEY, loadSettingsDocument, saveSettingsDocument } from "../state/tauriBridge";
+import { SETTINGS_DOCUMENT_KEY, loadSettingsDocument, saveSettingsDocument } from "../state/tauriBridge.js";
 import {
   ACCENT_PRESETS,
   DEFAULT_DARK,
@@ -21,9 +21,9 @@ import {
   themeById,
   tokenPreset,
   type ThemePreset,
-} from "./themes";
-import { fontStackFor } from "./fonts";
-import { createSettingsBackend } from "./settingsBackend";
+} from "./themes.js";
+import { fontStackFor } from "./fonts.js";
+import { createSettingsBackend } from "./settingsBackend.js";
 
 export interface Settings {
   /** A preset id, or "auto" to follow the system. */

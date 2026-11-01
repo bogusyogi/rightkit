@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import DiffView from "@rightkit/agent-ui-hooks/components/workbench/DiffView";
-import EditedFilesSummary, { type EditedFileEntry } from "./EditedFilesSummary";
+import EditedFilesSummary, { type EditedFileEntry } from "./EditedFilesSummary.js";
 import { resolveToolApproval } from "@rightkit/agent-ui-core/lib/daemon";
 import type { DaemonConfig, ProtocolEvent, TranscriptDensity } from "@rightkit/agent-ui-core/lib/types";
 import { normalizeTranscriptDensity } from "@rightkit/agent-ui-core/lib/transcriptGroups";

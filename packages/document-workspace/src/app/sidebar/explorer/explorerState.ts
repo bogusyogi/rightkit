@@ -2,7 +2,7 @@
 // (expanded dirs, section open/closed, sidebar width, scroll position) with a module-level cache +
 // debounced write, plus the small path helpers the lazy tree and the active-file reveal need.
 import { getSettingsMirror, setSettingsMirror } from "@rightkit/document-core/state/tauriBridge";
-import { splitPath } from "../SidebarPathUtils";
+import { splitPath } from "../SidebarPathUtils.js";
 
 export const EXPLORER_SETTINGS_KEY = "vr.explorer.v1";
 

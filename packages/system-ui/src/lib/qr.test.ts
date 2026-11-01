@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { chatKindName, CHAT_KIND_ORDER } from "./chatKind";
-import { qrMatrix, qrSvgPath } from "./qr";
+import { chatKindName, CHAT_KIND_ORDER } from "./chatKind.js";
+import { qrMatrix, qrSvgPath } from "./qr.js";
 
 describe("system-ui pure helpers", () => {
   it("builds a square QR matrix and an SVG path for it", () => {

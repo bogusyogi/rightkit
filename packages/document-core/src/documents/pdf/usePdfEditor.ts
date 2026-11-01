@@ -2,15 +2,15 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 // Must precede the "pdfjs-dist/web/pdf_viewer.mjs" import below — see its comment.
-import "./pdfjsLibGlobal";
+import "./pdfjsLibGlobal.js";
 // pdf.js does not expose AnnotationEditorUIManager's dependencies (EventBus, GenericL10n) from the
 // main `pdfjs-dist` entry — only from its bundled "web" viewer components. This is exactly the
 // coupling ENGINEERING-FINDINGS-2026-08.md §4 flagged: "Mozilla declined a generic third-party
 // embedding API." We take only the two viewer-component classes the UIManager constructor requires
 // and build everything else (container/viewer elements, per-page layers) ourselves.
 import { EventBus, GenericL10n } from "pdfjs-dist/web/pdf_viewer.mjs";
-import { logError, logEvent } from "../../state/diagnostics";
-import { modeToAnnotationEditorType, type PdfEditorMode } from "./pdfEditor";
+import { logError, logEvent } from "../../state/diagnostics.js";
+import { modeToAnnotationEditorType, type PdfEditorMode } from "./pdfEditor.js";
 
 // pdfjs-dist's own type defs mark AnnotationEditorUIManager's constructor args as `any` (it's
 // treated as viewer-internal, not a public API) — so we keep this hook's construction call and the

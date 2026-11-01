@@ -11,7 +11,7 @@
  * output, and never touches React state or the Tauri runtime.
  */
 
-import type { MarkdownCoreSnapshot } from "../core/MarkdownDocumentTypes";
+import type { MarkdownCoreSnapshot } from "../core/MarkdownDocumentTypes.js";
 
 /**
  * Render modes. `preview` returns the rendered HTML; `plain-text`

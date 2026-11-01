@@ -7,7 +7,7 @@ import {
   type SessionAuthMethod,
 } from "@rightkit/agent-ui-core/lib/accounts/accounts";
 import type { DaemonConfig } from "@rightkit/agent-ui-core/lib/types";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 /** The auth method of a vendor session, with the env-override warning (#347, #344). */
 export function AuthMethodLine({

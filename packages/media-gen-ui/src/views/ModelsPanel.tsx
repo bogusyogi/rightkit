@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { errorMessage, studio } from '../lib/api';
+import { errorMessage, studio } from '../lib/api.js';
 import {
   actionBlocker,
   budgetSummary,
@@ -27,10 +27,9 @@ import {
   type ModelEntry,
   type RentedWorker,
   type WorkerAction,
-} from '../lib/model-management';
+} from '../lib/model-management.js';
 import { Card, Badge, Button, Checkbox, Input, Notice, ProgressBar, SegmentedControl, Select } from '@rightkit/react-shell/react';
-import { RentalsPanel } from './RentalsPanel';
-import './models-panel.css';
+import { RentalsPanel } from './RentalsPanel.js';
 
 interface CatalogResponse {
   hardware: HardwareProfile;

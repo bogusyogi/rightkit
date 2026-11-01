@@ -1,8 +1,8 @@
 import { Channel } from "@tauri-apps/api/core";
-import type { EngineLifecycleEvent, JobEvent, JobKindEvent } from "../../contract";
-import { invoke, isQaMode, listen } from "./index";
-import { dispatchStreamEvent } from "./streamEvents";
-import type { EngineSnapshot, EngineStreamHandlers, StreamEvent } from "./streamEvents";
+import type { EngineLifecycleEvent, JobEvent, JobKindEvent } from "../../contract.js";
+import { invoke, isQaMode, listen } from "./index.js";
+import { dispatchStreamEvent } from "./streamEvents.js";
+import type { EngineSnapshot, EngineStreamHandlers, StreamEvent } from "./streamEvents.js";
 
 export interface EngineSubscription {
   /** `null` in a QA build, where the mock backend has no `subscribe`. */

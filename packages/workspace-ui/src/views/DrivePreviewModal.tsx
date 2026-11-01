@@ -4,7 +4,7 @@ import { useDrive } from "@rightkit/mail-ui/hooks/useDrive";
 import { openExternal, type DriveFile } from "@rightkit/mail-ui/lib/ipc";
 import { formatBytes } from "@rightkit/settings-ui/core";
 import { useAppStore } from "@rightkit/mail-ui/store/index";
-import { fileGlyph } from "./driveFileGlyph";
+import { fileGlyph } from "./driveFileGlyph.js";
 
 type DrivePreviewModalProps = {
   drivePreview: DriveFile;

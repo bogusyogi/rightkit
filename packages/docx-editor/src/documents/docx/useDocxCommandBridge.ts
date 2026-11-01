@@ -1,4 +1,4 @@
-import type { DocxHostToolbarContext } from "./eigenpalReact";
+import type { DocxHostToolbarContext } from "./eigenpalReact.js";
 
 type FormatAction = Parameters<DocxHostToolbarContext["format"]>[0];
 

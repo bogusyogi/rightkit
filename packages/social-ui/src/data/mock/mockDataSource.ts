@@ -1,5 +1,5 @@
 // RIGHTKIT-PENDING #383: ported version saved in /Volumes/D/scratch/postright/port-wip/full-port.patch
-import type { DataSource, MockControls, Result } from "../source";
+import type { DataSource, MockControls, Result } from "../source.js";
 import type {
   Account,
   AccountDisconnect,
@@ -56,42 +56,42 @@ import type {
   InboxStats,
   PublishNextView,
   PublishQuota,
-} from "../types";
-import { awaitingDecision, mediaReady } from "../derive";
-import { disclosureFound } from "../draftRules";
-import { FIXTURE_ACCOUNTS, FIXTURE_JOBS, MOCK_NOW_UTC, MOCK_POLICY_REVISION } from "./fixtures";
-import { FIXTURE_CAMPAIGNS, FIXTURE_LINKS, FIXTURE_LINK_VISITS } from "./fixtures-links";
-import { FIXTURE_DRAFTS } from "./fixtures-drafts";
-import { FIXTURE_HOOK_TESTS } from "./fixtures-hooks";
-import { FIXTURE_DIGESTS, FIXTURE_DIGEST_APPLICATIONS } from "./fixtures-digests";
-import { FIXTURE_GATE_POLICIES, FIXTURE_GATE_RECORDS } from "./fixtures-gate";
-import { FIXTURE_BRIEFS, FIXTURE_DELIVERIES, FIXTURE_DISPATCH_ATTEMPTS } from "./fixtures-briefs";
-import { FIXTURE_MEMORY, FIXTURE_PROOFS } from "./fixtures-memory";
-import { FIXTURE_BRIEF_VARIANTS, FIXTURE_TYPED_BRIEFS } from "./fixtures-variants";
+} from "../types.js";
+import { awaitingDecision, mediaReady } from "../derive.js";
+import { disclosureFound } from "../draftRules.js";
+import { FIXTURE_ACCOUNTS, FIXTURE_JOBS, MOCK_NOW_UTC, MOCK_POLICY_REVISION } from "./fixtures.js";
+import { FIXTURE_CAMPAIGNS, FIXTURE_LINKS, FIXTURE_LINK_VISITS } from "./fixtures-links.js";
+import { FIXTURE_DRAFTS } from "./fixtures-drafts.js";
+import { FIXTURE_HOOK_TESTS } from "./fixtures-hooks.js";
+import { FIXTURE_DIGESTS, FIXTURE_DIGEST_APPLICATIONS } from "./fixtures-digests.js";
+import { FIXTURE_GATE_POLICIES, FIXTURE_GATE_RECORDS } from "./fixtures-gate.js";
+import { FIXTURE_BRIEFS, FIXTURE_DELIVERIES, FIXTURE_DISPATCH_ATTEMPTS } from "./fixtures-briefs.js";
+import { FIXTURE_MEMORY, FIXTURE_PROOFS } from "./fixtures-memory.js";
+import { FIXTURE_BRIEF_VARIANTS, FIXTURE_TYPED_BRIEFS } from "./fixtures-variants.js";
 import {
   FIXTURE_ANALYTICS_OBSERVATIONS,
   FIXTURE_ANALYTICS_POSTS,
   FIXTURE_METRIC_IMPORTS,
-} from "./fixtures-analytics";
-import { FIXTURE_HEARTBEAT, FIXTURE_RESTORE_RECEIPTS } from "./fixtures-store";
-import { FIXTURE_PUBLISH_JOBS } from "./fixtures-publish";
-import { FIXTURE_INBOX, FIXTURE_INBOX_STATS, FIXTURE_UNMATCHED_UNREADABLE } from "./fixtures-inbox";
-import { pacingViewFor, quotaFor } from "./fixtures-pacing";
-import { FIXTURE_CONTENT, FIXTURE_CONTENT_SUMMARIES, FIXTURE_CONTENT_VARIANTS } from "./fixtures-content";
+} from "./fixtures-analytics.js";
+import { FIXTURE_HEARTBEAT, FIXTURE_RESTORE_RECEIPTS } from "./fixtures-store.js";
+import { FIXTURE_PUBLISH_JOBS } from "./fixtures-publish.js";
+import { FIXTURE_INBOX, FIXTURE_INBOX_STATS, FIXTURE_UNMATCHED_UNREADABLE } from "./fixtures-inbox.js";
+import { pacingViewFor, quotaFor } from "./fixtures-pacing.js";
+import { FIXTURE_CONTENT, FIXTURE_CONTENT_SUMMARIES, FIXTURE_CONTENT_VARIANTS } from "./fixtures-content.js";
 import {
   FIXTURE_ALLOWANCES,
   FIXTURE_PRICES,
   FIXTURE_PROPOSALS,
   FIXTURE_REPORTS,
   FIXTURE_SCOPES,
-} from "./fixtures-optimise";
+} from "./fixtures-optimise.js";
 import {
   EXTRA_JOBS,
   FIXTURE_FAILURES,
   FIXTURE_MODERATION,
   FIXTURE_THREADS,
   RECONCILE_RESULTS,
-} from "./fixtures-ops";
+} from "./fixtures-ops.js";
 
 export interface MockOptions {
   /** Simulated network latency for every call. Default 220 ms, so loading states are visible. */

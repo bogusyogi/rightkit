@@ -1,7 +1,7 @@
 import type { EditorView } from "@codemirror/view";
 import type { ReactNode } from "react";
 import type { SearchProvider } from "@rightkit/document-core/documents/types";
-import type { SourceLanguage } from "./sourceFormatting";
+import type { SourceLanguage } from "./sourceFormatting.js";
 
 export interface SourceEditorViewState {
   anchor: number;

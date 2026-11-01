@@ -1,5 +1,5 @@
-import type { Account } from "../../../lib/ipc/system";
-import type { UnreadCounts } from "../../../lib/ipc/mail";
+import type { Account } from "../../../lib/ipc/system.js";
+import type { UnreadCounts } from "../../../lib/ipc/mail.js";
 import {
   appLockStatus,
   dbHealth,
@@ -10,10 +10,10 @@ import {
   hasGoogleClientSecret,
   listAccounts,
   unreadCounts,
-} from "../../../lib/ipc";
-import type { StoreGet } from "../../mk";
-import { settleSettingWrites } from "../../../lib/settingsWriteQueue";
-import { markInitialRefreshSettled } from "../../../lib/initialRefresh";
+} from "../../../lib/ipc.js";
+import type { StoreGet } from "../../mk.js";
+import { settleSettingWrites } from "../../../lib/settingsWriteQueue.js";
+import { markInitialRefreshSettled } from "../../../lib/initialRefresh.js";
 
 /** Settings that a mail sync can never change. They are fetched at startup and
  *  again only when Settings changes them / the Settings view closes — never on

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ComposerCompletion } from "@rightkit/agent-ui-core/lib/composer/completionRanking";
-import { ComposerCompletionMenu } from "./ComposerCompletionMenu";
+import { ComposerCompletionMenu } from "./ComposerCompletionMenu.js";
 
 const item: ComposerCompletion = { kind: "command", key: "command:new", label: "new", description: "Start", insertText: "/new ", score: 1 };
 

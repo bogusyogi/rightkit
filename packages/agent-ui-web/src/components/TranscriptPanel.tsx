@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Markdown } from '../Markdown'
-import { DiffView } from './DiffView'
-import { looksLikeDiff } from './diffUtils'
-import { useSession, type Msg, type Role } from '../contexts/SessionContext'
-import { hostAppName } from "../appName";
+import { Markdown } from '../Markdown.js'
+import { DiffView } from './DiffView.js'
+import { looksLikeDiff } from './diffUtils.js'
+import { useSession, type Msg, type Role } from '../contexts/SessionContext.js'
+import { hostAppName } from "../appName.js";
 
 // ── Virtual list ──────────────────────────────────────────────────────────────
 

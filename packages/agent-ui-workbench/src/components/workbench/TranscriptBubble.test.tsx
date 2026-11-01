@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { TranscriptBubble } from "./TranscriptBubble";
+import { TranscriptBubble } from "./TranscriptBubble.js";
 import type { TranscriptMessage } from "@rightkit/agent-ui-core/lib/types";
 
 describe("TranscriptBubble image-block rendering", () => {
@@ -149,7 +149,7 @@ describe("TranscriptBubble density", () => {
 describe("TranscriptGroupView density", () => {
   it("threads density into processing and clarification groups", async () => {
     const { groupTranscriptMessages } = await import("@rightkit/agent-ui-core/lib/transcriptGroups");
-    const { default: TranscriptGroupView } = await import("./TranscriptBubble");
+    const { default: TranscriptGroupView } = await import("./TranscriptBubble.js");
     const msgs: TranscriptMessage[] = [
       {
         $kind: "assistant",

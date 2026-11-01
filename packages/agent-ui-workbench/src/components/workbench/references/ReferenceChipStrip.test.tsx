@@ -1,7 +1,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import ReferenceChipStrip from "./ReferenceChipStrip";
+import ReferenceChipStrip from "./ReferenceChipStrip.js";
 import type { ReferenceObject } from "@rightkit/agent-ui-core/lib/types/references";
 
 function makeRef(id: string, kind: ReferenceObject["kind"] = "workspace_file"): ReferenceObject {

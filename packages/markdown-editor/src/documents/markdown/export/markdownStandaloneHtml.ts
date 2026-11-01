@@ -1,4 +1,4 @@
-import { hostAppName } from "../../../appName";
+import { hostAppName } from "../../../appName.js";
 const escapeHtml = (value: string) =>
   value.replace(
     /[&<>"']/g,

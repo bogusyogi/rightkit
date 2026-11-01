@@ -4,7 +4,7 @@ import { renderHook, act, cleanup } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createBlockDraftRegistry, type BlockDraftIdentity } from "@rightkit/document-core/app/blockDrafts";
-import { useDocumentSaver } from "./useDocumentSaver";
+import { useDocumentSaver } from "./useDocumentSaver.js";
 import type { LoadedDocument, ViewMode } from "@rightkit/document-core/documents/types";
 
 const md = (path: string): LoadedDocument => ({
@@ -42,7 +42,7 @@ vi.mock("@rightkit/document-core/state/tauriBridge", () => ({
   clearSetupRecovery: vi.fn(async () => {}),
 }));
 
-vi.mock("../state/library", () => ({
+vi.mock("../state/library.js", () => ({
   listRecent: vi.fn(async () => []),
   listPins: vi.fn(async () => []),
   togglePin: vi.fn(async () => true),

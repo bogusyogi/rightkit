@@ -1,5 +1,5 @@
 import { EmptyState } from "@rightkit/react-shell/react";
-import type { SpecTaskEditorProps } from "./types";
+import type { SpecTaskEditorProps } from "./types.js";
 
 export default function SpecTaskEditor({
   specId,

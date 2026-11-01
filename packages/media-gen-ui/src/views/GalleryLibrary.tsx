@@ -1,12 +1,12 @@
 // Library search results and the asset import panel, shown from the Gallery view.
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { importAsset, previewAssetImport } from '../lib/api';
-import { EngineError, toError } from '../lib/engine-error';
+import { importAsset, previewAssetImport } from '../lib/api.js';
+import { EngineError, toError } from '../lib/engine-error.js';
 import { Badge, Button, Card, EmptyState, Input, Notice, Select } from '@rightkit/react-shell/react';
-import { Kv, baseName } from '../components/ui';
-import { evidenceLabel, factsRows, notIndexedText, originKindLabel, parseSnippet, rightsLabel, scopeLabel } from '../lib/asset-facts';
-import { EMPTY_IMPORT_FORM, IMPORT_EVIDENCE_OPTIONS, IMPORT_ORIGIN_OPTIONS, IMPORT_RIGHTS_OPTIONS, validateImportForm, type ImportForm, type ImportFormErrors } from '../lib/asset-import';
-import type { AssetImportDryRun, AssetImportResult, ImportEvidence, ImportRightsStatus, LibraryHit } from '../lib/types/library';
+import { Kv, baseName } from '../components/ui.js';
+import { evidenceLabel, factsRows, notIndexedText, originKindLabel, parseSnippet, rightsLabel, scopeLabel } from '../lib/asset-facts.js';
+import { EMPTY_IMPORT_FORM, IMPORT_EVIDENCE_OPTIONS, IMPORT_ORIGIN_OPTIONS, IMPORT_RIGHTS_OPTIONS, validateImportForm, type ImportForm, type ImportFormErrors } from '../lib/asset-import.js';
+import type { AssetImportDryRun, AssetImportResult, ImportEvidence, ImportRightsStatus, LibraryHit } from '../lib/types/library.js';
 
 /** The engine's message without its code: codes are not shown as copy. */
 function errorText(error: unknown): string {

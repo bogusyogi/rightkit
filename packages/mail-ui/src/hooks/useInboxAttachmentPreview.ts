@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import {
   type AttachmentPreviewPayload,
-} from "../components/AttachmentPreviewModal";
+} from "../components/AttachmentPreviewModal.js";
 import {
   downloadAttachment,
   getThread,
@@ -9,7 +9,7 @@ import {
   previewAttachment,
   type AttachmentMeta,
   type Thread,
-} from "../lib/ipc";
+} from "../lib/ipc.js";
 
 interface InboxAttachmentPreview extends AttachmentPreviewPayload {
   accountId: string;

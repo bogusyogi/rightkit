@@ -19,16 +19,16 @@
 import type { Node as ProseMirrorNode } from "prosemirror-model";
 import type { Transaction } from "prosemirror-state";
 import { Mapping, ReplaceStep } from "prosemirror-transform";
-import type { MarkdownTextEdit } from "../core/types";
+import type { MarkdownTextEdit } from "../core/types.js";
 import {
   canPreservePmRaw,
   pmBlockToMarkdown,
   pmCodeFenceToMarkdown,
   pmListToMarkdown,
   pmTableToMarkdown,
-} from "./pmToMarkdown";
-import { longestFenceRun, parseCodeFenceSource, codeFenceInfoString } from "../codeFenceModel";
-import { computeMarkdownTableSourcePatch } from "../tables/markdownTableSourcePatch";
+} from "./pmToMarkdown.js";
+import { longestFenceRun, parseCodeFenceSource, codeFenceInfoString } from "../codeFenceModel.js";
+import { computeMarkdownTableSourcePatch } from "../tables/markdownTableSourcePatch.js";
 
 /**
  * Range fields attached to a PM block per the v2 schema.

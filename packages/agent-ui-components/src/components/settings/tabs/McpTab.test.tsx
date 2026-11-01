@@ -2,9 +2,9 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import McpTab from "./McpTab";
+import McpTab from "./McpTab.js";
 import type { McpServerModeStatus, McpServerRow } from "@rightkit/agent-ui-core/lib/types";
-import type { McpDraft } from "../types";
+import type { McpDraft } from "../types.js";
 
 function baseDraft(overrides: Partial<McpDraft> = {}): McpDraft {
   return {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bytesToBase64 } from "./base64";
-import { rightDrawerWidth, sourceWidthPercent } from "./splitResizeMath";
+import { bytesToBase64 } from "./base64.js";
+import { rightDrawerWidth, sourceWidthPercent } from "./splitResizeMath.js";
 
 describe("document-core helpers", () => {
   it("encodes bytes across chunk boundaries", () => {

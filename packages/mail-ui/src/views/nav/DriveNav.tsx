@@ -4,10 +4,10 @@
 // here re-lists the grid.
 import { useRef, useState } from "react";
 import { Button, ContextMenu, NavList, Input } from "@rightkit/react-shell/react";
-import Icon from "../../components/Icons";
+import Icon from "../../components/Icons.js";
 import { formatBytes } from "@rightkit/settings-ui/core";
-import { useAppStore } from "../../store";
-import { useDrive, type DriveShelf } from "../../hooks/useDrive";
+import { useAppStore } from "../../store/index.js";
+import { useDrive, type DriveShelf } from "../../hooks/useDrive.js";
 
 const SHELVES: { key: DriveShelf; label: string; icon: string }[] = [
   { key: "my", label: "My Drive", icon: "drive" },

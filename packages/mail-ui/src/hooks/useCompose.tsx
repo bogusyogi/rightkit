@@ -3,10 +3,10 @@
 // it must outlive the compose drawer; this hook is the in-drawer form behavior.
 import { Button } from "@rightkit/react-shell/react";
 import { useRef, useState } from "react";
-import Icon from "../components/Icons";
-import { colorFor, initialOf } from "../lib/mail";
-import { plainToHtml } from "../lib/html";
-import { useAppStore, composeEditorRef } from "../store";
+import Icon from "../components/Icons.js";
+import { colorFor, initialOf } from "../lib/mail.js";
+import { plainToHtml } from "../lib/html.js";
+import { useAppStore, composeEditorRef } from "../store/index.js";
 import {
   searchRecipients,
   expandContactGroup,
@@ -17,7 +17,7 @@ import {
   type ContactGroup,
   type AiAction,
   type DriveFile,
-} from "../lib/ipc";
+} from "../lib/ipc.js";
 
 export function useCompose() {
   const activeAccount = useAppStore((s) => s.activeAccount);

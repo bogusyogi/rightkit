@@ -1,15 +1,15 @@
 import { useCallback, useMemo, type Dispatch, type SetStateAction } from "react";
-import { useTabChrome } from "./useTabChrome";
-import { useDocumentZoom } from "./useDocumentZoom";
-import { useAppLifecycle } from "./AppLifecycle";
-import { useOpenFromClipboard } from "./useOpenFromClipboard";
+import { useTabChrome } from "./useTabChrome.js";
+import { useDocumentZoom } from "./useDocumentZoom.js";
+import { useAppLifecycle } from "./AppLifecycle.js";
+import { useOpenFromClipboard } from "./useOpenFromClipboard.js";
 import { baseName, isUntitled } from "@rightkit/document-core/documents/types";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
-import type { useDocuments } from "./useDocuments";
-import type { useDocumentTabs } from "./useDocumentTabs";
-import type { useAppDocumentCore } from "./useAppDocumentCore";
-import type { useAppShellSetup } from "./useAppShellSetup";
-import type { useLibrary } from "./useLibrary";
+import type { useDocuments } from "./useDocuments.js";
+import type { useDocumentTabs } from "./useDocumentTabs.js";
+import type { useAppDocumentCore } from "./useAppDocumentCore.js";
+import type { useAppShellSetup } from "./useAppShellSetup.js";
+import type { useLibrary } from "./useLibrary.js";
 
 type Docs = ReturnType<typeof useDocuments>;
 type Tabs = ReturnType<typeof useDocumentTabs>;

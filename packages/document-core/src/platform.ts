@@ -5,7 +5,7 @@ import { formatChord, getPlatform } from "@rightkit/platform-ui";
 // statically, which would ship QA code in release bundles; this guard folds away in production.
 function qaPlatformOverride(): string {
   if (typeof window === "undefined") return "";
-  if (!import.meta.env.DEV && import.meta.env.VITE_RIGHTKIT_BROWSER_QA !== "1") return "";
+  if (!import.meta.env?.DEV && import.meta.env?.VITE_RIGHTKIT_BROWSER_QA !== "1") return "";
   return new URLSearchParams(window.location.search).get("qaPlatform")?.toLowerCase() ?? "";
 }
 

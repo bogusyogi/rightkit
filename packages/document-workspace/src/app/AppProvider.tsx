@@ -1,17 +1,17 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { capabilitiesFor } from "../documents/capabilities";
-import { effectiveReadEdit } from "./shell/readEdit";
+import { capabilitiesFor } from "../documents/capabilities.js";
+import { effectiveReadEdit } from "./shell/readEdit.js";
 import { toast } from "@rightkit/platform-ui/headless";
 import type { ReadEditMode } from "@rightkit/document-core/documents/types";
-import { useAppDocumentCore } from "./useAppDocumentCore";
-import { useAppChromeState } from "./useAppChromeState";
-import { useAppShellSetup } from "./useAppShellSetup";
-import { useAppPaneSearch } from "./useAppPaneSearch";
-import { useAppTabChrome } from "./useAppTabChrome";
-import { useAppCommands } from "./useAppCommands";
-import { useAppSlots } from "./useAppSlots";
+import { useAppDocumentCore } from "./useAppDocumentCore.js";
+import { useAppChromeState } from "./useAppChromeState.js";
+import { useAppShellSetup } from "./useAppShellSetup.js";
+import { useAppPaneSearch } from "./useAppPaneSearch.js";
+import { useAppTabChrome } from "./useAppTabChrome.js";
+import { useAppCommands } from "./useAppCommands.js";
+import { useAppSlots } from "./useAppSlots.js";
 import { writeClipboardText } from "@rightkit/document-core/state/tauriBridge";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 /**
  * Hook composition for the whole app shell. Hook call order matches the original useAppState exactly:

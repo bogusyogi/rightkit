@@ -1,6 +1,6 @@
 // Wording for asset facts and scope, and the search snippet parser. Pure: no React, no engine calls.
 // "Not recorded" means the engine holds no fact for this asset. It never reads as a positive claim.
-import type { AssetEvidence, AssetFacts, AssetOrigin, AssetRightsStatus, AssetScope } from './types/library';
+import type { AssetEvidence, AssetFacts, AssetOrigin, AssetRightsStatus, AssetScope } from './types/library.js';
 
 export const NOT_RECORDED = 'Not recorded';
 

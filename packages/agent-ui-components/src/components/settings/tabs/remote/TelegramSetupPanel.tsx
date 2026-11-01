@@ -1,5 +1,5 @@
 import { Checkbox } from "@rightkit/react-shell/react";
-import type { SettingsDraft } from "../../types";
+import type { SettingsDraft } from "../../types.js";
 
 export function TelegramSetupPanel({
   settingsDraft,

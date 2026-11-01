@@ -4,7 +4,7 @@ import {
   parseBracketedNotice,
   parseExternalizedOutput,
   stripAgentBookkeeping,
-} from "./messageNotices";
+} from "./messageNotices.js";
 
 describe("parseExternalizedOutput", () => {
   const stub = [

@@ -1,5 +1,5 @@
-import type { ToolCall, TranscriptMessage, UserQuestion } from "./types";
-import type { TranscriptDensity } from "./types";
+import type { ToolCall, TranscriptMessage, UserQuestion } from "./types.js";
+import type { TranscriptDensity } from "./types.js";
 
 export type TranscriptGroupKind =
   | "human"

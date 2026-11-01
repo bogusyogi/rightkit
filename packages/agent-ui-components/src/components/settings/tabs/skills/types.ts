@@ -10,7 +10,7 @@ import type {
   SkillInstallDraft,
   SkillTrainingEpochDraft,
   SkillTrainingRunDraft,
-} from "../../types";
+} from "../../types.js";
 
 export type SkillLifecycleAction = "quarantine" | "activate" | "retire";
 

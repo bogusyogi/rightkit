@@ -6,8 +6,8 @@ import {
   buildMarkdownLink,
   formatSource,
   type SourceLanguage,
-} from "./sourceFormatting";
-import type { SourceLinkPrefix, SourceLinkState } from "./sourceEditorTypes";
+} from "./sourceFormatting.js";
+import type { SourceLinkPrefix, SourceLinkState } from "./sourceEditorTypes.js";
 
 export function useTextEditorCommands({
   formatOnSaveRef,

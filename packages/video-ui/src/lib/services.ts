@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { createAutoUpdateClient } from "@rightkit/app-update";
 import { createLicenseClient } from "@rightkit/license";
 import { createLogsClient } from "@rightkit/logs";
-import { engineBusy } from "./engine";
+import { engineBusy } from "./engine.js";
 
 /**
  * The licence runs natively (src-tauri/src/licence.rs behind the shell's `rightkit_license_*` commands).

@@ -11,7 +11,7 @@ import {
   toDaemonAttachments,
   type DroppedFile,
   type StagedAttachment,
-} from "./useAttachmentStaging";
+} from "./useAttachmentStaging.js";
 
 describe("attachment staging", () => {
   it("preserves OpenCovibe's anchored paste token at the selected position", () => {

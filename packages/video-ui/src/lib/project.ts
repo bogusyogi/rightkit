@@ -1,4 +1,4 @@
-import { engineCall } from "./engine";
+import { engineCall } from "./engine.js";
 
 /** Timeline ticks per second (cutright-timeline TICKS_PER_SECOND). */
 export const TICKS_PER_SECOND = 705_600_000;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createHistoryProvider, suggest, type ProjectContext } from "./suggestionEngine";
+import { createHistoryProvider, suggest, type ProjectContext } from "./suggestionEngine.js";
 
 const rustContext: ProjectContext = {
   hasGit: true,

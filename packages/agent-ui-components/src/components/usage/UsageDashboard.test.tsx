@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import UsageDashboard from "./UsageDashboard";
+import UsageDashboard from "./UsageDashboard.js";
 import type { UsageDataSource, UsageOverview } from "@rightkit/agent-ui-core/lib/usage/usageProjection";
 
 const overview: UsageOverview = {

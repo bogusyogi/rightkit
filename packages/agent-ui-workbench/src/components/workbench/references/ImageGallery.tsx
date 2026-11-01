@@ -1,7 +1,7 @@
 import { memo, useCallback, useState } from "react";
 
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import ImageZoomViewer from "./ImageZoomViewer";
+import ImageZoomViewer from "./ImageZoomViewer.js";
 import type { ReferenceObject } from "@rightkit/agent-ui-core/lib/types/references";
 
 // Image-gallery view of image references. Shows up to GALLERY_VISIBLE_LIMIT

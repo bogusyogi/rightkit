@@ -1,6 +1,6 @@
 import * as parse5 from "parse5";
 import { incParseCount } from "@rightkit/document-core/documents/perfEventCounters";
-import { htmlSourceMapCache } from "./htmlResourceLifecycle";
+import { htmlSourceMapCache } from "./htmlResourceLifecycle.js";
 
 export interface SourceRange {
   start: number;

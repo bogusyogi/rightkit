@@ -6,8 +6,8 @@ import type {
   ExecutionNetworkProfile,
 } from "@rightkit/agent-ui-core/lib/types";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import { ExecutionBackendLimitsForm } from "./ExecutionBackendLimitsForm";
-import type { NetworkProfileChange, ResourceLimitsChange, ResourceLimitsDraft } from "./types";
+import { ExecutionBackendLimitsForm } from "./ExecutionBackendLimitsForm.js";
+import type { NetworkProfileChange, ResourceLimitsChange, ResourceLimitsDraft } from "./types.js";
 
 interface ExecutionBackendCardProps {
   backend: ExecutionBackendConfig;

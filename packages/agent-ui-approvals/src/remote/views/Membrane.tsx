@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Badge, Button, Card, Toggle } from "@rightkit/react-shell/react";
-import "@rightkit/system-ui/views/membrane.css";
 import { clearVisibleInterval, visibleInterval } from "@rightkit/system-ui/visible";
 import { setNotchSetting } from "@rightkit/system-ui/api";
-import { useNotch } from "./Settings";
+import { useNotch } from "./Settings.js";
 
 /** Status and freshness refresh while the section is open. Logs, memory and context load only on demand. */
 const REFRESH_MS = 5_000;

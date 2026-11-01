@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import Icon from "./Icon";
+import Icon from "./Icon.js";
 
 /**
  * Shared loading surface for panes and tabs that fetch on mount or on refresh.

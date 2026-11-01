@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getRunChangesInventory, getRunChangesSummary } from "./runChangesClient";
+import { getRunChangesInventory, getRunChangesSummary } from "./runChangesClient.js";
 
 const config = { url: "http://127.0.0.1:8765", token: "token" };
 

@@ -2,8 +2,8 @@
 // add/complete live in TasksView; this nav just switches the active list via the
 // shared store state.
 import { NavList } from "@rightkit/react-shell/react";
-import Icon from "../../components/Icons";
-import { useAppStore } from "../../store";
+import Icon from "../../components/Icons.js";
+import { useAppStore } from "../../store/index.js";
 
 export function TasksNav() {
   const taskLists = useAppStore((s) => s.taskLists);

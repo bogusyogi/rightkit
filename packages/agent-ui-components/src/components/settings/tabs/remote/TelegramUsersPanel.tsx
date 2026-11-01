@@ -1,6 +1,6 @@
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import type { TelegramRemoteUsers } from "@rightkit/agent-ui-core/lib/types";
-import type { SettingsDraft } from "../../types";
+import type { SettingsDraft } from "../../types.js";
 
 export function TelegramUsersPanel({
   settingsDraft,

@@ -12,12 +12,11 @@ import {
   type ReactNode,
   type UIEvent,
 } from "react";
-import "../../../styles/explorer.css";
 import { CaretDown } from "@phosphor-icons/react/dist/icons/CaretDown";
-import { FileTypeIcon } from "../../../documents/FileTypeIcon";
+import { FileTypeIcon } from "../../../documents/FileTypeIcon.js";
 import { baseName, formatFromPath, type DocFormat } from "@rightkit/document-core/documents/types";
-import { explorerLocations, type ExplorerLocation } from "../../../state/explorer";
-import type { FileEntry, PinEntry } from "../../../state/library";
+import { explorerLocations, type ExplorerLocation } from "../../../state/explorer.js";
+import type { FileEntry, PinEntry } from "../../../state/library.js";
 import {
   ancestorDirs,
   explorerPersistedSync,
@@ -25,9 +24,9 @@ import {
   pathInside,
   saveExplorerPersisted,
   type ExplorerSectionState,
-} from "./explorerState";
-import { ExplorerTree, useExplorerTree, type ExplorerNodeSpec } from "./ExplorerTree";
-import { ExplorerRowMenu, type ExplorerRowMenuState } from "./ExplorerRowMenu";
+} from "./explorerState.js";
+import { ExplorerTree, useExplorerTree, type ExplorerNodeSpec } from "./ExplorerTree.js";
+import { ExplorerRowMenu, type ExplorerRowMenuState } from "./ExplorerRowMenu.js";
 
 const RECENT_LIMIT = 5;
 

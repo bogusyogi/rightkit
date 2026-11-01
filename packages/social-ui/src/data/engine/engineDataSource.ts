@@ -2,8 +2,8 @@
 // Fields and methods the engine does not provide are named in docs/design/p9-desktop-screens-v1.md
 // ("Engine gaps"). Reads throw EngineUnavailableError or EngineReadError, which the screens show as
 // their load error. Writes return a Result, which the screens show as a notice.
-import { engineCall, type EngineCallError, type EngineCallResult } from "../../lib/host";
-import type { DataError, DataSource, Result, UnmappedAccount as UnmappedAccountView } from "../source";
+import { engineCall, type EngineCallError, type EngineCallResult } from "../../lib/host.js";
+import type { DataError, DataSource, Result, UnmappedAccount as UnmappedAccountView } from "../source.js";
 import type {
   Account,
   AccountDisconnect,
@@ -56,8 +56,8 @@ import type {
   InboxStats,
   PublishNextView,
   PublishQuota,
-} from "../types";
-import { EngineReadError, EngineUnavailableError } from "./errors";
+} from "../types.js";
+import { EngineReadError, EngineUnavailableError } from "./errors.js";
 import {
   accountId,
   accountKey,
@@ -111,7 +111,7 @@ import {
   inboxStatsOf,
   publishNextOf,
   publishQuotaOf,
-} from "./mapping";
+} from "./mapping.js";
 import type {
   EngineAccount,
   EngineAccountDisconnect,
@@ -167,7 +167,7 @@ import type {
   EngineInboxStats,
   EnginePublishNext,
   EnginePublishQuota,
-} from "./protocol";
+} from "./protocol.js";
 
 /** The approver the engine records. The shell has no operator identity yet (see "Engine gaps"). */
 const APPROVER = "desktop";

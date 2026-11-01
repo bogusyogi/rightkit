@@ -6,7 +6,7 @@ import {
   markdownExportFilename,
   renderStructuredSessionExport,
   renderTranscriptMarkdown,
-} from "../../components/app/sessionExport";
+} from "../../components/app/sessionExport.js";
 import { messageOf } from "@rightkit/agent-ui-core/lib/utils";
 
 interface PendingQuestion {

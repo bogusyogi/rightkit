@@ -3,7 +3,7 @@ import { moveIndex, useDismiss } from "@rightkit/platform-ui/headless";
 import { ConfirmDialog, Popover } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import type { IconName } from "@rightkit/agent-ui-core/components/Icon";
-import AccountModelPicker from "./AccountModelPicker";
+import AccountModelPicker from "./AccountModelPicker.js";
 import { isClaudeProvider, type Account } from "@rightkit/agent-ui-core/lib/accounts/accounts";
 import type {
   Attachment,
@@ -34,17 +34,17 @@ import { useEnvironmentsStore } from "@rightkit/agent-ui-core/state/environments
 import { createSkillReference, type ReferenceObject } from "@rightkit/agent-ui-core/lib/types/references";
 import ReferenceChipStrip from "@rightkit/agent-ui-workbench/components/workbench/references/ReferenceChipStrip";
 // Composer-specific helpers are kept in this component's existing utility import.
-import { WorkspaceStrip } from "./composerIsland/Chips";
-import { ComposerActivityStack } from "./composerIsland/ComposerActivityStack";
-import { ContextUsageMeterInline } from "./composerIsland/ContextUsageMeterInline";
-import RichComposerEditor, { type ComposerEditorHandle } from "../composer/RichComposerEditor";
-import AttachmentStagingStrip from "../composer/AttachmentStagingStrip";
-import ComposerCompletionMenu from "../composer/ComposerCompletionMenu";
-import { MentionPopover, type PopoverItem } from "./composerIsland/MentionPopover";
-import TemplatePicker from "../composer/TemplatePicker";
+import { WorkspaceStrip } from "./composerIsland/Chips.js";
+import { ComposerActivityStack } from "./composerIsland/ComposerActivityStack.js";
+import { ContextUsageMeterInline } from "./composerIsland/ContextUsageMeterInline.js";
+import RichComposerEditor, { type ComposerEditorHandle } from "../composer/RichComposerEditor.js";
+import AttachmentStagingStrip from "../composer/AttachmentStagingStrip.js";
+import ComposerCompletionMenu from "../composer/ComposerCompletionMenu.js";
+import { MentionPopover, type PopoverItem } from "./composerIsland/MentionPopover.js";
+import TemplatePicker from "../composer/TemplatePicker.js";
 import VoiceConversation from "@rightkit/dictation-ui/voice/components/VoiceConversation";
 import { useAttachmentStaging, toDaemonAttachments } from "@rightkit/agent-ui-hooks/hooks/useAttachmentStaging";
-import { useComposerCompletions } from "../../hooks/useComposerCompletions";
+import { useComposerCompletions } from "../../hooks/useComposerCompletions.js";
 import {
   BUILT_IN_TEMPLATES,
   type PromptTemplate,
@@ -56,8 +56,8 @@ import {
   EMPTY_FIELDS,
   type ComposerFields,
 } from "@rightkit/agent-ui-core/lib/promptTemplates/compilePrompt";
-import { formatElapsed, formatTokens } from "./composerIsland/format";
-import { hostAppName } from "../../appName";
+import { formatElapsed, formatTokens } from "./composerIsland/format.js";
+import { hostAppName } from "../../appName.js";
 
 // ComposerIsland — the sole composer surface for the host app (see docs/UI-PARITY-SPEC.md §4.2).
 // Phase 4 rewrite: auto-size textarea (1 → 7 lines), bottom-pinned footer with
@@ -1928,7 +1928,7 @@ export {
   skillStatusLabel,
   skillToolLabel,
   skillTriggerLabel,
-} from "./composerBarHelpers";
+} from "./composerBarHelpers.js";
 
 function composerEffortLabel(effort: ComposerEffort) {
   switch (effort) {

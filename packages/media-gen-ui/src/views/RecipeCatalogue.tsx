@@ -6,13 +6,13 @@ import {
   type RecipeCatalogueGraph,
   type RecipeCatalogueResult,
   type RecipeCatalogueValidation
-} from '../lib/api';
+} from '../lib/api.js';
 import { Card, Badge, Button, EmptyState, Notice } from '@rightkit/react-shell/react';
-import { Kv } from '../components/ui';
-import { EngineError, toError } from '../lib/engine-error';
-import motionTransfer from '../studio-data/recipes/catalogue/motion_transfer.json';
-import objectReplacement from '../studio-data/recipes/catalogue/object_replacement.json';
-import voxDirector from '../studio-data/recipes/catalogue/vox_director.json';
+import { Kv } from '../components/ui.js';
+import { EngineError, toError } from '../lib/engine-error.js';
+import motionTransfer from '../studio-data/recipes/catalogue/motion_transfer.json' with { type: "json" };
+import objectReplacement from '../studio-data/recipes/catalogue/object_replacement.json' with { type: "json" };
+import voxDirector from '../studio-data/recipes/catalogue/vox_director.json' with { type: "json" };
 import {
   errorsByNode,
   missingRoutesText,
@@ -25,7 +25,7 @@ import {
   servedTone,
   unbuiltPlanned,
   validationSummary
-} from './recipe-catalogue-logic';
+} from './recipe-catalogue-logic.js';
 
 interface DefinitionNode {
   id: string;

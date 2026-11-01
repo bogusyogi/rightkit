@@ -2,7 +2,7 @@ import type { Node as ProseMirrorNode } from "prosemirror-model";
 import type { EditorView, NodeView, ViewMutationRecord } from "prosemirror-view";
 import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import { Dropdown, Item } from "@rightkit/document-core/documents/toolbarPrimitives";
-import { setMarkdownTransactionIntent } from "../projection/markdownTransactionIntent";
+import { setMarkdownTransactionIntent } from "../projection/markdownTransactionIntent.js";
 
 export const CODE_FENCE_LANGUAGES: readonly string[] = [
   "ts",
