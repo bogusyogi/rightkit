@@ -89,9 +89,46 @@
           "sourceOfferContact": "https://orthiclabs.com/legal/ffmpeg-source"
         },
         "platforms": [
-          "mac",
+          "mac"
+        ],
+        "sources": {
+          "ffmpeg": {
+            "aarch64": {
+              "url": "https://raw.githubusercontent.com/bogusyogi/rightkit/16422e2c18c9f6d85612f30eda9645eef8924ebc/crates/rightkit-ffmpeg/artifacts/ffmpeg-7.1.5-macos-arm64.tar.gz",
+              "sha256": "010d32bbb3f51c9cc9eb90dce5160e67038acd3a7f0e02201d0db6796856ff78",
+              "member": "ffmpeg"
+            },
+            "x86_64": {
+              "url": "https://raw.githubusercontent.com/bogusyogi/rightkit/16422e2c18c9f6d85612f30eda9645eef8924ebc/crates/rightkit-ffmpeg/artifacts/ffmpeg-7.1.5-macos-x86_64.tar.gz",
+              "sha256": "c0d9b550936144dd7460d39b617e6bc0b65bc1e0f5a622940ebef34cb344adfa",
+              "member": "ffmpeg"
+            }
+          }
+        }
+      },
+      {
+        "kind": "ffmpeg",
+        "variant": "decode",
+        "tools": [
+          "ffmpeg"
+        ],
+        "catalog": {
+          "crate": "rightkit-ffmpeg"
+        },
+        "notices": {
+          "dir": "src-tauri/resources/third-party/ffmpeg",
+          "sourceOfferContact": "https://orthiclabs.com/legal/ffmpeg-source"
+        },
+        "platforms": [
           "win"
-        ]
+        ],
+        "sources": {
+          "ffmpeg": {
+            "url": "https://raw.githubusercontent.com/bogusyogi/rightkit/16422e2c18c9f6d85612f30eda9645eef8924ebc/crates/rightkit-ffmpeg/artifacts/ffmpeg-7.1.5-windows-x64.tar.gz",
+            "sha256": "663381a94ae12a819b8e412950973cbbd765ec863e1c058e6e1de8730b991ae3",
+            "member": "ffmpeg.exe"
+          }
+        }
       },
       {
         "kind": "native-library",
