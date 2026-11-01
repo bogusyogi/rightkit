@@ -12,7 +12,7 @@ The public-repository guard rejects private forks.
 
 ## `@rightkit/release` tests: unit class and broker class
 
-`packages/release/test-support/suites.json` classes every test file as `unit` or `broker`. `pnpm --dir packages/release run test` (what the gate and qualify-direct run on a Linux runner with no RustRight broker) runs the unit class and passes with no skip. The broker class (`pnpm --dir packages/release run test:broker`) starts the installed RustRight broker and runs only on a Mac, a Dell or a host with `rustright` on PATH; it fails where there is no broker and is never skipped or simulated. **`test:broker` on a Mac or Dell is required evidence before `@rightkit/release` is published**; `test:all` runs both classes.
+`packages/release/test-support/suites.json` classes every test file as `unit` or `broker`. `pnpm --dir packages/release run test` (what the gate and qualify-direct run on a Linux runner with no RustRight broker) runs the unit class and passes with no skip. The broker class (`pnpm --dir packages/release run test:broker`) starts the installed RustRight broker and runs only on a Mac, a Dell or a host with `rustright` on PATH; it fails where there is no broker and is never skipped or simulated. **Before `@rightkit/release` is published, both classes must have passed on both native hosts at the commit: the Mac and the Dell (Windows), through the gate and the RustRight broker** (step ② of docs/PIPELINE-ARCHITECTURE.md). Push CI never runs this suite natively, and a Linux runner never sees Windows file-system or PATHEXT behaviour: on 2026-11-01 four Windows-only and one macOS failure first appeared in publish.yml's verify jobs (rightkit#1413). `test:all` runs both classes.
 
 ## Layout
 
@@ -142,8 +142,7 @@ qualification.
 
 ## What runs
 
-A push to `main` is compared with the last commit the same runner passed on. With no such commit,
-everything runs.
+A native dispatch of `ci.yml` (never a push: push and pull request runs are static validation only, and their Windows and macOS jobs stay skipped) is compared with the last commit the same runner passed on. With no such commit, everything runs.
 
 - **Rust.** A crate is tested and linted when its directory, a third-party package it compiles, or
   its gate config changed. Crates that path-depend on it, transitively, are compiled with `cargo check --all-targets`.
@@ -243,7 +242,7 @@ gate report names it under "Now green" for removal in next commit.
 ## Two hosts, one owner
 
 - One integration owner owns HEAD, index, commits & pushes to `main`; workers edit disjoint paths in primary checkout.
-- Each CI run qualifies its exact commit on both native runners. Owner reports commit & observed result.
+- Each dispatched native CI run qualifies its exact commit on both native runners (a push run is static only). Owner reports commit & observed result.
 - Green CI proves hosted qualification. Installed-build verification separately names installed commit.
 
 ## Publishing
