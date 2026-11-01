@@ -1549,6 +1549,7 @@ dependencies = [
  "rightkit-dictation-core",
  "rightkit-dictation-telemetry",
  "rightkit-transcript-library",
+ "serde",
  "tempfile",
  "windows",
  "windows-sys 0.61.2",

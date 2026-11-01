@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 (unreleased)
+
+- `pill` module, moved from HeardRight (`heardright_core::pill`): the `PillEvent` payload, work-area clamp geometry and the hover gate for the pill capsule. Pure Rust; no window calls.
+
 ## 0.2.0 (unreleased)
 
 - Breaking: replace product-specific OverlayKind with caller-owned OverlayModel<Kind>; serialization follows caller kind, preserving existing wire values when caller retains its enum mapping.

@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod pill;
 pub mod stack;
 
 /// Windows native hosts must keep both the extended style and actual z-order in this band.

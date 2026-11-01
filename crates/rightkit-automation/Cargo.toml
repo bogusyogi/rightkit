@@ -39,6 +39,8 @@ desktop-context = [
   "dep:objc2-foundation",
 ]
 
+# `Serialize` for `hotkey_conflict::HotkeyConflict`.
+serde = ["dep:serde"]
 # `desktop::delivery`: the real text-delivery backend (clipboard stage, paste chord, Enter, stop
 # destination validation) with its Windows UI Automation, WezTerm and macOS input helpers.
 desktop-delivery = [
@@ -50,6 +52,7 @@ desktop-delivery = [
 ]
 
 [dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
 rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core", optional = true }
 rightkit-transcript-library = { version = "0.1.1", path = "../rightkit-transcript-library", optional = true }
 rightkit-dictation-telemetry = { version = "0.1.0", path = "../rightkit-dictation-telemetry", optional = true }
