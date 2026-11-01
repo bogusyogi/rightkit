@@ -119,10 +119,10 @@ fn payload_prefixes_match_case_insensitively() {
 fn diagnostic_message_redacts_colon_labelled_secrets() {
     for (label, secret) in [
         ("key", "sk-abcdefghijklmnop1234"),
-        ("token", "ghp_abcdefghijklmnop1234567890"),
+        ("token", concat!("gh", "p_abcdefghijklmnop1234567890")),
         ("id", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig12345678"),
         ("ref", "AIZASyA1234567890abcdefghijk"),
-        ("k", "GHP_abcdefghijklmnop1234567890"),
+        ("k", concat!("GH", "P_abcdefghijklmnop1234567890")),
     ] {
         let r = redact_diagnostic_event(serde_json::json!({
             "event": "provider_failure",

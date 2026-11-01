@@ -314,7 +314,10 @@ mod tests {
     #[test]
     fn pem_block_is_one_span() {
         // Built at run time so the source holds no PEM header (secret scans read sources).
-        let t = format!("x -----BEGIN {k}-----\nFAKE\n-----END {k}----- y", k = "PRIVATE KEY");
+        let t = format!(
+            "x -----BEGIN {k}-----\nFAKE\n-----END {k}----- y",
+            k = "PRIVATE KEY"
+        );
         let s = find_secrets(&t);
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].kind, "PRIVATEKEY");

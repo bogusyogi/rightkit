@@ -1,2 +1,0 @@
--- Parse-failure control: not valid PostgreSQL; must be a gap, never clean.
-SELEC FROM WHERE ;;; (

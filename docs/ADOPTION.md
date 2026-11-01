@@ -15,7 +15,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 168 (142 crates, 26 npm packages).
+- Packages in RightKit: 164 (138 crates, 26 npm packages).
 - Packages with at least one app pin: 75.
 - App pins: 528. Stale: 64. Ahead of published: 24. Unpublished: 0. Local: 0. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 1.
@@ -48,11 +48,10 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-android` | crates.io | 0.3.0 | 0.3.0 | 0 | none | - |
 | `rightkit-app-manager` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-app-settings` | crates.io | 0.3.0 | 0.3.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `rightkit-apple-ops` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-asr` | crates.io | 0.4.0 | 0.3.0 | 2 | heardright, scraperight | 1 vendored copy |
+| `rightkit-asr` | crates.io | 0.3.2 | 0.3.0 | 2 | heardright, scraperight | 1 vendored copy |
 | `rightkit-audio` | crates.io | 0.3.1 | 0.3.1 | 3 | genright, heardright, scraperight | - |
 | `rightkit-autoedit` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-automation` | crates.io | 0.7.0 | 0.6.1 | 1 | heardright | - |
+| `rightkit-automation` | crates.io | 0.6.2 | 0.6.1 | 1 | heardright | - |
 | `rightkit-bench` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-bot-messaging` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-browser` | crates.io | 0.3.7 | 0.3.6 | 4 | coderight, genright, legion, scraperight | 1 stale |
@@ -60,18 +59,15 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-captions` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-channel-memory` | crates.io | 0.2.2 | 0.2.1 | 1 | postright | - |
 | `rightkit-child-process` | crates.io | 0.5.7 | 0.5.7 | 8 | coderight, genright, heardright, legion, mailright, postright, scraperight, viewright | 28 stale |
-| `rightkit-code-audit-engine` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-code-audit-provider-sdk` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-color` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-compose` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
 | `rightkit-compositor` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-context` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-client` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-core` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-federation` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-protocol` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context-provider-sdk` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-context-runtime` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-contracts` | crates.io | 0.1.8 | 0.1.7 | 2 | genright, postright | - |
 | `rightkit-crash` | crates.io | 0.3.6 | 0.3.6 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `rightkit-credentials` | crates.io | 0.4.2 | 0.4.2 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
