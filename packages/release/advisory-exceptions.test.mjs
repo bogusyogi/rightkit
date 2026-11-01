@@ -172,15 +172,17 @@ test('the real repository passes: every crate against its own ledger, deny.toml,
 
 // An in-memory repository of crate workspaces: { 'crates/<x>/<file>': text }.
 function repo(tree) {
-  const abs = (p) => path.join('/r', p);
+  // The checker joins paths with the platform's separator; the in-memory store is keyed by forward slashes.
+  const norm = (p) => String(p).replace(/\\/g, '/');
+  const abs = (p) => norm(path.join('/r', p));
   const store = new Map(Object.entries(tree).map(([k, v]) => [abs(k), v]));
   const dirs = new Set(['/r/crates']);
   return {
     root: '/r',
     io: {
-      readFile: (p) => { if (!store.has(p)) throw new Error('ENOENT'); return store.get(p); },
-      readdir: (d) => (d === '/r/crates' ? [...new Set([...store.keys()].filter(k => k.startsWith('/r/crates/')).map(k => k.split('/')[3]))] : []),
-      exists: (p) => store.has(p) || dirs.has(p),
+      readFile: (p) => { if (!store.has(norm(p))) throw new Error('ENOENT'); return store.get(norm(p)); },
+      readdir: (d) => (norm(d) === '/r/crates' ? [...new Set([...store.keys()].filter(k => k.startsWith('/r/crates/')).map(k => k.split('/')[3]))] : []),
+      exists: (p) => store.has(norm(p)) || dirs.has(norm(p)),
     },
   };
 }

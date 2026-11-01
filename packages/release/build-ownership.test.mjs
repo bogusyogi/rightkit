@@ -918,6 +918,11 @@ test("migration: syncSnapshot under a free-host ownership removes only its own r
   oldRoot(root, { key: repoKey(keyPath(repo)) }); oldRoot(root, { key: OLD_KEY });   // this repository's old snapshot and another repository's
   const own = acquire(file, "linux", probe(), { exportEnv: true });
   try {
+    if (hostBootId() === null) {
+      // No boot identity (Windows), so no migration: an older gate's empty lock for this repository is a lock the sync cannot read, and it refuses (busy) rather than reclaim it.
+      assert.throws(() => syncSnapshot({ checkout: repo, root }), (e) => e.code === "busy" && /cannot be read as a lock/.test(e.message));
+      fs.rmSync(path.join(root, `${repoKey(keyPath(repo))}.lock`));
+    }
     syncSnapshot({ checkout: repo, root });
     assert.equal(fs.existsSync(path.join(root, repoKey(keyPath(repo)))), true, "the new snapshot is written");
     if (hostBootId() === null) {
@@ -1714,6 +1719,8 @@ test("row 5.23 [native macOS, Windows]: a real first acquisition on a pre-existi
   const repo = tinyRepo(t); const file = path.join(base, OWNERSHIP_DIRNAME, repoKey(keyPath(repo)), "owner.json");
   oldRoot(root); oldRoot(root, { key: repoKey(keyPath(repo)) });   // another repository's old snapshot, and this repository's own
   assert.equal(fs.existsSync(rootBirthFile(root)), false, "a root an older gate made: no birth");
+  // Windows has no boot identity to migrate on, so this repository's older empty lock would stay and the sync would refuse it (see the migration test); only the other repository's old entries remain.
+  if (process.platform === "win32") fs.rmSync(path.join(root, `${repoKey(keyPath(repo))}.lock`));
   const step = gateStep(t, "sync", { file, checkout: repo, root, snapshot: path.join(root, repoKey(keyPath(repo))) }, process.env);
   assert.equal(step.ok, true, JSON.stringify(step));
   assert.equal(step.released.released, true, `the first acquisition releases: ${JSON.stringify(step.released)}`);

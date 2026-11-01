@@ -70,7 +70,7 @@ test("findBuiltExecutables reads dev profiles only (never release), with or with
   writeFileSync(tripled, `${QA_CONTROL_MARKER}`);
   utimesSync(path.join(ctx.built, "debug", "shell"), new Date(1000), new Date(1000));
   const found = findBuiltExecutables([ctx.built], "shell", "mac");
-  assert.deepEqual(found.map((f) => [path.relative(ctx.built, f.file), f.triple]), [["aarch64-apple-darwin/release-iterate/shell", "aarch64-apple-darwin"], ["debug/shell", "host"]]);
+  assert.deepEqual(found.map((f) => [path.relative(ctx.built, f.file).replaceAll("\\", "/"), f.triple]), [["aarch64-apple-darwin/release-iterate/shell", "aarch64-apple-darwin"], ["debug/shell", "host"]]);
   assert.deepEqual(findBuiltExecutables([ctx.built], "shell", "win"), [], "a win build looks for shell.exe");
 }));
 

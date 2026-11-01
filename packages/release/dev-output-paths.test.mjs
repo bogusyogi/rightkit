@@ -67,7 +67,7 @@ test("data: [GB-60] a stage entry's source under a target directory resolves to 
   assert.throws(() => resolveStageSource(entry, { root, managedOutputDirs: [out, path.resolve("/managed/ws/def/g/001/target")] }), (e) => e.code === "DEV_OUTPUT_AMBIGUOUS");
   assert.equal(resolveStageSource({ source: "scripts/helper.sh" }, { root, managedOutputDirs: [out] }), path.join(root, "scripts", "helper.sh"), "a source-tree file is not an output");
   assert.equal(resolveStageSource(entry, { root }), path.join(root, "src-tauri", "target", TRIPLE, "debug", "rightapp"), "a direct host resolves where it always did");
-  assert.equal(resolveStageSource({ manifestPath: "src-tauri/Cargo.toml", bin: "rightapp", targetTriple: TRIPLE }, { root, resolveTarget: () => out }), path.join(out, TRIPLE, "debug", "rightapp"), "the manifest form resolves through the receipt-aware target");
+  assert.equal(resolveStageSource({ manifestPath: "src-tauri/Cargo.toml", bin: "rightapp", targetTriple: TRIPLE }, { root, platform: "darwin", resolveTarget: () => out }), path.join(out, TRIPLE, "debug", "rightapp"), "the manifest form resolves through the receipt-aware target");
 });
 
 test("data: [GB-60] staging copies the receipt's bytes, never a stale snapshot file of the same name", () => {

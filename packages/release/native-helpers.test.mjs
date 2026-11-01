@@ -7,6 +7,8 @@ import {
 } from "./native-helpers.mjs";
 import { planMacSigning } from "./mac-signing-matrix.mjs";
 
+const macOnly = process.platform === "win32" ? "a macOS bundle flow through POSIX paths; it runs on Linux and macOS" : false;
+
 const ROOT = "/rk-helpers/app";
 const APP = `${ROOT}/dist/Demo.app`;
 const BIN = "/rk-helpers/scratch/pkg/.build/apple/Products/Release";
@@ -106,7 +108,7 @@ test("Info.plist carries the declared bundle fields, LSUIElement and the executa
   assert.ok(!helperInfoPlist({ helper: validateNativeHelpers([menu({ info: { bundleId: "a.b" } })])[0], executable: "x", version: "1.0.0" }).includes("LSUIElement"));
 });
 
-test("builds every helper with explicit --arch slices, finds the bin path, verifies archs exactly, then embeds before anything is signed", () => {
+test("builds every helper with explicit --arch slices, finds the bin path, verifies archs exactly, then embeds before anything is signed", { skip: macOnly }, () => {
   const { fs, log } = memoryFs(baseExisting);
   const { spawn, calls } = fakeSpawn();
   const result = buildAndEmbedNativeHelpers({ appRoot: ROOT, app: APP, helpers: [menu(), cloud(), tool()], version: "1.2.3", env: {}, spawn, fs, packageOwner: () => ROOT });
@@ -127,7 +129,7 @@ test("builds every helper with explicit --arch slices, finds the bin path, verif
   assert.equal(result.helpers.length, 3);
 });
 
-test("a thin forced arch builds one slice; a non-universal helper builds the host arch", () => {
+test("a thin forced arch builds one slice; a non-universal helper builds the host arch", { skip: macOnly }, () => {
   const thin = fakeSpawn({ archs: "arm64" });
   buildAndEmbedNativeHelpers({ appRoot: ROOT, app: APP, helpers: [menu()], version: "1.0.0", forceArch: "arm64", env: {}, spawn: thin.spawn, fs: memoryFs(baseExisting).fs });
   assert.deepEqual(thin.calls[0].args.slice(-2), ["--arch", "arm64"]);
@@ -136,7 +138,7 @@ test("a thin forced arch builds one slice; a non-universal helper builds the hos
   assert.deepEqual(host.calls[0].args.slice(-2), ["--arch", "x86_64"]);
 });
 
-test("fails closed: a thin slice, a missing product, a failing build, an existing embed path, a missing package or entitlements", () => {
+test("fails closed: a thin slice, a missing product, a failing build, an existing embed path, a missing package or entitlements", { skip: macOnly }, () => {
   const run = (options, spawn = fakeSpawn().spawn, existing = baseExisting) => buildAndEmbedNativeHelpers({ appRoot: ROOT, app: APP, helpers: [menu()], version: "1.0.0", env: {}, spawn, fs: memoryFs(existing).fs, ...options });
   assert.throws(() => run({}, fakeSpawn({ archs: "arm64" }).spawn), { code: "NATIVE_HELPERS_ARCH_MISMATCH" });
   assert.throws(() => run({}, fakeSpawn({ archs: "arm64 x86_64 arm64e" }).spawn), { code: "NATIVE_HELPERS_ARCH_MISMATCH" });
@@ -150,7 +152,7 @@ test("fails closed: a thin slice, a missing product, a failing build, an existin
   assert.throws(() => run({}, fakeSpawn().spawn, baseExisting.filter((file) => !file.endsWith("Contents/Info.plist"))), { code: "NATIVE_HELPERS_INPUT_MISSING" });
 });
 
-test("App Intents metadata runs appintentsmetadataprocessor on the SwiftPM const-value inputs and requires the output", () => {
+test("App Intents metadata runs appintentsmetadataprocessor on the SwiftPM const-value inputs and requires the output", { skip: macOnly }, () => {
   const intermediates = "/rk-helpers/scratch/pkg/.build/apple/Intermediates.noindex";
   const sourceList = `${intermediates}/Pkg.build/Release/arm64/Shortcuts.SwiftFileList`;
   const output = `${APP}/${LOGIN}/Shortcuts.app/Contents/Resources/Metadata.appintents/extract.actionsdata`;
@@ -186,7 +188,7 @@ test("App Intents metadata runs appintentsmetadataprocessor on the SwiftPM const
   assert.throws(() => buildAndEmbedNativeHelpers({ appRoot: ROOT, app: APP, helpers: [helper], version: "1.0.0", env: {}, spawn, fs, replaceExisting: true }), { code: "NATIVE_HELPERS_APPINTENTS_FAILED" });
 });
 
-test("helpers are signed inside-out with their own entitlements and the hardened runtime, then the app, then verified", () => {
+test("helpers are signed inside-out with their own entitlements and the hardened runtime, then the app, then verified", { skip: macOnly }, () => {
   const { fs } = memoryFs(baseExisting);
   const { spawn, calls } = fakeSpawn();
   const codesign = [];
@@ -219,7 +221,7 @@ test("helpers are signed inside-out with their own entitlements and the hardened
   assert.throws(() => buildEmbedSignNativeHelpers({ appRoot: ROOT, app: APP, helpers: [menu()], version: "1.0.0" }), { code: "NATIVE_HELPERS_INVALID" });
 });
 
-test("a failed app verification is an error and signNativeHelpers needs an identity", () => {
+test("a failed app verification is an error and signNativeHelpers needs an identity", { skip: macOnly }, () => {
   const { fs } = memoryFs(baseExisting);
   assert.throws(() => signNativeHelpers({ app: APP, appRoot: ROOT, helpers: [menu()], identity: "", signOne() {}, inspect() {} }), { code: "NATIVE_HELPERS_SIGN_FAILED" });
   const plan = planNativeHelperSigning({ app: APP, appRoot: ROOT, helpers: [menu(), tool()], discover: () => [] });
@@ -230,7 +232,7 @@ test("a failed app verification is an error and signNativeHelpers needs an ident
   assert.throws(() => buildEmbedSignNativeHelpers({ appRoot: ROOT, app: APP, helpers: [tool()], version: "1.0.0", env: {}, fs, spawn, signing: { identity: "ID", signOne: () => ({ status: 0 }), inspect, discover: () => [], evidence: () => ({}), hashFile: () => "h" }, signApp() {} }), { code: "NATIVE_HELPERS_VERIFY_FAILED" });
 });
 
-test("the release lane signs a helper .app after the code inside it and before the main app (planMacSigning over the derived nestedCode)", () => {
+test("the release lane signs a helper .app after the code inside it and before the main app (planMacSigning over the derived nestedCode)", { skip: macOnly }, () => {
   const helpers = validateNativeHelpers([cloud()]);
   const nested = Object.entries(nativeHelperNestedCode(helpers)).map(([key, value]) => ({ key, options: [], ...(value.entitlements ? { entitlements: path.join(ROOT, value.entitlements) } : {}) }));
   const helperApp = `${APP}/${LOGIN}/CloudHelper.app`;

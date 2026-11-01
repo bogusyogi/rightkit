@@ -3,6 +3,8 @@ import path from "node:path";
 import test from "node:test";
 import { diskImageMountPoints, OWN_RIGHT_RELEASE, parseRecipeBuildArgs, RecipeBuildError, resolveLaunch, runRecipeBuild, runRecipeCleanup, validateRecipePlan, verifyUniversalSidecars, waitForStableArtifacts } from "./recipe-build.mjs";
 
+const macOnly = process.platform === "win32" ? "a macOS bundle flow through POSIX paths; it runs on Linux and macOS" : false;
+
 const APP = path.resolve("/rk-recipe-app");
 const plan = (extra = []) => ({
   version: 1,
@@ -271,7 +273,7 @@ test("verifySidecars runs after prepare and before the build; it needs both arch
   assert.throws(() => validateRecipePlan({ ...plan(), verifySidecars: { receipt: "../x", target: "aarch64-apple-darwin", extra: 1 } }), (error) => /verifySidecars: unknown key "extra"/.test(error.message) && /target must be universal-apple-darwin/.test(error.message));
 });
 
-test("the nativeHelpers section is validated with the shared schema and runs after the build, before postBuild", () => {
+test("the nativeHelpers section is validated with the shared schema and runs after the build, before postBuild", { skip: macOnly }, () => {
   const helper = { name: "menu", package: "macos-native/Pkg", product: "Menu", kind: "executable", embed: "Contents/MacOS/menu", universal: true };
   const section = { app: "dist/Demo.app", helpers: [helper], configuration: "release" };
   assert.throws(() => validateRecipePlan({ ...plan(), nativeHelpers: { ...section, helpers: [{ ...helper, extra: 1 }], app: "/abs/Demo.app", forceArch: "ppc" } }), (error) => error.code === "RECIPE_BUILD_PLAN_INVALID" && /unknown key "extra"/.test(error.message) && /must be relative/.test(error.message) && /forceArch/.test(error.message));

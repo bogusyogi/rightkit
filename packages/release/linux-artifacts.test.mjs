@@ -56,7 +56,7 @@ test("pack writes one tarball per arch with its sha256 and size, merges arches o
   const bytes = fs.readFileSync(tarPath);
   assert.equal(x.sha256, createHash("sha256").update(bytes).digest("hex"));
   assert.equal(x.size, bytes.length);
-  assert.ok(/^dist\/bin\/pulse$/m.test(spawnSync("tar", ["-tzf", tarPath], { encoding: "utf8" }).stdout), "a listed folder keeps its own tree under its base name");
+  assert.ok(/^dist\/bin\/pulse$/m.test(spawnSync("tar", ["-tzf", path.basename(tarPath)], { cwd: path.dirname(tarPath), encoding: "utf8" }).stdout), "a listed folder keeps its own tree under its base name");
   packLinuxArtifacts({ root, archive, app: "pulse", version: "0.1.0", commit: COMMIT, run: fakeRun("aarch64", "GLIBC_2.39"), log: () => {} });
   let m = JSON.parse(fs.readFileSync(x.manifestPath, "utf8"));
   assert.equal(m.schema, LINUX_ARTIFACTS_SCHEMA);
@@ -75,7 +75,7 @@ test("the archive is flat: each listed file is stored under its base name; dupli
   fs.mkdirSync(path.join(root, "scripts", "linux-guest"), { recursive: true });
   fs.writeFileSync(path.join(root, "scripts", "linux-guest", "install.sh"), "#!/bin/sh\n");
   const r = packLinuxArtifacts({ root, archive: { name: "pulse", include: ["dist/bin/pulse", "scripts/linux-guest/install.sh"] }, app: "pulse", version: "0.1.0", commit: COMMIT, run: fakeRun("x86_64", "GLIBC_2.35"), log: () => {} });
-  const entries = spawnSync("tar", ["-tzf", path.join(path.dirname(r.manifestPath), r.file)], { encoding: "utf8" }).stdout.trim().split("\n").sort();
+  const entries = spawnSync("tar", ["-tzf", r.file], { cwd: path.dirname(r.manifestPath), encoding: "utf8" }).stdout.trim().split("\n").sort();
   assert.deepEqual(entries, ["install.sh", "pulse"]);
   fs.mkdirSync(path.join(root, "other"), { recursive: true }); fs.writeFileSync(path.join(root, "other", "pulse"), "x");
   assert.throws(() => packLinuxArtifacts({ root, archive: { name: "pulse", include: ["dist/bin/pulse", "other/pulse"] }, app: "pulse", version: "0.1.0", commit: COMMIT, run: fakeRun("x86_64"), log: () => {} }), /share the base name pulse/);

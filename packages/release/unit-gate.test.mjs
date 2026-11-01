@@ -24,7 +24,7 @@ function setup() {
     qualifyLocalUnit: async (_state, { env }) => { assert.ok(env.RK_GATE_RUN); calls.push("qualify"); return { ...result, qualifiedOnly: true, evidencePath: "gate.json" }; },
     closeLocalUnit: async () => calls.push("close"),
   };
-  const args = { selector: "npm:@rightkit/demo", to: "qualify", root, commonDir: root, commit, tree, executor: { kind: "direct" }, env: {}, platform: "darwin", resolve: () => unit, check: async (tier) => { calls.push(`check:${tier}`); return 0; }, loadOwner: async () => owner, out: () => {}, err: () => {}, writeReport: (r) => reports.push(structuredClone(r)) };
+  const args = { selector: "npm:@rightkit/demo", to: "qualify", root, commonDir: root, commit, tree, executor: { kind: "direct" }, env: {}, platform: process.platform === "win32" ? "win32" : "darwin", resolve: () => unit, check: async (tier) => { calls.push(`check:${tier}`); return 0; }, loadOwner: async () => owner, out: () => {}, err: () => {}, writeReport: (r) => reports.push(structuredClone(r)) };
   return { args, calls, reports, owner, artifactFile };
 }
 
@@ -73,7 +73,7 @@ test("release stage: the gate owns pre-flight, broker dispatch, the wait and the
     const f = { canaryError, dispatches };
     let reads = 0;
     const run = (cmd, args) => {
-      const key = args[0] === "/repo/scripts/ci/rk-pipeline.mjs" ? args[1] : path.basename(cmd) === "gh" ? `gh:${args[0]}` : path.basename(cmd);
+      const key = args[0] === "/repo/scripts/ci/rk-pipeline.mjs" ? args[1] : path.basename(cmd, ".exe") === "gh" ? `gh:${args[0]}` : path.basename(cmd);
       calls.push(key === "gh:run" ? `gh:${args.join(" ")}` : key);
       if (key === "dispatch") dispatches.push(args.slice(1));
       if (key === "gh:api") return { status: 0, stdout: JSON.stringify({ artifacts: artifacts.map((name) => ({ name })) }) };
@@ -389,7 +389,7 @@ test("[M5] releaseUnit runs the INSTALLED coordinator with the PRIMARY CHECKOUT 
     if (cmd === "git") return { status: 0, stdout: `${head}\n` };
     return { status: 1, stdout: "", stderr: "stop here" };
   };
-  const base = { unit, root: snapshot, checkout, commit, executor: { kind: "broker" }, env: {}, artifact: {}, qualification, platform: "darwin", out: () => {}, readJson: () => ({ dispatches: { k: dispatched } }) };
+  const base = { unit, root: snapshot, checkout, commit, executor: { kind: "broker" }, env: {}, artifact: {}, qualification, platform: process.platform === "win32" ? "win32" : "darwin", out: () => {}, readJson: () => ({ dispatches: { k: dispatched } }) };
   await assert.rejects(releaseUnit({ ...base, run: make(commit) }), /canary.*failed/);
   const pipelineCalls = calls.filter((c) => c.cmd !== "git");
   assert.ok(pipelineCalls.length >= 1);
@@ -416,7 +416,7 @@ test("known red: a unit listed for this host is refused before check or compile,
       const s = setup();
       writeKnownRed(s.args.root, { macos: { [key]: "tests fail on macOS (rightkit#1)" }, windows: {} });
       const errs = [];
-      assert.equal(await runUnitGate({ ...s.args, to, err: (l) => errs.push(l) }), 1, `${key} --to ${to}`);
+      assert.equal(await runUnitGate({ ...s.args, platform: "darwin", to, err: (l) => errs.push(l) }), 1, `${key} --to ${to}`);
       assert.deepEqual(s.calls, [], `${key} --to ${to}: nothing ran, not even the class A check`);
       assert.match(errs.join("\n"), /BLOCKED: npm:@rightkit\/demo is listed in ci\/known-red\.json for macos .*tests fail on macOS \(rightkit#1\)/);
     }
@@ -427,7 +427,7 @@ test("known red: a crate is matched by its name and its crates/ directory", asyn
   for (const key of ["rightkit-demo", "rust:rightkit-demo", "cargo:rightkit-demo", "crates/rightkit-demo"]) {
     const s = setup();
     writeKnownRed(s.args.root, { macos: { [key]: "red" } });
-    assert.equal(await runUnitGate({ ...s.args, selector: "cargo:rightkit-demo", resolve: () => ({ kind: "cargo", name: "rightkit-demo", version: "1.0.0" }), err: () => {} }), 1, key);
+    assert.equal(await runUnitGate({ ...s.args, platform: "darwin", selector: "cargo:rightkit-demo", resolve: () => ({ kind: "cargo", name: "rightkit-demo", version: "1.0.0" }), err: () => {} }), 1, key);
     assert.deepEqual(s.calls, []);
   }
 });
@@ -435,8 +435,8 @@ test("known red: a crate is matched by its name and its crates/ directory", asyn
 test("known red: the host table decides compile, package and qualify; a release is barred by either host's entry", async () => {
   const s = setup();
   writeKnownRed(s.args.root, { macos: {}, windows: { "@rightkit/demo": "windows only red" } });
-  // Listed only for Windows: this Mac compiles, packages and qualifies it.
-  assert.equal(await runUnitGate(s.args), 0);
+  // Listed only for Windows: a Mac compiles, packages and qualifies it (the table is read for the platform the gate is given, not the test host's).
+  assert.equal(await runUnitGate({ ...s.args, platform: "darwin" }), 0);
   assert.deepEqual(s.calls, ["check:release", "compile", "package", "qualify", "close"]);
   // The same unit on a Windows host is refused.
   s.calls.length = 0;

@@ -91,7 +91,8 @@ export function packLinuxArtifacts({ root, archive, app, version, commit, split,
   const names = archive.include.map((item) => path.basename(item));
   const dup = names.find((n, i) => names.indexOf(n) !== i);
   if (dup) throw new Error(`linux artifacts: two include entries share the base name ${dup}; the archive is flat`);
-  const tar = run("tar", ["-czf", target, ...archive.include.flatMap((item) => ["-C", path.join(root, path.dirname(item)), path.basename(item)])], { stdio: "inherit" });
+  // The archive is named relative to the working directory, and `-C` directories use forward slashes: a GNU tar (Git for Windows) reads `C:\\...` before the first colon as `host:path` and fails.
+  const tar = run("tar", ["-czf", file, ...archive.include.flatMap((item) => ["-C", path.resolve(root, path.dirname(item)).replaceAll("\\", "/"), path.basename(item)])], { cwd: outDir, stdio: "inherit" });
   if (tar.status !== 0) throw new Error(`linux artifacts: tar failed (${tar.status})`);
   const bytes = fs.readFileSync(target);
   const entry = { file, sha256: createHash("sha256").update(bytes).digest("hex"), size: bytes.length, glibc };

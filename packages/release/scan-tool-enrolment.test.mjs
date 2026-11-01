@@ -77,7 +77,7 @@ test("platforms: only darwin, win32 and linux have a record; another platform's 
   for (const platform of ["freebsd", "aix", ""]) assert.throws(() => scanToolsFile({ dataRoot, platform }), (e) => e.code === "RK_SCAN_TOOLS_PLATFORM" && /not a scan-tool host/.test(e.message), platform);
   assert.throws(() => scanToolsFile({ dataRoot: "relative", platform: "linux" }), (e) => e.code === "RK_SCAN_TOOLS_ROOT");
   const foreign = SCAN_TOOL_PLATFORMS.find((p) => p !== HOST);
-  assert.throws(() => enrollScanTool({ dataRoot, platform: foreign, tool: "shellcheck", ...sc }), (e) => e.code === "RK_SCAN_TOOLS_PLATFORM" && /cannot be checked from here/.test(e.message));
+  assert.throws(() => enrollScanTool({ dataRoot, platform: foreign, tool: "shellcheck", ...sc, path: foreign === "win32" ? "C:\\tools\\shellcheck.exe" : "/opt/tools/shellcheck" }), (e) => e.code === "RK_SCAN_TOOLS_PLATFORM" && /cannot be checked from here/.test(e.message));
   assert.equal(fs.existsSync(path.join(dataRoot, "scan-tools")), false);
   // A platform's absolute path rule is its own: a Windows drive path is not absolute on POSIX.
   assert.throws(() => validateScanTool("shellcheck", { path: "C:\\tools\\shellcheck.exe", sha256: "a".repeat(64), version: "0.11.0" }, { platform: "linux" }), /absolute path/);

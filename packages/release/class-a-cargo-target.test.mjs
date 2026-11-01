@@ -207,9 +207,12 @@ test("the gate hands a direct host's scans its scratch root as their output root
   assert.equal(seen[0].options.cargoReadTargetRoot, f.scratch);
   // rightkit#1328: the one Class A pass runs under the runtime cargo wrapper, with the per-scan sentinel and the ledger, before any compile.
   assert.deepEqual(seen[0].options.classes, ["A"]);
-  assert.ok(seen[0].options.cargoLedger?.dir, "the wrapper's ledger is bound for class A (the sentinel exists once a repository has several Cargo workspaces)");
-  assert.equal(path.dirname(seen[0].options.env.CARGO), seen[0].options.env.PATH.split(path.delimiter)[0], "the wrapper is CARGO and first on PATH");
-  assert.match(out.join("\n"), /runtime cargo wrapper /);
+  // The runtime cargo wrapper is installed on direct POSIX hosts only (a direct Windows host keeps the fail-closed static walk: bin/rightkit-gate.mjs, item 7).
+  if (process.platform !== "win32") {
+    assert.ok(seen[0].options.cargoLedger?.dir, "the wrapper's ledger is bound for class A (the sentinel exists once a repository has several Cargo workspaces)");
+    assert.equal(path.dirname(seen[0].options.env.CARGO), seen[0].options.env.PATH.split(path.delimiter)[0], "the wrapper is CARGO and first on PATH");
+    assert.match(out.join("\n"), /runtime cargo wrapper /);
+  } else assert.equal(seen[0].options.cargoLedger, undefined, "no wrapper on a direct Windows host");
   assert.equal(seen[0].options.tmpRoot, undefined, "the deny and swift temporary files stay where they were on a direct host");
   assert.ok(seen[0].plan.scans.some((s) => s.class === "A" && s.tool === "cargo"), "the plan is the direct host's: plain cargo");
   assert.equal(f.verify(), f.tree);
@@ -241,7 +244,7 @@ test("rightkit#1328: the door's compile pass (--all on the snapshot, classAEarli
   assert.equal(door.seen.length, 1, `${door.out}\n${door.err}`);
   assert.deepEqual(door.seen[0].classes, ["B"], "the compile pass runs no class A");
   assert.equal(door.seen[0].classAEarlier, true);
-  assert.ok(door.seen[0].cargoLedger?.dir && door.seen[0].env.CARGO, "class B still runs under the wrapper");
+  if (process.platform !== "win32") assert.ok(door.seen[0].cargoLedger?.dir && door.seen[0].env.CARGO, "class B still runs under the wrapper"); // POSIX direct hosts only (item 7)
   assert.match(door.out, /class A is not repeated/);
   const plain = await run({});
   assert.deepEqual(plain.seen[0].classes, ["A", "B"], "no door flag: both classes, as before");

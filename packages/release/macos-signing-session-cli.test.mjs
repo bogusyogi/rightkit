@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 
@@ -55,7 +55,7 @@ childProcess.spawnSync = (command, args, options) => {
     const env = { ...process.env, APPLE_DEVELOPER_ID: "Developer ID Application: Fixture (TEAM)", TAURI_SIGNING_PRIVATE_KEY: "", TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "" };
     for (const name of ["SSH_CONNECTION", "SSH_TTY", "SSH_CLIENT"]) delete env[name];
     if (ssh) env.SSH_CONNECTION = "mock ssh";
-    const result = spawnSync(process.execPath, ["--import", preload, path.join(packageRoot, helper), ...args], { cwd: root, env, encoding: "utf8" });
+    const result = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, path.join(packageRoot, helper), ...args], { cwd: root, env, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
     assert.doesNotMatch(result.stdout + result.stderr, /FAKE-CLI-SECRET/);
     return JSON.parse(readFileSync(callsPath, "utf8"));

@@ -415,7 +415,7 @@ function splitApp(t, { targetExtra = {}, files = {} } = {}) {
   const snap = path.join(tmp(t, "rk-art-snap-"), "snapshot"); fs.mkdirSync(snap);
   const archive = path.join(path.dirname(snap), "c1.tar");
   assert.equal(spawnSync("git", ["-C", repo, "archive", "-o", archive, c1]).status, 0);
-  assert.equal(spawnSync("tar", ["-xf", archive, "-C", snap]).status, 0);
+  assert.equal(spawnSync("tar", ["-xf", path.basename(archive), "-C", snap.replaceAll("\\", "/")], { cwd: path.dirname(archive) }).status, 0);
   const nonce = "cd".repeat(16);
   const runsDir = path.join(repo, ".git", "rightkit-gate", "runs"); fs.mkdirSync(runsDir, { recursive: true });
   fs.writeFileSync(path.join(runsDir, `${nonce}.json`), JSON.stringify({ pid: process.pid, commit: c1, tree, stage: "package", source: { checkout: repo, snapshot: fs.realpathSync(snap), commit: c1, tree, appDir: "." }, run: { pid: process.pid, commit: c1, tree, stage: "package", source: { checkout: repo, snapshot: fs.realpathSync(snap), commit: c1, tree, appDir: "." } } }));

@@ -2002,12 +2002,12 @@ test("check does not ask RustRight when no writer follows its budget", () => {
 test("readRustrightBudget: `rustright doctor --json --no-scan` with a 20 s limit and no shell; any failure is null", () => {
   const budget = { targets: 160e9, sccache: 55e9, cargoHome: 10e9, toolchains: 10e9, trash: 5e9, slack: 10e9, totalBytes: 250e9, source: { targets: "default" } };
   const calls = [];
-  const ok = readRustrightBudget({ run: (cmd, args, options) => { calls.push([cmd, args, options]); return { status: 0, stdout: JSON.stringify({ schema: 1, buildBudget: budget }) }; } });
+  const ok = readRustrightBudget({ platform: "linux", run: (cmd, args, options) => { calls.push([cmd, args, options]); return { status: 0, stdout: JSON.stringify({ schema: 1, buildBudget: budget }) }; } });
   assert.deepEqual(ok, budget);
   assert.deepEqual([calls[0][0], calls[0][1]], ["rustright", ["doctor", "--json", "--no-scan"]]);
   assert.equal(calls[0][2].timeout, 20_000);
   assert.equal(calls[0][2].shell, false);
-  const answer = (r) => readRustrightBudget({ run: () => r });
+  const answer = (r) => readRustrightBudget({ platform: "linux", run: () => r });
   assert.equal(answer({ status: 1, stdout: JSON.stringify({ buildBudget: budget }) }), null);
   assert.equal(answer({ status: null, error: Object.assign(new Error("spawnSync rustright ENOENT"), { code: "ENOENT" }), stdout: "" }), null);
   assert.equal(answer({ status: null, error: Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }), stdout: "" }), null);
@@ -2016,7 +2016,7 @@ test("readRustrightBudget: `rustright doctor --json --no-scan` with a 20 s limit
   assert.equal(answer({ status: 0, stdout: JSON.stringify({}) }), null);
   assert.equal(answer({ status: 0, stdout: JSON.stringify({ buildBudget: { ...budget, sccache: "55" } }) }), null);
   assert.equal(answer({ status: 0, stdout: JSON.stringify({ buildBudget: { ...budget, totalBytes: undefined } }) }), null);
-  assert.equal(readRustrightBudget({ run: () => { throw new Error("boom"); } }), null);
+  assert.equal(readRustrightBudget({ platform: "linux", run: () => { throw new Error("boom"); } }), null);
 });
 
 test("readDiskPolicy rejects a budget that is not a non-empty list of RustRight parts", () => {

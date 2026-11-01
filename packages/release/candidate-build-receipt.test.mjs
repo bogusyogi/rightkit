@@ -35,7 +35,7 @@ test("[GB-73] the gate records the receipt's digest apart from the file and hand
   assert.deepEqual(candidateReceiptArgs(record), ["--candidate-receipt", record.file, "--candidate-receipt-sha256", record.sha256]);
   const read = readCandidateRecord(record.recordFile);
   assert.deepEqual([read.record.sha256, read.record.commit, read.record.tree, read.record.file], [record.sha256, COMMIT, TREE, record.file]);
-  assert.equal(fs.statSync(record.file).mode & 0o077, 0, "owner-only");
+  if (process.platform !== "win32") assert.equal(fs.statSync(record.file).mode & 0o077, 0, "owner-only"); // a Windows file system holds no group or other mode bits
   // The same bytes again are the same record; other bytes for the same candidate are refused.
   assert.equal(writeCandidateReceipt({ dir: path.dirname(record.file), receipt }).sha256, record.sha256);
   assert.throws(() => writeCandidateReceipt({ dir: path.dirname(record.file), receipt: { ...receipt, tree: "c".repeat(40) } }), (e) => e.code === "RK_CANDIDATE_RECEIPT_EXISTS");

@@ -7,6 +7,9 @@ import {
   QA_RUNNERS_SCHEMA, QaRunnerError, enrollQaRunner, isRunnerVersion, main, qaRunnerFile, qaRunnersRecordFile, resolveManagedQaRunner,
 } from "./qa-runner.mjs";
 
+// Enrolling a Mac runner reads POSIX exec bits from the file; a Windows file system holds none.
+const noModeBits = process.platform === "win32" ? "a Windows file system holds no POSIX mode bits (the Mac enrolment reads them)" : false;
+
 const VERSION = "0.10.0";
 const reports = (version) => () => ({ status: 0, stdout: `rightkit-qa ${version}\n`, stderr: "" });
 const neverRuns = () => assert.fail("the runner must not be executed");
@@ -32,7 +35,7 @@ test("isRunnerVersion: a rightkit-qa version is major.minor.patch, the legacy pl
   assert.equal(isRunnerVersion("v0.10.0"), false);
 });
 
-test("enrol copies the built runner into the managed directory and records its digest; the copy is what resolves", () => withRoot((ctx) => {
+test("enrol copies the built runner into the managed directory and records its digest; the copy is what resolves", { skip: noModeBits }, () => withRoot((ctx) => {
   const calls = [];
   const result = enroll(ctx, { spawn: (...a) => { calls.push(a); return reports(VERSION)(); } });
   assert.equal(result.runnerFile, qaRunnerFile({ dataRoot: ctx.dataRoot, platform: "mac", version: VERSION }));
@@ -49,7 +52,7 @@ test("enrol copies the built runner into the managed directory and records its d
   assert.match(resolved.sha256, /^[0-9a-f]{64}$/);
 }));
 
-test("enrol refuses a version the file does not report, a relative path, another platform's host, and a repeat without rotate", () => withRoot((ctx) => {
+test("enrol refuses a version the file does not report, a relative path, another platform's host, and a repeat without rotate", { skip: noModeBits }, () => withRoot((ctx) => {
   assert.throws(() => enroll(ctx, { spawn: reports("0.9.1") }), code("RK_QA_RUNNER_VERSION_MISMATCH"));
   assert.throws(() => enroll(ctx, { spawn: () => ({ status: 1, stdout: "", stderr: "x" }) }), code("RK_QA_RUNNER_VERSION_MISMATCH"));
   assert.throws(() => enroll(ctx, { runner: "relative/rightkit-qa", spawn: neverRuns }), code("RK_QA_RUNNER_PATH"));
@@ -67,7 +70,7 @@ test("enrol refuses a version the file does not report, a relative path, another
   assert.equal(rotated.rotated, true);
 }));
 
-test("resolve refuses with no enrolment, naming the operation that makes one, and never falls back to PATH", () => withRoot((ctx) => {
+test("resolve refuses with no enrolment, naming the operation that makes one, and never falls back to PATH", { skip: noModeBits }, () => withRoot((ctx) => {
   assert.throws(() => resolveManagedQaRunner({ dataRoot: ctx.dataRoot, platform: "mac", version: VERSION, spawn: neverRuns }), (error) => error.code === "RK_QA_RUNNER_MISSING" && /right-release qa runner enroll/.test(error.message) && /0\.10\.0/.test(error.message));
   assert.throws(() => resolveManagedQaRunner({ dataRoot: ctx.dataRoot, platform: "mac", version: "1", spawn: neverRuns }), code("RK_QA_RUNNER_VERSION"));
   assert.throws(() => resolveManagedQaRunner({ dataRoot: "relative", platform: "mac", version: VERSION, spawn: neverRuns }), code("RK_QA_RUNNER_ROOT"));
@@ -76,7 +79,7 @@ test("resolve refuses with no enrolment, naming the operation that makes one, an
   assert.throws(() => resolveManagedQaRunner({ dataRoot: ctx.dataRoot, platform: "win", version: VERSION, spawn: neverRuns }), code("RK_QA_RUNNER_MISSING"), "another platform is not enrolled");
 }));
 
-test("resolve refuses a managed file that changed, was replaced by a link, or no longer reports its version", () => withRoot((ctx) => {
+test("resolve refuses a managed file that changed, was replaced by a link, or no longer reports its version", { skip: noModeBits }, () => withRoot((ctx) => {
   const { runnerFile } = enroll(ctx);
   const use = (spawn = reports(VERSION)) => resolveManagedQaRunner({ dataRoot: ctx.dataRoot, platform: "mac", version: VERSION, spawn });
   assert.throws(() => use(reports("0.9.1")), code("RK_QA_RUNNER_VERSION_MISMATCH"));
@@ -88,7 +91,7 @@ test("resolve refuses a managed file that changed, was replaced by a link, or no
   assert.throws(() => use(neverRuns), code("RK_QA_RUNNER_RECORD"), "a link is not the managed copy");
 }));
 
-test("resolve refuses a record that names a file outside the managed copy path, or is writable by others", () => withRoot((ctx) => {
+test("resolve refuses a record that names a file outside the managed copy path, or is writable by others", { skip: noModeBits }, () => withRoot((ctx) => {
   enroll(ctx);
   const file = qaRunnersRecordFile({ dataRoot: ctx.dataRoot, platform: "mac" });
   const record = JSON.parse(readFileSync(file, "utf8"));
