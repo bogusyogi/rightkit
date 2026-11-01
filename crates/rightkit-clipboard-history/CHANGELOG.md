@@ -2,4 +2,4 @@
 
 ## 0.1.0 (unreleased)
 
-- First RightKit release, moved from `pulse-windows` (Pulse): `detect` logic.
+- First RightKit release, moved from `pulse-windows` (Pulse): `detect`, `model`, `search`, `seal`.

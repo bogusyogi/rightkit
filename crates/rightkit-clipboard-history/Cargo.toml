@@ -14,6 +14,13 @@ name = "rightkit_clipboard_history"
 path = "src/lib.rs"
 
 [dependencies]
+serde = { version = "1.0" }
+serde_json = { version = "1.0" }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "digest", "lock"], path = "../rightkit-fs" }
+rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography"] }
 
 [workspace]
 
