@@ -71,7 +71,7 @@
       "publicUrl": "https://rke2e.example/legal/notices/",
       "treatment": "notice",
       "material": false,
-      "sha256": "b925d2a3de9289425c76477467a99fbc55a21267e6211d651543aadf3b8dd222"
+      "sha256": "4e48e5d9763e83e2be91006b2074b87f8ad83ad7fdfe8b88332cf0184123267f"
     }
   ],
   "appendices": [
@@ -79,7 +79,7 @@
       "id": "npm",
       "title": "RkE2E npm third-party licenses",
       "path": "THIRD_PARTY_NPM_LICENSES.html",
-      "sha256": "e38d74f8ea247a7012c434e5df5089f8c138f19a2a2a4a0214fefffbeede272f"
+      "sha256": "5f3889902435d534ad3d27585d54ac0af6d983b8be7a952f7f73e7990a41095c"
     }
   ]
 }
