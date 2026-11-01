@@ -14,9 +14,9 @@ public struct PackagedJournalEvent: Codable, Equatable, Sendable {
     /// Opaque journal-event JSON, preserved verbatim. Decoded lazily by
     /// transcript-rendering call sites that already know the redacted
     /// `JournalEventKind` shape; this importer does not interpret it.
-    public let kind: CodeRightJSONValue
+    public let kind: JSONValue
 
-    public init(sequence: UInt64, nonce: String, kind: CodeRightJSONValue) {
+    public init(sequence: UInt64, nonce: String, kind: JSONValue) {
         self.sequence = sequence
         self.nonce = nonce
         self.kind = kind
@@ -132,12 +132,12 @@ public enum SessionPackageImporter {
 
 /// Minimal JSON value so `PackagedJournalEvent.kind` round-trips
 /// through `Codable` without pulling in a third-party JSON library.
-public enum CodeRightJSONValue: Codable, Equatable, Sendable {
+public enum JSONValue: Codable, Equatable, Sendable {
     case string(String)
     case number(Double)
     case bool(Bool)
-    case object([String: CodeRightJSONValue])
-    case array([CodeRightJSONValue])
+    case object([String: JSONValue])
+    case array([JSONValue])
     case null
 
     public init(from decoder: Decoder) throws {
@@ -150,9 +150,9 @@ public enum CodeRightJSONValue: Codable, Equatable, Sendable {
             self = .number(value)
         } else if let value = try? container.decode(String.self) {
             self = .string(value)
-        } else if let value = try? container.decode([String: CodeRightJSONValue].self) {
+        } else if let value = try? container.decode([String: JSONValue].self) {
             self = .object(value)
-        } else if let value = try? container.decode([CodeRightJSONValue].self) {
+        } else if let value = try? container.decode([JSONValue].self) {
             self = .array(value)
         } else {
             throw DecodingError.dataCorruptedError(

@@ -1,3 +1,4 @@
+import RightKitEngineClient
 import SwiftUI
 
 /// One entry a section adds to the hub's global search, beyond its settings.

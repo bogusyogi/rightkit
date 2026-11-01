@@ -2,9 +2,9 @@
 
 /// Every Mac setting's UserDefaults key and, where a literal is its default, that default.
 /// The Mac still stores settings in UserDefaults; the manifest only names them.
-enum GeneratedSettings {
+public enum GeneratedSettings {
     /// The UserDefaults key of each setting (the hub's key unless the manifest says `mac_store`).
-    enum Key {
+    public enum Key {
         static let notchVisibility = "notchVisibility"
         static let foldsForFullScreen = "foldsForFullScreen"
         static let notchEdge = "notchEdge"
@@ -227,7 +227,7 @@ enum GeneratedSettings {
 
     /// What each setting is when the user has never chosen. Settings whose default is computed
     /// in code (`mac_computed` in the manifest) are not here.
-    enum Default {
+    public enum Default {
         static let notchVisibility: String = "alwaysShow"
         static let foldsForFullScreen: Bool = true
         static let notchEdge: String = "right"

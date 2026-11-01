@@ -1,4 +1,5 @@
 #if os(macOS)
+import RightKitNotchCore
 import SwiftUI
 
 /// Sizes are derived from cap heights measured in the design frame, so they

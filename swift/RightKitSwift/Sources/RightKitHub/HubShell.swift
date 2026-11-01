@@ -1,3 +1,4 @@
+import RightKitEngineClient
 import SwiftUI
 
 /// The hub frame: a sidebar of sections on the left, and on the right a header above the selected

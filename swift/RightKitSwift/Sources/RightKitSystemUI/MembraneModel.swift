@@ -1,3 +1,4 @@
+import RightKitEngineClient
 import Foundation
 import Observation
 import RightKitHub

@@ -1,3 +1,4 @@
+import RightKitEngineClient
 import Foundation
 
 /// Where setting values live. The hub reads and writes through this and never touches storage.

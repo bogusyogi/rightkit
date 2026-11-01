@@ -1,4 +1,5 @@
 #if os(macOS)
+import RightKitEngineClient
 import Foundation
 import RightKitHub
 

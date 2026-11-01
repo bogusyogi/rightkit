@@ -3,7 +3,7 @@ import Foundation
 /// Wire-parity mirror of the desktop `Kind` (src/contract.ts / crates/detect
 /// JobKind). Raw values match the desktop wire strings so artifacts and
 /// diagnostics stay comparable across platforms.
-enum JobKind: String, Codable, CaseIterable, Sendable {
+public enum JobKind: String, Codable, CaseIterable, Sendable {
     case instagramReel = "reel"
     case instagramPostMaybe = "instagram_post"
     case carousel
@@ -33,7 +33,7 @@ enum JobKind: String, Codable, CaseIterable, Sendable {
     ///  * `article` / `localFile` — fetch/readability and the local extractors.
     /// What's left needs per-platform video extractors that don't exist on
     /// iOS. They stay classified so the error names the real reason.
-    var needsDesktopPipeline: Bool {
+    public var needsDesktopPipeline: Bool {
         switch self {
         case .instagramReel, .tiktok, .facebook, .videoUrl:
             return true

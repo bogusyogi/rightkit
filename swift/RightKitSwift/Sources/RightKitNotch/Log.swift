@@ -1,4 +1,5 @@
 #if os(macOS)
+import RightKitNotchCore
 import Foundation
 import os
 import RightKitDiagnostics

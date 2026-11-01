@@ -1,4 +1,5 @@
 #if os(macOS)
+import RightKitNotchCore
 import SwiftUI
 
 /// The colour a ring or bar takes at a given level of use.

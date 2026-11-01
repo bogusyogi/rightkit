@@ -1,67 +1,67 @@
 import Foundation
 
-enum Shared {
-    static let appGroup = "group.app.heardright.ios.native"
-    static let latestRawTranscriptKey = "latestRawTranscript"
-    static let latestTranscriptKey = "latestTranscript"
-    static let latestTranscriptDogfoodSessionIDKey = "latestTranscriptDogfoodSessionID"
+public enum Shared {
+    public static let appGroup = "group.app.heardright.ios.native"
+    public static let latestRawTranscriptKey = "latestRawTranscript"
+    public static let latestTranscriptKey = "latestTranscript"
+    public static let latestTranscriptDogfoodSessionIDKey = "latestTranscriptDogfoodSessionID"
     /// App Group deletion authority shared by the app, Share extension, and
     /// Watch hand-off. Values are a JSON dictionary keyed by logical UUID.
-    static let transcriptTombstonesKey = "transcriptTombstones.v1"
+    public static let transcriptTombstonesKey = "transcriptTombstones.v1"
     /// Observed CloudKit record-name aliases, including aliases seen before a
     /// local delete. Kept separately so a later delete can tombstone every
     /// historical record name for one logical transcript.
-    static let transcriptAliasesKey = "transcriptAliases.v1"
-    static let transcriptPendingCloudDeletionIDsKey = "transcriptPendingCloudDeletionIDs.v1"
+    public static let transcriptAliasesKey = "transcriptAliases.v1"
+    public static let transcriptPendingCloudDeletionIDsKey = "transcriptPendingCloudDeletionIDs.v1"
     /// Active account/container/zone identity for cloud deletion authority.
     /// Values are intentionally not migrated: an unknown prior account must
     /// never inherit another account's tombstones or pending deletions.
-    static let transcriptCloudScopeKey = "transcriptCloudScope.v1"
+    public static let transcriptCloudScopeKey = "transcriptCloudScope.v1"
     /// Last fully-applied private-zone change token. Kept outside transcript
     /// rows so a restart resumes from CloudKit's durable change cursor.
-    static let transcriptCloudChangeTokenKey = "transcriptCloudChangeToken.v1"
-    static let transcriptCloudRemoteVersionsKey = "transcriptCloudRemoteVersions.v1"
+    public static let transcriptCloudChangeTokenKey = "transcriptCloudChangeToken.v1"
+    public static let transcriptCloudRemoteVersionsKey = "transcriptCloudRemoteVersions.v1"
     /// Monotonic fence for history hydration. It is persisted because
     /// hydration and CloudKit work run in separate actors/processes.
-    static let transcriptMutationEpochKey = "transcriptMutationEpoch.v1"
-    static let latestTranscriptRecordIDKey = "latestTranscriptRecordID"
-    static let pendingShortcutActionKey = "pendingShortcutAction"
-    static let pendingShortcutActionSavedAtKey = "pendingShortcutActionSavedAt"
-    static let recentRawTranscriptsKey = "recentRawTranscripts"
-    static let recentTranscriptRecordsKey = "recentTranscriptRecords"
-    static let recordingActiveKey = "recordingActive"
-    static let recordingActiveSinceKey = "recordingActiveSince"
-    static let recordingMicLevelKey = "recordingMicLevel"
-    static let recordingMicLevelAtKey = "recordingMicLevelAt"
-    static let recordingProcessKey = "recordingProcessHandle"
+    public static let transcriptMutationEpochKey = "transcriptMutationEpoch.v1"
+    public static let latestTranscriptRecordIDKey = "latestTranscriptRecordID"
+    public static let pendingShortcutActionKey = "pendingShortcutAction"
+    public static let pendingShortcutActionSavedAtKey = "pendingShortcutActionSavedAt"
+    public static let recentRawTranscriptsKey = "recentRawTranscripts"
+    public static let recentTranscriptRecordsKey = "recentTranscriptRecords"
+    public static let recordingActiveKey = "recordingActive"
+    public static let recordingActiveSinceKey = "recordingActiveSince"
+    public static let recordingMicLevelKey = "recordingMicLevel"
+    public static let recordingMicLevelAtKey = "recordingMicLevelAt"
+    public static let recordingProcessKey = "recordingProcessHandle"
     /// Session-bound ownership lease shared by the app and App Intents.
     /// A process handle alone cannot prove that a state row belongs to the
     /// current recording after an app relaunch.
-    static let recordingOwnerKey = "recordingOwner"
-    static let recordingOwnerSavedAtKey = "recordingOwnerSavedAt"
-    static let recordingOwnerSessionKey = "recordingOwnerSessionID"
-    static let recordingOwnerTTL: TimeInterval = 30
-    static let selectedPolishModeKey = "selectedPolishMode"
-    static let advancedCleanupEnabledKey = "advancedCleanupEnabled"
-    static let aiPolishEnabledKey = "aiPolishEnabled"
-    static let maxRecentTranscripts = 200
-    static let maxPendingShortcutAge: TimeInterval = 60
-    static let maxRecordingActiveAge: TimeInterval = 2 * 60
+    public static let recordingOwnerKey = "recordingOwner"
+    public static let recordingOwnerSavedAtKey = "recordingOwnerSavedAt"
+    public static let recordingOwnerSessionKey = "recordingOwnerSessionID"
+    public static let recordingOwnerTTL: TimeInterval = 30
+    public static let selectedPolishModeKey = "selectedPolishMode"
+    public static let advancedCleanupEnabledKey = "advancedCleanupEnabled"
+    public static let aiPolishEnabledKey = "aiPolishEnabled"
+    public static let maxRecentTranscripts = 200
+    public static let maxPendingShortcutAge: TimeInterval = 60
+    public static let maxRecordingActiveAge: TimeInterval = 2 * 60
     /// Hard cap on one recording. The app stops capture here, and the Live
     /// Activity timer bounds its range to it so `Text(timerInterval:)` sizes
     /// for "10:00" instead of the widest value up to `Date.distantFuture`.
-    static let maxRecordingDuration: TimeInterval = 10 * 60
-    static let recordingActivityStaleAfter: TimeInterval = 60
+    public static let maxRecordingDuration: TimeInterval = 10 * 60
+    public static let recordingActivityStaleAfter: TimeInterval = 60
     /// Stable per-device identity, shared across the app/Share extension/Watch
     /// hand-off so a transcript's `originDeviceID` (see `LibraryTranscript`)
     /// is meaningful even from an extension process. Generated once and
     /// persisted in the App Group; never synced by CloudKit itself, mirroring
     /// `pro_bridge`/`cloud_sync`'s device-local consent state on desktop.
-    static let deviceIDKey = "heardright.device.id.v1"
+    public static let deviceIDKey = "heardright.device.id.v1"
 
     /// This device's stable identity, creating and persisting one on first
     /// access if none exists yet.
-    static var deviceID: String {
+    public static var deviceID: String {
         let defaults = UserDefaults(suiteName: appGroup) ?? .standard
         if let existing = defaults.string(forKey: deviceIDKey), !existing.isEmpty {
             return existing
@@ -72,7 +72,7 @@ enum Shared {
     }
 }
 
-enum ShortcutAction: String {
+public enum ShortcutAction: String {
     case toggleDictation
     case startDictation
     case stopDictation
@@ -117,7 +117,7 @@ enum RecordingRecoveryState {
 /// exists: HeardRight transcribes with its own Core ML model or it refuses to
 /// record. The tag is kept so records stay self-describing if a second local
 /// model is ever added.
-enum TranscriptEngineTag: String, Codable, Equatable {
+public enum TranscriptEngineTag: String, Codable, Equatable {
     case localModel = "local_model"
 }
 
