@@ -128,6 +128,9 @@ pub trait Host: Send + Sync + 'static {
     /// Opens the launcher in its clipboard mode.
     fn open_launcher_clip(&self) {}
 
+    /// The copy burst's dots or its hover preview changed: the notch redraws.
+    fn burst_changed(&self) {}
+
     /// Records an informational event with `fields`. Never called with clipboard content.
     fn log_info(&self, _event: &str, _fields: &[(&str, &str)]) {}
 }
@@ -297,5 +300,12 @@ pub(crate) fn wake_ui() {
 pub(crate) fn open_launcher_clip() {
     if let Some(host) = HOST.get() {
         host.open_launcher_clip();
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn burst_changed() {
+    if let Some(host) = HOST.get() {
+        host.burst_changed();
     }
 }

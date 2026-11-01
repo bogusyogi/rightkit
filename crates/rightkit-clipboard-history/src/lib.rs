@@ -3,6 +3,8 @@
 //! The application supplies its data folder, limits, translation and logging through [`host`].
 
 #[cfg(windows)]
+pub mod burst;
+#[cfg(windows)]
 pub mod capture;
 pub mod detect;
 pub mod host;
