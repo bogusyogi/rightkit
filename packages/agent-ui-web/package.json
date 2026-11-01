@@ -50,7 +50,7 @@
     "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node app/scripts/test-auth-url-safety.mjs && node app/scripts/test-markdown-security.mjs && node app/scripts/test-message-payload.mjs && node app/scripts/test-session-events.mjs && node app/scripts/test-session-message-body.mjs"
+    "test": "node --test app/scripts/test-auth-url-safety.mjs app/scripts/test-markdown-security.mjs app/scripts/test-message-payload.mjs app/scripts/test-session-events.mjs app/scripts/test-session-message-body.mjs"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",
