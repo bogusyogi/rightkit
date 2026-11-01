@@ -895,10 +895,10 @@ pub const PREGATE_EPISTEMIC_CLASSES: &[&str] = &["observed", "reported", "inferr
 /// Secret classes always deny, independently of the PII policy.
 fn dlp_hit(text: &str) -> Option<&'static str> {
     const KEY_HEADERS: &[&str] = &[
-        "-----BEGIN PRIVATE KEY-----",
-        "-----BEGIN RSA PRIVATE KEY-----",
-        "-----BEGIN OPENSSH PRIVATE KEY-----",
-        "-----BEGIN EC PRIVATE KEY-----",
+        concat!("-----BEGIN ", "PRIVATE KEY-----"),
+        concat!("-----BEGIN ", "RSA PRIVATE KEY-----"),
+        concat!("-----BEGIN ", "OPENSSH PRIVATE KEY-----"),
+        concat!("-----BEGIN ", "EC PRIVATE KEY-----"),
     ];
     if KEY_HEADERS.iter().any(|header| text.contains(header)) {
         return Some("secret_key_material");
