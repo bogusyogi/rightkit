@@ -25,6 +25,8 @@ mod sanitize;
 pub mod server;
 pub mod trust;
 mod types;
+#[cfg(feature = "agent_mcp")]
+pub mod agent_mcp;
 
 pub use auth::{AuthProvider, Secret};
 pub use client::{ClientOptions, McpClient, ServerSpec};
