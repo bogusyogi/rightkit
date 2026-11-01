@@ -22,7 +22,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mail"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-search",
  "serde",
