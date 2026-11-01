@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-adapt",
+  "capabilities": [
+    {
+      "capability": "adapt",
+      "summary": "Adaptive agent learning: outcome observation, guidance proposals, application receipts and scoring; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}
