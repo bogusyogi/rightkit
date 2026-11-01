@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "workflow_id": "wfd-morning-briefing",
+  "trace_kind": "success",
+  "description": "Expected journal sequence, lifecycle snapshot, and projection final state for a successful run of wfd-morning-briefing. Captures what the dogfood round-trip test asserts once the supervisor drives a manual run through the happy path (gather -> summarize -> render -> present).",
+  "trigger": {
+    "kind": "manual",
+    "initiator": "user"
+  },
+  "run_inputs": {
+    "depth": 2,
+    "focus": "engineering"
+  },
+  "journal_sequence": [
+    { "event_kind": "run_started",                 "node_id": null,                  "expected_seq": 1,  "note": "Admit run; pin version wfv_<hash>; bind inputs and budgets." },
+    { "event_kind": "node_started",                "node_id": "gather-overnight",    "expected_seq": 2,  "note": "Agent node dispatched with ReadFiles + NetworkEgress." },
+    { "event_kind": "node_completed",              "node_id": "gather-overnight",    "expected_seq": 3,  "note": "Structured overnight document returned with content_hash." },
+    { "event_kind": "node_started",                "node_id": "summarize",           "expected_seq": 4,  "note": "Recipe node invoked against recipe://brews/recipes/morning-briefing.md@1." },
+    { "event_kind": "node_completed",              "node_id": "summarize",           "expected_seq": 5,  "note": "Recipe returned summary, highlights, and watch items." },
+    { "event_kind": "node_started",                "node_id": "render-into-message", "expected_seq": 6,  "note": "Transform JSON->Markdown applied." },
+    { "event_kind": "node_completed",              "node_id": "render-into-message", "expected_seq": 7,  "note": "Markdown briefing body produced; not empty." },
+    { "event_kind": "node_started",                "node_id": "present-to-user",     "expected_seq": 8,  "note": "Effect node dispatched; capability SendUnattendedMessage used." },
+    { "event_kind": "node_completed",              "node_id": "present-to-user",     "expected_seq": 9,  "note": "Desktop draft confirmed; idempotency key recorded." },
+    { "event_kind": "delivery_recorded",           "node_id": "present-to-user",     "expected_seq": 10, "note": "Delivery projection written; attention item created." },
+    { "event_kind": "run_succeeded",               "node_id": null,                  "expected_seq": 11, "note": "Reducer advances phase to Succeeded." }
+  ],
+  "expected_final_lifecycle_revision": 11,
+  "expected_terminal_phase": "succeeded",
+  "expected_cost_usd": 0.40,
+  "expected_token_count": 8000,
+  "expected_lifecycle": {
+    "workflow_id": "wfd-morning-briefing",
+    "version_id": "wfv_<see-compile-output>",
+    "phase": "Succeeded",
+    "revision": 11
+  },
+  "expected_projection_final_state": {
+    "nodes": {
+      "gather-overnight":    { "state": "succeeded", "attempts": 1, "output_artifact_hash": "sha256:<gather>" },
+      "summarize":           { "state": "succeeded", "attempts": 1, "output_artifact_hash": "sha256:<summary>" },
+      "render-into-message": { "state": "succeeded", "attempts": 1, "output_artifact_hash": "sha256:<markdown>" },
+      "present-to-user":     { "state": "succeeded", "attempts": 1, "effect_receipt_state": "confirmed" }
+    },
+    "attention_items": [
+      {
+        "kind": "deliverable",
+        "deep_link": "coderight://automations/wfd-morning-briefing/runs/<run-id>",
+        "node_id": "present-to-user"
+      }
+    ],
+    "deliveries": [
+      {
+        "channel": "desktop-draft",
+        "destination": "coderight://desktop-draft",
+        "content_hash": "sha256:<markdown>",
+        "state": "confirmed"
+      }
+    ]
+  },
+  "cost_audit": {
+    "expected_wall_time_seconds_max": 300,
+    "expected_depth_max": 2,
+    "actual_run_cost_estimate_usd": 0.18,
+    "actual_run_token_estimate": 4200,
+    "actual_run_wall_time_seconds": 47,
+    "actual_run_depth_used": 2
+  },
+  "expected_terminal_node": "present-to-user",
+  "compile_assertions": {
+    "schema_version": 1,
+    "expected_node_count": 4,
+    "expected_entry_node": "gather-overnight",
+    "expected_capabilities_in_workflow_ceiling": [
+      "Capability::NetworkEgress",
+      "Capability::ReadFiles"
+    ],
+    "expected_capabilities_in_effective_set": [
+      "Capability::NetworkEgress",
+      "Capability::ReadFiles",
+      "Capability::SendUnattendedMessage"
+    ],
+    "expected_node_ids": [
+      "gather-overnight",
+      "summarize",
+      "render-into-message",
+      "present-to-user"
+    ]
+  }
+}

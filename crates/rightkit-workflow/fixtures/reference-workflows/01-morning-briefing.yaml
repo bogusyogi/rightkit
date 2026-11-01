@@ -1,0 +1,146 @@
+# Reference workflow: morning briefing.
+# - id is the canonical workflow definition identifier (wfd-*).
+# - kind/schema_version pin the authoring format.
+# - trigger is manual; the operator or desktop initiates the run.
+# - capabilities list the workflow-level effective capability ceiling.
+# - nodes declare the bounded execution graph; each node has its own
+#   attempt policy and may override the workflow capability set.
+# - edges describe the deterministic routing graph. The literal tokens
+#   "start" and "end" mark the entry sentinel and the terminal sink.
+# - budgets are hard ceilings enforced by the reducer.
+
+kind: coderight-workflow/v1
+schema_version: 1
+id: wfd-morning-briefing
+name: Morning briefing
+description: >
+  Gather overnight activity (inbox, calendar, overnight automation runs,
+  and recent git events), summarize using the BREWS morning-briefing
+  recipe, render the summary into a Markdown briefing message, and
+  present it as a desktop draft for the operator to review.
+
+trigger:
+  manual:
+    initiator_kinds: ["user", "desktop"]
+
+inputs:
+  depth:
+    type: number
+    required: false
+    default: 2
+    description: "Maximum recursion depth for nested lookups (1-3)."
+  focus:
+    type: string
+    required: false
+    default: "general"
+    description: "Optional focus tag: general | engineering | finance | research."
+
+capabilities:
+  - Capability::ReadFiles
+  - Capability::NetworkEgress
+
+nodes:
+  - id: gather-overnight
+    kind: Agent
+    label: Gather overnight activity
+    capabilities:
+      - Capability::ReadFiles
+      - Capability::NetworkEgress
+    attempt:
+      max_attempts: 2
+      backoff:
+        kind: exponential
+        base_ms: 500
+        max_ms: 8000
+        jitter: 0.1
+      retry_on:
+        - TransientNetwork
+        - TransientProvider
+    payload:
+      role: overnight_collector
+      output_schema: schema://morning-briefing/overnight-v1
+      spec: |
+        Collect overnight activity from the operator's local sources
+        (inbox headers, calendar entries for the next 12 hours, overnight
+        automation run summaries, and the last 24 hours of git activity).
+        Honor the `depth` and `focus` inputs. Do not modify any state.
+        Return a structured JSON document with sections: `inbox`,
+        `calendar`, `automations`, `git`, `uncited`.
+
+  - id: summarize
+    kind: Recipe
+    label: Apply morning briefing recipe
+    capabilities:
+      - Capability::ReadFiles
+    attempt:
+      max_attempts: 1
+      backoff:
+        kind: fixed
+        base_ms: 0
+      retry_on: []
+    payload:
+      recipe: recipe://brews/recipes/morning-briefing.md@1
+      inputs:
+        overnight: gather-overnight.output.document
+        focus: inputs.focus
+
+  - id: render-into-message
+    kind: Transform
+    label: Render summary as Markdown briefing
+    capabilities:
+      - Capability::ReadFiles
+    attempt:
+      max_attempts: 1
+      backoff:
+        kind: fixed
+        base_ms: 0
+      retry_on: []
+    payload:
+      transform: json-to-markdown
+      template: |
+        # Morning briefing ({{inputs.focus}})
+
+        {{summarize.output.summary}}
+
+        ## Highlights
+        {{summarize.output.highlights}}
+
+        ## Watch items
+        {{summarize.output.watch_items}}
+
+  - id: present-to-user
+    kind: Effect
+    label: Stage briefing as a desktop draft
+    capabilities:
+      - Capability::SendUnattendedMessage
+    attempt:
+      max_attempts: 2
+      backoff:
+        kind: exponential
+        base_ms: 250
+        max_ms: 4000
+        jitter: 0.1
+      retry_on:
+        - TransientNetwork
+        - LeaseLost
+    when: "render-into-message.output.markdown != ''"
+    effects:
+      - kind: draft
+        destination: coderight://desktop-draft
+        idempotency_key: "morning-briefing:${run.id}:${inputs.focus}"
+        payload: render-into-message.output.markdown
+        approval_required: false
+        reconcile: lookup desktop draft by idempotency key before retry
+
+edges:
+  - { from: start,                to: gather-overnight }
+  - { from: gather-overnight,      to: summarize }
+  - { from: summarize,             to: render-into-message }
+  - { from: render-into-message,   to: present-to-user }
+  - { from: present-to-user,       to: end }
+
+budgets:
+  cost_usd: 0.40
+  tokens: 8000
+  wall_time_seconds: 300
+  depth: 2

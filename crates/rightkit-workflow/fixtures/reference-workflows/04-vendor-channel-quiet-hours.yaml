@@ -1,0 +1,125 @@
+# Reference workflow: vendor channel quiet hours.
+# - Triggered either by a vendor.message_received event or by an
+#   operator-initiated "approve quiet hours" action.
+# - During quiet hours (>=22:00 or <07:00 local), incoming messages
+#   are deferred and batched into a draft; outside quiet hours the
+#   message is delivered immediately as a draft.
+# - The workflow always ends with a structured log-outcome transform
+#   that writes the decision to the in-run memory.
+
+kind: coderight-workflow/v1
+schema_version: 1
+id: wfd-vendor-channel-quiet-hours
+name: Vendor channel quiet hours
+description: >
+  When a vendor channel message arrives, decide whether the local
+  timestamp falls inside the operator's quiet hours. Inside quiet
+  hours, defer the message and batch it into a desktop draft. Outside
+  quiet hours, deliver the message immediately as a desktop draft.
+  Always log the routing decision for audit.
+
+trigger:
+  manual_and_event:
+    manual:
+      initiator_kinds: ["user"]
+    event:
+      kind: vendor.message_received
+      filter: "input.channel == 'primary'"
+
+inputs: {}
+
+capabilities:
+  - Capability::SendUnattendedMessage
+
+nodes:
+  - id: is-quiet-hour?
+    kind: Condition
+    label: Check quiet-hour window
+    capabilities: []
+    attempt:
+      max_attempts: 1
+      backoff:
+        kind: fixed
+        base_ms: 0
+      retry_on: []
+    test: "input.timestamp.hour >= 22 || input.timestamp.hour < 7"
+
+  - id: defer-and-batch
+    kind: Effect
+    label: Defer message into a batched draft
+    capabilities:
+      - Capability::SendUnattendedMessage
+    attempt:
+      max_attempts: 2
+      backoff:
+        kind: exponential
+        base_ms: 250
+        max_ms: 4000
+        jitter: 0.1
+      retry_on:
+        - TransientNetwork
+        - LeaseLost
+    when: "input.message.body != ''"
+    effects:
+      - kind: draft
+        destination: coderight://desktop-draft
+        idempotency_key: "quiet-hours:defer:${input.message.id}:${input.timestamp.iso}"
+        payload: input.message
+        approval_required: false
+        reconcile: lookup desktop draft by idempotency key before retry
+
+  - id: deliver-now
+    kind: Effect
+    label: Deliver message immediately as a desktop draft
+    capabilities:
+      - Capability::SendUnattendedMessage
+    attempt:
+      max_attempts: 2
+      backoff:
+        kind: exponential
+        base_ms: 250
+        max_ms: 4000
+        jitter: 0.1
+      retry_on:
+        - TransientNetwork
+        - LeaseLost
+    when: "input.message.body != ''"
+    effects:
+      - kind: draft
+        destination: coderight://desktop-draft
+        idempotency_key: "quiet-hours:deliver:${input.message.id}:${input.timestamp.iso}"
+        payload: input.message
+        approval_required: false
+        reconcile: lookup desktop draft by idempotency key before retry
+
+  - id: log-outcome
+    kind: Transform
+    label: Log routing decision to in-run memory
+    capabilities: []
+    attempt:
+      max_attempts: 1
+      backoff:
+        kind: fixed
+        base_ms: 0
+      retry_on: []
+    payload:
+      transform: log-to-memory
+      key: "quiet-hours:${run.id}"
+      record:
+        message_id: input.message.id
+        timestamp: input.timestamp.iso
+        route: "is-quiet-hour?.output ? 'deferred' : 'delivered'"
+
+edges:
+  - { from: "start",           to: "is-quiet-hour?" }
+  - { from: "is-quiet-hour?",  to: "defer-and-batch", when: "true" }
+  - { from: "is-quiet-hour?",  to: "deliver-now",    when: "false" }
+  - { from: "defer-and-batch", to: "log-outcome" }
+  - { from: "deliver-now",     to: "log-outcome" }
+  - { from: "log-outcome",     to: "end" }
+
+budgets:
+  cost_usd: 0.05
+  tokens: 1000
+  wall_time_seconds: 30
+  depth: 1

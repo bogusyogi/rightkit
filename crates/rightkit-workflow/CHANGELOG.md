@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0 (unreleased)
+
+- Features `control_plane` (agent workflow compiler, pure reducer, domain model, import/export) and `control_plane_host` moved from CodeRight `coderight-workflow` and `coderight-workflow-host`.
+
 ## 0.2.0
 
 - New feature `sequence` (off by default, no new dependencies): `Sequence`, `SequenceRun::open` and `run_next`, a linear run over non-GUI steps that reuses the journal (`Dispatched` fsynced before `perform`), per-step idempotency keys and resume. `run_next` runs one step per call and returns `Advanced`, `Done`, `Stopped` or `Unresolved`, so a restart at every boundary is normal.
