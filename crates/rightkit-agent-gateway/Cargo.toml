@@ -1,0 +1,62 @@
+[package]
+name = "rightkit-agent-gateway"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Local agent gateway for a mail-style app: pairing registry, append-only audit log, request gate profiles and untrusted-content wrapping, over a host-implemented connection trait."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_agent_gateway"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+getrandom = "0.4"
+rightkit-db = { version = "0.5.2", default-features = false, path = "../rightkit-db" }
+rightkit-fs = { version = "0.4.7", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
+rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
+rightkit-search = { version = "0.4.1", default-features = false, path = "../rightkit-search" }
+rightkit-mail = { version = "0.1.1", path = "../rightkit-mail" }
+rightkit-time = { version = "0.1.0", path = "../rightkit-time" }
+
+[dev-dependencies]
+rightkit-db = { version = "0.5.2", default-features = false, features = ["bundled"], path = "../rightkit-db" }
+
+[workspace]
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0
