@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.17 (unpublished)
+
+- **A tool's own JSON output is never judged as a broker frame (rightkit#1351):** `drainFrames` judged every captured line starting with `{` against the 1 MiB frame limit, so the one-line `cargo metadata` document of a large workspace (2.28 MB for a Tauri app) failed every carried full-metadata call (cargo-deny) with `RK_CARGO_BROKER_UNVERIFIED` (frame-over-cap) on the Mac and the Dell. Only a JSON object whose `type` is a protocol event type is judged now.
+
 ## 0.6.16 (unpublished)
 
 - **Compile-stage cargo-deny under the cargo wrapper (rightkit#1327):** the scan put cargo-deny's enrolled directory (~/.cargo/bin, which also holds rustup's cargo) ahead of the wrapper on PATH, so `cargo deny` bypassed it and tripped the unbound-output sentinel in multi-workspace apps; the wrapper now comes first (2082965e3).
