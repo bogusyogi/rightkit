@@ -3,6 +3,7 @@
 ## 0.1.1 (unreleased)
 
 - Added `protocol` (channel `Scope` and the publish job and command payloads), `calendar_time`, `util` and `quota`: per-account pacing and the `next` selector over a host-implemented `PublishQuotaStore`. Additive.
+- Added `jobs::PublishJobStore` (the host's job table: load, save, transaction, role gate) and `resolve` (`publish.resolve_unknown`).
 
 ## 0.1.0 (unreleased)
 

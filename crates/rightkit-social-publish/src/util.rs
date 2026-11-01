@@ -22,6 +22,19 @@ pub fn internal(e: impl std::fmt::Display) -> Fail {
     ("internal", e.to_string())
 }
 
+/// `not_found` for a missing publish job of the scope.
+pub fn not_found(job_id: &str) -> Fail {
+    (
+        "not_found",
+        format!("no publish job {job_id} for this scope"),
+    )
+}
+
+/// `invalid_transition` with a message.
+pub fn invalid_transition(msg: impl Into<String>) -> Fail {
+    ("invalid_transition", msg.into())
+}
+
 /// Parses a command input into its typed form; a failure is `bad_input` naming `method`.
 pub fn parse_input<T: DeserializeOwned>(input: Value, method: &str) -> Result<T, Fail> {
     serde_json::from_value(input).map_err(|e| bad(format!("{method} input: {e}")))

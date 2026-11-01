@@ -23,6 +23,7 @@ use rightkit_http::{defer_in, QuotaStore};
 use serde_json::{json, Value};
 
 use crate::calendar_time as time;
+use crate::jobs::PublishJobStore;
 use crate::protocol::{
     PublishJob, PublishNextBlocked, PublishNextInput, PublishNextJob, PublishNextOutput,
     PublishQuotaGetInput, PublishQuotaPutInput, PublishQuotaPutOutput, PublishQuotaRecord, Scope,
@@ -30,7 +31,7 @@ use crate::protocol::{
 };
 use crate::util::{
     bad, db_err, internal, non_empty, parse_input, path_safe, require_channel, require_person,
-    to_value, ChannelLookup,
+    to_value,
 };
 use crate::Fail;
 
@@ -194,13 +195,11 @@ pub struct QueuedJob {
     pub stored_at: Option<String>,
 }
 
-/// What the host app provides: the pacing rows and the send ledger, the jobs the selector reads, the
-/// accounts store's readiness verdict, the role gate and the transaction wrapper. The host keeps the
+/// What the host app provides on top of [`PublishJobStore`]: the pacing rows and the send ledger, the jobs
+/// the selector reads and the accounts store's readiness verdict. The host keeps the
 /// schema and the SQL; every method is one read or one write on its own database. Methods that write
 /// run on the caller's connection and so inside the caller's open transaction.
-pub trait PublishQuotaStore: ChannelLookup {
-    /// The publish job `job_id` of `scope`, if stored.
-    fn load_job(&self, scope: &Scope, job_id: &str) -> Result<Option<PublishJob>, Fail>;
+pub trait PublishQuotaStore: PublishJobStore {
     /// The pacing row of an account, if stored.
     fn load_row(&self, key: &AccountKey) -> Result<Option<QuotaRow>, Fail>;
     /// Inserts or replaces the pacing row of an account.
@@ -236,10 +235,6 @@ pub trait PublishQuotaStore: ChannelLookup {
     /// The accounts store's `account.get` answer for `input` (`scope`, `platform`, `now`): the JSON the
     /// readiness rule is read from. `Err(("not_found", _))` for no stored account.
     fn account_get(&self, input: Value) -> Result<Value, Fail>;
-    /// `role_forbidden` unless the host runs in the role that may publish.
-    fn require_role(&self) -> Result<(), Fail>;
-    /// Runs `body` in one write transaction: commit on `Ok`, roll back on `Err`.
-    fn write_txn(&self, body: &mut dyn FnMut() -> Result<(), Fail>) -> Result<(), Fail>;
 }
 
 /// The limits in force: the stored ones for an opted-in account, the defaults otherwise.
@@ -606,7 +601,7 @@ impl Pace {
 }
 
 /// Reads `ignore_pacing` from a `publish.step` / `publish.run` input. `true` is accepted only in the
-/// daemon-dev role (`PublishQuotaStore::require_role`; the command table has already refused every other role, this repeats
+/// daemon-dev role (`PublishJobStore::require_role`; the command table has already refused every other role, this repeats
 /// the check where the flag is read). Anything but a boolean is `bad_input`.
 pub fn ignore_pacing(store: &dyn PublishQuotaStore, input: &Value) -> Result<bool, Fail> {
     match input.get("ignore_pacing") {

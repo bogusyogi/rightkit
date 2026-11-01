@@ -13,6 +13,8 @@
 //! - [`protocol`]: the publish job, command inputs/outputs and the channel [`protocol::Scope`].
 //! - [`quota`]: per-account pacing and the `publish.next` selector over a host-implemented
 //!   [`quota::PublishQuotaStore`].
+//! - [`jobs`]: the [`jobs::PublishJobStore`] trait the host implements over its job table.
+//! - [`resolve`]: a person closes an `outcome_unknown` job by hand.
 //! - [`calendar_time`]: UTC instants and local-time conversion for the supported zones.
 //! - [`util`]: error constructors, input checks and the channel lookup the store-bound modules share.
 //!
@@ -22,12 +24,14 @@
 pub mod api_versions;
 pub mod calendar_time;
 pub mod http;
+pub mod jobs;
 pub mod media;
 pub mod platform;
 pub mod platforms;
 pub mod protocol;
 pub mod quota;
 pub mod redact;
+pub mod resolve;
 pub mod util;
 pub mod wire;
 
