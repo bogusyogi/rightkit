@@ -148,7 +148,7 @@ let package = Package(
         .testTarget(name: "RightKitAgentTests", dependencies: ["RightKitAgent"]),
         .target(name: "RightKitNotch", dependencies: ["RightKitDiagnostics", "RightKitFS", "RightKitOverlay"]),
         .testTarget(name: "RightKitNotchTests", dependencies: ["RightKitNotch"]),
-        .target(name: "RightKitSystemUI"),
+        .target(name: "RightKitSystemUI", dependencies: ["RightKitHub"]),
         .testTarget(name: "RightKitSystemUITests", dependencies: ["RightKitSystemUI"]),
         // Line-JSON `rightkit-sync-helper/1` CloudKit helper over RightKitCloudSync (macOS only; empty elsewhere).
         .executableTarget(name: "rightkit-cloudkit-helper", dependencies: ["RightKitCloudSync"]),
