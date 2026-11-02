@@ -991,7 +991,7 @@ impl Delivery {
 /// [`Snapshot::replace_into`], which consumes the snapshot: save the id first, apply, then send
 /// `Message::ack(id)`:
 ///
-/// ```ignore
+/// ```text
 /// let SnapshotDelivery { id, snapshot } = read_stdin_snapshot()?;
 /// let failed = snapshot.replace_into(&mut current);
 /// write_message(&mut out, &Message::ack(id))?;

@@ -95,8 +95,8 @@ pub struct TransitionResult {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TransitionError {
-    pub state: AppState,
-    pub event: AppEvent,
+    pub state: Box<AppState>,
+    pub event: Box<AppEvent>,
 }
 
 pub fn transition(
@@ -190,8 +190,8 @@ pub fn transition(
         },
         _ => {
             return Err(TransitionError {
-                state: current_state,
-                event,
+                state: Box::new(current_state),
+                event: Box::new(event),
             });
         }
     };

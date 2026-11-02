@@ -52,8 +52,6 @@ pub const DEFAULT_SCREENSHOT_DESTINATION: &str = "clipboard";
 pub const DEFAULT_PUSH_TO_TALK_KEY: &str = "ralt";
 pub const DEFAULT_MAC_PUSH_TO_TALK_KEY: &str = "ctrl";
 
-const LEGAL_CONTRACT_JSON: &str = include_str!("../../../src/generated/legal-contract.json");
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LegalContract {
@@ -61,15 +59,36 @@ struct LegalContract {
     material_sha256: String,
 }
 
-fn legal_contract() -> &'static LegalContract {
-    static CONTRACT: OnceLock<LegalContract> = OnceLock::new();
-    CONTRACT.get_or_init(|| {
-        serde_json::from_str(LEGAL_CONTRACT_JSON).expect("generated legal contract must be valid")
-    })
+static LEGAL_CONTRACT: OnceLock<LegalContract> = OnceLock::new();
+
+/// The host app's generated legal acceptance contract (its `src/generated/legal-contract.json`, produced from
+/// `legal/legal-manifest.json`). A published crate cannot include a file of the app that depends on it, so the host
+/// hands it over once at startup. Until it does, no legal acceptance is current and no acceptance patch is admitted.
+/// A second call is refused unless it carries the same contract.
+pub fn configure_legal_contract(json: &str) -> Result<(), String> {
+    let contract: LegalContract =
+        serde_json::from_str(json).map_err(|e| format!("legal contract is invalid: {e}"))?;
+    if contract.acceptance_version.trim().is_empty() || contract.material_sha256.trim().is_empty() {
+        return Err("legal contract needs acceptanceVersion and materialSha256".to_string());
+    }
+    match LEGAL_CONTRACT.set(contract) {
+        Ok(()) => Ok(()),
+        Err(again) => {
+            let current = LEGAL_CONTRACT.get().expect("set");
+            if current.acceptance_version == again.acceptance_version
+                && current.material_sha256 == again.material_sha256
+            {
+                Ok(())
+            } else {
+                Err("a different legal contract is already configured".to_string())
+            }
+        }
+    }
 }
 
-pub fn required_legal_acceptance_version() -> &'static str {
-    &legal_contract().acceptance_version
+/// The acceptance version the host's contract requires; `None` until [`configure_legal_contract`].
+pub fn required_legal_acceptance_version() -> Option<&'static str> {
+    LEGAL_CONTRACT.get().map(|c| c.acceptance_version.as_str())
 }
 
 /// Digest over only the MATERIAL legal documents (license/eula/acceptable_use/
@@ -77,8 +96,8 @@ pub fn required_legal_acceptance_version() -> &'static str {
 /// Deliberately NOT a hash of the whole manifest: privacy_notice and
 /// third_party_notices regenerate on every dependency bump and must never
 /// force a re-prompt for a byte-identical EULA.
-pub fn required_legal_material_sha256() -> &'static str {
-    &legal_contract().material_sha256
+pub fn required_legal_material_sha256() -> Option<&'static str> {
+    LEGAL_CONTRACT.get().map(|c| c.material_sha256.as_str())
 }
 
 /// The renderer records `Date::toISOString()`. Accept only that canonical UTC
@@ -405,7 +424,8 @@ impl SettingsBlob {
     }
 
     pub fn legal_acceptance_current(&self) -> bool {
-        self.legal_acceptance_version.as_deref() == Some(required_legal_acceptance_version())
+        required_legal_acceptance_version().is_some()
+            && self.legal_acceptance_version.as_deref() == required_legal_acceptance_version()
             && self
                 .legal_accepted_at
                 .as_deref()
@@ -414,7 +434,8 @@ impl SettingsBlob {
                 self.legal_eligibility_basis.as_deref(),
                 Some("individual") | Some("enterprise")
             )
-            && self.legal_material_sha256.as_deref() == Some(required_legal_material_sha256())
+            && required_legal_material_sha256().is_some()
+            && self.legal_material_sha256.as_deref() == required_legal_material_sha256()
     }
 }
 
