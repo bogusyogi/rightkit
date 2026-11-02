@@ -385,9 +385,9 @@ mod windows {
         ) {
             let model = std::env::var_os("RIGHTKIT_KWS_MODEL_DIR")
                 .ok_or("RIGHTKIT_KWS_MODEL_DIR required")?;
-            Some(rightkit_dictation_inference::sherpa_kws::SherpaKws::load(
-                Path::new(&model),
-            )?)
+            Some(rightkit_dictation_inference::kws::Kws::load(Path::new(
+                &model,
+            ))?)
         } else {
             None
         };

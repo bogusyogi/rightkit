@@ -13,7 +13,7 @@
 //!   2. `AsrRuntime::load(models, AsrEp::resolve_default())` on `hr-main-asr-worker`
 //!   3. `warm_main_asr` (one second of silence through `with_inference_lease`)
 //!   4. `SpeechVad::new()` (Silero, own loader thread)
-//!   5. `AsrRuntime::load_probe` (Sherpa KWS cascade, own bundled onnxruntime.dll)
+//!   5. `AsrRuntime::load_probe` (KWS cascade)
 //!
 //! usage (one process per arm, so each arm starts from a cold heap):
 //!   windows_engine_commit_probe [--models DIR] [--ep auto|dml|cpu] [--wav FILE]
@@ -164,12 +164,7 @@ mod probe {
     }
 
     fn print_modules(label: &str) {
-        for name in [
-            "onnxruntime.dll",
-            "DirectML.dll",
-            "sherpa-onnx-c-api.dll",
-            "whisper.dll",
-        ] {
+        for name in ["onnxruntime.dll", "DirectML.dll", "whisper.dll"] {
             match module_path(name) {
                 Some(path) => {
                     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -190,7 +185,7 @@ mod probe {
             "RIGHTKIT_MODELS_DIR",
             "RIGHTKIT_ASR_BACKEND",
             "RIGHTKIT_DICTATION_LANG",
-            "RIGHTKIT_SHERPA_KWS_DIR",
+            "RIGHTKIT_KWS_DIR",
             "RIGHTKIT_VAD_MODEL",
             "ORT_DYLIB_PATH",
         ] {
@@ -553,8 +548,8 @@ mod probe {
             None
         } else {
             let dir = args.kws_dir.clone().unwrap_or_else(|| repo_resource("kws"));
-            if std::env::var_os("RIGHTKIT_SHERPA_KWS_DIR").is_none() {
-                std::env::set_var("RIGHTKIT_SHERPA_KWS_DIR", &dir);
+            if std::env::var_os("RIGHTKIT_KWS_DIR").is_none() {
+                std::env::set_var("RIGHTKIT_KWS_DIR", &dir);
             }
             let started = Instant::now();
             let kws = AsrRuntime::load_probe(&models, ep);
@@ -568,7 +563,7 @@ mod probe {
                     let reset = kws.reset_probe_stream();
                     println!("LOAD kws reset_ok={}", reset.is_ok());
                     print_modules("after kws load");
-                    mark("5 load_probe (Sherpa KWS)", settle);
+                    mark("5 load_probe (KWS)", settle);
                     Some(kws)
                 }
                 Err(error) => {

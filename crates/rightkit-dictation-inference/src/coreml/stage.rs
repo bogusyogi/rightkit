@@ -65,7 +65,7 @@ unsafe extern "C" {
 
 /// Process-wide lease for main Core ML ASR predictions.
 ///
-/// CPU Sherpa KWS owns a separate worker and does not take this lease.
+/// CPU KWS owns a separate worker and does not take this lease.
 pub(crate) struct CoreMlInferenceLease {
     _lease: crate::inference_gate::InferenceLease,
 }
