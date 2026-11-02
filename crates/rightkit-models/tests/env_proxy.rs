@@ -59,6 +59,8 @@ fn environment_proxy_variable_is_honoured_by_default() {
     // `http_proxy` afterwards would clear `HTTP_PROXY` too.
     for name in [
         "http_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
         "ALL_PROXY",
         "all_proxy",
         "NO_PROXY",

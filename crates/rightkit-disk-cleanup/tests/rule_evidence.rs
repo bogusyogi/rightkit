@@ -12,7 +12,7 @@ fn m(f: Mutator) -> Mutator {
 }
 
 fn pack() -> RulePack {
-    serde_json::from_str(include_str!("../../rules/initial.json")).expect("pack parses")
+    serde_json::from_str(include_str!("../rules/initial.json")).expect("pack parses")
 }
 
 fn rule(id: &str) -> Rule {

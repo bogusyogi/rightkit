@@ -1,6 +1,6 @@
 //! Cleanup findings and the Move-to-Trash flow for the hub.
 //!
-//! Rules live in `rules/cleanup.json` (data, not code). `scan` expands each
+//! Rules live in `rules/cleanup.json` (this crate's copy of the Pulse pack) (data, not code). `scan` expands each
 //! rule's path patterns on disk, measures what it finds and decides whether
 //! each item may be moved. `apply` re-checks every item immediately before
 //! the move and records what happened in an activity log so it can be put
@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::store::StateStore;
 
-pub const PACK_JSON: &str = include_str!("../../rules/cleanup.json");
+pub const PACK_JSON: &str = include_str!("../rules/cleanup.json");
 pub const ACTIVITY_SCHEMA_VERSION: u32 = 1;
 const MAX_ENTRIES_PER_ITEM: usize = 400_000;
 
