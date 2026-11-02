@@ -151,7 +151,10 @@ test('the test plan mirrors scripts/ci/gate.mjs (feature sets, serial run, clipp
     'test -p rightkit-demo --message-format=json-render-diagnostics --features async --no-fail-fast -- --test-threads=1 --show-output',
     'clippy -p rightkit-demo --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings',
     'clippy -p rightkit-demo --message-format=json-render-diagnostics --no-deps --all-targets --features async -- -D warnings',
+    'doc -p rightkit-demo --message-format=json-render-diagnostics --no-deps --all-features',
+    'doc -p rightkit-demo --message-format=json-render-diagnostics --no-deps --features async',
   ]);
+  assert.ok(plan.steps.filter((s) => s.args[0] === 'doc').every((s) => s.env?.RUSTDOCFLAGS === '-D warnings' && s.test === false), 'rustdoc runs with -D warnings, as the CI shards and native verify do');
   assert.deepEqual(plan.featureLabels, ['--all-features', '--features async']);
   assert.throws(() => localTestPlan({ kind: 'cargo', unit: 'rightkit-demo', dir: 'x', config: { rust: { 'rightkit-demo': { os: ['windows'] } } } }), /restricted to windows/);
   assert.throws(() => localTestPlan({ kind: 'npm', unit: '@rightkit/demo', dir: 'packages/demo', manifest: { scripts: {} } }), /no test script/);
@@ -370,6 +373,7 @@ test('cargo: the same gate and publish flow run on the evidence it wrote', async
   assert.deepEqual(h.calls.map((c) => c.args.join(' ')), [
     'test -p rightkit-demo --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output',
     'clippy -p rightkit-demo --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings',
+    'doc -p rightkit-demo --message-format=json-render-diagnostics --no-deps --all-features',
     'package --locked --no-verify -p rightkit-demo',
     'metadata --offline --format-version 1 --no-deps',
   ]);
@@ -462,7 +466,7 @@ test('clippy for a batch keeps every per-crate flag: one invocation per crate an
     'clippy -p rightkit-a --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
     'clippy -p rightkit-f --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
   ]);
-  assert.deepEqual(localTestPlan({ kind: 'cargo', unit: 'rightkit-a', dir: 'crates/rightkit-a', config: {}, batch: true }).steps.map((s) => s.args[0]), ['test', 'check']);
+  assert.deepEqual(localTestPlan({ kind: 'cargo', unit: 'rightkit-a', dir: 'crates/rightkit-a', config: {}, batch: true }).steps.map((s) => s.args[0]), ['test', 'check', 'doc', 'doc']);
 });
 
 function batchHarness(names, { flags = [], listArgs, over = {}, gateConfig = {}, testOutput = LIBTEST } = {}) {
@@ -534,7 +538,7 @@ test('batch: fmt, clippy and the secret scan run once before any publish; every 
     const evidence = JSON.parse(fs.readFileSync(evidencePathOf(h.root, name), 'utf8'));
     const run = evidence.runs[0];
     assert.equal(run.commit, HEAD);
-    assert.deepEqual(run.steps.map((s) => s.command.split(' ')[1]), ['test', 'check']);
+    assert.deepEqual(run.steps.map((s) => s.command.split(' ')[1]), ['test', 'check', 'doc', 'doc']);
     assert.deepEqual([run.batch.commit, run.batch.tree, run.batch.crates], [HEAD, TREE, NAMES]);
     assert.deepEqual(run.batch.checks.map((c) => c.name), ['fmt', 'secret-scan', 'clippy', 'clippy', 'clippy']);
     assert.ok(run.batch.checks.every((c) => c.ok === true && c.commit === HEAD && c.tree === TREE));
