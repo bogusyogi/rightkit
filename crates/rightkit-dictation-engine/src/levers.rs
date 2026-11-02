@@ -89,15 +89,15 @@ mod tests {
             (OsString::from("RIGHTKIT_KWS_ONSET"), OsString::from("1")),
             (OsString::from("PATH"), OsString::from("/bin")),
             (
-                OsString::from("RIGHTKIT_KWS_BACKEND"),
-                OsString::from("rust"),
+                OsString::from("RIGHTKIT_KWS_DECODER_CACHE"),
+                OsString::from("1"),
             ),
             (OsString::from("RIGHTKIT_PASS3"), OsString::from("0")),
         ]);
         assert_eq!(
             levers.into_iter().collect::<Vec<_>>(),
             [
-                ("RIGHTKIT_KWS_BACKEND".to_string(), "rust".to_string()),
+                ("RIGHTKIT_KWS_DECODER_CACHE".to_string(), "1".to_string()),
                 ("RIGHTKIT_KWS_ONSET".to_string(), "1".to_string()),
             ]
         );

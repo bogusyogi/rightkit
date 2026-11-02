@@ -1,4 +1,4 @@
-//! Incremental replay of the production Sherpa wake-confirm primitive over a
+//! Incremental replay of the production KWS wake-confirm primitive over a
 //! corpus. Wake scans stay at 250 ms; only an observed Zephyr candidate switches
 //! to the configurable confirm cadence. Prints one JSONL row per clip with its
 //! first action and detection time. This is KWS-only cadence evidence, not the
@@ -19,9 +19,7 @@ fn main() -> Result<(), String> {
     let confirm_step_ms: usize = std::env::var("RIGHTKIT_CONFIRM_STEP_MS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(
-            rightkit_dictation_engine::sherpa_kws::CONFIRM_STEP_SAMPLES * 1000 / SAMPLE_RATE,
-        );
+        .unwrap_or(rightkit_dictation_engine::kws::CONFIRM_STEP_SAMPLES * 1000 / SAMPLE_RATE);
     let confirm_step = (SAMPLE_RATE * confirm_step_ms / 1000).max(1);
     let wake_step_ms: usize = std::env::var("RIGHTKIT_WAKE_STEP_MS")
         .ok()
@@ -48,7 +46,7 @@ fn main() -> Result<(), String> {
     }
     .map_err(|e| format!("preload bundled ONNX Runtime: {e}"))?;
 
-    let mut kws = rightkit_dictation_engine::sherpa_kws::SherpaKws::load(&model)
+    let mut kws = rightkit_dictation_engine::kws::Kws::load(&model)
         .map_err(|e| format!("load model: {e}"))?;
     let total = rest.len() / 2;
     for (index, pair) in rest.chunks(2).enumerate() {
@@ -80,7 +78,7 @@ fn main() -> Result<(), String> {
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn replay_clip(
-    kws: &mut rightkit_dictation_engine::sherpa_kws::SherpaKws,
+    kws: &mut rightkit_dictation_engine::kws::Kws,
     wav: &std::path::Path,
     wake_step: usize,
     confirm_step: usize,
@@ -105,7 +103,7 @@ fn replay_clip(
     // Add its exact bounded tail so a verb ending just before EOF still gets
     // one final fresh-audio probe instead of becoming a harness-only miss.
     audio.resize(
-        audio.len() + rightkit_dictation_engine::sherpa_kws::CONFIRM_TIMEOUT_SAMPLES,
+        audio.len() + rightkit_dictation_engine::kws::CONFIRM_TIMEOUT_SAMPLES,
         0.0,
     );
 
