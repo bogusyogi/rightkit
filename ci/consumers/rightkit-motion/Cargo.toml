@@ -8,5 +8,5 @@ publish = false
 
 [dependencies]
 rightkit-motion = { version = "=0.2.1", features = ["encode"] }
-rightkit-ffmpeg = { version = "=0.2.9" }
+rightkit-ffmpeg = { version = "=0.2.13" }
 rightkit-transcript = { version = "=0.4.0" }

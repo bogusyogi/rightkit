@@ -8,4 +8,4 @@ publish = false
 
 [dependencies]
 rightkit-automation = { version = "=0.6.4", features = ["paths"] }
-rightkit-daemon = { version = "=0.4.0" }
+rightkit-daemon = { version = "=0.5.1" }
