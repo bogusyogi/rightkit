@@ -741,7 +741,7 @@ mod tests {
             key,
             &job,
             "2026-09-21T14:13:20Z",
-            &[blob.clone()],
+            std::slice::from_ref(&blob),
         )
         .expect("request");
         let embed = &body["record"]["embed"];

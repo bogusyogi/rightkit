@@ -275,7 +275,7 @@ fn extension_of(url: &str) -> Option<String> {
     // The last path segment after the host (the host is the first segment).
     let mut segments = path.split('/');
     segments.next();
-    let segment = segments.last()?;
+    let segment = segments.next_back()?;
     let (_, ext) = segment.rsplit_once('.')?;
     (!ext.is_empty()).then(|| ext.to_ascii_lowercase())
 }

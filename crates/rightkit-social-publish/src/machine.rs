@@ -1043,7 +1043,7 @@ fn bluesky_resolved_send(job: &PublishJob, d: &Drive, directory: &str) -> Sent {
     };
     if job.phase == "create" {
         let handle = bluesky::job_handle(&job.payload.settings).unwrap_or_default();
-        if !doc.handles.iter().any(|h| *h == handle) {
+        if !doc.handles.contains(&handle) {
             return refuse(
                 "handle_mismatch",
                 format!("the DID document does not claim the handle {handle}; nothing was posted"),
