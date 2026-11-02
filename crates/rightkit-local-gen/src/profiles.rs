@@ -11,9 +11,9 @@ use rightkit_models::{Event, FileSpec, InstallOptions, ModelSpec, RevisionSpec, 
 
 use super::store::ComponentRecord;
 
-const CATALOGUE_JSON: &str = include_str!("../../../assets/local-image/profiles.json");
+const CATALOGUE_JSON: &str = include_str!("../assets/local-image/profiles.json");
 const RUNTIME_MANIFEST_JSON: &str =
-    include_str!("../../../assets/local-image/runtime-manifest.json");
+    include_str!("../assets/local-image/runtime-manifest.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Catalogue {
