@@ -3500,7 +3500,7 @@
       "files": {
         "Cargo.toml": "2ad0f7c63ca76f61da059cfec92bfed0b8ae8674ec4e2cd8fbc860805d2eaa6c",
         "README.md": "d34a2cdd83beafcdd984ae88a09b0340482df751004919b4d15018d1ecdfc93a",
-        "src/main.rs": "17a85e3343a4442627c8195e143860371bda09b820b0683bcffac897c099c3f1"
+        "src/main.rs": "0647b32fda446f5e9aa3ef3b5c94b58591d471ae15522a30e739cfc843b7a39c"
       }
     },
     "rightkit-dictation-runtime": {
