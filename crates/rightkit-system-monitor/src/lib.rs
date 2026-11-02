@@ -558,7 +558,7 @@ pub fn system_status() -> SystemStatus {
 fn footprint(process: &sysinfo::Process, me: u32) -> Option<u64> {
     let mine = process.user_id().is_some_and(|uid| **uid == me);
     if mine {
-        process_control::footprint_of(process.pid().as_u32())
+        mac_footprint::phys_footprint(process.pid().as_u32())
     } else {
         None
     }
@@ -567,6 +567,57 @@ fn footprint(process: &sysinfo::Process, me: u32) -> Option<u64> {
 #[cfg(not(target_os = "macos"))]
 fn footprint(_process: &sysinfo::Process, _me: u32) -> Option<u64> {
     None
+}
+
+/// `proc_pid_rusage(RUSAGE_INFO_V2)`: the physical footprint libproc reports for one process.
+#[cfg(target_os = "macos")]
+mod mac_footprint {
+    use std::ffi::{c_int, c_void};
+
+    const RUSAGE_INFO_V2: c_int = 2;
+
+    /// `struct rusage_info_v2` from `<libproc.h>`, the first flavor with `ri_phys_footprint`.
+    /// Declared here rather than taken from libc, whose pinned version may lack it. Only the
+    /// footprint is read; the rest keeps the layout.
+    #[allow(dead_code)]
+    #[repr(C)]
+    #[derive(Default)]
+    struct RusageInfoV2 {
+        uuid: [u8; 16],
+        user_time: u64,
+        system_time: u64,
+        pkg_idle_wkups: u64,
+        interrupt_wkups: u64,
+        pageins: u64,
+        wired_size: u64,
+        resident_size: u64,
+        phys_footprint: u64,
+        proc_start_abstime: u64,
+        proc_exit_abstime: u64,
+        child_user_time: u64,
+        child_system_time: u64,
+        child_pkg_idle_wkups: u64,
+        child_interrupt_wkups: u64,
+        child_pageins: u64,
+        child_elapsed_abstime: u64,
+        diskio_bytesread: u64,
+        diskio_byteswritten: u64,
+    }
+
+    unsafe extern "C" {
+        fn proc_pid_rusage(pid: c_int, flavor: c_int, buffer: *mut c_void) -> c_int;
+    }
+
+    /// The physical footprint in bytes, or None when libproc will not say (another user's or a
+    /// system process, or one that has exited).
+    pub fn phys_footprint(pid: u32) -> Option<u64> {
+        let mut info = RusageInfoV2::default();
+        let buffer: *mut c_void = (&mut info as *mut RusageInfoV2).cast();
+        // SAFETY: `buffer` points at a live, writable `RusageInfoV2` laid out as the kernel's
+        // `rusage_info_v2`, which is what flavor RUSAGE_INFO_V2 fills; the call writes no further.
+        let status = unsafe { proc_pid_rusage(pid as c_int, RUSAGE_INFO_V2, buffer) };
+        (status == 0 && info.phys_footprint > 0).then_some(info.phys_footprint)
+    }
 }
 
 /// Private bytes of one process (`PROCESS_MEMORY_COUNTERS_EX.PrivateUsage`): what the process has
