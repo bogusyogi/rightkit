@@ -418,7 +418,20 @@ pub(crate) fn process_start_marker(pid: u32) -> Option<(u64, u64)> {
 }
 
 #[cfg(unix)]
-pub(crate) use unix_impl::{peer_audit_token, verify_unix_host, verify_unix_pid};
+pub(crate) use unix_impl::{verify_unix_host, verify_unix_pid};
+// Read only by peer.rs's getpeereid branch (the BSDs and Apple platforms).
+#[cfg(all(
+    unix,
+    any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly"
+    )
+))]
+pub(crate) use unix_impl::peer_audit_token;
 
 #[cfg(unix)]
 mod unix_impl {
@@ -768,6 +781,14 @@ mod unix_impl {
     }
 
     /// The peer's audit token for [`PeerIdentity::audit_token`]; `None` off macOS.
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly"
+    ))]
     pub(crate) fn peer_audit_token(stream: &UnixStream) -> Option<[u32; 8]> {
         os::audit_token(stream)
     }
