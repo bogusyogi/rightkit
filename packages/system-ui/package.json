@@ -11,12 +11,55 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./*.css": "./dist/*.css",
-    "./*.json": "./dist/*.json",
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js"
-    }
+    "./styles.css": "./dist/styles.css",
+    "./activityLease": {
+      "types": "./dist/activityLease.d.ts",
+      "import": "./dist/activityLease.js"
+    },
+    "./api": {
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js"
+    },
+    "./components/Chart": {
+      "types": "./dist/components/Chart.d.ts",
+      "import": "./dist/components/Chart.js"
+    },
+    "./lib/qr": {
+      "types": "./dist/lib/qr.d.ts",
+      "import": "./dist/lib/qr.js"
+    },
+    "./metrics": {
+      "types": "./dist/metrics.d.ts",
+      "import": "./dist/metrics.js"
+    },
+    "./onboarding/gate": {
+      "types": "./dist/onboarding/gate.d.ts",
+      "import": "./dist/onboarding/gate.js"
+    },
+    "./views/LauncherSettings": {
+      "types": "./dist/views/LauncherSettings.d.ts",
+      "import": "./dist/views/LauncherSettings.js"
+    },
+    "./views/NearbySettings": {
+      "types": "./dist/views/NearbySettings.d.ts",
+      "import": "./dist/views/NearbySettings.js"
+    },
+    "./views/Storage": {
+      "types": "./dist/views/Storage.d.ts",
+      "import": "./dist/views/Storage.js"
+    },
+    "./views/membrane.css": "./dist/views/membrane.css",
+    "./views/monitor.css": "./dist/views/monitor.css",
+    "./views/settings.css": "./dist/views/settings.css",
+    "./views/settingsKit": {
+      "types": "./dist/views/settingsKit.d.ts",
+      "import": "./dist/views/settingsKit.js"
+    },
+    "./visible": {
+      "types": "./dist/visible.d.ts",
+      "import": "./dist/visible.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

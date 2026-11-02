@@ -11,12 +11,15 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./*.css": "./dist/*.css",
-    "./*.json": "./dist/*.json",
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js"
-    }
+    "./components/PersistentTerminal": {
+      "types": "./dist/components/PersistentTerminal.d.ts",
+      "import": "./dist/components/PersistentTerminal.js"
+    },
+    "./components/TerminalPane": {
+      "types": "./dist/components/TerminalPane.d.ts",
+      "import": "./dist/components/TerminalPane.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

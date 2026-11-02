@@ -11,12 +11,104 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./*.css": "./dist/*.css",
-    "./*.json": "./dist/*.json",
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js"
-    }
+    "./styles.css": "./dist/styles.css",
+    "./documents/markdown/MarkdownCoreProvider": {
+      "types": "./dist/documents/markdown/MarkdownCoreProvider.d.ts",
+      "import": "./dist/documents/markdown/MarkdownCoreProvider.js"
+    },
+    "./documents/markdown/MarkdownEditor": {
+      "types": "./dist/documents/markdown/MarkdownEditor.d.ts",
+      "import": "./dist/documents/markdown/MarkdownEditor.js"
+    },
+    "./documents/markdown/MarkdownProtectedBlock": {
+      "types": "./dist/documents/markdown/MarkdownProtectedBlock.d.ts",
+      "import": "./dist/documents/markdown/MarkdownProtectedBlock.js"
+    },
+    "./documents/markdown/analysis/analyzeMarkdown": {
+      "types": "./dist/documents/markdown/analysis/analyzeMarkdown.d.ts",
+      "import": "./dist/documents/markdown/analysis/analyzeMarkdown.js"
+    },
+    "./documents/markdown/analysis/markdownIssueCodeMirror": {
+      "types": "./dist/documents/markdown/analysis/markdownIssueCodeMirror.d.ts",
+      "import": "./dist/documents/markdown/analysis/markdownIssueCodeMirror.js"
+    },
+    "./documents/markdown/assets/markdownAsset": {
+      "types": "./dist/documents/markdown/assets/markdownAsset.d.ts",
+      "import": "./dist/documents/markdown/assets/markdownAsset.js"
+    },
+    "./documents/markdown/assets/markdownAssetSettings": {
+      "types": "./dist/documents/markdown/assets/markdownAssetSettings.d.ts",
+      "import": "./dist/documents/markdown/assets/markdownAssetSettings.js"
+    },
+    "./documents/markdown/assets/smartPaste": {
+      "types": "./dist/documents/markdown/assets/smartPaste.d.ts",
+      "import": "./dist/documents/markdown/assets/smartPaste.js"
+    },
+    "./documents/markdown/core/MarkdownDocumentCore": {
+      "types": "./dist/documents/markdown/core/MarkdownDocumentCore.d.ts",
+      "import": "./dist/documents/markdown/core/MarkdownDocumentCore.js"
+    },
+    "./documents/markdown/core/MarkdownDocumentTypes": {
+      "types": "./dist/documents/markdown/core/MarkdownDocumentTypes.d.ts",
+      "import": "./dist/documents/markdown/core/MarkdownDocumentTypes.js"
+    },
+    "./documents/markdown/core/types": {
+      "types": "./dist/documents/markdown/core/types.d.ts",
+      "import": "./dist/documents/markdown/core/types.js"
+    },
+    "./documents/markdown/core/useMarkdownCoreSubscription": {
+      "types": "./dist/documents/markdown/core/useMarkdownCoreSubscription.d.ts",
+      "import": "./dist/documents/markdown/core/useMarkdownCoreSubscription.js"
+    },
+    "./documents/markdown/export/markdownExportTypes": {
+      "types": "./dist/documents/markdown/export/markdownExportTypes.d.ts",
+      "import": "./dist/documents/markdown/export/markdownExportTypes.js"
+    },
+    "./documents/markdown/export/renderMarkdownExport": {
+      "types": "./dist/documents/markdown/export/renderMarkdownExport.d.ts",
+      "import": "./dist/documents/markdown/export/renderMarkdownExport.js"
+    },
+    "./documents/markdown/exportMarkdown": {
+      "types": "./dist/documents/markdown/exportMarkdown.d.ts",
+      "import": "./dist/documents/markdown/exportMarkdown.js"
+    },
+    "./documents/markdown/insert/markdownInsertTemplates": {
+      "types": "./dist/documents/markdown/insert/markdownInsertTemplates.d.ts",
+      "import": "./dist/documents/markdown/insert/markdownInsertTemplates.js"
+    },
+    "./documents/markdown/markdownDocumentActivity": {
+      "types": "./dist/documents/markdown/markdownDocumentActivity.d.ts",
+      "import": "./dist/documents/markdown/markdownDocumentActivity.js"
+    },
+    "./documents/markdown/markdownTools": {
+      "types": "./dist/documents/markdown/markdownTools.d.ts",
+      "import": "./dist/documents/markdown/markdownTools.js"
+    },
+    "./documents/markdown/projection/pmSelectionBridge": {
+      "types": "./dist/documents/markdown/projection/pmSelectionBridge.d.ts",
+      "import": "./dist/documents/markdown/projection/pmSelectionBridge.js"
+    },
+    "./documents/markdown/properties/MarkdownWorkspacePanel": {
+      "types": "./dist/documents/markdown/properties/MarkdownWorkspacePanel.d.ts",
+      "import": "./dist/documents/markdown/properties/MarkdownWorkspacePanel.js"
+    },
+    "./documents/markdown/references/markdownCompletion": {
+      "types": "./dist/documents/markdown/references/markdownCompletion.d.ts",
+      "import": "./dist/documents/markdown/references/markdownCompletion.js"
+    },
+    "./documents/markdown/tables/markdownTableCommands": {
+      "types": "./dist/documents/markdown/tables/markdownTableCommands.d.ts",
+      "import": "./dist/documents/markdown/tables/markdownTableCommands.js"
+    },
+    "./documents/mdx/MdxPreviewFrame": {
+      "types": "./dist/documents/mdx/MdxPreviewFrame.d.ts",
+      "import": "./dist/documents/mdx/MdxPreviewFrame.js"
+    },
+    "./documents/mdx/mdxCompiler": {
+      "types": "./dist/documents/mdx/mdxCompiler.d.ts",
+      "import": "./dist/documents/mdx/mdxCompiler.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

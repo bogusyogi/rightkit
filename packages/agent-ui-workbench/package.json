@@ -11,12 +11,151 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./*.css": "./dist/*.css",
-    "./*.json": "./dist/*.json",
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js"
-    }
+    "./components/RuntimePane": {
+      "types": "./dist/components/RuntimePane.d.ts",
+      "import": "./dist/components/RuntimePane.js"
+    },
+    "./components/VirtualizedCodeBlock": {
+      "types": "./dist/components/VirtualizedCodeBlock.d.ts",
+      "import": "./dist/components/VirtualizedCodeBlock.js"
+    },
+    "./components/runtime/ArtifactRowsPanel": {
+      "types": "./dist/components/runtime/ArtifactRowsPanel.d.ts",
+      "import": "./dist/components/runtime/ArtifactRowsPanel.js"
+    },
+    "./components/runtime/MarkdownArtifactView": {
+      "types": "./dist/components/runtime/MarkdownArtifactView.d.ts",
+      "import": "./dist/components/runtime/MarkdownArtifactView.js"
+    },
+    "./components/runtime/MemoryRuntimePanel": {
+      "types": "./dist/components/runtime/MemoryRuntimePanel.d.ts",
+      "import": "./dist/components/runtime/MemoryRuntimePanel.js"
+    },
+    "./components/runtime/RecipeScheduleDialog": {
+      "types": "./dist/components/runtime/RecipeScheduleDialog.d.ts",
+      "import": "./dist/components/runtime/RecipeScheduleDialog.js"
+    },
+    "./components/runtime/SchedulesRuntimePanel": {
+      "types": "./dist/components/runtime/SchedulesRuntimePanel.d.ts",
+      "import": "./dist/components/runtime/SchedulesRuntimePanel.js"
+    },
+    "./components/runtime/TeamsRuntimePanel": {
+      "types": "./dist/components/runtime/TeamsRuntimePanel.d.ts",
+      "import": "./dist/components/runtime/TeamsRuntimePanel.js"
+    },
+    "./components/runtime/WorkspaceFileViewer": {
+      "types": "./dist/components/runtime/WorkspaceFileViewer.d.ts",
+      "import": "./dist/components/runtime/WorkspaceFileViewer.js"
+    },
+    "./components/workbench/ApprovalDetails": {
+      "types": "./dist/components/workbench/ApprovalDetails.d.ts",
+      "import": "./dist/components/workbench/ApprovalDetails.js"
+    },
+    "./components/workbench/ApprovalKeyHandler": {
+      "types": "./dist/components/workbench/ApprovalKeyHandler.d.ts",
+      "import": "./dist/components/workbench/ApprovalKeyHandler.js"
+    },
+    "./components/workbench/AwaySummaryCard": {
+      "types": "./dist/components/workbench/AwaySummaryCard.d.ts",
+      "import": "./dist/components/workbench/AwaySummaryCard.js"
+    },
+    "./components/workbench/ContextBadges": {
+      "types": "./dist/components/workbench/ContextBadges.d.ts",
+      "import": "./dist/components/workbench/ContextBadges.js"
+    },
+    "./components/workbench/ConversationFindBar": {
+      "types": "./dist/components/workbench/ConversationFindBar.d.ts",
+      "import": "./dist/components/workbench/ConversationFindBar.js"
+    },
+    "./components/workbench/DispatchBadge": {
+      "types": "./dist/components/workbench/DispatchBadge.d.ts",
+      "import": "./dist/components/workbench/DispatchBadge.js"
+    },
+    "./components/workbench/DriverLifecycleStrip": {
+      "types": "./dist/components/workbench/DriverLifecycleStrip.d.ts",
+      "import": "./dist/components/workbench/DriverLifecycleStrip.js"
+    },
+    "./components/workbench/PermissionCard": {
+      "types": "./dist/components/workbench/PermissionCard.d.ts",
+      "import": "./dist/components/workbench/PermissionCard.js"
+    },
+    "./components/workbench/PlanPrompt": {
+      "types": "./dist/components/workbench/PlanPrompt.d.ts",
+      "import": "./dist/components/workbench/PlanPrompt.js"
+    },
+    "./components/workbench/QuestionPrompt": {
+      "types": "./dist/components/workbench/QuestionPrompt.d.ts",
+      "import": "./dist/components/workbench/QuestionPrompt.js"
+    },
+    "./components/workbench/QueuedMessageRow": {
+      "types": "./dist/components/workbench/QueuedMessageRow.d.ts",
+      "import": "./dist/components/workbench/QueuedMessageRow.js"
+    },
+    "./components/workbench/ReasoningBlock": {
+      "types": "./dist/components/workbench/ReasoningBlock.d.ts",
+      "import": "./dist/components/workbench/ReasoningBlock.js"
+    },
+    "./components/workbench/RenderedMessageContent": {
+      "types": "./dist/components/workbench/RenderedMessageContent.d.ts",
+      "import": "./dist/components/workbench/RenderedMessageContent.js"
+    },
+    "./components/workbench/RunAnnouncer": {
+      "types": "./dist/components/workbench/RunAnnouncer.d.ts",
+      "import": "./dist/components/workbench/RunAnnouncer.js"
+    },
+    "./components/workbench/SessionActionBar": {
+      "types": "./dist/components/workbench/SessionActionBar.d.ts",
+      "import": "./dist/components/workbench/SessionActionBar.js"
+    },
+    "./components/workbench/SessionEmptyState": {
+      "types": "./dist/components/workbench/SessionEmptyState.d.ts",
+      "import": "./dist/components/workbench/SessionEmptyState.js"
+    },
+    "./components/workbench/SessionMinimap": {
+      "types": "./dist/components/workbench/SessionMinimap.d.ts",
+      "import": "./dist/components/workbench/SessionMinimap.js"
+    },
+    "./components/workbench/StructuredQuestionCard": {
+      "types": "./dist/components/workbench/StructuredQuestionCard.d.ts",
+      "import": "./dist/components/workbench/StructuredQuestionCard.js"
+    },
+    "./components/workbench/TasksPane": {
+      "types": "./dist/components/workbench/TasksPane.d.ts",
+      "import": "./dist/components/workbench/TasksPane.js"
+    },
+    "./components/workbench/TranscriptBubble": {
+      "types": "./dist/components/workbench/TranscriptBubble.d.ts",
+      "import": "./dist/components/workbench/TranscriptBubble.js"
+    },
+    "./components/workbench/TranscriptSearchBar": {
+      "types": "./dist/components/workbench/TranscriptSearchBar.d.ts",
+      "import": "./dist/components/workbench/TranscriptSearchBar.js"
+    },
+    "./components/workbench/TranscriptStream": {
+      "types": "./dist/components/workbench/TranscriptStream.d.ts",
+      "import": "./dist/components/workbench/TranscriptStream.js"
+    },
+    "./components/workbench/WorkbenchContentProps": {
+      "types": "./dist/components/workbench/WorkbenchContentProps.d.ts",
+      "import": "./dist/components/workbench/WorkbenchContentProps.js"
+    },
+    "./components/workbench/references/DocumentPreview": {
+      "types": "./dist/components/workbench/references/DocumentPreview.d.ts",
+      "import": "./dist/components/workbench/references/DocumentPreview.js"
+    },
+    "./components/workbench/references/ImageGallery": {
+      "types": "./dist/components/workbench/references/ImageGallery.d.ts",
+      "import": "./dist/components/workbench/references/ImageGallery.js"
+    },
+    "./components/workbench/references/ReferenceChipStrip": {
+      "types": "./dist/components/workbench/references/ReferenceChipStrip.d.ts",
+      "import": "./dist/components/workbench/references/ReferenceChipStrip.js"
+    },
+    "./components/workbench/useConversationFind": {
+      "types": "./dist/components/workbench/useConversationFind.d.ts",
+      "import": "./dist/components/workbench/useConversationFind.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

@@ -11,12 +11,115 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./*.css": "./dist/*.css",
-    "./*.json": "./dist/*.json",
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js"
-    }
+    "./components/PluginContributionHost": {
+      "types": "./dist/components/PluginContributionHost.d.ts",
+      "import": "./dist/components/PluginContributionHost.js"
+    },
+    "./components/remote/RemoteDevicesPanel": {
+      "types": "./dist/components/remote/RemoteDevicesPanel.d.ts",
+      "import": "./dist/components/remote/RemoteDevicesPanel.js"
+    },
+    "./components/remote/RemoteHostsPanel": {
+      "types": "./dist/components/remote/RemoteHostsPanel.d.ts",
+      "import": "./dist/components/remote/RemoteHostsPanel.js"
+    },
+    "./components/settings/helpers": {
+      "types": "./dist/components/settings/helpers.d.ts",
+      "import": "./dist/components/settings/helpers.js"
+    },
+    "./components/settings/keyboard/KeyboardShortcutsSettings": {
+      "types": "./dist/components/settings/keyboard/KeyboardShortcutsSettings.d.ts",
+      "import": "./dist/components/settings/keyboard/KeyboardShortcutsSettings.js"
+    },
+    "./components/settings/marketplace/McpDiscoverPanel": {
+      "types": "./dist/components/settings/marketplace/McpDiscoverPanel.d.ts",
+      "import": "./dist/components/settings/marketplace/McpDiscoverPanel.js"
+    },
+    "./components/settings/marketplace/SkillMarketplace": {
+      "types": "./dist/components/settings/marketplace/SkillMarketplace.d.ts",
+      "import": "./dist/components/settings/marketplace/SkillMarketplace.js"
+    },
+    "./components/settings/tabs/AppearanceTab": {
+      "types": "./dist/components/settings/tabs/AppearanceTab.d.ts",
+      "import": "./dist/components/settings/tabs/AppearanceTab.js"
+    },
+    "./components/settings/tabs/ConductorsTab": {
+      "types": "./dist/components/settings/tabs/ConductorsTab.d.ts",
+      "import": "./dist/components/settings/tabs/ConductorsTab.js"
+    },
+    "./components/settings/tabs/DiagnosticsTab": {
+      "types": "./dist/components/settings/tabs/DiagnosticsTab.d.ts",
+      "import": "./dist/components/settings/tabs/DiagnosticsTab.js"
+    },
+    "./components/settings/tabs/ExecutionBackendsTab": {
+      "types": "./dist/components/settings/tabs/ExecutionBackendsTab.d.ts",
+      "import": "./dist/components/settings/tabs/ExecutionBackendsTab.js"
+    },
+    "./components/settings/tabs/LicenseTab": {
+      "types": "./dist/components/settings/tabs/LicenseTab.d.ts",
+      "import": "./dist/components/settings/tabs/LicenseTab.js"
+    },
+    "./components/settings/tabs/LspTab": {
+      "types": "./dist/components/settings/tabs/LspTab.d.ts",
+      "import": "./dist/components/settings/tabs/LspTab.js"
+    },
+    "./components/settings/tabs/MemoryTab": {
+      "types": "./dist/components/settings/tabs/MemoryTab.d.ts",
+      "import": "./dist/components/settings/tabs/MemoryTab.js"
+    },
+    "./components/settings/tabs/ProvidersTab": {
+      "types": "./dist/components/settings/tabs/ProvidersTab.d.ts",
+      "import": "./dist/components/settings/tabs/ProvidersTab.js"
+    },
+    "./components/settings/tabs/RepairTab": {
+      "types": "./dist/components/settings/tabs/RepairTab.d.ts",
+      "import": "./dist/components/settings/tabs/RepairTab.js"
+    },
+    "./components/settings/tabs/RootModelPicker": {
+      "types": "./dist/components/settings/tabs/RootModelPicker.d.ts",
+      "import": "./dist/components/settings/tabs/RootModelPicker.js"
+    },
+    "./components/settings/tabs/RuntimeMiddlewareTab": {
+      "types": "./dist/components/settings/tabs/RuntimeMiddlewareTab.d.ts",
+      "import": "./dist/components/settings/tabs/RuntimeMiddlewareTab.js"
+    },
+    "./components/settings/tabs/WorkspaceTab": {
+      "types": "./dist/components/settings/tabs/WorkspaceTab.d.ts",
+      "import": "./dist/components/settings/tabs/WorkspaceTab.js"
+    },
+    "./components/settings/tabs/models/ModelEmptyStates": {
+      "types": "./dist/components/settings/tabs/models/ModelEmptyStates.d.ts",
+      "import": "./dist/components/settings/tabs/models/ModelEmptyStates.js"
+    },
+    "./components/settings/tabs/permissions/PersistentPermissionRuleList": {
+      "types": "./dist/components/settings/tabs/permissions/PersistentPermissionRuleList.d.ts",
+      "import": "./dist/components/settings/tabs/permissions/PersistentPermissionRuleList.js"
+    },
+    "./components/settings/tabs/plugins/InstalledPluginsList": {
+      "types": "./dist/components/settings/tabs/plugins/InstalledPluginsList.d.ts",
+      "import": "./dist/components/settings/tabs/plugins/InstalledPluginsList.js"
+    },
+    "./components/settings/tabs/remote/RemoteChannelsPanel": {
+      "types": "./dist/components/settings/tabs/remote/RemoteChannelsPanel.d.ts",
+      "import": "./dist/components/settings/tabs/remote/RemoteChannelsPanel.js"
+    },
+    "./components/settings/tabs/remote/TelegramStatusPanel": {
+      "types": "./dist/components/settings/tabs/remote/TelegramStatusPanel.d.ts",
+      "import": "./dist/components/settings/tabs/remote/TelegramStatusPanel.js"
+    },
+    "./components/settings/tabs/shared": {
+      "types": "./dist/components/settings/tabs/shared.d.ts",
+      "import": "./dist/components/settings/tabs/shared.js"
+    },
+    "./components/settings/tabs/skills/SkillShared": {
+      "types": "./dist/components/settings/tabs/skills/SkillShared.d.ts",
+      "import": "./dist/components/settings/tabs/skills/SkillShared.js"
+    },
+    "./components/settings/tabs/skills/SkillTrainingRunList": {
+      "types": "./dist/components/settings/tabs/skills/SkillTrainingRunList.d.ts",
+      "import": "./dist/components/settings/tabs/skills/SkillTrainingRunList.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

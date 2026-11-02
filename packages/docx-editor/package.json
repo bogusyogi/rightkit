@@ -11,12 +11,24 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./*.css": "./dist/*.css",
-    "./*.json": "./dist/*.json",
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js"
-    }
+    "./styles.css": "./dist/styles.css",
+    "./documents/docx/DocxPane": {
+      "types": "./dist/documents/docx/DocxPane.d.ts",
+      "import": "./dist/documents/docx/DocxPane.js"
+    },
+    "./documents/docx/blankDocx": {
+      "types": "./dist/documents/docx/blankDocx.d.ts",
+      "import": "./dist/documents/docx/blankDocx.js"
+    },
+    "./documents/docx/docxToMarkdown": {
+      "types": "./dist/documents/docx/docxToMarkdown.d.ts",
+      "import": "./dist/documents/docx/docxToMarkdown.js"
+    },
+    "./documents/docx/menuApi": {
+      "types": "./dist/documents/docx/menuApi.d.ts",
+      "import": "./dist/documents/docx/menuApi.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

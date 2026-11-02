@@ -62,6 +62,13 @@ test("exports-import-effects: wildcard exports are expanded and probed; a missin
   assert.deepEqual(r.notChecked.map((n) => n.key), ["."]);
   write(dir, "package.json", JSON.stringify({ name: "@rk/wild", type: "module", exports: { "./none/*": "./nowhere/*.mjs" } }));
   assert.match(checkPackage(dir).findings[0]?.problem ?? "", /matches no file/);
+  // A wildcard into build output is refused at the source probe (the gate's compile route), not left to publication's verify,
+  // which can never close a pattern: the 0.1.x UI packages' "./*" → "./dist/*.js" passed qualification and failed every publish.
+  write(dir, "package.json", JSON.stringify({ name: "@rk/wild", type: "module", exports: { ".": "./dist/index.js", "./*.css": "./dist/*.css", "./*": { types: "./dist/*.d.ts", import: "./dist/*.js" } } }));
+  const distWild = checkPackage(dir);
+  assert.deepEqual(distWild.findings.map((f) => f.key).sort(), ["./*", "./*.css"], JSON.stringify(distWild.findings));
+  assert.match(distWild.findings[0].fix, /enumerate the exports/);
+  assert.deepEqual(distWild.notChecked.map((n) => n.key), ["."], "an enumerated build-output export stays INCOMPLETE for the sealed-byte check");
   // Build output is INCOMPLETE, not green: without --report main() exits 3; with --report it writes the list the sealed-byte
   // stage must close and says so.
   write(dir, "package.json", JSON.stringify({ name: "@rk/wild", type: "module", exports: { ".": "./dist/index.js" } }));

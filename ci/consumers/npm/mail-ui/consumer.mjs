@@ -8,7 +8,7 @@ const recipeId = 'mail-ui-root-export-consumer';
 const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
-const surface = [".", "./*", "./*.css", "./*.json"];
+const surface = [".", "./components/AccountSwitcher", "./components/Icons", "./hooks/dialog", "./hooks/useDrive", "./lib/calendarUtils", "./lib/ipc", "./lib/ipc/agentApprovals", "./lib/mail", "./lib/preferences", "./lib/visibleText", "./package.json", "./store/index", "./store/types", "./styles.css"];
 const expected = ["setHostAppName", "hostAppName", "AccountSwitcher"];
 
 try {
