@@ -1262,7 +1262,7 @@ mod tests {
         let pinned = api_versions::pinned(PLATFORM).expect("pinned");
         assert!(message.contains(pinned.version));
         assert!(message.contains("rightkit-social-publish api_versions"));
-        assert!(message.contains("never changes the version"));
+        assert!(message.contains("never changed automatically"));
     }
 
     fn image_item(hash: &str, url: Option<&str>) -> crate::wire::PublishMedia {
