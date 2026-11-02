@@ -368,6 +368,10 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
   // Every tested feature set is linted (-D warnings), not only the first.
   if (!batch) for (const features of featureSets) steps.push({ command: "cargo", args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"], test: false });
   for (const features of allFeatureCheckSets(entry)) steps.push({ command: "cargo", args: ["check", "-p", unit, "--message-format=json-render-diagnostics", "--all-targets", ...features], test: false });
+  // rustdoc with -D warnings, for the tested and the checked feature sets: the same rows the CI shards (scripts/ci/gate.mjs) and
+  // publish.yml's native verify run, so a broken or private intra-doc link fails this unit stage instead of a later verify.
+  const docSets = [...new Map([...featureSets, ...allFeatureCheckSets(entry)].map((features) => [JSON.stringify(features), features])).values()];
+  for (const features of docSets) steps.push({ command: "cargo", args: ["doc", "-p", unit, "--no-deps", ...features], test: false, env: { RUSTDOCFLAGS: "-D warnings" } });
   // Consumer rows (separate Cargo workspaces) gate only this crate: they come from this crate's own entry.
   const consumers = consumerRows(unit, entry);
   for (const row of consumers) steps.push(...consumerRowInvocations(row));
@@ -666,7 +670,7 @@ async function* publishUnitStages(parsed, deps, batch) {
     // A crate's own steps run in its Cargo workspace (its own Cargo.lock and target directory, #1285); a consumer row names its
     // separate workspace by --manifest-path relative to the repository root.
     const stepCwd = kind === "cargo" && step.command === "cargo" && !step.args.includes("--manifest-path") ? unitPath : workspaceRoot;
-    const result = await run(step.command, step.command === "cargo" ? withCargoJobs(step.args, parsed.jobs) : step.args, { cwd: stepCwd, env });
+    const result = await run(step.command, step.command === "cargo" ? withCargoJobs(step.args, parsed.jobs) : step.args, { cwd: stepCwd, env: step.env ? { ...env, ...step.env } : env });
     const row = { command: commandText, ok: false, isTest: step.test && TEST_COMMAND.test(commandText) };
     if (result.error || result.status !== 0) {
       steps.push(row);
