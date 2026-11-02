@@ -27,6 +27,22 @@ function hostFacts(run = spawnSync) {
   return { target: host, toolchain: `rustc ${release}${commit ? ` (${commit.slice(0, 9)})` : ""}` };
 }
 
+// Runs the trace builds, `argv[3]` at a time, starting the next whenever one finishes: argv[1] = jobs JSON [{cmd, args, env}], argv[2] = results
+// file [{pid, status, error}] in job order.
+const BATCH_RUNNER = `const fs = require("node:fs"); const { spawn } = require("node:child_process");
+const jobs = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const limit = Math.max(1, Number(process.argv[3]) || 4);
+const results = new Array(jobs.length); let next = 0; let done = 0;
+const start = (i) => new Promise((resolve) => {
+  const j = jobs[i]; let child;
+  try { child = spawn(j.cmd, j.args, { env: j.env, stdio: ["ignore", "ignore", "pipe"] }); } catch (e) { results[i] = { status: -1, error: e.message }; resolve(); return; }
+  let tail = ""; child.stderr.on("data", (d) => { tail = (tail + d).slice(-2000); });
+  const finish = (r) => { if (results[i]) return; results[i] = r; done += 1; process.stdout.write("  [" + done + "/" + jobs.length + "] " + j.label + (r.status === 0 ? " built" : " failed") + "\\n"); resolve(); };
+  child.on("error", (e) => finish({ pid: child.pid, status: -1, error: e.message }));
+  child.on("close", (status) => finish({ pid: child.pid, status, ...(status ? { error: tail.trim().split("\\n").slice(-2).join(" | ") } : {}) }));
+});
+const worker = async () => { while (next < jobs.length) { const i = next++; await start(i); } };
+Promise.all(Array.from({ length: Math.min(limit, jobs.length) }, worker)).then(() => fs.writeFileSync(process.argv[2], JSON.stringify(results)));`;
+
 export function inventory({ manifestPath, run = spawnSync, readFile = (f) => fs.readFileSync(f, "utf8") }) {
   const args = ["metadata", "--format-version", "1", "--locked", ...(manifestPath ? ["--manifest-path", manifestPath] : [])];
   const r = run("cargo", args, { encoding: "utf8", maxBuffer: 1 << 28 });
@@ -72,7 +88,8 @@ function traceAll(argv, { env, platform, log, err }) {
   try {
     for (const ws of workspaces) {
       log(`--- ${ws}`);
-      const code = main(["trace", "--manifest-path", path.join(ws, "Cargo.toml"), "--record-repo"], { env, platform, log, err });
+      const jobsAt = argv.indexOf("--jobs");
+      const code = main(["trace", "--manifest-path", path.join(ws, "Cargo.toml"), "--record-repo", ...(jobsAt >= 0 ? ["--jobs", argv[jobsAt + 1]] : [])], { env, platform, log, err });
       if (code !== 0) err(`right-release build-helpers trace-all: ${ws} ended with ${code}`);
       worst = Math.max(worst, code);
     }
@@ -89,7 +106,10 @@ export function main(argv = process.argv.slice(2), { env = process.env, platform
   const directPath = directCargoPath({ env: { ...env, PATH: env[pathKey] }, platform, gateWrappers: true }).path;
   const scratchTarget = fs.mkdtempSync(path.join(os.tmpdir(), "rk-bh-target-"));
   const run = runRaw ?? ((cmd, args, opts = {}) => spawnSync(cmd, args, { ...opts, env: { ...env, ...(opts.env ?? {}), [pathKey]: directPath, CARGO_TARGET_DIR: opts.env?.CARGO_TARGET_DIR ?? scratchTarget } }));
-  try { return mainWith(argv, { env, platform, run, log, err }); } finally { fs.rmSync(scratchTarget, { recursive: true, force: true }); }
+  // The parallel trace builds are spawned by the batch runner with the job's own env: that env carries the direct PATH too, so no build
+  // ever goes through the RustRight shim (which refuses a build that redirects its output folder).
+  const directEnv = { ...env, [pathKey]: directPath };
+  try { return mainWith(argv, { env: directEnv, platform, run, log, err }); } finally { fs.rmSync(scratchTarget, { recursive: true, force: true }); }
 }
 
 function mainWith(argv, { env, platform, run, log, err }) {
@@ -126,57 +146,96 @@ function mainWith(argv, { env, platform, run, log, err }) {
     }
     const recordRepo = rest.includes("--record-repo");
     const cargoHome = env.CARGO_HOME ?? path.join(os.homedir(), ".cargo");
-    for (const unit of [...verdict.untraced, ...verdict.failed.map((f) => f.unit)]) {
+    // Parallel: `--jobs N` builds at once (default 4). Each build is its own process tree, rooted at its own cargo, in its own scratch
+    // target, and is judged only on the writes of that tree (eslogger and ETW events name their process; strace -ff writes one file per
+    // process of its own run). The cores are shared out so the builds do not fight over them.
+    const jobsAt = rest.indexOf("--jobs");
+    const jobs = Math.max(1, Number.parseInt(jobsAt >= 0 ? rest[jobsAt + 1] : "4", 10) || 4);
+    const perBuildJobs = String(Math.max(1, Math.floor(os.cpus().length / jobs)));
+    const pending = [...verdict.untraced, ...verdict.failed.map((f) => f.unit)];
+    log(`right-release build-helpers trace: ${pending.length} unit(s), ${jobs} at a time`);
+    if (!pending.length) return 0;
+    const prepared = pending.map((unit) => {
       const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rk-bht-"));
-      const traceFile = path.join(scratch, "trace.txt");
-      const buildArgs = ["build", "-p", `${unit.crate}@${unit.version}`, "--locked", "--target-dir", path.join(scratch, "target"), ...(manifestPath ? ["--manifest-path", manifestPath] : [])];
-      const buildEnv = { ...env, CARGO_TARGET_DIR: path.join(scratch, "target") };
-      let build;
-      if (platform === "win32") {
-        const etlFile = path.join(scratch, "file.etl"); const etlProc = path.join(scratch, "proc.etl");
-        run("logman", ["stop", "rk-bht-file", "-ets"]); run("logman", ["stop", "rk-bht-proc", "-ets"]);
-        const startProc = run("logman", ["start", "rk-bht-proc", "-p", "Microsoft-Windows-Kernel-Process", "0x10", "-o", etlProc, "-ets"], { encoding: "utf8" });
-        const startFile = run("logman", ["start", "rk-bht-file", "-p", "Microsoft-Windows-Kernel-File", "0x1E90", "-o", etlFile, "-ets"], { encoding: "utf8" });
-        if (startProc.status !== 0 || startFile.status !== 0) { err(`right-release build-helpers trace: logman could not start the ETW sessions: ${String(startFile.stdout ?? startProc.stdout ?? "").trim()}`); return 2; }
-        try { build = run("cargo", buildArgs, { encoding: "utf8", env: buildEnv }); }
-        finally { run("logman", ["stop", "rk-bht-file", "-ets"]); run("logman", ["stop", "rk-bht-proc", "-ets"]); }
-        const xml = path.join(scratch, "trace.xml");
-        const exported = run("tracerpt", [etlProc, etlFile, "-o", xml, "-of", "XML", "-y"], { encoding: "utf8" });
-        if (exported.status !== 0) { err("right-release build-helpers trace: tracerpt could not export the ETW trace"); return 2; }
-        fs.writeFileSync(traceFile, fs.readFileSync(xml, "utf8"));
-      } else if (platform === "linux") {
-        // strace follows every child (-f) and records the file calls; it needs no root for the agent's own processes.
-        // -ff: one output file per process, so no system call is split across <unfinished>/<resumed> lines.
-        build = run("strace", ["-ff", "-qq", "-o", traceFile, "-e", "trace=open,openat,openat2,creat,rename,renameat,renameat2,unlink,unlinkat,mkdir,mkdirat,rmdir,link,linkat,symlink,symlinkat,truncate,chmod,fchmodat,chown,fchownat,lchown,utimensat", "cargo", ...buildArgs], { encoding: "utf8", env: buildEnv });
-        if (build.error?.code === "ENOENT") { err("right-release build-helpers trace: strace is not installed on this host"); return 2; }
-      } else {
-        // Endpoint Security (eslogger) names every event's process and its parent, so the whole tree under this process is traced: build
-        // scripts and everything they start (sh, cc, cmake, perl), whatever the name. Only the logger is root (`sudo -n`: the credential
-        // `trace-all` cached with one `sudo -v`); the build runs as the user. eslogger needs Full Disk Access for the terminal running it.
-        const tracer = run("sh", ["-c", `sudo -n eslogger fork exec create rename unlink link truncate open close clone copyfile exchangedata > '${traceFile}' 2>'${traceFile}.err' & echo $!`], { encoding: "utf8" });
-        const tracerPid = String(tracer.stdout ?? "").trim();
-        run("sleep", ["2"]);
-        build = run("cargo", buildArgs, { encoding: "utf8", env: buildEnv });
-        run("sleep", ["1"]);
-        if (tracerPid) { run("sudo", ["-n", "pkill", "-INT", "-P", tracerPid]); run("kill", [tracerPid]); run("sleep", ["1"]); }
-      }
-      if (build.error || build.status !== 0) { err(`right-release build-helpers trace: ${unit.crate} ${unit.version} did not build (${build.error?.message ?? `exit ${build.status}`}); not recorded`); continue; }
-      let text = ""; try { text = platform === "linux" ? readStraceFiles(traceFile) : fs.readFileSync(traceFile, "utf8"); } catch { /* no trace output */ }
-      if (!text.trim()) { err(`right-release build-helpers trace: ${platform === "linux" ? "strace" : platform === "darwin" ? "eslogger (it needs sudo and Full Disk Access for this terminal)" : "ETW"} recorded nothing; nothing recorded`); return 2; }
-      const writes = platform === "win32" ? parseEtwWrites(text, { rootPid: process.pid, devices })
-        : platform === "linux" ? parseStraceWrites(text, { cwd: path.dirname(path.resolve(manifestPath ?? "Cargo.toml")) }) : parseEsloggerWrites(text, { rootPid: process.pid });
-      const allowed = platform === "win32" ? [path.join(scratch, "target"), cargoHome, os.tmpdir(), env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, "Temp") : null]
-        : [path.join(scratch, "target"), cargoHome, os.tmpdir(), "/private/var/folders", "/dev", "/proc/self"];
-      const judged = judgeTrace(writes, { allowed, platform, mustSee: path.join(scratch, "target") });
-      recordTrace(listFile, unit, judged);
-      // --record-repo also writes the verdict into the repository's committed list, for review and commit by the repository's owner.
-      if (recordRepo) recordTrace(repoFile, unit, judged);
-      log(`${judged.ok ? "pass" : "FAIL"} ${unit.crate} ${unit.version}${judged.ok ? "" : `: wrote ${judged.outside.slice(0, 5).join(", ")}`}`);
-      fs.rmSync(scratch, { recursive: true, force: true });
+      const target = path.join(scratch, "target");
+      // The unit is built on its own: a throwaway probe package in the scratch folder depends on exactly this version with exactly its
+      // resolved features (`cargo build -p <crate>@<ver>` panics for a crate the workspace uses only as a build dependency, which most
+      // build helpers are). The workspace's Cargo.lock seeds the probe so its other crates resolve to the same versions.
+      const probe = path.join(scratch, "probe");
+      fs.mkdirSync(path.join(probe, "src"), { recursive: true });
+      const features = unit.features.filter((f) => f !== "default");
+      fs.writeFileSync(path.join(probe, "Cargo.toml"), `[package]\nname = "rk-build-helper-probe"\nversion = "0.0.0"\nedition = "2021"\npublish = false\n\n[dependencies]\n${JSON.stringify(unit.crate)} = { version = "=${unit.version}", default-features = ${unit.features.includes("default")}, features = ${JSON.stringify(features)} }\n\n[workspace]\n`);
+      fs.writeFileSync(path.join(probe, "src", "lib.rs"), "");
+      try { fs.copyFileSync(path.join(inv.metadata.workspace_root, "Cargo.lock"), path.join(probe, "Cargo.lock")); } catch { /* the probe resolves on its own */ }
+      // Release profile, like every other build (GATE-CONTRACT GC-A15): no dev or debug build anywhere, a throwaway probe included.
+      const buildArgs = ["build", "--profile", "release", "--manifest-path", path.join(probe, "Cargo.toml"), "--target-dir", target];
+      const buildEnv = { ...env, CARGO_TARGET_DIR: target, CARGO_BUILD_JOBS: perBuildJobs };
+      const straceOut = path.join(scratch, "strace");
+      const job = platform === "linux"
+        ? { cmd: "strace", args: ["-ff", "-qq", "-o", straceOut, "-e", "trace=open,openat,openat2,creat,rename,renameat,renameat2,unlink,unlinkat,mkdir,mkdirat,rmdir,link,linkat,symlink,symlinkat,truncate,chmod,fchmodat,chown,fchownat,lchown,utimensat", "cargo", ...buildArgs], env: buildEnv }
+        : { cmd: "cargo", args: buildArgs, env: buildEnv };
+      job.label = `${unit.crate} ${unit.version}`;
+      return { unit, scratch, target, straceOut, job };
+    });
+    const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-bht-session-"));
+    const traceFile = path.join(sessionDir, "trace.txt");
+    // One tracer session for the whole run (macOS eslogger, Windows ETW); Linux traces per build through strace.
+    let stopTracer = () => {};
+    let etl = null;
+    if (platform === "darwin") {
+      const tracer = run("sh", ["-c", `sudo -n eslogger fork exec create rename unlink link truncate open close clone copyfile exchangedata > '${traceFile}' 2>'${traceFile}.err' & echo $!`], { encoding: "utf8" });
+      const tracerPid = String(tracer.stdout ?? "").trim();
+      run("sleep", ["2"]);
+      stopTracer = () => { run("sleep", ["1"]); if (tracerPid) { run("sudo", ["-n", "pkill", "-INT", "-P", tracerPid]); run("kill", [tracerPid]); run("sleep", ["1"]); } };
+    } else if (platform === "win32") {
+      etl = { file: path.join(sessionDir, "file.etl"), proc: path.join(sessionDir, "proc.etl") };
+      run("logman", ["stop", "rk-bht-file", "-ets"]); run("logman", ["stop", "rk-bht-proc", "-ets"]);
+      const startProc = run("logman", ["start", "rk-bht-proc", "-p", "Microsoft-Windows-Kernel-Process", "0x10", "-o", etl.proc, "-ets"], { encoding: "utf8" });
+      const startFile = run("logman", ["start", "rk-bht-file", "-p", "Microsoft-Windows-Kernel-File", "0x1E90", "-o", etl.file, "-ets"], { encoding: "utf8" });
+      if (startProc.status !== 0 || startFile.status !== 0) { err(`right-release build-helpers trace: logman could not start the ETW sessions: ${String(startFile.stdout ?? startProc.stdout ?? "").trim()}`); return 2; }
+      stopTracer = () => { run("logman", ["stop", "rk-bht-file", "-ets"]); run("logman", ["stop", "rk-bht-proc", "-ets"]); };
     }
+    // The runner keeps `jobs` builds running and starts the next whenever one finishes; each build's pid is its tree's root.
+    const jobsFile = path.join(sessionDir, "jobs.json"); const resultFile = path.join(sessionDir, "results.json");
+    fs.writeFileSync(jobsFile, JSON.stringify(prepared.map((b) => b.job)));
+    let runner;
+    try { runner = run(process.execPath, ["-e", BATCH_RUNNER, jobsFile, resultFile, String(jobs)], { encoding: "utf8", env, stdio: ["ignore", "inherit", "inherit"] }); }
+    finally { stopTracer(); }
+    let results = [];
+    try { results = JSON.parse(fs.readFileSync(resultFile, "utf8")); } catch { err(`right-release build-helpers trace: the build runner wrote no results (${runner?.error?.message ?? `exit ${runner?.status}`}); nothing recorded`); return 2; }
+    let sessionText = "";
+    if (platform === "darwin") { try { sessionText = fs.readFileSync(traceFile, "utf8"); } catch { /* no output */ } }
+    if (platform === "win32") {
+      const xml = path.join(sessionDir, "trace.xml");
+      const exported = run("tracerpt", [etl.proc, etl.file, "-o", xml, "-of", "XML", "-y"], { encoding: "utf8" });
+      if (exported.status !== 0) { err("right-release build-helpers trace: tracerpt could not export the ETW trace"); return 2; }
+      sessionText = fs.readFileSync(xml, "utf8");
+    }
+    if (platform !== "linux" && !sessionText.trim() && results.some((r) => r.status === 0)) { err(`right-release build-helpers trace: the ${platform === "darwin" ? "eslogger" : "ETW"} session recorded nothing; nothing recorded`); return 2; }
+    prepared.forEach((b, k) => {
+      const r = results[k] ?? {};
+      if (r.status !== 0 || !Number.isInteger(r.pid)) { err(`right-release build-helpers trace: ${b.unit.crate} ${b.unit.version} did not build (${r.error ?? `exit ${r.status}`}); not recorded`); return; }
+      let writes;
+      if (platform === "linux") { let text = ""; try { text = readStraceFiles(b.straceOut); } catch { /* none */ } writes = parseStraceWrites(text, { cwd: path.dirname(path.resolve(manifestPath ?? "Cargo.toml")) }); }
+      else if (platform === "win32") writes = parseEtwWrites(sessionText, { rootPid: r.pid, devices });
+      else writes = parseEsloggerWrites(sessionText, { rootPid: r.pid });
+      const allowed = platform === "win32" ? [b.scratch, cargoHome, os.tmpdir(), env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, "Temp") : null]
+        : [b.scratch, cargoHome, os.tmpdir(), "/private/var/folders", "/dev", "/proc/self"];
+      // Allowed folders by their real path: a linked CARGO_HOME (~/.cargo -> /Volumes/D/...) or temp (/var -> /private/var) is reported by
+      // the tracer under the real path, so comparing the link's path would fail every crate.
+      const real = (d) => { try { return fs.realpathSync.native(d); } catch { return d; } };
+      const roots = allowed.filter(Boolean).flatMap((d) => [d, real(d)]);
+      const judged = judgeTrace(writes, { allowed: roots, platform, mustSee: real(b.target) });
+      recordTrace(listFile, b.unit, judged);
+      // --record-repo also writes the verdict into the repository's committed list, for review and commit by the repository's owner.
+      if (recordRepo) recordTrace(repoFile, b.unit, judged);
+      log(`${judged.ok ? "pass" : "FAIL"} ${b.unit.crate} ${b.unit.version}${judged.ok ? "" : `: wrote ${judged.outside.slice(0, 5).join(", ")}`}`);
+    });
+    for (const b of prepared) fs.rmSync(b.scratch, { recursive: true, force: true });
+    fs.rmSync(sessionDir, { recursive: true, force: true });
     return 0;
   }
-  err("usage: right-release build-helpers check|trace [--manifest-path <Cargo.toml>] [--record-repo] | trace-all [--root <dir>]...");
+  err("usage: right-release build-helpers check|trace [--manifest-path <Cargo.toml>] [--record-repo] [--jobs N] | trace-all [--root <dir>]... [--jobs N]");
   return 2;
 }
 
