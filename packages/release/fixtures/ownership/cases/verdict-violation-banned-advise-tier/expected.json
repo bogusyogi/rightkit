@@ -1,0 +1,9 @@
+{
+  "verdict": {
+    "admit": false,
+    "code": "RK_OWNERSHIP_VIOLATION",
+    "problems": [
+      "sandbox-exec (sandbox.danger-eval in src/main.rs) is owned by rightkit-sandbox"
+    ]
+  }
+}

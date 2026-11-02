@@ -1,0 +1,273 @@
+{
+  "scan": {
+    "inputs": {
+      "contentDigest": "1b52b1cd7e56e1687c126e252fe93d8f0a994975496220520af4d54d26a63da9",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "trustDigest": "bd19568e09221702f4e0e560cba624190aece45e629667f0ec6ba7f230808f86",
+      "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
+      "scannerPolicyDigest": "9045f79b26d56c67a77468b55a0edeeeeb0e406b283289bf568ff984fc4acf13",
+      "protectedFloors": {
+        "minimumScannerVersion": "2.0.0",
+        "minimumCatalogVersion": "1",
+        "minimumCatalogDigest": null
+      }
+    },
+    "trust": {
+      "schema": 1,
+      "revokedKeyIds": [],
+      "verifiedTrackingEvidence": [],
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "repositories": [
+        {
+          "repositoryIdentity": "https://github.com/test/repo",
+          "roots": [
+            "."
+          ],
+          "visibility": "private"
+        }
+      ],
+      "hosts": {
+        "windows": {
+          "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+        },
+        "macos": {
+          "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+        }
+      }
+    },
+    "report": {
+      "ok": false,
+      "findings": [
+        {
+          "fingerprint": "http.reqwest",
+          "capability": "http-client",
+          "package": "rightkit-http",
+          "tier": "block",
+          "file": "Cargo.lock",
+          "line": 0,
+          "kind": "transitive-dependency",
+          "ecosystem": "cargo",
+          "name": "reqwest",
+          "lockfile": "Cargo.lock",
+          "dependencyPath": [
+            "fixture-app",
+            "wrapper",
+            "reqwest"
+          ],
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "resolvedVersion": "0.12.4",
+          "text": "cargo dependency reqwest",
+          "provenance": "registry+https://github.com/rust-lang/crates.io-index",
+          "occurrenceHash": "ac034427688a08c06af67d71625057e267f5a71e9f7521a620b7a93a9ee70fd6"
+        }
+      ],
+      "violations": [
+        {
+          "fingerprint": "http.reqwest",
+          "capability": "http-client",
+          "package": "rightkit-http",
+          "tier": "block",
+          "file": "Cargo.lock",
+          "line": 0,
+          "kind": "transitive-dependency",
+          "ecosystem": "cargo",
+          "name": "reqwest",
+          "lockfile": "Cargo.lock",
+          "dependencyPath": [
+            "fixture-app",
+            "wrapper",
+            "reqwest"
+          ],
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "resolvedVersion": "0.12.4",
+          "text": "cargo dependency reqwest",
+          "provenance": "registry+https://github.com/rust-lang/crates.io-index",
+          "occurrenceHash": "ac034427688a08c06af67d71625057e267f5a71e9f7521a620b7a93a9ee70fd6"
+        }
+      ],
+      "problems": [],
+      "rows": [
+        {
+          "capability": "http-client",
+          "owner": "rightkit-http",
+          "uses": false,
+          "status": "blocked",
+          "count": 1,
+          "root": "."
+        },
+        {
+          "capability": "logging",
+          "owner": "rightkit-log",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "sandbox-exec",
+          "owner": "rightkit-sandbox",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "ui-shell",
+          "owner": "rightkit-ui",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        }
+      ],
+      "covered": [],
+      "coverage": [],
+      "metadata": {
+        "repositoryIdentity": "https://github.com/test/repo",
+        "commit": "d2578b79097709a9929d5b9c6fd8f84b2802caa3",
+        "tree": "bb3d087427387504b43e99aaed6aa9cf006ebcd8",
+        "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+        "contentDigests": [
+          {
+            "path": "Cargo.lock",
+            "digest": "c775bf9cc782e706b8695eb46fd1a100b90e528de20ed0c014504d4fde72d825"
+          },
+          {
+            "path": "Cargo.toml",
+            "digest": "git:5a6a34d0095f48e77e6084c80cc7dcfb4d616797"
+          },
+          {
+            "path": "src/main.rs",
+            "digest": "git:f328e4d9d04c31d0d70d16d21a07d1613be9d577"
+          }
+        ],
+        "coverage": [],
+        "pathBase": "repository",
+        "pathPrefix": "",
+        "roots": [
+          {
+            "root": ".",
+            "metadata": {
+              "repositoryIdentity": "https://github.com/test/repo",
+              "commit": "d2578b79097709a9929d5b9c6fd8f84b2802caa3",
+              "tree": "bb3d087427387504b43e99aaed6aa9cf006ebcd8",
+              "host": "fixture-host/fixture-os",
+              "scannedAt": "2026-10-09T00:00:00.000Z",
+              "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+              "catalogVersion": "1",
+              "scannerVersion": "2.6.0",
+              "contentDigests": [
+                {
+                  "path": "Cargo.lock",
+                  "digest": "c775bf9cc782e706b8695eb46fd1a100b90e528de20ed0c014504d4fde72d825"
+                },
+                {
+                  "path": "Cargo.toml",
+                  "digest": "git:5a6a34d0095f48e77e6084c80cc7dcfb4d616797"
+                },
+                {
+                  "path": "src/main.rs",
+                  "digest": "git:f328e4d9d04c31d0d70d16d21a07d1613be9d577"
+                }
+              ],
+              "coverage": [],
+              "pathBase": "repository",
+              "pathPrefix": "",
+              "provenance": [],
+              "exceptionDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "source": "committed-git-tree"
+            }
+          }
+        ],
+        "scannerVersion": "2.6.0",
+        "catalogVersion": "1"
+      },
+      "enrollmentPending": false
+    },
+    "verdict": {
+      "admit": false,
+      "code": "RK_OWNERSHIP_VIOLATION",
+      "problems": [
+        "http-client (http.reqwest in Cargo.lock) is owned by rightkit-http"
+      ]
+    },
+    "evidence": {
+      "schema": 1,
+      "repositoryIdentity": "https://github.com/test/repo",
+      "source": "committed-git-tree",
+      "commit": "d2578b79097709a9929d5b9c6fd8f84b2802caa3",
+      "tree": "bb3d087427387504b43e99aaed6aa9cf006ebcd8",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "catalogVersion": "1",
+      "scannerVersion": "2.6.0",
+      "approvalsDigest": "c674d42e4ce7a3d8d8ea3a97f0ebd435e70c2268e1a7e47a2c33f8800fe2c5f3",
+      "trustEnrolled": true,
+      "floorOk": true,
+      "visibility": "private",
+      "registrationDigest": "8e3e6cefab60b0a511a116e246c05543ec35043e00e00247fe71af363b58702c",
+      "registeredRoots": [
+        "."
+      ],
+      "contentDigest": "1b6cb568a561cc5f2751d6fa9c7939d07da04f132a89d34a5849e5a28f766241",
+      "checkedAt": "2026-10-09T00:00:00.000Z"
+    }
+  },
+  "inputsMode": {
+    "inputs": {
+      "contentDigest": "1b52b1cd7e56e1687c126e252fe93d8f0a994975496220520af4d54d26a63da9",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "trustDigest": "bd19568e09221702f4e0e560cba624190aece45e629667f0ec6ba7f230808f86",
+      "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
+      "scannerPolicyDigest": "9045f79b26d56c67a77468b55a0edeeeeb0e406b283289bf568ff984fc4acf13",
+      "protectedFloors": {
+        "minimumScannerVersion": "2.0.0",
+        "minimumCatalogVersion": "1",
+        "minimumCatalogDigest": null
+      }
+    },
+    "trust": {
+      "schema": 1,
+      "revokedKeyIds": [],
+      "verifiedTrackingEvidence": [],
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "repositories": [
+        {
+          "repositoryIdentity": "https://github.com/test/repo",
+          "roots": [
+            "."
+          ],
+          "visibility": "private"
+        }
+      ],
+      "hosts": {
+        "windows": {
+          "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+        },
+        "macos": {
+          "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+        }
+      }
+    },
+    "complete": true,
+    "enrollmentPending": false,
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "."
+        }
+      ]
+    }
+  },
+  "cacheKey": "0183b353d00e1a87365f3b16dfce00d928a282664ab864b47ddd514acc4bd371"
+}

@@ -1,0 +1,61 @@
+{
+  "scan": {
+    "error": "committed ownership: protected release checkout has tracked or untracked changes",
+    "code": "RK_OWNERSHIP_UNVERIFIED"
+  },
+  "inputsMode": {
+    "inputs": {
+      "contentDigest": "cc7fee59f17630f5b35a78c8ea20ad22042781c87a749d5833595fbe15a08319",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "trustDigest": "bd19568e09221702f4e0e560cba624190aece45e629667f0ec6ba7f230808f86",
+      "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
+      "scannerPolicyDigest": "9045f79b26d56c67a77468b55a0edeeeeb0e406b283289bf568ff984fc4acf13",
+      "protectedFloors": {
+        "minimumScannerVersion": "2.0.0",
+        "minimumCatalogVersion": "1",
+        "minimumCatalogDigest": null
+      }
+    },
+    "trust": {
+      "schema": 1,
+      "revokedKeyIds": [],
+      "verifiedTrackingEvidence": [],
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "repositories": [
+        {
+          "repositoryIdentity": "https://github.com/test/repo",
+          "roots": [
+            "."
+          ],
+          "visibility": "private"
+        }
+      ],
+      "hosts": {
+        "windows": {
+          "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+        },
+        "macos": {
+          "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+        }
+      }
+    },
+    "complete": true,
+    "enrollmentPending": false,
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "."
+        }
+      ]
+    }
+  },
+  "cacheKey": null
+}

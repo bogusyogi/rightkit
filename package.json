@@ -30,7 +30,6 @@
     "test:platform-ui": "pnpm --dir packages/platform-ui test",
     "test:tauri": "pnpm --dir packages/tauri test",
     "test:app-update": "pnpm --dir packages/app-update test",
-    "doctor:release": "pnpm --dir packages/release doctor:all",
     "test:qa": "pnpm --dir packages/qa test",
     "test:build-control": "pnpm --dir packages/build-control-policy test",
     "test:swift-contracts": "node --test swift/contracts/contracts.test.mjs",

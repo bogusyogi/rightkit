@@ -320,6 +320,9 @@ export async function resolveRightKitPins({
   const observedAt = new Date(now()).toISOString();
   const packuments = new Map();
   const packument = (name) => { if (!packuments.has(name)) packuments.set(name, client.getJson(npmUrl(name), { accept: "application/vnd.npm.install-v1+json" })); return packuments.get(name); };
+  // The freshness bar needs publish dates: the abbreviated packument has no `time`, so the full one is read for the settle.
+  const fullPackuments = new Map();
+  const fullPackument = (name) => { if (!fullPackuments.has(name)) fullPackuments.set(name, client.getJson(npmUrl(name), { accept: "application/json" })); return fullPackuments.get(name); };
   const indexes = new Map();
   const index = (name) => { if (!indexes.has(name)) indexes.set(name, client.getJson(cargoIndexUrl(name), { text: true })); return indexes.get(name); };
 
@@ -381,7 +384,7 @@ export async function resolveRightKitPins({
     try {
       let value; let body;
       if (entry.ecosystem === "npm") {
-        body = (await packument(entry.name)).body;
+        body = (await fullPackument(entry.name)).body;
         value = body?.["dist-tags"]?.latest;
       } else {
         const response = await client.getJson(`${REGISTRIES.cargoApi}${entry.name}`);
@@ -393,6 +396,8 @@ export async function resolveRightKitPins({
       const mark = previous?.highWater?.version ?? previous?.latest;
       // The freshness bar is the settled latest (published at least SETTLE_MS ago), never above the live latest.
       const settled = settledLatest(entry.ecosystem, body);
+      // Fail closed: a registry answer without publish dates cannot prove a version is settled (never fall back to the live latest).
+      if (settled === null) throw new RightKitRegistryError("registry-outage", `${entry.name} registry answer carries no publish dates, so the 24-hour settle cannot be judged`, { recoverable: true });
       const bar = settled && EXACT_SEMVER.test(settled) && compareVersions(settled, value) < 0 ? settled : value;
       const row = { ecosystem: entry.ecosystem, name: entry.name, latest: bar, ...(bar !== value ? { liveLatest: value } : {}), observedAt, via: "live" };
       let highWater = { version: value, observedAt };

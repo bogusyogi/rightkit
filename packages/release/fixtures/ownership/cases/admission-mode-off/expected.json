@@ -1,0 +1,17 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "off",
+        "outcome": "off"
+      },
+      "assertAdmitted": {
+        "admitted": true
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 0,
+    "scan": 0
+  }
+}

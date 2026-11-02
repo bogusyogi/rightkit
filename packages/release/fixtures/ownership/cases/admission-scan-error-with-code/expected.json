@@ -1,0 +1,50 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_INPUTS_CHANGED",
+        "outcome": "unscanned",
+        "scanRoot": "/fixture/repo",
+        "error": "changed",
+        "problems": [
+          "changed"
+        ],
+        "violations": [],
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_INPUTS_CHANGED",
+        "message": "RightKit ownership refuses this build: changed"
+      }
+    },
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "SOMETHING_ELSE",
+        "outcome": "unscanned",
+        "scanRoot": "/fixture/repo",
+        "error": "x",
+        "problems": [
+          "x"
+        ],
+        "violations": [],
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "SOMETHING_ELSE",
+        "message": "RightKit ownership refuses this build: x"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 2,
+    "scan": 2
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_INCOMPLETE_COVERAGE",
+        "outcome": "incomplete-coverage",
+        "scanRoot": "/fixture/repo",
+        "error": "source content inventory has incomplete coverage",
+        "problems": [
+          "source content inventory has incomplete coverage"
+        ],
+        "violations": [],
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_INCOMPLETE_COVERAGE",
+        "message": "RightKit ownership refuses this build: source content inventory has incomplete coverage"
+      }
+    },
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_INCOMPLETE_COVERAGE",
+        "outcome": "incomplete-coverage",
+        "scanRoot": "/fixture/repo",
+        "error": "source content inventory has incomplete coverage",
+        "problems": [
+          "source content inventory has incomplete coverage"
+        ],
+        "violations": [],
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_INCOMPLETE_COVERAGE",
+        "message": "RightKit ownership refuses this build: source content inventory has incomplete coverage"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 2,
+    "scan": 0
+  }
+}

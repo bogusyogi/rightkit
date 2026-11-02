@@ -13,12 +13,15 @@
     "demo",
     "dev-overrides",
     "qa-probes",
+    "qa-env",
     "dev-worker-override",
     "qa-shot",
     "qa-tools",
     "dev-control",
     "bench-native",
-    "rightkit-qa/control"
+    "rightkit-qa/control",
+    "test-overrides",
+    "qa-views"
   ],
   "testModeMarker": "RIGHTKIT-TEST-MODE-COMPILED",
   "denyNames": [

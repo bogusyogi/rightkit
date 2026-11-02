@@ -180,6 +180,7 @@ export function scopeScans(scans, closure, { rustUnits = [], npmUnits = [] } = {
   const kept = []; const dropped = [];
   for (const s of scans) {
     const npm = /^(?:tsc|eslint|biome|test:npm):(.+)$/.exec(s.id);
+    // A cross-target scan id ends in `@<target triple>` (clippy:<crate>@aarch64-apple-darwin, cross-targets.mjs); a crate name never contains `@`.
     const rust = /^(?:clippy|check|check-features|check-dependent|doc|test:rust|test:rust-serial):(.+)$/.exec(s.id);
     const cargoList = CARGO_PACKAGE_LIST.exec(s.id);
     let include = true;
@@ -199,7 +200,7 @@ export function scopeScans(scans, closure, { rustUnits = [], npmUnits = [] } = {
       // that could compile unrelated units. Scoped B execution is refused by the gate before planning.
       include = selected.length === s.batch.units.length;
     }
-    else if (rust) { const name = names.find((n) => rust[1] === n || rust[1].startsWith(`${n}:`) || rust[1].startsWith(`${n}@`)); if (!name) throw problem(`scan ${s.id} has no known Rust owner`); include = closure.rust.has(name); }
+    else if (rust) { const owner = rust[1].replace(/@[^@:]+$/, ""); const name = names.find((n) => owner === n || owner.startsWith(`${n}:`)); if (!name) throw problem(`scan ${s.id} has no known Rust owner`); include = closure.rust.has(name); }
     else if (s.class === "B" || ["suite-api", "generated-docs", "test:scripts-ci"].includes(s.id)) include = closure.dirs.includes(".");
     else if (s.executes === true || s.kind === "test") {
       if (closure.dirs.includes(".")) include = true;

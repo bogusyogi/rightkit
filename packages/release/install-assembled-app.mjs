@@ -145,7 +145,7 @@ export function buildOuterApp({ root, spec, storage, profile, env = process.env,
 }
 
 export function resolveAssemblyStorage({ root, profile, env, run }) {
-  return resolveXcodeStorage({ env, run, cwd: root, fallbackRoot: path.join(root, ".right-release", "assembled-app", profile) });
+  return resolveXcodeStorage({ env, run, cwd: root, fallbackRoot: path.join(root, ".right-release", "assembled-app") }); // one Xcode build folder, never one per profile (GC-A15)
 }
 
 // ---- macOS --------------------------------------------------------------------------------------------------------

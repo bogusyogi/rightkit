@@ -1,0 +1,9 @@
+{
+  "verdict": {
+    "admit": false,
+    "code": "RK_OWNERSHIP_INVALID_REGISTRATION",
+    "problems": [
+      "path outside registered repository roots or malformed: src/*.rs"
+    ]
+  }
+}

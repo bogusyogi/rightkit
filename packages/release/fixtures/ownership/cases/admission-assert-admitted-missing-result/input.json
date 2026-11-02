@@ -1,0 +1,40 @@
+{
+  "kind": "admission",
+  "description": "assertAdmitted with no result in enforce mode throws UNVERIFIED.",
+  "scenario": {
+    "mode": "enforce",
+    "scannerRoot": "/fixture/scanner",
+    "steps": [],
+    "assertOnly": [
+      null,
+      {},
+      {
+        "admit": true,
+        "code": "RK_OWNERSHIP_ADVISORY",
+        "problems": [
+          "x"
+        ]
+      },
+      {
+        "admit": true,
+        "code": "RK_OWNERSHIP_CLEAN"
+      },
+      {
+        "admit": false,
+        "code": "RK_OWNERSHIP_VIOLATION",
+        "problems": [
+          "a",
+          "b",
+          "c",
+          "d",
+          "e",
+          "f"
+        ]
+      },
+      {
+        "admit": false,
+        "error": "only an error"
+      }
+    ]
+  }
+}

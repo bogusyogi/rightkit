@@ -1,0 +1,65 @@
+{
+  "scan": {
+    "error": "release app root is outside protected ownership roots: .",
+    "code": "RK_OWNERSHIP_UNVERIFIED"
+  },
+  "inputsMode": {
+    "inputs": {
+      "contentDigest": "5d04dd16ca061036e33a3aee9ba063fcb96f25d9ef203c7b623ea4df6f84145e",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "trustDigest": "31b52ada1f6a1ab8ef824f6f81086f591222eedbbed70a8255d7244157c6ed0e",
+      "approvalsDigest": "1bf60dada4601fff0f79d126f0504ddfd14d99f3c0c57b1c9c30ea31c6c70924",
+      "scannerPolicyDigest": "9045f79b26d56c67a77468b55a0edeeeeb0e406b283289bf568ff984fc4acf13",
+      "protectedFloors": {
+        "minimumScannerVersion": "2.0.0",
+        "minimumCatalogVersion": "1",
+        "minimumCatalogDigest": null
+      }
+    },
+    "trust": {
+      "schema": 1,
+      "revokedKeyIds": [],
+      "verifiedTrackingEvidence": [],
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "repositories": [
+        {
+          "repositoryIdentity": "https://github.com/test/repo",
+          "roots": [
+            "pkg-a",
+            "pkg-b"
+          ],
+          "visibility": "private"
+        }
+      ],
+      "hosts": {
+        "windows": {
+          "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+        },
+        "macos": {
+          "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+        }
+      }
+    },
+    "complete": true,
+    "enrollmentPending": false,
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "pkg-a"
+        },
+        {
+          "root": "pkg-b"
+        }
+      ]
+    }
+  },
+  "cacheKey": null
+}

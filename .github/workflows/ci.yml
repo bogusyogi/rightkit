@@ -480,12 +480,29 @@ jobs:
           pnpm_config_ignore_scripts: "true"
           pnpm_config_ignore_pnpmfile: "true"
         run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
+      # Build-helper trace (rightkit#1450): Class A traces any build script or proc macro not yet traced for this toolchain (strace -ff,
+      # no admin on Linux); the verdicts are cached so each unit is traced once per toolchain, not once per run.
+      - name: Install strace for the build-helper trace
+        shell: bash
+        run: command -v strace >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq strace)
+      - name: Restore the build-helper trace list
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ~/.local/state/rightkit/build-helper-trace
+          key: build-helper-trace-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: build-helper-trace-${{ runner.os }}-
       - name: Class A deterministic scans (every change)
         shell: bash
         env:
           HYGIENE_TOKENS: ${{ needs.plan.outputs.hygiene_tokens }}
           SCAN_BASE: ${{ needs.plan.outputs.scan_base }}
         run: node scripts/ci/gate.mjs --select "$HYGIENE_TOKENS" --steps scans ${SCAN_BASE:+--base "$SCAN_BASE"}
+      - name: Save the build-helper trace list (also when the scans fail)
+        if: always()
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ~/.local/state/rightkit/build-helper-trace
+          key: build-helper-trace-${{ runner.os }}-${{ github.run_id }}
       - name: Cargo.lock and rustfmt (selected crates)
         if: ${{ !cancelled() && needs.plan.outputs.hygiene_tokens != '' }}
         shell: bash

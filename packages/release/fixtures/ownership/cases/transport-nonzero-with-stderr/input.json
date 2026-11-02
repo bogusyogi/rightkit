@@ -1,0 +1,8 @@
+{
+  "kind": "transport",
+  "description": "Non-zero exit returns {error: trimmed stderr}.",
+  "timeoutMs": 20000,
+  "inputsOnly": false,
+  "execPath": "node",
+  "workerSource": "process.stderr.write('  boom happened \\n'); process.exit(3);"
+}

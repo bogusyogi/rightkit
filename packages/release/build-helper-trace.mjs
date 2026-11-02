@@ -73,9 +73,13 @@ export function readHostList(file, { readFile = (f) => fs.readFileSync(f, "utf8"
 }
 
 /** Record one trace verdict in the list (atomic write). */
-export function recordTrace(file, unit, verdict, { now = () => new Date().toISOString(), fsApi = fs } = {}) {
+/** Tracers whose verdicts count: each follows the build's whole process tree. fs_usage (name-filtered) verdicts recorded before do not count. */
+export const TRUSTED_TRACERS = Object.freeze(["eslogger", "strace-ff", "etw"]);
+export const TRACER_OF = Object.freeze({ darwin: "eslogger", linux: "strace-ff", win32: "etw" });
+
+export function recordTrace(file, unit, verdict, { now = () => new Date().toISOString(), fsApi = fs, tracer = TRACER_OF[process.platform] } = {}) {
   const list = readHostList(file, { readFile: (f) => fsApi.readFileSync(f, "utf8"), exists: (f) => fsApi.existsSync(f) });
-  list.units[unit.key] = { crate: unit.crate, version: unit.version, checksum: unit.checksum, features: unit.features, target: unit.target, toolchain: unit.toolchain, role: unit.role, verdict: verdict.ok ? "pass" : "fail", outside: verdict.outside ?? [], tracedAt: now() };
+  list.units[unit.key] = { crate: unit.crate, version: unit.version, checksum: unit.checksum, features: unit.features, target: unit.target, toolchain: unit.toolchain, role: unit.role, verdict: verdict.ok ? "pass" : "fail", outside: verdict.outside ?? [], tracer, tracedAt: now() };
   fsApi.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.tmp-${process.pid}`;
   fsApi.writeFileSync(tmp, `${JSON.stringify(list, null, 2)}\n`);
@@ -91,7 +95,7 @@ export function checkBuildHelpers(units, list) {
   const untraced = []; const failed = [];
   for (const u of units) {
     const entry = list?.units?.[u.key];
-    if (!entry || !u.checksum) untraced.push(u);
+    if (!entry || !u.checksum || !TRUSTED_TRACERS.includes(entry.tracer)) untraced.push(u);
     else if (entry.verdict !== "pass") failed.push({ unit: u, outside: entry.outside ?? [] });
   }
   return { ok: untraced.length === 0 && failed.length === 0, untraced, failed };
@@ -109,12 +113,19 @@ export function buildHelperRefusal(verdict) {
  * Judge one trace: every written path must lie inside one of the allowed roots (the unit's OUT_DIR, the build's target directory,
  * CARGO_HOME, the temp directory). Returns `{ ok, outside }` with the offending paths, sorted and unique.
  */
-export function judgeTrace(writes, { allowed, platform = process.platform }) {
+export function judgeTrace(writes, { allowed, platform = process.platform, mustSee = null }) {
   const mod = platform === "win32" ? path.win32 : path.posix;
   const norm = (p) => { const r = mod.resolve(p); return platform === "win32" ? r.toLowerCase() : r; };
   const roots = (allowed ?? []).filter(Boolean).map(norm);
   const inside = (p) => roots.some((r) => { const rel = mod.relative(r, p); return rel === "" || (!rel.startsWith("..") && !mod.isAbsolute(rel)); });
   const outside = [...new Set(writes.map(norm).filter((p) => !inside(p)))].sort();
+  // Proof the tracer saw the build: at least one write under the build's own target. A tracer that started late or lost events sees
+  // nothing, and an empty trace must never pass.
+  if (mustSee) {
+    const root = norm(mustSee);
+    const saw = writes.map(norm).some((p) => { const rel = mod.relative(root, p); return rel === "" || (!rel.startsWith("..") && !mod.isAbsolute(rel)); });
+    if (!saw) return { ok: false, outside: [...outside, `(the tracer recorded no write under ${mustSee}: the build was not observed)`] };
+  }
   return { ok: outside.length === 0, outside };
 }
 
@@ -135,4 +146,119 @@ export function parseFsUsageWrites(text) {
     if (paths?.length) out.add(paths.at(-1));
   }
   return [...out];
+}
+
+/**
+ * The written paths of Linux `strace -f -e trace=<file calls>` output: successful calls that create, write, rename, link or remove a file.
+ * An open counts when its flags include O_WRONLY, O_RDWR, O_CREAT, O_TRUNC or O_APPEND; every other listed call mutates by definition.
+ * A failed call (`= -1`) wrote nothing. Every quoted path of a mutating call is taken (rename names both); a relative path resolves
+ * against `cwd` (the traced cargo's directory; a build script that changes directory is resolved approximately, a recorded limit).
+ */
+export function parseStraceWrites(text, { cwd = "/" } = {}) {
+  const OPEN = /\b(open|openat|openat2)\((?:[^"]*?)"((?:[^"\\]|\\.)*)"[^)]*?\b(O_[A-Z_|]+)/;
+  const MUTATING = /\b(creat|rename|renameat|renameat2|unlink|unlinkat|mkdir|mkdirat|rmdir|link|linkat|symlink|symlinkat|truncate|chmod|fchmodat|chown|fchownat|lchown|utimensat|utimes)\(/;
+  const out = new Set();
+  for (const line of String(text).split(/\r?\n/)) {
+    if (/=\s*-1\s/.test(line) || /<unfinished \.\.\.>/.test(line)) continue;
+    let paths = [];
+    const open = OPEN.exec(line);
+    if (open) { if (/O_WRONLY|O_RDWR|O_CREAT|O_TRUNC|O_APPEND/.test(open[3])) paths = [open[2]]; }
+    else if (MUTATING.test(line)) paths = [...line.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
+    for (const p of paths) if (p) out.add(path.posix.isAbsolute(p) ? p : path.posix.resolve(cwd, p));
+  }
+  return [...out];
+}
+
+/** The repository's committed list (`.rightkit/build-helper-trace.json`, same schema): reviewed passes every host and CI reads. */
+export const repoListPath = (workspaceRoot) => path.join(workspaceRoot, ".rightkit", "build-helper-trace.json");
+
+/** The host list and the repository list together: a unit passes when either holds a pass for its key and neither holds a fail. */
+export function mergeLists(...lists) {
+  const units = {};
+  for (const list of lists) for (const [key, entry] of Object.entries(list?.units ?? {})) {
+    if (!units[key] || entry.verdict !== "pass") units[key] = entry;
+  }
+  return { schema: BUILD_HELPER_LIST_SCHEMA, units };
+}
+
+/**
+ * The written paths of a Windows ETW trace exported by `tracerpt -of XML` from two kernel sessions: Microsoft-Windows-Kernel-Process (process
+ * starts, to follow the build's own tree) and Microsoft-Windows-Kernel-File (create, create-new-file, write, delete-path, rename-path). Only
+ * events from `rootPid`'s descendants count. A Create counts as a write unless its disposition is FILE_OPEN (1); a Write event is named by the
+ * FileObject its Create recorded. Kernel paths (\Device\HarddiskVolumeN\...) are mapped back to drive letters through `devices`
+ * ({ "\\Device\\HarddiskVolume3": "D:" }).
+ */
+export function parseEtwWrites(xml, { rootPid, devices = {} }) {
+  const events = String(xml).split(/<Event[\s>]/).slice(1);
+  const field = (ev, name) => new RegExp(`<Data Name="${name}">([^<]*)</Data>`).exec(ev)?.[1];
+  const id = (ev) => Number(/<EventID>(\d+)<\/EventID>/.exec(ev)?.[1]);
+  const pidOf = (ev) => Number(/ProcessID="(\d+)"/.exec(ev)?.[1]);
+  const provider = (ev) => /Provider Name="([^"]+)"/.exec(ev)?.[1] ?? "";
+  const tree = new Set([Number(rootPid)]);
+  for (const ev of events) {
+    if (provider(ev) === "Microsoft-Windows-Kernel-Process" && id(ev) === 1) {
+      const child = Number(field(ev, "ProcessID")); const parent = Number(field(ev, "ParentProcessID"));
+      if (tree.has(parent)) tree.add(child);
+    }
+  }
+  const toDos = (p) => { if (!p) return null; for (const [dev, letter] of Object.entries(devices)) if (p.toLowerCase().startsWith(dev.toLowerCase())) return letter + p.slice(dev.length); return p; };
+  const names = new Map(); const out = new Set();
+  for (const ev of events) {
+    if (provider(ev) !== "Microsoft-Windows-Kernel-File" || !tree.has(pidOf(ev))) continue;
+    const n = id(ev);
+    if (n === 12) {
+      const name = field(ev, "FileName"); names.set(field(ev, "FileObject"), name);
+      const disposition = (Number(field(ev, "CreateOptions") ?? 0) >>> 24) & 0xff;
+      if (disposition !== 1) out.add(toDos(name));
+    } else if (n === 30) out.add(toDos(field(ev, "FileName")));
+    else if (n === 16) { const name = names.get(field(ev, "FileObject")); if (name) out.add(toDos(name)); }
+    else if (n === 26 || n === 27) { const name = field(ev, "FilePath") ?? field(ev, "FileName"); if (name) out.add(toDos(name)); }
+  }
+  out.delete(null);
+  return [...out];
+}
+
+/**
+ * The written paths of a macOS `eslogger` trace (Endpoint Security, JSON lines) restricted to `rootPid`'s process tree. Each event names
+ * its process and that process's parent (`process.audit_token.pid`, `process.ppid`), so every child a build script starts (sh, cc, cmake,
+ * perl) is followed, whatever its name. Writes: create, rename (both sides), unlink, link, truncate, an open with FWRITE, and a close that
+ * modified the file.
+ */
+export function parseEsloggerWrites(text, { rootPid }) {
+  const events = [];
+  for (const line of String(text).split(/\r?\n/)) { if (!line.trim().startsWith("{")) continue; try { events.push(JSON.parse(line)); } catch { /* a partial last line */ } }
+  const parent = new Map();
+  for (const e of events) {
+    const pid = e?.process?.audit_token?.pid; const ppid = e?.process?.ppid ?? e?.process?.original_ppid;
+    if (Number.isInteger(pid) && Number.isInteger(ppid) && !parent.has(pid)) parent.set(pid, ppid);
+    const child = e?.event?.fork?.child?.audit_token?.pid;
+    if (Number.isInteger(child) && Number.isInteger(pid)) parent.set(child, pid);
+  }
+  const inTree = (pid) => { for (let p = pid, hops = 0; Number.isInteger(p) && hops < 64; p = parent.get(p), hops += 1) if (p === rootPid) return true; return false; };
+  const joined = (np) => (np?.dir?.path && np?.filename ? `${np.dir.path.replace(/\/$/, "")}/${np.filename}` : null);
+  const dest = (d) => d?.existing_file?.path ?? joined(d?.new_path) ?? null;
+  const out = new Set();
+  for (const e of events) {
+    if (!inTree(e?.process?.audit_token?.pid)) continue;
+    const ev = e?.event ?? {};
+    const add = (p) => { if (typeof p === "string" && p) out.add(p); };
+    if (ev.create) add(dest(ev.create.destination));
+    if (ev.rename) { add(ev.rename.source?.path); add(dest(ev.rename.destination)); }
+    if (ev.unlink) add(ev.unlink.target?.path);
+    if (ev.link) { add(ev.link.source?.path); add(ev.link.target_dir?.path && ev.link.target_filename ? `${ev.link.target_dir.path.replace(/\/$/, "")}/${ev.link.target_filename}` : null); }
+    if (ev.truncate) add(ev.truncate.target?.path);
+    // std::fs::copy on macOS clones first (fclonefileat): the destination is created without an open for writing.
+    if (ev.clone) add(ev.clone.target_dir?.path && ev.clone.target_name ? `${ev.clone.target_dir.path.replace(/\/$/, "")}/${ev.clone.target_name}` : null);
+    if (ev.copyfile) add(ev.copyfile.target_file?.path ?? (ev.copyfile.target_dir?.path && ev.copyfile.target_name ? `${ev.copyfile.target_dir.path.replace(/\/$/, "")}/${ev.copyfile.target_name}` : null));
+    if (ev.exchangedata) { add(ev.exchangedata.file1?.path); add(ev.exchangedata.file2?.path); }
+    if (ev.open && (Number(ev.open.fflag) & 0x2)) add(ev.open.file?.path);
+    if (ev.close && ev.close.modified) add(ev.close.target?.path);
+  }
+  return [...out];
+}
+
+/** The strace -ff output files (`<prefix>.<pid>`, one per process: no call is ever split across lines). */
+export function readStraceFiles(prefix, { fsApi = fs } = {}) {
+  const dir = path.dirname(prefix); const base = path.basename(prefix);
+  return fsApi.readdirSync(dir).filter((n) => n.startsWith(`${base}.`)).map((n) => fsApi.readFileSync(path.join(dir, n), "utf8")).join("\n");
 }

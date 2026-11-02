@@ -76,6 +76,7 @@ import { envNamed, gateRunsRoot, resolveManagedRoots } from "../managed-roots.mj
 import { resolveBrokerClient, spawnBrokerClient } from "../broker-client.mjs";
 import os from "node:os";
 import path from "node:path";
+import { hostTarget } from "../cross-targets.mjs";
 import { FOREIGN_PRE_COMMIT, retireHooksIn } from "../hook-retirement.mjs";
 import { fileURLToPath } from "node:url";
 import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanToolPolicyFromPipeline, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
@@ -765,7 +766,8 @@ const ANCESTOR_RUST_INPUTS = [".cargo", "rust-toolchain", "rust-toolchain.toml",
  * `known` the name is the first segment, as for a repository with one root workspace.
  */
 export function rustUnitOfScanId(id, known = null) {
-  const parts = String(id).split(":");
+  // A cross-target scan id ends in `@<target triple>` (cross-targets.mjs); a crate name never contains `@`.
+  const parts = String(id).replace(/@[^@:]+$/, "").split(":");
   let rest;
   if (["clippy", "check", "check-features", "check-dependent", "doc"].includes(parts[0])) rest = parts.slice(1);
   else if (parts[0] === "test" && (parts[1] === "rust" || parts[1] === "rust-serial")) rest = parts.slice(2);
@@ -2042,6 +2044,41 @@ export function committedWebBuildConfigs({ o, git, commit, appDir = ".", base })
  * Nothing runs when every declared input is already present or the app declares no `web.build`; an input still absent afterwards is left
  * to the compile, which refuses a missing input and names it. Returns true when nothing is owed or the build passed.
  */
+/**
+ * The web build's cache key (the `dist` cache, GC-T14 result reuse): everything vite can read from the commit, without the Rust crates,
+ * plus the Node version and the vite-visible environment. Committed blobs are listed from the commit itself (`ls-tree -r`); a directory
+ * whose Cargo.toml declares a [package] is a Rust crate and is left out (a workspace-only Cargo.toml, like an app root's, is not), so a
+ * Rust-only commit reuses the bundle. Returns null when the tree cannot be read (no cache then, the build runs).
+ */
+export function webBuildCacheKey({ git, commit, config, env = process.env, nodeVersion = process.version }) {
+  const listed = git("ls-tree", "-r", "-z", commit);
+  if (failed(listed)) return null;
+  const entries = text(listed).split("\0").filter(Boolean).map((line) => { const tab = line.indexOf("\t"); const oid = line.slice(0, tab).split(" ")[2]; return { path: line.slice(tab + 1), oid }; });
+  const crateDirs = entries.filter((e) => /(^|\/)Cargo\.toml$/.test(e.path) && e.path.includes("/")).filter((e) => {
+    const blob = git("cat-file", "-p", e.oid);
+    return !failed(blob) && /^\s*\[package\]/m.test(text(blob));
+  }).map((e) => `${e.path.slice(0, e.path.lastIndexOf("/"))}/`);
+  const kept = entries.filter((e) => !crateDirs.some((dir) => e.path.startsWith(dir))).map((e) => [e.path, e.oid]);
+  const viteEnv = Object.entries(env ?? {}).filter(([k]) => /^(VITE_|NODE_ENV$)/.test(k)).sort(([a], [b]) => (a < b ? -1 : 1));
+  return createHash("sha256").update(JSON.stringify({ schema: "rightkit.web-build-cache/1", config, node: nodeVersion, env: viteEnv, files: kept })).digest("hex");
+}
+
+/** `<managed root>/web-cache/<repo key>`, beside the snapshot (`<managed root>/snapshots/<repo key>`). */
+export const webBuildCacheRoot = (snapshotPath) => path.join(path.dirname(path.dirname(snapshotPath)), "web-cache", path.basename(snapshotPath));
+
+/** Copies every declared output from `from` to `to`, keeping modification times (a restored bundle looks unchanged to Cargo). */
+function copyDeclared(declared, from, to) {
+  for (const rel of declared) {
+    const src = path.join(from, ...rel.split("/"));
+    if (!fs.existsSync(src)) return false;
+    const dest = path.join(to, ...rel.split("/"));
+    fs.rmSync(dest, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.cpSync(src, dest, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true });
+  }
+  return true;
+}
+
 export async function stageWebBuildOnce({ o, ds, root, git = null, appDir, cli, commonDir, commit, tree, stage, executor = null, tag = "rightkit-gate:" }) {
   if (ds.webBuilt) return true;
   ds.webBuilt = true;
@@ -2061,9 +2098,15 @@ export async function stageWebBuildOnce({ o, ds, root, git = null, appDir, cli, 
     const before = ds.ledger?.entries ?? [];
     // Adrian, 2026-11-02: the web build (vite, any bundling) runs outside the broker, directly in the snapshot; no carrier, no carried call.
     const carrier = { carried: false, env: {}, finish: async () => true };
-    const run = startRun({ commonDir, commit, tree, stage, source });
-    let r;
-    try {
+    // The dist cache: same committed web inputs, Node and vite env as an earlier build -> restore its bundle with its original modification
+    // times and skip vite, so the Tauri crate that embeds it stays fresh (Adrian, 2026-11-03: vite output was rebuilt on every gate run).
+    const key = git ? (o.webBuildCacheKey ?? webBuildCacheKey)({ git, commit, config, env: o.env }) : null;
+    const cacheDir = key ? path.join(webBuildCacheRoot(ds.path), key) : null;
+    const restored = Boolean(cacheDir && fs.existsSync(path.join(cacheDir, ".complete")) && copyDeclared(declared, cacheDir, ds.path));
+    if (restored) o.out(`${tag} [${stage}] web-build ${config}: restored from the dist cache (${key.slice(0, 12)}); vite not run`);
+    const run = restored ? null : startRun({ commonDir, commit, tree, stage, source });
+    let r = restored ? { status: 0 } : null;
+    if (!restored) try {
       o.out(`${tag} [${stage}] right-release web-build --config ${path.join(ds.path, config)} (from the snapshot ${ds.path}; declared input(s) ${absent().join(", ")} are absent)`);
       r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, "web-build", "--config", path.join(ds.path, config)], { cwd: snapshotAppRootOf(ds.path, appDir), env: carriedEnv(carrier, { ...cleanEnv, ...run.env }) });
     } finally { endRun(run); }
@@ -2076,6 +2119,21 @@ export async function stageWebBuildOnce({ o, ds, root, git = null, appDir, cli, 
     if (problems.length) { for (const p of problems.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [${stage}] web-build ${config}: ${p}`); return false; }
     const priorByPath = new Map(before.map((e) => [e.path, e]));
     ds.ledger = { entries: walked.entries.map((e) => (priorByPath.get(e.path)?.sha256 === e.sha256 ? priorByPath.get(e.path) : { ...e, kind: "generated", producer: { stage: "web-build", step: config } })) };
+    // A fresh, verified bundle is stored for the next run (written beside, then renamed: never a half cache). Older keys are pruned to 3.
+    if (!restored && cacheDir) {
+      try {
+        const staging = `${cacheDir}.tmp-${process.pid}`;
+        fs.rmSync(staging, { recursive: true, force: true });
+        if (copyDeclared(declared, ds.path, staging)) {
+          fs.writeFileSync(path.join(staging, ".complete"), `${new Date().toISOString()}\n`);
+          fs.rmSync(cacheDir, { recursive: true, force: true });
+          fs.renameSync(staging, cacheDir);
+          const root = webBuildCacheRoot(ds.path);
+          const keys = fs.readdirSync(root).filter((n) => /^[0-9a-f]{64}$/.test(n)).map((n) => ({ n, t: fs.statSync(path.join(root, n)).mtimeMs })).sort((a, b) => b.t - a.t);
+          for (const old of keys.slice(3)) fs.rmSync(path.join(root, old.n), { recursive: true, force: true });
+        } else fs.rmSync(staging, { recursive: true, force: true });
+      } catch (e) { o.out(`${tag} [${stage}] web-build ${config}: the dist cache was not written (${e.message}); the next run builds again`); }
+    }
   }
   return true;
 }
@@ -4095,8 +4153,9 @@ export async function main(argv, io = {}) {
         // A row answered from the scan cache compiled nothing in this run: the bytes in the target are not vouched for by it.
         if (r.status !== "pass" || r.cached === true || !/^test:rust(?:-serial)?:/.test(String(r.id))) continue;
         const unit = unitByName.get(rustUnitOfScanId(r.id, known));
-        if (snapshotBroker) addBins(r.snapshotEvidence?.outputDir, unit, r.snapshotEvidence?.targetTriple ? `${r.snapshotEvidence.targetTriple}/debug` : null);
-        else addBins(targetDirs?.[unit?.cargoDir ?? "."], unit, "debug");
+        // Every compile is release for the host target (GC-A15, cross-targets.mjs oneOutput): the test executables are under <triple>/release.
+        if (snapshotBroker) addBins(r.snapshotEvidence?.outputDir, unit, r.snapshotEvidence?.targetTriple ? `${r.snapshotEvidence.targetTriple}/release` : null);
+        else addBins(targetDirs?.[unit?.cargoDir ?? "."], unit, `${hostTarget()}/release`);
       }
       const outputWorkspaces = (snapshotBroker ? scanResult.scans.map((r) => r.snapshotEvidence?.outputDir) : Object.values(targetDirs ?? {})).filter(Boolean).map((dir) => [dir]);
       o.onCompileOutputs?.(outputWorkspaces.map(([dir]) => dir), builtBins);

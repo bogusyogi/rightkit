@@ -1,0 +1,8 @@
+{
+  "kind": "transport",
+  "description": "A zero exit with JSON stdout is returned as parsed (no schema applied here).",
+  "timeoutMs": 20000,
+  "inputsOnly": false,
+  "execPath": "node",
+  "workerSource": "process.stdout.write('{\"any\":[1,2,3]}\\n');"
+}

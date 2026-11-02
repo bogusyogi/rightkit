@@ -1,0 +1,55 @@
+{
+  "kind": "verdict",
+  "description": "rows entries are validated when present.",
+  "expectCode": "RK_OWNERSHIP_MALFORMED_REPORT",
+  "report": {
+    "ok": true,
+    "enrollmentPending": false,
+    "violations": [],
+    "problems": [],
+    "coverage": [],
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "."
+        }
+      ]
+    },
+    "rows": [
+      {
+        "capability": 1
+      }
+    ]
+  },
+  "trust": {
+    "schema": 1,
+    "revokedKeyIds": [],
+    "verifiedTrackingEvidence": [],
+    "minimumScannerVersion": "2.0.0",
+    "minimumCatalogVersion": "1",
+    "repositories": [
+      {
+        "repositoryIdentity": "https://github.com/test/repo",
+        "roots": [
+          "."
+        ],
+        "visibility": "private"
+      }
+    ],
+    "hosts": {
+      "windows": {
+        "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+        "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+      },
+      "macos": {
+        "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+        "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+      }
+    }
+  }
+}

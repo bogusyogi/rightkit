@@ -1,0 +1,60 @@
+{
+  "kind": "verdict",
+  "description": "contentDigests accept sha256 hex or git:<40-64 hex>.",
+  "expectCode": "RK_OWNERSHIP_CLEAN",
+  "report": {
+    "ok": true,
+    "enrollmentPending": false,
+    "violations": [],
+    "problems": [],
+    "coverage": [],
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "."
+        }
+      ],
+      "contentDigests": [
+        {
+          "path": "a.rs",
+          "digest": "git:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "path": "b.rs",
+          "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ]
+    }
+  },
+  "trust": {
+    "schema": 1,
+    "revokedKeyIds": [],
+    "verifiedTrackingEvidence": [],
+    "minimumScannerVersion": "2.0.0",
+    "minimumCatalogVersion": "1",
+    "repositories": [
+      {
+        "repositoryIdentity": "https://github.com/test/repo",
+        "roots": [
+          "."
+        ],
+        "visibility": "private"
+      }
+    ],
+    "hosts": {
+      "windows": {
+        "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+        "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+      },
+      "macos": {
+        "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+        "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+      }
+    }
+  }
+}

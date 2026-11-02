@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_MALFORMED_REPORT",
+        "problems": [
+          "ownership report has missing, unknown, or wrong-typed fields"
+        ],
+        "outcome": "malformed-report",
+        "violations": [],
+        "scanRoot": "/fixture/repo",
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_MALFORMED_REPORT",
+        "message": "RightKit ownership refuses this build: ownership report has missing, unknown, or wrong-typed fields"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 1,
+    "scan": 1
+  }
+}

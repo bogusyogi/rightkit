@@ -1,0 +1,10 @@
+{
+  "verdict": {
+    "admit": true,
+    "code": "RK_OWNERSHIP_CLEAN",
+    "problems": [],
+    "warnings": [
+      "ownership catalog digest differs from the digest pinned in protected trust (warning only; the catalog version still meets the protected minimum; trust-sync is retired)"
+    ]
+  }
+}

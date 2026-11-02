@@ -30,7 +30,7 @@ import { buildAndEmbedNativeHelpers, nativeHelpersFromConfig } from "./native-he
 import { androidDevelopmentNdkCommand, androidDevelopmentSerial, installAndroidDevelopment, validateAndroidDevelopment } from "./android-dev.mjs";
 
 // GATE-CONTRACT GC-A07: the dev installer is the release Cargo profile plus the `qa-native` feature
-// (`tauri build --features qa-native`, no `--debug`). One unit set, one cache; `[profile.dev]` stays for cargo test/check/clippy.
+// (`tauri build --features qa-native`, no `--debug`). One unit set, one cache, one output directory (GC-A15): no dev profile anywhere.
 export const DEVELOPMENT_PROFILE = "release";
 // Cargo writes the `dev` (and `test`) profile to target/<triple>/debug, never .../dev; `release` and `bench` go to release.
 // Every path built from a profile name must go through this.

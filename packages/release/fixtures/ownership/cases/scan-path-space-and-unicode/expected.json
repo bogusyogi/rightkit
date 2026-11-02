@@ -1,0 +1,263 @@
+{
+  "scan": {
+    "inputs": {
+      "contentDigest": "0446e87634b010be62dbf91e9424c2e5a832e95a5b18eff1d652c399552d56d8",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "trustDigest": "bd19568e09221702f4e0e560cba624190aece45e629667f0ec6ba7f230808f86",
+      "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
+      "scannerPolicyDigest": "9045f79b26d56c67a77468b55a0edeeeeb0e406b283289bf568ff984fc4acf13",
+      "protectedFloors": {
+        "minimumScannerVersion": "2.0.0",
+        "minimumCatalogVersion": "1",
+        "minimumCatalogDigest": null
+      }
+    },
+    "trust": {
+      "schema": 1,
+      "revokedKeyIds": [],
+      "verifiedTrackingEvidence": [],
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "repositories": [
+        {
+          "repositoryIdentity": "https://github.com/test/repo",
+          "roots": [
+            "."
+          ],
+          "visibility": "private"
+        }
+      ],
+      "hosts": {
+        "windows": {
+          "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+        },
+        "macos": {
+          "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+        }
+      }
+    },
+    "report": {
+      "ok": false,
+      "findings": [
+        {
+          "fingerprint": "http.fetch-call",
+          "capability": "http-client",
+          "package": "rightkit-http",
+          "tier": "block",
+          "kind": "source",
+          "line": 2,
+          "lineText": "    http_fetch();",
+          "ordinal": 0,
+          "text": "http_fetch();",
+          "file": "src/naïve dir/file one.rs",
+          "occurrenceHash": "d4bc4286c5751e95dac2c7820f76e16c89fddc3992cf20f3c64d585d309bfb63"
+        }
+      ],
+      "violations": [
+        {
+          "fingerprint": "http.fetch-call",
+          "capability": "http-client",
+          "package": "rightkit-http",
+          "tier": "block",
+          "kind": "source",
+          "line": 2,
+          "lineText": "    http_fetch();",
+          "ordinal": 0,
+          "text": "http_fetch();",
+          "file": "src/naïve dir/file one.rs",
+          "occurrenceHash": "d4bc4286c5751e95dac2c7820f76e16c89fddc3992cf20f3c64d585d309bfb63"
+        }
+      ],
+      "problems": [],
+      "rows": [
+        {
+          "capability": "http-client",
+          "owner": "rightkit-http",
+          "uses": false,
+          "status": "blocked",
+          "count": 1,
+          "root": "."
+        },
+        {
+          "capability": "logging",
+          "owner": "rightkit-log",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "sandbox-exec",
+          "owner": "rightkit-sandbox",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "ui-shell",
+          "owner": "rightkit-ui",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        }
+      ],
+      "covered": [],
+      "coverage": [],
+      "metadata": {
+        "repositoryIdentity": "https://github.com/test/repo",
+        "commit": "2bb532be5ab7d9f1efa55d1fc09a480a0ff02b67",
+        "tree": "cef6622ebb46d93d2fd5e4215bf1a1c603acdaee",
+        "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+        "contentDigests": [
+          {
+            "path": "Cargo.lock",
+            "digest": "bba11463dca4f93d990490cbc8840bddc2f2c3f7ddb6033ff96f2a52000436e8"
+          },
+          {
+            "path": "Cargo.toml",
+            "digest": "git:dddd8b1f8db379a7a22f47719b48333ce1c14f56"
+          },
+          {
+            "path": "src/main.rs",
+            "digest": "git:f328e4d9d04c31d0d70d16d21a07d1613be9d577"
+          },
+          {
+            "path": "src/naïve dir/file one.rs",
+            "digest": "git:56a8244d3f4a662d3ed0e753ecc566572bf6551b"
+          }
+        ],
+        "coverage": [],
+        "pathBase": "repository",
+        "pathPrefix": "",
+        "roots": [
+          {
+            "root": ".",
+            "metadata": {
+              "repositoryIdentity": "https://github.com/test/repo",
+              "commit": "2bb532be5ab7d9f1efa55d1fc09a480a0ff02b67",
+              "tree": "cef6622ebb46d93d2fd5e4215bf1a1c603acdaee",
+              "host": "fixture-host/fixture-os",
+              "scannedAt": "2026-10-09T00:00:00.000Z",
+              "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+              "catalogVersion": "1",
+              "scannerVersion": "2.6.0",
+              "contentDigests": [
+                {
+                  "path": "Cargo.lock",
+                  "digest": "bba11463dca4f93d990490cbc8840bddc2f2c3f7ddb6033ff96f2a52000436e8"
+                },
+                {
+                  "path": "Cargo.toml",
+                  "digest": "git:dddd8b1f8db379a7a22f47719b48333ce1c14f56"
+                },
+                {
+                  "path": "src/main.rs",
+                  "digest": "git:f328e4d9d04c31d0d70d16d21a07d1613be9d577"
+                },
+                {
+                  "path": "src/naïve dir/file one.rs",
+                  "digest": "git:56a8244d3f4a662d3ed0e753ecc566572bf6551b"
+                }
+              ],
+              "coverage": [],
+              "pathBase": "repository",
+              "pathPrefix": "",
+              "provenance": [],
+              "exceptionDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "source": "committed-git-tree"
+            }
+          }
+        ],
+        "scannerVersion": "2.6.0",
+        "catalogVersion": "1"
+      },
+      "enrollmentPending": false
+    },
+    "verdict": {
+      "admit": false,
+      "code": "RK_OWNERSHIP_VIOLATION",
+      "problems": [
+        "http-client (http.fetch-call in src/naïve dir/file one.rs) is owned by rightkit-http"
+      ]
+    },
+    "evidence": {
+      "schema": 1,
+      "repositoryIdentity": "https://github.com/test/repo",
+      "source": "committed-git-tree",
+      "commit": "2bb532be5ab7d9f1efa55d1fc09a480a0ff02b67",
+      "tree": "cef6622ebb46d93d2fd5e4215bf1a1c603acdaee",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "catalogVersion": "1",
+      "scannerVersion": "2.6.0",
+      "approvalsDigest": "c674d42e4ce7a3d8d8ea3a97f0ebd435e70c2268e1a7e47a2c33f8800fe2c5f3",
+      "trustEnrolled": true,
+      "floorOk": true,
+      "visibility": "private",
+      "registrationDigest": "8e3e6cefab60b0a511a116e246c05543ec35043e00e00247fe71af363b58702c",
+      "registeredRoots": [
+        "."
+      ],
+      "contentDigest": "4f882c1b34f994bd2ed423bc7864522183c0a27c859fa411633f982c52e0958e",
+      "checkedAt": "2026-10-09T00:00:00.000Z"
+    }
+  },
+  "inputsMode": {
+    "inputs": {
+      "contentDigest": "0446e87634b010be62dbf91e9424c2e5a832e95a5b18eff1d652c399552d56d8",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "trustDigest": "bd19568e09221702f4e0e560cba624190aece45e629667f0ec6ba7f230808f86",
+      "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
+      "scannerPolicyDigest": "9045f79b26d56c67a77468b55a0edeeeeb0e406b283289bf568ff984fc4acf13",
+      "protectedFloors": {
+        "minimumScannerVersion": "2.0.0",
+        "minimumCatalogVersion": "1",
+        "minimumCatalogDigest": null
+      }
+    },
+    "trust": {
+      "schema": 1,
+      "revokedKeyIds": [],
+      "verifiedTrackingEvidence": [],
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "repositories": [
+        {
+          "repositoryIdentity": "https://github.com/test/repo",
+          "roots": [
+            "."
+          ],
+          "visibility": "private"
+        }
+      ],
+      "hosts": {
+        "windows": {
+          "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+        },
+        "macos": {
+          "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+        }
+      }
+    },
+    "complete": true,
+    "enrollmentPending": false,
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "."
+        }
+      ]
+    }
+  },
+  "cacheKey": "d113e495d71995192f623045f96cfccb3449167fb0defbbd7c7049b6d52c8d6a"
+}

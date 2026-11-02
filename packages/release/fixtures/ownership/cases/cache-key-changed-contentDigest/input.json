@@ -1,0 +1,17 @@
+{
+  "kind": "cache-key",
+  "description": "Changing contentDigest changes the key.",
+  "expectCode": "OK",
+  "inputs": {
+    "contentDigest": "9999999999999999999999999999999999999999999999999999999999999999",
+    "catalogDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "trustDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+    "approvalsDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+    "scannerPolicyDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+    "protectedFloors": {
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "minimumCatalogDigest": null
+    }
+  }
+}

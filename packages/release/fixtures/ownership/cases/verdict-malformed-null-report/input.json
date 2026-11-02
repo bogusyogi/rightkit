@@ -1,0 +1,32 @@
+{
+  "kind": "verdict",
+  "description": "Report is null.",
+  "expectCode": "RK_OWNERSHIP_MALFORMED_REPORT",
+  "report": null,
+  "trust": {
+    "schema": 1,
+    "revokedKeyIds": [],
+    "verifiedTrackingEvidence": [],
+    "minimumScannerVersion": "2.0.0",
+    "minimumCatalogVersion": "1",
+    "repositories": [
+      {
+        "repositoryIdentity": "https://github.com/test/repo",
+        "roots": [
+          "."
+        ],
+        "visibility": "private"
+      }
+    ],
+    "hosts": {
+      "windows": {
+        "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+        "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+      },
+      "macos": {
+        "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+        "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+      }
+    }
+  }
+}

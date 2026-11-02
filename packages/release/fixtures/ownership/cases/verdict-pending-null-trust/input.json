@@ -1,0 +1,25 @@
+{
+  "kind": "verdict",
+  "description": "Pending enrollment with no trust skips the protected registry checks; a report with ok:false still refuses.",
+  "expectCode": "RK_OWNERSHIP_REPORT_FAILED",
+  "report": {
+    "ok": false,
+    "enrollmentPending": true,
+    "violations": [],
+    "problems": [],
+    "coverage": [],
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "."
+        }
+      ]
+    }
+  },
+  "trust": null
+}

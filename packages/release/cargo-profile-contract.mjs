@@ -1,17 +1,16 @@
 // RightKit standard Cargo profile contract (Adrian, 2026-10-16; Astra-reviewed option C).
 //
-// Every app workspace-root Cargo.toml carries the tables of templates/cargo-profiles.toml verbatim:
-//   - [profile.dev] and [profile.dev.package."*"] equal the template (no missing, changed or extra keys),
-//   - panic = "unwind" in dev and release,
-//   - no [profile.release-iterate] (and nothing that inherits it),
-//   - no [profile.test] overrides (test inherits dev).
-// [profile.dev] is the class B profile (cargo test, check, clippy). The installers, dev and release, both
-// build with [profile.release] (GATE-CONTRACT GC-A07): the dev installer is the release profile plus the
-// `qa-native` feature, so it has no debug_assertions, and the release tool's scans (not debug assertions)
-// keep the QA control server out of a release.
+// One build output and one warm cache per app per host (GATE-CONTRACT GC-A01, GC-A07). Every gate compile (check, clippy,
+// rustdoc, the test compile and both installers) builds with [profile.release] for the host's own target, whatever the caller
+// passed (cross-targets.mjs oneOutput); the dev installer is the release profile plus the `qa-native` feature. So no gate build
+// has debug_assertions, and the release tool's scans (not debug assertions) keep the QA control server out of a release.
+// Every app workspace-root Cargo.toml therefore carries:
+//   - [profile.release] with panic = "unwind" (templates/cargo-profiles.toml),
+//   - no other profile table: no [profile.dev], [profile.test] or custom profile (each would be a second output directory),
+//   - no [profile.release-iterate] (retired; nor anything that inherits it).
 // The same scan also flags a source pattern that behaves differently between the profiles:
-//   - an environment-variable override gated by cfg(debug_assertions): it is compiled in for cargo test and
-//     absent from both installers. Gate it on an explicit feature instead. Heuristic: a
+//   - an environment-variable override gated by cfg(debug_assertions): no gate build compiles it (tests and installers
+//     are all release), so only a developer's own cargo run reaches it. Gate it on an explicit feature instead. Heuristic: a
 //     cfg(debug_assertions) attribute or cfg! within 12 lines before an env read.
 //     Suppress a reviewed site with a `rightkit-allow: debug-assertions-env` comment on the cfg line or
 //     the line above it.
@@ -33,8 +32,7 @@ const ENV_READ = /env::var|var_os|env::set_var|env::remove_var|\benv!\s*\(|optio
 
 export function loadCargoProfileTemplate(file = CARGO_PROFILE_TEMPLATE) {
   const profile = parse(readFileSync(file, "utf8")).profile ?? {};
-  const { package: packages = {}, ...dev } = profile.dev ?? {};
-  return { dev, devPackageStar: packages["*"] ?? {}, releasePanic: profile.release?.panic };
+  return { releasePanic: profile.release?.panic };
 }
 
 const isTable = (value) => value && typeof value === "object" && !Array.isArray(value);
@@ -55,21 +53,15 @@ export function checkManifestProfiles(manifest, template, file) {
   const findings = [];
   const finding = (rule, message) => findings.push({ rule, file, message });
   const profiles = isTable(manifest.profile) ? manifest.profile : {};
-  const dev = isTable(profiles.dev) ? profiles.dev : undefined;
-  const { package: devPackages, ...devRest } = dev ?? {};
-  // Subtables of [profile.dev] are checked separately below.
-  const devKeys = Object.fromEntries(Object.entries(devRest).filter(([, value]) => !isTable(value)));
-  compareTable(dev ? devKeys : undefined, template.dev, "[profile.dev]", finding);
-  compareTable(isTable(devPackages) ? devPackages["*"] : undefined, template.devPackageStar, '[profile.dev.package."*"]', finding);
-  if (isTable(devPackages)) for (const name of Object.keys(devPackages)) if (name !== "*") finding("profile-extra", `[profile.dev.package.${show(name)}] is not in the template`);
-  if (dev) for (const name of Object.keys(dev)) if (isTable(dev[name]) && name !== "package") finding("profile-extra", `[profile.dev.${name}] is not in the template`);
-  // [profile.dev] panic is checked with the rest of the dev table above.
+  // One build output (GC-A01, GC-A07): no gate build uses any profile but release, so an app carries no other profile table.
+  for (const name of Object.keys(profiles)) {
+    if (name !== "release" && name !== RETIRED_PROFILE) finding("profile-extra", `[profile.${name}] is not allowed: every gate build uses [profile.release] for the host target (one output directory, GATE-CONTRACT GC-A07); delete the table`);
+  }
   if (profiles.release?.panic !== template.releasePanic) finding("panic", `[profile.release] panic must be ${show(template.releasePanic)} (found ${show(profiles.release?.panic)})`);
   if (RETIRED_PROFILE in profiles) finding("retired-profile", `[profile.${RETIRED_PROFILE}] is retired; delete it and its package overrides`);
   for (const [name, table] of Object.entries(profiles)) {
     if (isTable(table) && table.inherits === RETIRED_PROFILE) finding("retired-profile", `[profile.${name}] inherits the retired ${RETIRED_PROFILE} profile`);
   }
-  if ("test" in profiles) finding("profile-extra", "[profile.test] overrides are not allowed; test inherits dev");
   return findings;
 }
 

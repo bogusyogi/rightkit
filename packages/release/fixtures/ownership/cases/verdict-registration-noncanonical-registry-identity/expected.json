@@ -1,0 +1,9 @@
+{
+  "verdict": {
+    "admit": false,
+    "code": "RK_OWNERSHIP_INVALID_REGISTRATION",
+    "problems": [
+      "repository registry identity is noncanonical or duplicated: https://GitHub.com/Test/Repo"
+    ]
+  }
+}

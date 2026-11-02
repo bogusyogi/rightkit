@@ -46,6 +46,7 @@ import {
   bundledFileName, planMediaSidecar, sourceOfferText, stagedFileName, validateMediaSidecarConfig, verifyStagedSidecars, writeMediaSidecarNotices,
 } from "./media-sidecar.mjs";
 import { ContentDigestError, contentIdentity, digestFor } from "./content-digest.mjs";
+import { oneOutput } from "./cross-targets.mjs";
 
 export const STAGE_SIDECAR_CONTRACT = "rightkit-stage-sidecar-v1";
 export const STAGE_SIDECAR_RECEIPT_NAME = "stage-sidecar.json";
@@ -107,7 +108,7 @@ const NATIVE_OTHER_ROUTE = Object.freeze({ ffmpeg: "has its own kind: use { kind
 /** A catalog version token (1.24.4, chromium/8021): only compared with the rows, never used as a path. */
 const NATIVE_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+/-]{0,63}$/;
 const KEYS = Object.freeze({
-  "cargo-bin": ["kind", "package", "bin", "name", "profile", "features", "manifestPath", "sha256", "dest", "clean", "platforms"],
+  "cargo-bin": ["kind", "package", "bin", "name", "profile", "features", "devFeatures", "manifestPath", "sha256", "dest", "clean", "platforms"],
   ffmpeg: ["kind", "variant", "variants", "tools", "notices", "catalog", "stage", "bundleDir", "resourceDir", "sources", "probe", "platforms"],
   onnxruntime: ["kind", "version", "catalog", "resourceDir", "as", "licenseDir", "cacheDir", "companions", "platforms"],
   "native-library": ["kind", "library", "version", "catalog", "resourceDir", "licenseDir", "cacheDir", "as", "files", "companions", "source", "platforms"],
@@ -190,6 +191,8 @@ export function resolveBuildMode(env = process.env) {
 
 /** A profile is a Cargo profile name or exactly { dev, release } of names. Returns the pair or the single name. */
 function parseProfile(value, label, errors) {
+  // One build output (GATE-CONTRACT GC-A15): a sidecar builds only the release profile; any other profile, or a { dev, release } pair, is refused.
+  if (value !== "release") { errors.push(`${label} must be "release" (no other Cargo profile is allowed, GC-A15); omit it, release is the default`); return "release"; }
   if (typeof value === "string") {
     if (!PROFILE.test(value)) errors.push(`${label} must be a Cargo profile name`);
     return value;
@@ -329,8 +332,9 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
   if (!isObject(wrapper)) fail("STAGE_SIDECAR_CONFIG_INVALID", "sidecars must be an array (or { sidecars, stageDir?, receiptPath?, profiles? })");
   for (const key of Object.keys(wrapper)) if (!["sidecars", "stageDir", "receiptPath", "profiles", "wipeStageDir"].includes(key)) errors.push(`unknown key ${JSON.stringify(key)}`);
   if (wrapper.wipeStageDir !== undefined && typeof wrapper.wipeStageDir !== "boolean") errors.push("wipeStageDir must be a boolean");
-  const defaultProfile = wrapper.profiles === undefined ? undefined : parseProfile(wrapper.profiles, "profiles", errors);
-  if (typeof defaultProfile === "string") errors.push("profiles must be { dev, release }");
+  // The { dev, release } profile pair is retired (GC-A15): every sidecar builds release; a `profiles` key is refused.
+  if (wrapper.profiles !== undefined) errors.push("profiles is not allowed: every sidecar builds the release profile (GC-A15); remove the key");
+  const defaultProfile = undefined;
   if (!Array.isArray(wrapper.sidecars) || !wrapper.sidecars.length) errors.push("sidecars must be a non-empty array");
   const stageDir = relativePath(wrapper.stageDir ?? DEFAULT_STAGE_DIR, "stageDir", errors);
   const receiptPath = wrapper.receiptPath === undefined
@@ -374,8 +378,13 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
       if (typeof name !== "string" || !NAME.test(name) || /\.exe$/i.test(name) || name !== path.basename(name)) errors.push(`${where}: name must be a bare sidecar name (no path, no .exe, no target triple)`);
       const declared = item.profile !== undefined ? parseProfile(item.profile, `${where}: profile`, errors) : (defaultProfile ?? "release");
       const profile = isObject(declared) ? declared[mode] : declared;
-      const features = item.features ?? [];
-      if (!Array.isArray(features) || features.some((f) => typeof f !== "string" || !/^[A-Za-z0-9_/-]+$/.test(f))) errors.push(`${where}: features must be a list of feature names (package/feature allowed)`);
+      // `devFeatures` are added only for the dev build (RIGHTKIT_BUILD_MODE=dev, set by the dev lane): the app's QA feature, e.g. qa-native.
+      // The Cargo profile is release either way (GC-A15); the release tool refuses those features in a release (release-switch-registry.json).
+      const devFeatures = item.devFeatures ?? [];
+      const badList = (list) => !Array.isArray(list) || list.some((f) => typeof f !== "string" || !/^[A-Za-z0-9_/-]+$/.test(f));
+      if (badList(item.features ?? [])) errors.push(`${where}: features must be a list of feature names (package/feature allowed)`);
+      if (badList(devFeatures)) errors.push(`${where}: devFeatures must be a list of feature names (package/feature allowed)`);
+      const features = [...(item.features ?? []), ...(mode === "dev" && Array.isArray(devFeatures) ? devFeatures : [])];
       const manifestPath = item.manifestPath === undefined ? undefined : relativePath(item.manifestPath, `${where}: manifestPath`, errors);
       sha(item.sha256, "sha256");
       const dest = destOf(item.dest);
@@ -981,9 +990,10 @@ function stageCargoSlice(entry, ctx, triple, { dest }) {
 /** Build one slice through `rustright cargo` and locate the executable. Returns { source, sourceSha256 }. */
 function stageCargoBuild(entry, ctx, triple) {
   const { run, appRoot, env, fs } = ctx;
-  const args = ["cargo", "build", "--locked", ...(entry.manifestPath ? ["--manifest-path", path.resolve(appRoot, entry.manifestPath)] : []),
-    "-p", entry.package, "--bin", entry.bin, "--target", triple, "--profile", entry.profile,
-    ...(entry.features.length ? ["--features", entry.features.join(",")] : []), "--message-format=json-render-diagnostics"];
+  // One output directory (oneOutput, cross-targets.mjs): a sidecar always builds with the release profile, whatever profile its entry names.
+  const args = oneOutput(["cargo", "build", "--locked", ...(entry.manifestPath ? ["--manifest-path", path.resolve(appRoot, entry.manifestPath)] : []),
+    "-p", entry.package, "--bin", entry.bin, "--target", triple,
+    ...(entry.features.length ? ["--features", entry.features.join(",")] : []), "--message-format=json-render-diagnostics"]);
   ctx.log(`stage-sidecar: rightkit ${args.join(" ")}`);
   // From a snapshot, Cargo would resolve `target/` (or a relative build.target-dir) against the snapshot: its output directory is
   // resolved in the checkout instead and passed as an absolute CARGO_TARGET_DIR, so the warm outputs stay the checkout's and the
@@ -1003,7 +1013,7 @@ function stageCargoBuild(entry, ctx, triple) {
   if (carried && (!source || !fs.existsSync(source))) {
     const targetDir = typeof built.outputDir === "string" && path.isAbsolute(built.outputDir) ? built.outputDir : undefined;
     if (!targetDir) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `cargo reported no ${entry.bin} executable and the receipt names no output directory`, { bin: entry.bin });
-    const candidates = builtBinaryCandidates({ targetDir, targetDirs: [], triple, profile: entry.profile, bin: entry.bin, windows: ctx.windows });
+    const candidates = builtBinaryCandidates({ targetDir, targetDirs: [], triple, profile: "release", bin: entry.bin, windows: ctx.windows });
     source = candidates.find((file) => fs.existsSync(file));
     if (!source) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `the build did not produce ${entry.bin} (looked in ${candidates.join(", ")})`, { bin: entry.bin, candidates });
   } else if (!source || !fs.existsSync(source)) {
@@ -1015,7 +1025,7 @@ function stageCargoBuild(entry, ctx, triple) {
     // authoritative; an explicit CARGO_TARGET_DIR in this environment is tried too, resolved against the app root.
     const envDir = typeof buildEnv.CARGO_TARGET_DIR === "string" && buildEnv.CARGO_TARGET_DIR.trim() ? path.resolve(appRoot, buildEnv.CARGO_TARGET_DIR) : undefined;
     if (!targetDir && !envDir) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `cargo reported no ${entry.bin} executable and its target directory cannot be read`, { bin: entry.bin });
-    const candidates = builtBinaryCandidates({ targetDir, targetDirs: envDir ? [envDir] : [], triple, profile: entry.profile, bin: entry.bin, windows: ctx.windows });
+    const candidates = builtBinaryCandidates({ targetDir, targetDirs: envDir ? [envDir] : [], triple, profile: "release", bin: entry.bin, windows: ctx.windows });
     source = candidates.find((file) => fs.existsSync(file));
     if (!source) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `the build did not produce ${entry.bin} (looked in ${candidates.join(", ")})`, { bin: entry.bin, candidates });
   }

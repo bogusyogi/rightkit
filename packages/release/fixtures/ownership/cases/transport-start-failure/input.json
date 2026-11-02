@@ -1,0 +1,8 @@
+{
+  "kind": "transport",
+  "description": "Interpreter missing: error `scanner failed to start: ...` (message text is OS specific; recorded for POSIX).",
+  "timeoutMs": 20000,
+  "inputsOnly": false,
+  "execPath": "/fixture/no-such-node",
+  "workerSource": "process.stdout.write(JSON.stringify({ argv: process.argv.slice(2) }) + '\\n');"
+}

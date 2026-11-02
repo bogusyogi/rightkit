@@ -1,0 +1,50 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_UNVERIFIED",
+        "outcome": "unscanned",
+        "scanRoot": "/fixture/repo",
+        "error": "scan timeout",
+        "problems": [
+          "scan timeout"
+        ],
+        "violations": [],
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_UNVERIFIED",
+        "message": "RightKit ownership refuses this build: scan timeout"
+      }
+    },
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_UNVERIFIED",
+        "outcome": "unscanned",
+        "scanRoot": "/fixture/repo",
+        "error": "scan timeout",
+        "problems": [
+          "scan timeout"
+        ],
+        "violations": [],
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_UNVERIFIED",
+        "message": "RightKit ownership refuses this build: scan timeout"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 2,
+    "scan": 2
+  }
+}

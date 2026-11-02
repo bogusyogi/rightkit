@@ -1,0 +1,29 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_INVALID_INPUTS",
+        "outcome": "unscanned",
+        "scanRoot": "/fixture/repo",
+        "error": "ownership cache inputs have missing, unknown, or malformed digest/floor fields",
+        "problems": [
+          "ownership cache inputs have missing, unknown, or malformed digest/floor fields"
+        ],
+        "violations": [],
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_INVALID_INPUTS",
+        "message": "RightKit ownership refuses this build: ownership cache inputs have missing, unknown, or malformed digest/floor fields"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 1,
+    "scan": 0
+  }
+}

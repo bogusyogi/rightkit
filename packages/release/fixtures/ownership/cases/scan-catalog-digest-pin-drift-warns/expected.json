@@ -1,0 +1,230 @@
+{
+  "scan": {
+    "inputs": {
+      "contentDigest": "0ff59607a89c0e6e91f9d28a34ede02cf1b370a3058a667a4091610fd01d78fc",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "trustDigest": "268aef42ab374df22fea2877344a52307bc87b297594fe04a04ea86c8d60fb42",
+      "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
+      "scannerPolicyDigest": "9045f79b26d56c67a77468b55a0edeeeeb0e406b283289bf568ff984fc4acf13",
+      "protectedFloors": {
+        "minimumScannerVersion": "2.0.0",
+        "minimumCatalogVersion": "1",
+        "minimumCatalogDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      }
+    },
+    "trust": {
+      "schema": 1,
+      "revokedKeyIds": [],
+      "verifiedTrackingEvidence": [],
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "repositories": [
+        {
+          "repositoryIdentity": "https://github.com/test/repo",
+          "roots": [
+            "."
+          ],
+          "visibility": "private"
+        }
+      ],
+      "hosts": {
+        "windows": {
+          "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+        },
+        "macos": {
+          "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+        }
+      },
+      "minimumCatalogDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "report": {
+      "ok": true,
+      "findings": [],
+      "violations": [],
+      "problems": [],
+      "rows": [
+        {
+          "capability": "http-client",
+          "owner": "rightkit-http",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "logging",
+          "owner": "rightkit-log",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "sandbox-exec",
+          "owner": "rightkit-sandbox",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "ui-shell",
+          "owner": "rightkit-ui",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        }
+      ],
+      "covered": [],
+      "coverage": [],
+      "metadata": {
+        "repositoryIdentity": "https://github.com/test/repo",
+        "commit": "852cb093ae9d3cd3001ce7668dd6f8448c436681",
+        "tree": "dd73638b79762e6216b60956e2c15242f23d9d9a",
+        "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+        "contentDigests": [
+          {
+            "path": "Cargo.lock",
+            "digest": "bba11463dca4f93d990490cbc8840bddc2f2c3f7ddb6033ff96f2a52000436e8"
+          },
+          {
+            "path": "Cargo.toml",
+            "digest": "git:dddd8b1f8db379a7a22f47719b48333ce1c14f56"
+          },
+          {
+            "path": "src/main.rs",
+            "digest": "git:f328e4d9d04c31d0d70d16d21a07d1613be9d577"
+          }
+        ],
+        "coverage": [],
+        "pathBase": "repository",
+        "pathPrefix": "",
+        "roots": [
+          {
+            "root": ".",
+            "metadata": {
+              "repositoryIdentity": "https://github.com/test/repo",
+              "commit": "852cb093ae9d3cd3001ce7668dd6f8448c436681",
+              "tree": "dd73638b79762e6216b60956e2c15242f23d9d9a",
+              "host": "fixture-host/fixture-os",
+              "scannedAt": "2026-10-09T00:00:00.000Z",
+              "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+              "catalogVersion": "1",
+              "scannerVersion": "2.6.0",
+              "contentDigests": [
+                {
+                  "path": "Cargo.lock",
+                  "digest": "bba11463dca4f93d990490cbc8840bddc2f2c3f7ddb6033ff96f2a52000436e8"
+                },
+                {
+                  "path": "Cargo.toml",
+                  "digest": "git:dddd8b1f8db379a7a22f47719b48333ce1c14f56"
+                },
+                {
+                  "path": "src/main.rs",
+                  "digest": "git:f328e4d9d04c31d0d70d16d21a07d1613be9d577"
+                }
+              ],
+              "coverage": [],
+              "pathBase": "repository",
+              "pathPrefix": "",
+              "provenance": [],
+              "exceptionDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "source": "committed-git-tree"
+            }
+          }
+        ],
+        "scannerVersion": "2.6.0",
+        "catalogVersion": "1"
+      },
+      "enrollmentPending": false
+    },
+    "verdict": {
+      "admit": true,
+      "code": "RK_OWNERSHIP_CLEAN",
+      "problems": [],
+      "warnings": [
+        "ownership catalog digest differs from the digest pinned in protected trust (warning only; the catalog version still meets the protected minimum; trust-sync is retired)"
+      ]
+    },
+    "evidence": {
+      "schema": 1,
+      "repositoryIdentity": "https://github.com/test/repo",
+      "source": "committed-git-tree",
+      "commit": "852cb093ae9d3cd3001ce7668dd6f8448c436681",
+      "tree": "dd73638b79762e6216b60956e2c15242f23d9d9a",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "catalogVersion": "1",
+      "scannerVersion": "2.6.0",
+      "approvalsDigest": "c674d42e4ce7a3d8d8ea3a97f0ebd435e70c2268e1a7e47a2c33f8800fe2c5f3",
+      "trustEnrolled": true,
+      "floorOk": true,
+      "visibility": "private",
+      "registrationDigest": "8e3e6cefab60b0a511a116e246c05543ec35043e00e00247fe71af363b58702c",
+      "registeredRoots": [
+        "."
+      ],
+      "contentDigest": "322a58071698e1372947e77915cb7c678a9ee026de8c685c07b42963c0fcdf24",
+      "checkedAt": "2026-10-09T00:00:00.000Z"
+    }
+  },
+  "inputsMode": {
+    "inputs": {
+      "contentDigest": "0ff59607a89c0e6e91f9d28a34ede02cf1b370a3058a667a4091610fd01d78fc",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "trustDigest": "268aef42ab374df22fea2877344a52307bc87b297594fe04a04ea86c8d60fb42",
+      "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
+      "scannerPolicyDigest": "9045f79b26d56c67a77468b55a0edeeeeb0e406b283289bf568ff984fc4acf13",
+      "protectedFloors": {
+        "minimumScannerVersion": "2.0.0",
+        "minimumCatalogVersion": "1",
+        "minimumCatalogDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      }
+    },
+    "trust": {
+      "schema": 1,
+      "revokedKeyIds": [],
+      "verifiedTrackingEvidence": [],
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "repositories": [
+        {
+          "repositoryIdentity": "https://github.com/test/repo",
+          "roots": [
+            "."
+          ],
+          "visibility": "private"
+        }
+      ],
+      "hosts": {
+        "windows": {
+          "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+        },
+        "macos": {
+          "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+        }
+      },
+      "minimumCatalogDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "complete": true,
+    "enrollmentPending": false,
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "."
+        }
+      ]
+    }
+  },
+  "cacheKey": "74ae88ccc0e656dc00de244e45ed6afcada763f2aebf59d3433be65c77bee71a"
+}

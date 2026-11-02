@@ -1,0 +1,225 @@
+{
+  "scan": {
+    "inputs": {
+      "contentDigest": "c313efa0e92f44ed8239e039844e5c2a136d99ef31a18e51b57044ed82fc5573",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "trustDigest": "bd19568e09221702f4e0e560cba624190aece45e629667f0ec6ba7f230808f86",
+      "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
+      "scannerPolicyDigest": "9045f79b26d56c67a77468b55a0edeeeeb0e406b283289bf568ff984fc4acf13",
+      "protectedFloors": {
+        "minimumScannerVersion": "2.0.0",
+        "minimumCatalogVersion": "1",
+        "minimumCatalogDigest": null
+      }
+    },
+    "trust": {
+      "schema": 1,
+      "revokedKeyIds": [],
+      "verifiedTrackingEvidence": [],
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "repositories": [
+        {
+          "repositoryIdentity": "https://github.com/test/repo",
+          "roots": [
+            "."
+          ],
+          "visibility": "private"
+        }
+      ],
+      "hosts": {
+        "windows": {
+          "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+        },
+        "macos": {
+          "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+        }
+      }
+    },
+    "report": {
+      "ok": true,
+      "findings": [],
+      "violations": [],
+      "problems": [],
+      "rows": [
+        {
+          "capability": "http-client",
+          "owner": "rightkit-http",
+          "uses": true,
+          "status": "declared-dependency",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "logging",
+          "owner": "rightkit-log",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "sandbox-exec",
+          "owner": "rightkit-sandbox",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "ui-shell",
+          "owner": "rightkit-ui",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        }
+      ],
+      "covered": [],
+      "coverage": [],
+      "metadata": {
+        "repositoryIdentity": "https://github.com/test/repo",
+        "commit": "b2faf025a01566485457e4a28f4daa8584d733f2",
+        "tree": "faf5732bece82e83e7780403fa01eb9e0fbb07cd",
+        "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+        "contentDigests": [
+          {
+            "path": "Cargo.lock",
+            "digest": "635df2cd7f9cd002e4279e39b8b6828fc49dfe0b594a0afab04a9f15c17f6ebe"
+          },
+          {
+            "path": "Cargo.toml",
+            "digest": "git:dc6236678b1b672704a38e0dad9ef4d44f53cab4"
+          },
+          {
+            "path": "src/main.rs",
+            "digest": "git:f328e4d9d04c31d0d70d16d21a07d1613be9d577"
+          }
+        ],
+        "coverage": [],
+        "pathBase": "repository",
+        "pathPrefix": "",
+        "roots": [
+          {
+            "root": ".",
+            "metadata": {
+              "repositoryIdentity": "https://github.com/test/repo",
+              "commit": "b2faf025a01566485457e4a28f4daa8584d733f2",
+              "tree": "faf5732bece82e83e7780403fa01eb9e0fbb07cd",
+              "host": "fixture-host/fixture-os",
+              "scannedAt": "2026-10-09T00:00:00.000Z",
+              "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+              "catalogVersion": "1",
+              "scannerVersion": "2.6.0",
+              "contentDigests": [
+                {
+                  "path": "Cargo.lock",
+                  "digest": "635df2cd7f9cd002e4279e39b8b6828fc49dfe0b594a0afab04a9f15c17f6ebe"
+                },
+                {
+                  "path": "Cargo.toml",
+                  "digest": "git:dc6236678b1b672704a38e0dad9ef4d44f53cab4"
+                },
+                {
+                  "path": "src/main.rs",
+                  "digest": "git:f328e4d9d04c31d0d70d16d21a07d1613be9d577"
+                }
+              ],
+              "coverage": [],
+              "pathBase": "repository",
+              "pathPrefix": "",
+              "provenance": [],
+              "exceptionDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "source": "committed-git-tree"
+            }
+          }
+        ],
+        "scannerVersion": "2.6.0",
+        "catalogVersion": "1"
+      },
+      "enrollmentPending": false
+    },
+    "verdict": {
+      "admit": true,
+      "code": "RK_OWNERSHIP_CLEAN",
+      "problems": []
+    },
+    "evidence": {
+      "schema": 1,
+      "repositoryIdentity": "https://github.com/test/repo",
+      "source": "committed-git-tree",
+      "commit": "b2faf025a01566485457e4a28f4daa8584d733f2",
+      "tree": "faf5732bece82e83e7780403fa01eb9e0fbb07cd",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "catalogVersion": "1",
+      "scannerVersion": "2.6.0",
+      "approvalsDigest": "c674d42e4ce7a3d8d8ea3a97f0ebd435e70c2268e1a7e47a2c33f8800fe2c5f3",
+      "trustEnrolled": true,
+      "floorOk": true,
+      "visibility": "private",
+      "registrationDigest": "8e3e6cefab60b0a511a116e246c05543ec35043e00e00247fe71af363b58702c",
+      "registeredRoots": [
+        "."
+      ],
+      "contentDigest": "d7a04bfaf5d6253a0390d62ba0dd7a0dde708a1eccb1a518ece276795997cf23",
+      "checkedAt": "2026-10-09T00:00:00.000Z"
+    }
+  },
+  "inputsMode": {
+    "inputs": {
+      "contentDigest": "c313efa0e92f44ed8239e039844e5c2a136d99ef31a18e51b57044ed82fc5573",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "trustDigest": "bd19568e09221702f4e0e560cba624190aece45e629667f0ec6ba7f230808f86",
+      "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
+      "scannerPolicyDigest": "9045f79b26d56c67a77468b55a0edeeeeb0e406b283289bf568ff984fc4acf13",
+      "protectedFloors": {
+        "minimumScannerVersion": "2.0.0",
+        "minimumCatalogVersion": "1",
+        "minimumCatalogDigest": null
+      }
+    },
+    "trust": {
+      "schema": 1,
+      "revokedKeyIds": [],
+      "verifiedTrackingEvidence": [],
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "repositories": [
+        {
+          "repositoryIdentity": "https://github.com/test/repo",
+          "roots": [
+            "."
+          ],
+          "visibility": "private"
+        }
+      ],
+      "hosts": {
+        "windows": {
+          "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+        },
+        "macos": {
+          "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+        }
+      }
+    },
+    "complete": true,
+    "enrollmentPending": false,
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "."
+        }
+      ]
+    }
+  },
+  "cacheKey": "78f637d12ab16dac6c1c4c4c8dbbc0463f2735c22dde61161e71c83f9436e018"
+}

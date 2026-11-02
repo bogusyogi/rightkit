@@ -1,0 +1,16 @@
+{
+  "kind": "cache-key",
+  "description": "Binding catalogDigest is required.",
+  "expectCode": "RK_OWNERSHIP_INVALID_INPUTS",
+  "inputs": {
+    "contentDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+    "trustDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+    "approvalsDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+    "scannerPolicyDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+    "protectedFloors": {
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "minimumCatalogDigest": null
+    }
+  }
+}

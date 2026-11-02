@@ -138,7 +138,7 @@ export function validateMacAssembly(spec) {
   return {
     platform: "mac", productName: spec.productName, bundleId: spec.bundleId, targetTriple: spec.targetTriple,
     stageReceipt: containedRelative(spec.stageReceipt ?? DEFAULT_STAGE_RECEIPT, `${where}.stageReceipt`),
-    outer: { tool: "xcodebuild", ...(outer.projectSpec ? { projectSpec: containedRelative(outer.projectSpec, `${where}.outer.projectSpec`) } : {}), project, scheme: outer.scheme, configuration: outer.configuration ?? "Release", product, unsetEnv: stringList(outer.unsetEnv, `${where}.outer.unsetEnv`), extraBuildSettings: { ...settings } },
+    outer: { tool: "xcodebuild", ...(outer.projectSpec ? { projectSpec: containedRelative(outer.projectSpec, `${where}.outer.projectSpec`) } : {}), project, scheme: outer.scheme, configuration: releaseConfiguration(outer.configuration, where), product, unsetEnv: stringList(outer.unsetEnv, `${where}.outer.unsetEnv`), extraBuildSettings: { ...settings } },
     nested, helpers, plugins, launchDaemons: plist(spec.launchDaemons, "launchDaemons"), launchAgents: plist(spec.launchAgents, "launchAgents"), resources,
     bundleVersion: spec.bundleVersion, require: relativeList(spec.require, `${where}.require`),
     ...(spec.devMarker === undefined ? {} : { devMarker: containedRelative(spec.devMarker, `${where}.devMarker`) }),
@@ -216,7 +216,7 @@ export function loadStageReceipt({ root, spec, profile, fs = nodeFs }) {
     find(name, kind = "cargo-bin") {
       const row = receipt.files.find((candidate) => candidate.kind === kind && candidate.name === name);
       if (!row) refuse("ASSEMBLY_RECEIPT_ROW_MISSING", `stage receipt has no ${kind} row ${name}`);
-      if (kind === "cargo-bin" && row.profile !== profile) refuse("ASSEMBLY_RECEIPT_PROFILE", `${name} was staged with Cargo profile ${row.profile}; this ${profile} assembly needs ${profile}`);
+      if (kind === "cargo-bin" && row.profile !== "release") refuse("ASSEMBLY_RECEIPT_PROFILE", `${name} was staged with Cargo profile ${row.profile}; every assembly, dev or release, uses the release profile (GATE-CONTRACT GC-A15)`);
       const file = path.resolve(root, row.path);
       let actual;
       try { actual = sha256Of(fs, file); } catch (error) { refuse("ASSEMBLY_RECEIPT_FILE_MISSING", `staged ${name} is missing: ${file} (${error.code ?? error.message})`); }
@@ -256,7 +256,15 @@ export function bindingDocument({ profile, targetTriple, bound }) {
   return { schema: 1, profile, devOnly: profile !== "release", target: targetTriple, files: Object.fromEntries(bound.map(({ dest, sha256 }) => [dest, sha256])) };
 }
 
-function profileDirectory(profile) { return profile === "release" ? "release" : "debug"; }
+// Cargo builds only the release profile (GATE-CONTRACT GC-A15): a dev assembly differs from a release one in its QA marker and signing,
+// never in the Cargo output folder, so both read target/<triple>/release.
+function profileDirectory() { return "release"; }
+
+// The outer Xcode app builds only the Release configuration (GC-A15: no debug build anywhere); any other configuration is refused.
+function releaseConfiguration(configuration, where) {
+  if (configuration !== undefined && configuration !== "Release") invalid(`${where}.outer.configuration must be "Release" (no debug build anywhere, GATE-CONTRACT GC-A15); found ${JSON.stringify(configuration)}`);
+  return "Release";
+}
 
 /** The built Tauri .app of one `nested` entry (Cargo's own target directory; the product name is the bundle name). */
 export function resolveNestedApp({ root, entry, spec, profile, deps = {} }) {

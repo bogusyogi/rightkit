@@ -168,6 +168,17 @@ jobs:
       - name: Install workspace dependencies without lifecycle scripts for the class B type and lint scans
         working-directory: live
         run: pnpm install --frozen-lockfile --ignore-scripts
+      # Build-helper trace (rightkit#1450): Class A traces any build script or proc macro not yet traced for this toolchain (strace -ff,
+      # no admin on Linux); the verdicts are cached so each unit is traced once per toolchain, not once per run.
+      - name: Install strace for the build-helper trace
+        shell: bash
+        run: command -v strace >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq strace)
+      - name: Restore the build-helper trace list
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ~/.local/state/rightkit/build-helper-trace
+          key: build-helper-trace-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: build-helper-trace-${{ runner.os }}-
       - name: Run deterministic scans over requested units & shared inputs
         env:
           SCAN_CONTENT_ROOT: ${{ github.workspace }}/source
@@ -179,6 +190,12 @@ jobs:
       # Importing an export executes candidate code, so this runs only after the file-only class A scans above passed (a failed
       # step stops the job before it). Every exported module must import in a fresh, read-only process without doing anything
       # (the sealed-byte import check in verify used to find this 27 minutes in; run 40168412670, #1189).
+      - name: Save the build-helper trace list (also when the scans fail)
+        if: always()
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ~/.local/state/rightkit/build-helper-trace
+          key: build-helper-trace-${{ runner.os }}-${{ github.run_id }}
       - name: Exported modules import without side effects (after class A)
         run: node live/scripts/ci/exports-import-effects.mjs --root live --report "$RUNNER_TEMP/import-effects/report.json"
       # Build-output exports the source probe could not import are INCOMPLETE until verify's consume step imports them from the

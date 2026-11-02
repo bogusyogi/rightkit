@@ -1,0 +1,8 @@
+{
+  "kind": "transport",
+  "description": "Zero exit with non-JSON stdout.",
+  "timeoutMs": 20000,
+  "inputsOnly": false,
+  "execPath": "node",
+  "workerSource": "process.stdout.write('not json');"
+}

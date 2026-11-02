@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_POLICY_DOWNGRADE",
+        "problems": [
+          "scanner version missing, malformed, or below protected minimum"
+        ],
+        "outcome": "policy-downgrade",
+        "violations": [],
+        "scanRoot": "/fixture/repo",
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_POLICY_DOWNGRADE",
+        "message": "RightKit ownership refuses this build: scanner version missing, malformed, or below protected minimum"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 1,
+    "scan": 1
+  }
+}

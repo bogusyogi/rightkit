@@ -1,0 +1,44 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_UNVERIFIED",
+        "problems": [
+          "p"
+        ],
+        "outcome": "problems",
+        "violations": [],
+        "scanRoot": "/fixture/repo",
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_UNVERIFIED",
+        "message": "RightKit ownership refuses this build: p"
+      }
+    },
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": true,
+        "code": "RK_OWNERSHIP_CLEAN",
+        "problems": [],
+        "outcome": "clean",
+        "violations": [],
+        "scanRoot": "/fixture/repo",
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": true
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 2,
+    "scan": 2
+  }
+}

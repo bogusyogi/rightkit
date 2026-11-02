@@ -31,7 +31,7 @@ import { recordPublished, stageSourceVersions, workspaceFeedOptions } from "./ri
 import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
 import { exclusionsFor, npmContentDigest } from "./pack-digest.mjs";
 import { requireDoorRun, gateStateDir } from "./gate-stages.mjs";
-import { crossCompileEnv, crossTargetsFor } from "./cross-targets.mjs";
+import { crossCompileEnv, crossTargetsFor, oneOutput } from "./cross-targets.mjs";
 
 export const LOCAL_OPERATOR = "agent (local-build grant)";
 export const LOCAL_HOST_POLICY_REASON = "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run";
@@ -375,6 +375,8 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
   if (!batch) for (const target of crossTargetsFor(entry, platform)) {
     for (const features of featureSets) {
       const env = crossCompileEnv(target);
+      // GC-A14: a host without the zig C toolchain fails the check, never skips it.
+      if (!env) refuse(`RK_CROSS_CC_UNPROVISIONED: the zig C toolchain for ${target} is not provisioned; run node scripts/ci/provision-zig.mjs <managed data root>/zig (or set RIGHTKIT_CROSS_CC_DIR)`);
       steps.push({ command: "cargo", args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", "--target", target, ...features, "--", "-D", "warnings"], test: false, ...(env ? { env } : {}) });
     }
   }
@@ -410,6 +412,7 @@ export function batchClippyInvocations(layer, { featuresOf = () => [], featureSe
       });
       for (const target of crossTargetsOf(unit)) {
         const env = crossCompileEnv(target);
+        if (!env) throw new Error(`RK_CROSS_CC_UNPROVISIONED: the zig C toolchain for ${target} is not provisioned; run node scripts/ci/provision-zig.mjs <managed data root>/zig (or set RIGHTKIT_CROSS_CC_DIR)`);
         invocations.push({
           crates: [unit], assetGated: assetGatedOf(unit), ...(env ? { env } : {}),
           args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", "--target", target, ...features, "--", "-D", "warnings"],
@@ -688,7 +691,7 @@ async function* publishUnitStages(parsed, deps, batch) {
     // A crate's own steps run in its Cargo workspace (its own Cargo.lock and target directory, #1285); a consumer row names its
     // separate workspace by --manifest-path relative to the repository root.
     const stepCwd = kind === "cargo" && step.command === "cargo" && !step.args.includes("--manifest-path") ? unitPath : workspaceRoot;
-    const result = await run(step.command, step.command === "cargo" ? withCargoJobs(step.args, parsed.jobs) : step.args, { cwd: stepCwd, env: step.env ? { ...env, ...step.env } : env });
+    const result = await run(step.command, step.command === "cargo" ? oneOutput(withCargoJobs(step.args, parsed.jobs), { platform }) : step.args, { cwd: stepCwd, env: step.env ? { ...env, ...step.env } : env });
     const row = { command: commandText, ok: false, isTest: step.test && TEST_COMMAND.test(commandText) };
     if (result.error || result.status !== 0) {
       steps.push(row);
@@ -908,7 +911,7 @@ async function runLocalPublishBatch(parsed, deps) {
     const text = `${command} ${args.join(" ")}`;
     log(`[right-release] batch ${name}: ${text}`);
     for (const cwd of cwds) {
-      const result = await run(command, args, { cwd, env: runEnv });
+      const result = await run(command, command === "cargo" ? oneOutput(args, { platform }) : args, { cwd, env: runEnv });
       if (result.error || result.status !== 0) refuse(`batch ${name} failed (${result.error?.message ?? `exit ${result.status}`}): ${text}${cwd === workspaceRoot ? "" : ` (in ${path.relative(workspaceRoot, cwd)})`}\n${tail(`${result.stdout ?? ""}\n${result.stderr ?? ""}`)}`);
     }
     checks.push({ name, command: text, ok: true, ...stamp, ...(crateNames ? { crates: crateNames } : {}) });

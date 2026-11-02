@@ -1,0 +1,25 @@
+{
+  "kind": "verdict",
+  "description": "Missing trust registry.",
+  "expectCode": "RK_OWNERSHIP_INVALID_REGISTRATION",
+  "report": {
+    "ok": true,
+    "enrollmentPending": false,
+    "violations": [],
+    "problems": [],
+    "coverage": [],
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "."
+        }
+      ]
+    }
+  },
+  "trust": null
+}

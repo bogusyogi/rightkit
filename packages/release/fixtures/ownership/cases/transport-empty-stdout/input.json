@@ -1,0 +1,8 @@
+{
+  "kind": "transport",
+  "description": "Zero exit with empty stdout is invalid JSON.",
+  "timeoutMs": 20000,
+  "inputsOnly": false,
+  "execPath": "node",
+  "workerSource": ""
+}

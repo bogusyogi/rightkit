@@ -33,15 +33,31 @@ export function pinFor(pins, key) {
 }
 
 /** The wrapper scripts for one host: name -> file body. Each forwards to `zig cc|c++|ar` for the zig target of its Rust target. */
-export function wrappers(zig, platform = process.platform) {
-  const files = {};
+// cc-rs passes clang-style `--target=<rust triple>` (or `--target <triple>`), which zig's own target syntax does not accept: the wrapper drops
+// every caller --target and keeps zig's `-target <zig triple>` (cargo-zigbuild does the same). One small node filter serves every tool.
+export const FILTER = `import { spawnSync } from "node:child_process";
+const [zig, ...fixed] = JSON.parse(process.argv[2]);
+const rest = [];
+for (let i = 3; i < process.argv.length; i += 1) {
+  const a = process.argv[i];
+  if (a === "--target") { i += 1; continue; }
+  if (a.startsWith("--target=")) continue;
+  rest.push(a);
+}
+const r = spawnSync(zig, [...fixed, ...rest], { stdio: "inherit" });
+process.exit(r.status ?? 1);
+`;
+
+export function wrappers(zig, platform = process.platform, { node = process.execPath, dir } = {}) {
+  const files = { "zig-filter.mjs": FILTER };
   for (const target of Object.values(CROSS_TARGETS)) {
     const zt = ZIG_TARGETS[target];
     const tools = { [`cc-${target}`]: ["cc", "-target", zt], [`cxx-${target}`]: ["c++", "-target", zt], [`ar-${target}`]: ["ar"] };
     for (const [name, args] of Object.entries(tools)) {
+      const spec = JSON.stringify([zig, ...args]);
       files[platform === "win32" ? `${name}.cmd` : name] = platform === "win32"
-        ? `@echo off\r\n"${zig}" ${args.join(" ")} %*\r\n`
-        : `#!/bin/sh\nexec "${zig}" ${args.join(" ")} "$@"\n`;
+        ? `@echo off\r\n"${node}" "%~dp0zig-filter.mjs" ${JSON.stringify(spec).replace(/%/g, "%%")} %*\r\n`
+        : `#!/bin/sh\nexec "${node}" "$(dirname "$0")/zig-filter.mjs" '${spec.replace(/'/g, "'\\''")}' "$@"\n`;
     }
   }
   return files;
@@ -58,7 +74,9 @@ export async function provision({ pins, key, dest, fetchImpl = fetch, run = spaw
   fs.mkdirSync(dest, { recursive: true });
   const archive = path.join(dest, pin.archive);
   fs.writeFileSync(archive, bytes);
-  const unpacked = run("tar", ["-xf", archive, "-C", dest], { encoding: "utf8" });
+  // Windows: the system's own bsdtar reads zip; Git Bash puts GNU tar first on PATH, which cannot read zip and treats D:\ as a remote host.
+  const tar = platform === "win32" ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+  const unpacked = run(tar, ["-xf", archive, "-C", dest], { encoding: "utf8" });
   if (unpacked.status !== 0) refuse(`could not unpack ${pin.archive}`);
   fs.rmSync(archive);
   const zig = path.join(dest, pin.dir, platform === "win32" ? "zig.exe" : "zig");

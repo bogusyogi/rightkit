@@ -1,0 +1,9 @@
+{
+  "verdict": {
+    "admit": false,
+    "code": "RK_OWNERSHIP_POLICY_DOWNGRADE",
+    "problems": [
+      "scanner version missing, malformed, or below protected minimum"
+    ]
+  }
+}

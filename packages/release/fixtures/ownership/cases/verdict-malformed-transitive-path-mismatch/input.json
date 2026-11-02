@@ -1,0 +1,79 @@
+{
+  "kind": "verdict",
+  "description": "Transitive finding needs lockfile===file and dependencyPath ending in name.",
+  "expectCode": "RK_OWNERSHIP_MALFORMED_REPORT",
+  "report": {
+    "ok": false,
+    "enrollmentPending": false,
+    "violations": [
+      {
+        "fingerprint": "http.reqwest",
+        "capability": "http-client",
+        "package": "rightkit-http",
+        "tier": "block",
+        "file": "Cargo.lock",
+        "line": 0,
+        "kind": "transitive-dependency",
+        "ecosystem": "cargo",
+        "name": "reqwest",
+        "alias": null,
+        "section": "dependencies",
+        "requirement": "0.12",
+        "features": [],
+        "defaultFeatures": null,
+        "local": false,
+        "source": "registry",
+        "resolvedVersion": "0.12.4",
+        "text": "cargo dependency reqwest",
+        "provenance": "registry",
+        "occurrenceHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "lockfile": "Other.lock",
+        "dependencyPath": [
+          "a",
+          "b",
+          "reqwest"
+        ]
+      }
+    ],
+    "problems": [],
+    "coverage": [],
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "."
+        }
+      ]
+    }
+  },
+  "trust": {
+    "schema": 1,
+    "revokedKeyIds": [],
+    "verifiedTrackingEvidence": [],
+    "minimumScannerVersion": "2.0.0",
+    "minimumCatalogVersion": "1",
+    "repositories": [
+      {
+        "repositoryIdentity": "https://github.com/test/repo",
+        "roots": [
+          "."
+        ],
+        "visibility": "private"
+      }
+    ],
+    "hosts": {
+      "windows": {
+        "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+        "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+      },
+      "macos": {
+        "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+        "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+      }
+    }
+  }
+}

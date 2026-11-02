@@ -39,7 +39,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { crateWorkspaces, pathDependencies, reverseDependents } from "../../packages/release/crate-workspaces.mjs";
-import { crossCompileEnv, crossTargetsFor } from "../../packages/release/cross-targets.mjs";
+import { crossCompileEnv, crossTargetsFor, oneOutput } from "../../packages/release/cross-targets.mjs";
 import { checkArgs, clippyArgs, planScans, runScans, scanDeferrals, scanFailures, scanToolPolicyFromPipeline } from "../../packages/release/deterministic-scans.mjs";
 import { scanGatePassed } from "./scan-receipt.mjs";
 import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
@@ -236,6 +236,8 @@ function killTree(child) {
 
 /** Run one command, teeing output to the job log and to the unit's evidence log. */
 function run(unit, command, args, { cwd = ROOT, env = {}, timeoutMinutes = 25, discardStdout = false } = {}) {
+  // One output directory per crate: every cargo compile is release for the host target unless it names another (oneOutput).
+  if (command === "cargo") args = oneOutput(args);
   const label = `${unit}: ${command} ${args.join(" ")}`;
   return new Promise((resolve) => {
     const started = Date.now();
@@ -485,7 +487,10 @@ async function rustGate(selection, config, consumers = new Map()) {
     // The other two OS targets, every tested feature set (packages/release/cross-targets.mjs; Adrian 2026-11-02), with the zig C toolchain
     // scripts/ci/provision-zig.mjs provisioned (RIGHTKIT_CROSS_CC_DIR).
     for (const target of crossTargetsFor(entry, process.platform)) {
-      for (const features of featureSets) await run(`rust:${name}`, "cargo", clippyArgs(name, { features, target }), { cwd, timeoutMinutes, env: { ...env, ...(crossCompileEnv(target) ?? {}) } });
+      const crossEnv = crossCompileEnv(target);
+      // GC-A14: a host without the zig C toolchain fails the check, never skips it.
+      if (!crossEnv) { results.push({ unit: `rust:${name}`, command: `cargo clippy --target ${target} (RK_CROSS_CC_UNPROVISIONED: run node scripts/ci/provision-zig.mjs)`, ok: false, code: 1, seconds: 0 }); continue; }
+      for (const features of featureSets) await run(`rust:${name}`, "cargo", clippyArgs(name, { features, target }), { cwd, timeoutMinutes, env: { ...env, ...crossEnv } });
     }
     // Features the tests do not enable must still compile; keep in step with packages/release/local-publish.mjs.
     const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);

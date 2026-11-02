@@ -1,0 +1,16 @@
+{
+  "kind": "admission",
+  "description": "inputs-run error with no code: the failure code defaults to UNVERIFIED.",
+  "scenario": {
+    "mode": "enforce",
+    "scannerRoot": "/fixture/scanner",
+    "steps": [
+      {
+        "repositoryRoot": "/fixture/repo",
+        "observed": {
+          "error": "boom"
+        }
+      }
+    ]
+  }
+}

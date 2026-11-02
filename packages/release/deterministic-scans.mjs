@@ -25,7 +25,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn as spawnChild, spawnSync } from "./background-process.mjs";
 import { spawnUnderOwnership } from "./build-ownership.mjs";
 import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
-import { crossCompileEnv, crossTargetsFor } from "./cross-targets.mjs";
+import { crossCompileEnv, crossTargetsFor, oneOutput } from "./cross-targets.mjs";
 import { CLIPPY_UNIVERSAL_FEATURE_FLAGS, canonicalJson, clippyBatchPlan, clippySelectionOf, digestScanSet, requiredScanIds, rustCratePlan, rustScanId } from "./scan-digest.mjs";
 import { reach } from "./lock-graph.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
@@ -857,6 +857,8 @@ export function declaredBrokerCall(unit, value) {
 export function planScans({
   changed = [], contentRoot, liveRoot = contentRoot, trustedRoot = null, exists = fs.existsSync, readFile = (f) => fs.readFileSync(f, "utf8"),
   platform = process.platform, includeTests = true, localCompile = true,
+  // The host's CPU architecture for its own Rust target (oneOutput, cross-targets.mjs).
+  nativeArch = process.arch,
   // Where the quiet test scans (ci/gate.config.json `quietTests`) run: "local" plans them for the quiet lane; "ci" leaves them to the
   // CI shards (one crate per runner, where the port, pipe, desktop and wall-clock conflicts that force the serial lane do not exist)
   // and records a note naming them (Adrian 2026-10-22: compile locally on the warm cache, qualify the conflicting tests on VMs).
@@ -989,7 +991,8 @@ export function planScans({
   const plainDir = (d) => !ABSOLUTE_PATH.test(d) && !d.split("/").includes("..") && SAFE_UNIT_DIR.test(d);
   const cargoWs = cleanDir(cargoDir);
   if (!plainDir(cargoWs)) throw new TypeError("planScans: cargoDir must be a plain repository-relative directory");
-  const cargoBase = (ws, args, { raw = false } = {}) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...(raw ? args : everyFailure(args))], ...(ws !== "." ? { cwd: ws } : {}), ...(targetDirs?.[ws] ? { env: { CARGO_TARGET_DIR: targetDirs[ws] } } : {}) });
+  // Every compile lands in the one output directory (oneOutput, cross-targets.mjs): release profile, the host's target unless another is named.
+  const cargoBase = (ws, args, { raw = false } = {}) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...oneOutput(raw ? args : everyFailure(args), { platform, arch: nativeArch })], ...(ws !== "." ? { cwd: ws } : {}), ...(targetDirs?.[ws] ? { env: { CARGO_TARGET_DIR: targetDirs[ws] } } : {}) });
   // Class B (compiles): started from the primary checkout on a broker host, the snapshot carrier names the source.
   const cargoIn = (ws, ...args) => ({ ...cargoBase(ws, args), ...(cargoLiveRoot ? { root: "cargoLive" } : {}) });
   // A Rust test scan on a BROKER host (cargoLiveRoot set; GATE-CONTRACT GC-A08): the broker compiles with the plain test command plus --locked and
@@ -1243,7 +1246,7 @@ export function planScans({
     for (const ws of touchedWs) add({ id: `cargo-metadata${wsIdSuffix(ws)}`, class: A, ...cargoReadIn(ws, ...metadataArgs()) });
     // rightkit#1450 (Adrian, 2026-11-02): every build script and proc macro of the workspace must have been traced once on this host, writing only
     // inside its build directories; an untraced or out-of-bounds unit refuses Class A, naming it. Runs the gate's own command, directly (GC-A11).
-    for (const ws of touchedWs) add({ id: `build-helpers${wsIdSuffix(ws)}`, class: A, tool: "node", args: [BUILD_HELPERS_COMMAND, "check", "--manifest-path", ws === "." ? "Cargo.toml" : `${ws}/Cargo.toml`], root: "content" });
+    for (const ws of touchedWs) add({ id: `build-helpers${wsIdSuffix(ws)}`, class: A, tool: "node", args: [BUILD_HELPERS_COMMAND, "check", "--manifest-path", ws === "." ? "Cargo.toml" : `${ws}/Cargo.toml`, ...(platform === "linux" ? ["--trace-missing"] : [])], root: "content" });
     // Locked package listings are observations in RustRight (#1216). They run through the selected executor
     // from the checked Cargo inputs, just like metadata; an executor refusal remains a failed scan.
     for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, ...cargoReadIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });
@@ -1311,7 +1314,6 @@ export function planScans({
     });
   }
   const clippyEntries = [];
-  const crossOnBroker = [];
   for (const name of crateNames) {
     // Feature sets exactly as CI's gate runs them (scripts/ci/gate.mjs, ci/gate.config.json rust.<crate>):
     // clippy per `featureSets` (default features when absent); check per `checkFeatureSets` (default
@@ -1326,16 +1328,16 @@ export function planScans({
     checkSets.forEach((set, i) => add({ id: rustScanId.checkFeatures(name, i), class: B, ...cargoIn(ws, ...checkArgs(crate, { features: set, locked: true })) }));
     if (clippyBatching) lintSets.forEach((set) => clippyEntries.push({ name, crate, ws, set, count: lintSets.length, env: targetDirs?.[ws] ?? null }));
     else lintSets.forEach((set, i) => add({ id: rustScanId.clippy(name, lintSets.length, i), class: B, ...cargoIn(ws, ...clippyArgs(crate, { features: set, locked: true })) }));
-    // The other two OS targets, every lint set, -D warnings (cross-targets.mjs; Adrian 2026-11-02). A direct route (CI, Linux) runs them with
-    // the provisioned zig C toolchain (RIGHTKIT_CROSS_CC_DIR). The broker does not yet admit `--target` for them or the zig CC_/CXX_/AR_
-    // variables, so a broker host plans none and says so in the notes; CI checks all three on every push.
-    const foreign = crossTargetsFor(own, platform);
-    if (foreign.length && cargoLiveRoot) crossOnBroker.push(name);
-    else for (const target of foreign) {
+    // The other two OS targets, every lint set, -D warnings, on every host (cross-targets.mjs; Adrian 2026-11-02/03, no skip). The zig C
+    // toolchain must be provisioned (crossCcDir); without it the scan fails naming the fix, never skipped. On a broker host the broker must
+    // admit the cross target and its CC_/CXX_/AR_ variables; a refusal there fails the scan.
+    for (const target of crossTargetsFor(own, platform)) {
       const crossEnv = crossCompileEnv(target);
       lintSets.forEach((set, i) => {
+        const id = `${rustScanId.clippy(name, lintSets.length, i)}@${target}`;
+        if (!crossEnv) { add({ id, class: B, tool: "node", args: ["-e", `console.error("RK_CROSS_CC_UNPROVISIONED: the zig C toolchain for ${target} is not provisioned; run node scripts/ci/provision-zig.mjs <managed data root>/zig (or set RIGHTKIT_CROSS_CC_DIR)"); process.exit(1)`] }); return; }
         const scan = cargoIn(ws, ...clippyArgs(crate, { features: set, locked: true, target }));
-        add({ id: `${rustScanId.clippy(name, lintSets.length, i)}@${target}`, class: B, ...scan, ...(crossEnv ? { env: { ...(scan.env ?? {}), ...crossEnv } } : {}) });
+        add({ id, class: B, ...scan, env: { ...(scan.env ?? {}), ...crossEnv } });
       });
     }
     // rustdoc flags go after `--` for this crate's library only: the broker owns RUSTDOCFLAGS and refuses
@@ -1344,7 +1346,6 @@ export function planScans({
       add({ id: rustScanId.doc(name), class: B, ...cargoIn(ws, "rustdoc", "-p", crate, "--lib", ...lintSets[0], "--locked", "--", ...DOC_RUSTDOC_ARGS) });
     }
   }
-  if (crossOnBroker.length) notes.push(`cross-target clippy (the other two OS targets) not run on this broker host for ${crossOnBroker.length} crate(s): the broker does not yet admit --target with the zig C toolchain; CI runs it on every push`);
   if (clippyBatching && clippyEntries.length) {
     // One Clippy scan per batch (row 8.6): the independent batches first, the sidecar-bound ones after them (row 8.8; the compile lane
     // drains in plan order). The reason a configuration stays separate is recorded in the plan notes.

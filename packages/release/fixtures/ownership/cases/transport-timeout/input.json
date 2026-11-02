@@ -1,0 +1,8 @@
+{
+  "kind": "transport",
+  "description": "Deadline exceeded: child killed, error `scan exceeded <timeoutMs> ms`.",
+  "timeoutMs": 400,
+  "inputsOnly": false,
+  "execPath": "node",
+  "workerSource": "setTimeout(() => {}, 30000);"
+}

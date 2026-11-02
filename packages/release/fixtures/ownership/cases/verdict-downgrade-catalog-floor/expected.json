@@ -1,0 +1,9 @@
+{
+  "verdict": {
+    "admit": false,
+    "code": "RK_OWNERSHIP_POLICY_DOWNGRADE",
+    "problems": [
+      "catalog version missing, malformed, or below protected minimum"
+    ]
+  }
+}

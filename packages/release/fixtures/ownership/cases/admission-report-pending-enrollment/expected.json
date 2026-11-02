@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "report",
+        "admit": false,
+        "code": "RK_OWNERSHIP_REPORT_FAILED",
+        "problems": [
+          "protected ownership scanner reported ok:false"
+        ],
+        "outcome": "report-failed",
+        "violations": [],
+        "scanRoot": "/fixture/repo",
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": true
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 1,
+    "scan": 1
+  }
+}

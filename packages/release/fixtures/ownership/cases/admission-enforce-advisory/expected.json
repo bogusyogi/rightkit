@@ -1,0 +1,36 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": true,
+        "code": "RK_OWNERSHIP_ADVISORY",
+        "problems": [
+          "logging (log.println in src/main.rs) is owned by rightkit-log [advise]"
+        ],
+        "outcome": "unscanned",
+        "violations": [
+          {
+            "capability": "logging",
+            "owner": "rightkit-log",
+            "fingerprint": "log.println",
+            "file": "src/main.rs",
+            "line": 2
+          }
+        ],
+        "scanRoot": "/fixture/repo",
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_ADVISORY",
+        "message": "RightKit ownership refuses this build: logging (log.println in src/main.rs) is owned by rightkit-log [advise]"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 1,
+    "scan": 1
+  }
+}

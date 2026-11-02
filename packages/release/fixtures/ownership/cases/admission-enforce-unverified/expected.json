@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_UNVERIFIED",
+        "problems": [
+          "p"
+        ],
+        "outcome": "problems",
+        "violations": [],
+        "scanRoot": "/fixture/repo",
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_UNVERIFIED",
+        "message": "RightKit ownership refuses this build: p"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 1,
+    "scan": 1
+  }
+}

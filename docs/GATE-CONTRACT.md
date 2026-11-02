@@ -71,6 +71,28 @@ Adrian, 2026-11-02, in the broker owner's chat (checked with pulse `said`), appr
 
 Adrian, 2026-11-02, in the broker owner's chat (checked with pulse `said`): "Refusal, remove but I want a daily job checking the warmth etc and reporting issues."
 
+[GC-A14] 2026-11-02: **Every gate run checks every crate for all three OS targets.**
+- The host builds and tests its own OS. The other two of Linux (`x86_64-unknown-linux-gnu`), macOS (`aarch64-apple-darwin`) and Windows (`x86_64-pc-windows-gnu`) are checked with `cargo clippy --target <t> -p <crate> --no-deps --all-targets <each tested feature set> -- -D warnings`, on every host: Mac, Dell, Linux and CI.
+- zig, pinned in `ci/zig.json`, is the cross C toolchain. A host without it fails the scan with `RK_CROSS_CC_UNPROVISIONED`; it is never skipped.
+- There is no per-crate opt-out (Adrian, 2026-11-03). A crate that cannot be checked for an OS has a bug: its OS code is cfg-gated, or its build script returns early for a foreign `CARGO_CFG_TARGET_OS`.
+- On Mac and Dell the broker admits these cross-target checks and their zig `CC_`/`CXX_`/`AR_` variables; until it does, the scan fails there.
+- A private Linux host that cannot provision zig holds the commit for the Mac or Dell (hold/resume); public repositories leave it to CI.
+
+Adrian, 2026-11-02 (relayed by the cloud agent): "anything run through the Mac or the Windows or Linux must all check for all 3". Prompted by five crates that passed the Linux gate and failed native publish verify on 2026-11-02.
+
+[GC-A15] 2026-11-03: **One build output and one warm cache per app per host; no dev, no debug.**
+- Every compile (check, clippy, rustdoc, the test compile, both installers) uses the release profile for the host's own target. The output is the app's one target directory, with the build at `<target>/<host triple>/release`.
+- No flag decides the directory. On Mac and Dell the broker forces the directory, the release profile and the host target, and refuses any other profile and any `test-mode` feature. The gate does the same on Linux and CI (`cross-targets.mjs` `oneOutput`).
+- An app carries no Cargo profile table but `[profile.release]`: no `[profile.dev]`, `[profile.test]` or custom profile.
+- Debug assertions are not a release guard. The release tool's forbidden-feature check and binary scans keep QA and test code out of a release.
+- The broker's build folder never changes; there is no generation rotation.
+
+Adrian, 2026-11-03: "i wnat all dev completely gone. all debug too. completely gone, all apps. not allowed through the gate, or the broker. single build dir per app/ cargo.toml or whatever. never another, hard block."
+
+[GC-A16] 2026-11-03: **Dev builds are signed but not notarized.** Notarization does not affect macOS permissions, which follow the signature and the app identity (GC-T12). Adrian, 2026-11-03: "dev builds can skip notarization if it doens't affect permissions etc."
+
+[GC-A17] 2026-11-03: **Cloud agents work on branches.** The no-branch, no-worktree rules (GC-A01) apply to Adrian's machines. Cloud agents commit on `claude/*` branches, and the cloud owner merges them to `main`. Adrian, 2026-11-03: "cloud agents work on branches. the rule is for my machines".
+
 Every other clause is read around GC-A07. Adrian, 2026-11-02, relayed verbatim by the Dell HR chat: "ok, one thing we have established is we are getting rid of debug. dev is actual installer with rk qa/ it can have faster compile like fat or thin or whatever, since it is not release. and qa journey will be moved out of build. this decision is already locked. everything else has to be worked around this." To rkn the same day: "this goes in the contracts asap".
 
 ## 1. User requirements
@@ -460,6 +482,10 @@ Every operative requirement id of this contract, its subject, status (`operative
 | GC-A11 | Class A never runs in the broker; non-compiling cargo calls run directly with the pinned toolchain (2026-11-02) | operative | - |
 | GC-A12 | tsc runs once, in Class A; the web build runs outside the broker; a type-check-only tsc step is skipped (2026-11-02) | operative | - |
 | GC-A13 | Unexplained rebuilds never fail a build; cause evidence is recorded; a daily Legion job reports warmth (2026-11-02) | operative | - |
+| GC-A14 | Every gate run checks every crate for all three OS targets; zig is the cross C toolchain; no opt-out (2026-11-02/03) | operative | - |
+| GC-A15 | One build output and one warm cache per app per host: release profile, host target, broker-forced directory; no dev or debug (2026-11-03) | operative | - |
+| GC-A16 | Dev builds are signed, not notarized (2026-11-03) | operative | - |
+| GC-A17 | Cloud agents work on claude/* branches; the no-branch rule covers Adrian's machines (2026-11-03) | operative | - |
 | GC-T01 | Origin host | operative | B3 |
 | GC-T02 | Native build target | operative | - |
 | GC-T03 | Qualification runner | operative | - |

@@ -1,29 +1,9 @@
-# RightKit standard Cargo profiles for every app workspace (Adrian, 2026-10-16; Astra-reviewed option C).
-# [profile.dev] is for cargo test, check and clippy (class B). Installers, dev and release, both use
-# [profile.release] (GATE-CONTRACT GC-A07): the dev installer is the release profile plus `qa-native`; no dev-installer profile.
-# `release-iterate` is retired. Panic behaviour is the same in every app: unwind.
-# Copy these tables verbatim into the app's workspace-root Cargo.toml; the RightKit ownership scanner
-# flags any deviation. Keep the app's existing [profile.release] optimization keys, but set panic = "unwind".
-
-[profile.dev]
-opt-level = 1
-debug = "line-tables-only"
-strip = "none"
-debug-assertions = true
-overflow-checks = true
-lto = "off"
-panic = "unwind"
-incremental = true
-codegen-units = 256
-rpath = false
-
-# Dependencies: non-incremental so sccache can cache them across apps.
-[profile.dev.package."*"]
-incremental = false
-codegen-units = 16
-
-# No test-profile overrides: test inherits dev.
-# The retired release-iterate profile must not appear: delete it and its package overrides.
+# RightKit standard Cargo profile for every app workspace (Adrian, 2026-10-16; GATE-CONTRACT GC-A01, GC-A07).
+# One build output and one warm cache per app per host: every gate compile (check, clippy, rustdoc, the test compile and
+# both installers, dev and release) uses [profile.release] for the host's target (cross-targets.mjs oneOutput). The dev
+# installer is the release profile plus `qa-native`. An app carries no [profile.dev], [profile.test] or other custom
+# profile: the RightKit ownership scanner refuses them. `release-iterate` is retired. Panic behaviour is the same in every
+# app: unwind. Keep the app's existing [profile.release] optimization keys, but set panic = "unwind".
 
 [profile.release]
 panic = "unwind"
