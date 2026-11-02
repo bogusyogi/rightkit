@@ -53,9 +53,7 @@ pub(crate) fn split_pipelines(command: &str) -> Vec<Vec<Vec<String>>> {
             }
             '\'' | '"' | '`' | '(' | ')' | '{' | '}' => {
                 // `${PPID}` must stay one word.
-                if c == '{' && word == "$" {
-                    word.push(c);
-                } else if c == '}' && word.starts_with("${") {
+                if (c == '{' && word == "$") || (c == '}' && word.starts_with("${")) {
                     word.push(c);
                 } else {
                     flush_word(&mut word, &mut tokens);
