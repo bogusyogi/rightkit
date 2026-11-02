@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)] // the kernel lanes return the crate's KernelError, which carries diagnostic context
 //! Integration tests for the ported `p5_core::kernel_*` modules (packet
 //! P5d), mirroring key end-to-end cases from
 //! `src/packages/kernel/{index.mjs,lib/*.mjs}`. Exercises the crate's public
