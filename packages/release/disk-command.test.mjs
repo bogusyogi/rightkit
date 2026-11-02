@@ -2592,3 +2592,10 @@ test("the usage line lists run [--auto|--light], run-root <name> [--days N] [--r
     return true;
   });
 });
+
+test("the scheduled job runs the real node file, never a version manager's link to it (Dell task 0x80070003 through C:\\nvm4w\\nodejs, 2026-11-02)", () => {
+  const spec = scheduleSpec({ platform: process.platform === "win32" ? "win32" : "darwin" });
+  const text = JSON.stringify(spec);
+  const real = realpathSync.native(process.execPath);
+  assert.ok(text.includes(JSON.stringify(real).slice(1, -1)), `the job names ${real}`);
+});

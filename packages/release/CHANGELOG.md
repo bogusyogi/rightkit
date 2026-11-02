@@ -2,6 +2,7 @@
 
 ## 0.6.23 (unpublished)
 
+- **`right-release disk install` schedules the real node file, not a version manager's link (Dell "RightKit Disk Hygiene" task exit 0x80070003, 2026-11-02):** the task named `process.execPath`, which on the Dell is nvm-windows' `C:\nvm4w\nodejs\node.exe`, a symlink into the user profile that the scheduled task context could not follow. The job now names `realpath(process.execPath)`. Re-run `right-release disk install` on a host to re-register.
 - **A typed broker refusal with nothing spawned records its sub-handle unsent at once (HeardRight Mac, 2026-11-02):** 42 carried scans refused while the broker's admission was paused left sub-handles the broker never admitted. Its lease status for a member-less handle is UNKNOWN, so a dead owner's record could not be reclaimed. As `broker-busy` already did, a `broker-refused-*` outcome with no request reference (carried calls) or a refusal in a scan's captured output with no request reference (carried scans) now marks the sub-handle unsent through the build ownership, naming the refusal.
 - **A paused broker reads as paused, not as a missing request reference (HeardRight Mac, 2026-11-02):** `refusalInCapturedOutput` read only JSON frames, so the client's plain-text `rustright: admission is paused; resume with rustright resume-admission` fell through to "no request reference". It is now the typed `RK_ADMISSION_PAUSED` refusal (`broker-refused-paused`, nothing spawned, never a build outcome).
 

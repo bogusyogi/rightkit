@@ -210,7 +210,10 @@ function defaultGlobalRoots() {
   return roots;
 }
 
-export function scheduleSpec({ platform = process.platform, nodePath = process.execPath, cli = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli", "right-release.mjs"), home = os.homedir() } = {}) {
+// The node a scheduled job runs is the real file, never a version manager's link to it: nvm-windows' C:\\nvm4w\\nodejs is a symlink into the user profile that a
+// scheduled task context cannot always follow (the Dell task failed with 0x80070003, path not found, 2026-11-02).
+const realNode = () => { try { return realpathSync.native(process.execPath); } catch { return process.execPath; } };
+export function scheduleSpec({ platform = process.platform, nodePath = realNode(), cli = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli", "right-release.mjs"), home = os.homedir() } = {}) {
   if (platform === "darwin") {
     // launchd cannot open log files on an external volume for a background job (spawn fails with EX_CONFIG);
     // `disk run` writes its own structured log to disk-hygiene.jsonl on the heavy volume.
