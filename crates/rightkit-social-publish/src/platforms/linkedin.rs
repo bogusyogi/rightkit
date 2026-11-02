@@ -181,7 +181,7 @@ pub fn api_version() -> Result<&'static str, Fail> {
     let Some(pinned) = api_versions::pinned(PLATFORM) else {
         return Err((
             "api_version_missing",
-            "no LinkedIn API version is pinned in the version registry (crates/engine/src/api_versions.rs); nothing was posted"
+            "no LinkedIn API version is pinned in the version registry (rightkit-social-publish src/api_versions.rs); nothing was posted"
                 .to_string(),
         ));
     };
@@ -190,7 +190,7 @@ pub fn api_version() -> Result<&'static str, Fail> {
         return Err((
             "api_version_missing",
             format!(
-                "the pinned LinkedIn API version {version:?} in the version registry (crates/engine/src/api_versions.rs) is not YYYYMM; nothing was posted"
+                "the pinned LinkedIn API version {version:?} in the version registry (rightkit-social-publish src/api_versions.rs) is not YYYYMM; nothing was posted"
             ),
         ));
     }
@@ -1261,7 +1261,7 @@ mod tests {
         let message = version_rejection(426, "gone");
         let pinned = api_versions::pinned(PLATFORM).expect("pinned");
         assert!(message.contains(pinned.version));
-        assert!(message.contains("api_versions.rs"));
+        assert!(message.contains("rightkit-social-publish api_versions"));
         assert!(message.contains("never changes the version"));
     }
 
