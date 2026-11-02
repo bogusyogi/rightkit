@@ -2336,7 +2336,7 @@
       "gateEvidence": "no assets needed; in-memory values only; default features only; no ci/asset-gated.json entry needed",
       "consumes": "PK14-4 named QA glue consumers per 01-packages.md: MailRight tauri_run.rs:109 QA registration, HeardRight and ScrapeRight journey runners; exercised modules: scenario, config, settings, check, storage, util (crates/rightkit-qa/src/lib.rs)",
       "files": {
-        "Cargo.toml": "edc59dfd7bf2ad6fff6557620fbd2ca39bcdc984ae261c80f874d2fcd6c4e0c0",
+        "Cargo.toml": "f469bd3629eaa6eab5ed60aa2abe990d237dca5c820f90d5beb5a1f86f1633f5",
         "README.md": "d5b3c9c5f502f2e2f9280ca0b946ef3159fcbe912ba7cd1eaea71432e163c231",
         "src/main.rs": "5968d3ccfc1dcec8152beb5bae6d914d0cae846f0d06f7b1ba7220c33af3f5b9"
       },
