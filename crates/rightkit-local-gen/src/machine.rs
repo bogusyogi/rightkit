@@ -206,7 +206,7 @@ impl StaleServer {
 pub enum AcquireError {
     /// Another job still holds the server after the wait budget.
     Busy {
-        holder: Holder,
+        holder: Box<Holder>,
         waited: Duration,
     },
     /// The caller's cancel flag fired while waiting.
@@ -528,7 +528,7 @@ impl MachineLock {
             // it just yielded ahead of the job that waited for it.
             let my_turn = read_waiters(&dir, true)
                 .first()
-                .map_or(true, |oldest| ticket.is_me(oldest));
+                .is_none_or(|oldest| ticket.is_me(oldest));
             let mut blocked_in_lock = false;
             if my_turn {
                 let slice = poll.min(wait.saturating_sub(started.elapsed()));
@@ -582,11 +582,11 @@ impl MachineLock {
             let remaining = wait.saturating_sub(started.elapsed());
             if remaining.is_zero() {
                 return Err(AcquireError::Busy {
-                    holder: observed_holder(&dir),
+                    holder: Box::new(observed_holder(&dir)),
                     waited: started.elapsed(),
                 });
             }
-            if last_announce.map_or(true, |at| at.elapsed() >= ANNOUNCE_EVERY) {
+            if last_announce.is_none_or(|at| at.elapsed() >= ANNOUNCE_EVERY) {
                 on_wait(&observed_holder(&dir));
                 last_announce = Some(Instant::now());
             }

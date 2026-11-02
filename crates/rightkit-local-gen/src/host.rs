@@ -44,8 +44,8 @@ impl Default for HostConfig {
 static CONFIG: OnceLock<HostConfig> = OnceLock::new();
 
 /// Set the host configuration once. Returns the rejected value when one is already set.
-pub fn configure(config: HostConfig) -> Result<(), HostConfig> {
-    CONFIG.set(config)
+pub fn configure(config: HostConfig) -> Result<(), Box<HostConfig>> {
+    CONFIG.set(config).map_err(Box::new)
 }
 
 /// The configuration in force (the defaults until [`configure`] is called).
