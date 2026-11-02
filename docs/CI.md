@@ -247,6 +247,22 @@ gate report names it under "Now green" for removal in next commit.
 
 ## Publishing
 
+### Native Mac & Windows check before merge (Adrian, 2026-11-02)
+
+The local gate builds and tests only its own OS. Code under `cfg(target_os = "macos")` or `cfg(windows)` first compiled at
+`publish.yml` native verify, after merge & qualify; five crates failed there on 2026-11-02 (system-monitor, local-gen,
+app-manager, dictation-models, credentials), each costing a full fix/merge/qualify/publish round. Every unit is therefore
+checked on all three OSes before it reaches `main`:
+
+1. Local gate on the host's own OS (`rightkit-gate check --commit HEAD`, then `--to compile --unit <unit>`).
+2. On the unit's branch, before merge: `ci.yml` `workflow_dispatch` with `units` (`rust:<crate>` / `npm:<dir>`),
+   `expected_sha` = branch HEAD. Its `windows` and `macos` shards build and test the units natively; both must be green.
+3. Merge; Class A on `main`; `qualify-direct.yml`.
+4. `publish.yml` native verify stays the final check.
+
+A cross-target `clippy --target` from one host is not a substitute: most crates carry C-building dependencies (ring,
+libsqlite3-sys, aws-lc-sys, openssl-sys) that need the target OS's toolchain.
+
 Two routes, one uploader (`scripts/ci/upload.mjs`), and registry uploads exist only in Actions:
 
 - **GitHub qualification publishes directly** (Adrian, 2026-10-22: "As soon as the qualification passes on GitHub, GitHub can
