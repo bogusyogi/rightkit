@@ -12,7 +12,6 @@
 
 // `native()` and `NativePlatform` exist only on macOS and Windows; there it type-checks, and on macOS the test returns early.
 #![cfg(any(target_os = "macos", windows))]
-
 #![allow(dead_code)]
 
 use rightkit_automation::*;
