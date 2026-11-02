@@ -19,7 +19,7 @@ import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { runQa } from "./release-qa-command.mjs";
 import { assertInstalledQaAdmission } from "./release-qa-receipt.mjs";
 import {
-  NO_REPOSITORY_CODE, ReleaseSourceError, assertBindsSource, assertInsideSource, assertReleaseSource, gitRootOf, isSnapshotSource, qaAdmissionSourceOptions, resolveReleaseSource, snapshotSourceIdentity, sourceRootOf,
+  NO_REPOSITORY_CODE, ReleaseSourceError, assertBindsSource, assertInsideSource, assertReleaseSource, gitRootOf, isSnapshotSource, resolveReleaseSource, snapshotSourceIdentity, sourceRootOf,
 } from "./release-source-identity.mjs";
 import { SourceSplitError } from "./source-split.mjs";
 import { tempRoot } from "./test-support/temp-roots.mjs";
@@ -323,16 +323,11 @@ test("[7.04] qa --stage installed from a split seals the selected commit's recei
   assert.equal(seen.length, 1); assert.equal(seen[0].cwd, fx.snapshot, "the runner runs in the snapshot's app root"); assert.equal(seen[0].commit, fx.commit);
   assert.ok(seen[0].args.includes(path.join(fx.snapshot, "rightkit-qa.toml")), "the QA plan is the snapshot's");
   assert.deepEqual(rec.offending(), [], `no status, symbolic-ref or HEAD revision from right-release qa: ${JSON.stringify(rec.offending())}`);
-  // The publication's installed-QA admission verifies this receipt. Against HEAD (the checkout route's identity) it is for another commit; with the
-  // split's identity options it is the selected commit's receipt and admits.
+  // The publication's installed-QA admission verifies this receipt. Against HEAD (the checkout route's identity) it is for another commit.
   const manifest = { releaseId: receipt.releaseId, commit: fx.commit, files: SEALED_FILES };
   const admission = { repoRoot: fx.checkout, manifest, platform: "mac", configName: "right-release.config.mjs", credentialStore: store, policyBundleDigest: "b".repeat(64),
     releaseConfigSha256: createHash("sha256").update(fs.readFileSync(path.join(fx.snapshot, "right-release.config.mjs"))).digest("hex") };
   assert.throws(() => assertInstalledQaAdmission(admission), /receipt is for commit .*, current commit is/, "the checkout's HEAD is not the selected commit");
-  const options = qaAdmissionSourceOptions(resolveReleaseSource({ cwd: fx.snapshot, env: fx.env }), rec.run);
-  assert.equal(options.source.commit, fx.commit); assert.equal(options.source.tree, fx.tree); assert.ok(options.closure.digest);
-  assert.equal(assertInstalledQaAdmission({ ...admission, ...options }).digest, receipt.digest);
-  assert.deepEqual(qaAdmissionSourceOptions(resolveReleaseSource({ cwd: fx.checkout, env: {} })), {}, "the checkout route passes nothing and reads HEAD as before");
 });
 
 test("[7.04] qa under a split refuses a config outside the snapshot (R5), a split it cannot prove (R2), and a QA plan or runner that leaves the snapshot, starting no runner; R1: a dirty checkout without a split is still refused", async () => {

@@ -196,15 +196,12 @@ test("invalid TOML is reported, not thrown", () => {
   withApp({ "Cargo.toml": "this is = = not toml" }, (root) => assert.deepEqual(rules(scanCargoProfileContract(root)), ["invalid-toml"]));
 });
 
-test("cfg_attr(not(debug_assertions), windows_subsystem) is flagged, including a multi-line attribute", () => {
+test("cfg_attr(not(debug_assertions), windows_subsystem) is no longer flagged: both installers are the release profile (GC-A07)", () => {
   withApp({
     "Cargo.toml": `${WORKSPACE}${template}`,
     "src-tauri/src/main.rs": '#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]\nfn main() {}\n',
-    "other/src/main.rs": '// note\n#![cfg_attr(\n    all(not(debug_assertions), target_os = "windows"),\n    windows_subsystem = "windows"\n)]\nfn main() {}\n',
-    "engine/src/main.rs": '#![cfg_attr(windows, windows_subsystem = "windows")]\nfn main() {}\n',
   }, (root) => {
-    const findings = scanCargoProfileContract(root).filter(({ rule }) => rule === "windows-subsystem");
-    assert.deepEqual(findings.map(({ file, line }) => `${file}:${line}`).sort(), ["other/src/main.rs:2", "src-tauri/src/main.rs:1"]);
+    assert.deepEqual(scanCargoProfileContract(root).filter(({ rule }) => rule === "windows-subsystem"), []);
   });
 });
 

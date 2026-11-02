@@ -23,7 +23,6 @@ import { spawnSync } from "./background-process.mjs";
 import { resolveSelectedCommit } from "./committed-source.mjs";
 import { canonicalRepositoryIdentity } from "./ownership-approval.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
-import { dependencyClosure } from "./release-qa-receipt.mjs";
 import { brandReleaseSource, isReleaseSource } from "./release-source-brand.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 import { SOURCE_SPLIT_CODE, SourceSplitError, inSnapshot, readSourceSplit } from "./source-split.mjs";
@@ -157,16 +156,6 @@ export function snapshotSourceIdentity(source, git = spawnSync) {
   if (!isSnapshotSource(source)) throw new ReleaseSourceError("snapshotSourceIdentity is for a door source split");
   const origin = plainGit(git, source.checkout, ["remote", "get-url", "origin"]).trim();
   return { commit: source.commit, tree: source.tree, repositoryIdentity: canonicalRepositoryIdentity(origin) };
-}
-
-/**
- * The `{ source, closure }` options `admitInstalledQa` / `assertInstalledQaAdmission` take so that the receipt they
- * verify is compared with the SELECTED commit (its tree, its repository identity, its lockfile closure read from its objects) instead of the
- * checkout's HEAD. `{}` for the checkout route: those functions then read HEAD exactly as before. Spread it into their options.
- */
-export function qaAdmissionSourceOptions(source, git = spawnSync) {
-  if (!isSnapshotSource(source)) return {};
-  return { source: snapshotSourceIdentity(source, git), closure: dependencyClosure(source.checkout, source.commit, git) };
 }
 
 export { SOURCE_SPLIT_CODE };

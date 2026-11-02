@@ -98,7 +98,7 @@ test("the order is the release's, with nothing installed before the installer is
   // The marker is patched BEFORE the first byte is signed (Tauri rewrites it during bundling; doing that to signed bytes breaks Authenticode).
   assert.ok(d.log.indexOf("patch:rightapp.exe") < d.log.findIndex((line) => line.startsWith("sign:")));
   // The payload check is against the exe as it was signed, and the bundle command is the carried Tauri bundle with no Tauri-side signing and no identifier.
-  assert.deepEqual(d.seen.command.args.slice(0, 7), ["exec", "tauri", "bundle", "--bundles", "nsis", "--debug", "--target"]);
+  assert.deepEqual(d.seen.command.args.slice(0, 6), ["exec", "tauri", "bundle", "--bundles", "nsis", "--target"]);
   assert.equal(d.seen.command.cmd, "pnpm");
   const override = JSON.parse(d.seen.command.args[d.seen.command.args.indexOf("--config") + 1]);
   assert.deepEqual(override, { bundle: { createUpdaterArtifacts: false, windows: { signCommand: null } } });

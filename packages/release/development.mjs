@@ -29,10 +29,10 @@ import { packLinuxArtifacts, validateLinuxArchive } from "./linux-artifacts.mjs"
 import { buildAndEmbedNativeHelpers, nativeHelpersFromConfig } from "./native-helpers.mjs";
 import { androidDevelopmentNdkCommand, androidDevelopmentSerial, installAndroidDevelopment, validateAndroidDevelopment } from "./android-dev.mjs";
 
-// One standard Cargo profile for every app (templates/cargo-profiles.toml): Cargo's built-in `dev`.
-// `--profile dev` is valid and no flag also means dev.
-export const DEVELOPMENT_PROFILE = "dev";
-// Cargo writes the `dev` (and `test`) profile to target/<triple>/debug, never .../dev; `bench` goes to release.
+// GATE-CONTRACT GC-A07: the dev installer is the release Cargo profile plus the `qa-native` feature
+// (`tauri build --features qa-native`, no `--debug`). One unit set, one cache; `[profile.dev]` stays for cargo test/check/clippy.
+export const DEVELOPMENT_PROFILE = "release";
+// Cargo writes the `dev` (and `test`) profile to target/<triple>/debug, never .../dev; `release` and `bench` go to release.
 // Every path built from a profile name must go through this.
 export function cargoProfileDirectory(profile) {
   if (profile === "dev" || profile === "test") return "debug";
@@ -52,7 +52,7 @@ export function developmentEnvironment(env = process.env, platform = process.pla
   };
   for (const key of RELEASE_ONLY_APPLE_ENV) delete result[key];
   delete result.CARGO_INCREMENTAL;
-  // A dev build is debug-signed: a release signing-properties path never reaches it.
+  // A dev build uses the dev signing identity: a release signing-properties path never reaches it.
   delete result.RIGHTKIT_ANDROID_SIGNING_PROPERTIES;
   // A direct (Linux) host never gets the managed agent-bin on PATH or a discovered socket, even when it DECLARES a broker route: managedRuntimeClient then returns the declared,
   // pinned client, but the agent-bin directory and socket here come from environment-derived managed roots that nothing validated. Whatever the build needs from the broker
@@ -154,7 +154,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   let releaseLease = true;
   try {
     const startedMs = Date.now();
-    // Android: cargo-ndk (Cargo dev profile) fills the generated jniLibs, then the Gradle debug build packages it.
+    // Android: cargo-ndk (the release profile) fills the generated jniLibs, then the Gradle debug build packages it.
     if (target.ndk) { rmSync(target.ndk.jniLibs, { recursive: true, force: true }); execute(androidDevelopmentNdkCommand(target.ndk), { root, env: childEnv, dryRun, run, door, label: "native build" }); }
     // RA-09: the iOS compile steps (xcodegen, xcodebuild build / build-for-testing / test-without-building) are broker adapter jobs of the production native runner, planned together before the first
     // launch; there is no execute() of this file's own for them. The app's own non-native `prepare` commands are the only direct steps and keep going through the door. The built app and the
@@ -195,7 +195,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
       if (helpers) {
         let version;
         try { version = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version; } catch { version = undefined; }
-        buildAndEmbedNativeHelpers({ appRoot: root, app: built, helpers, version, forceArch: String(target.install.targetTriple).startsWith("x86_64") ? "x86_64" : "arm64", configuration: "debug", replaceExisting: true, env: childEnv });
+        buildAndEmbedNativeHelpers({ appRoot: root, app: built, helpers, version, forceArch: String(target.install.targetTriple).startsWith("x86_64") ? "x86_64" : "arm64", configuration: "release", replaceExisting: true, env: childEnv });
       }
       releaseLease = false;
       return installTauriDevId({ appRoot: root, config: target.install, releaseConfig: config, built, env: childEnv })
@@ -368,7 +368,7 @@ export function receiptRelativeOutputPath({ declared, root, manifestDir = ".", m
   const manifestParts = String(manifestDir).split(/[\\/]/).filter((part) => part && part !== ".");
   const at = segments.findIndex((segment, index) => segment === "target" && segments.slice(0, index).every((part, i) => part === manifestParts[i]));
   if (at < 0) {
-    const error = new Error(`${label} ${JSON.stringify(declared)} is a source-relative path, but this build is receipt-managed: its outputs are under ${managedOutputDir}, not the source tree or the snapshot. Declare it relative to the Cargo target directory (target/<triple>/debug/bundle/...), or omit it so the receipt's directory is used`);
+    const error = new Error(`${label} ${JSON.stringify(declared)} is a source-relative path, but this build is receipt-managed: its outputs are under ${managedOutputDir}, not the source tree or the snapshot. Declare it relative to the Cargo target directory (target/<triple>/release/bundle/...), or omit it so the receipt's directory is used`);
     error.code = "DEV_OUTPUT_SOURCE_RELATIVE";
     throw error;
   }

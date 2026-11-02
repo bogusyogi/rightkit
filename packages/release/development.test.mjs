@@ -48,7 +48,7 @@ test("runDevelopment judges the native host from its own `nativeHost` (the kerne
 test("development environment preserves Team identity and disables release-only signing material", () => {
   const env = developmentEnvironment({ APPLE_ID: "secret", APPLE_API_KEY: "release-only", APPLE_API_ISSUER: "release-only", APPLE_API_KEY_PATH: "release-only", APPLE_CERTIFICATE: "release-only", APPLE_CERTIFICATE_PASSWORD: "release-only", TAURI_SIGNING_PRIVATE_KEY: "secret", APPLE_SIGNING_IDENTITY: "Developer ID Application: Fixture (6KLGD3LLKF)", APPLE_DEVELOPER_ID: "configured", APPLE_TEAM_ID: "6KLGD3LLKF", KEEP: "yes" });
   assert.equal(env.RIGHTKIT_BUILD_MODE, "dev");
-  assert.equal(env.RIGHTKIT_CARGO_PROFILE, "dev");
+  assert.equal(env.RIGHTKIT_CARGO_PROFILE, "release");
   assert.equal(env.TAURI_SIGNING_PRIVATE_KEY, "");
   for (const key of ["APPLE_ID", "APPLE_PASSWORD", "APPLE_API_KEY", "APPLE_API_ISSUER", "APPLE_API_KEY_PATH", "APPLE_CERTIFICATE", "APPLE_CERTIFICATE_PASSWORD"]) assert.equal(env[key], undefined);
   assert.equal(env.KEEP, "yes");
@@ -144,7 +144,7 @@ test("pnpm subprocess preserves JSON arguments and dev environment without compi
       },
     });
     const jsonLine = output.trim().split(/\r?\n/).at(-1);
-    assert.deepEqual(JSON.parse(jsonLine), { args: ["a \"quoted\" value"], profile: "dev", incremental: null });
+    assert.deepEqual(JSON.parse(jsonLine), { args: ["a \"quoted\" value"], profile: "release", incremental: null });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -155,7 +155,7 @@ test("Tauri installer resolution uses RightKit metadata target and fails missing
     mkdirSync(path.join(root, "src-tauri"), { recursive: true });
     writeFileSync(path.join(root, "src-tauri", "Cargo.toml"), "[package]\nname='fixture'\nversion='0.1.0'\n");
     const descriptor = { productName: "Fixture", manifestPath: "src-tauri/Cargo.toml", targetTriple: "x86_64-pc-windows-msvc" };
-    const bundleDir = path.join(target, descriptor.targetTriple, "debug", "bundle", "nsis");
+    const bundleDir = path.join(target, descriptor.targetTriple, "release", "bundle", "nsis");
     mkdirSync(bundleDir, { recursive: true });
     const calls = [];
     const runCargo = (args) => { calls.push(args); return { status: 0, stdout: JSON.stringify({ target_directory: target }) }; };
@@ -301,8 +301,9 @@ test("macOS dev install removes the failed copy, keeps NO old app, and throws a 
   assert.deepEqual([...files.keys()], []);
 });
 
-test("right-release dev uses Cargo's built-in dev profile, written to target/<triple>/debug", () => {
-  assert.equal(DEVELOPMENT_PROFILE, "dev");
+test("right-release dev uses the release profile (GC-A07), written to target/<triple>/release; dev and test stay debug", () => {
+  assert.equal(DEVELOPMENT_PROFILE, "release");
+  assert.equal(cargoProfileDirectory(DEVELOPMENT_PROFILE), "release");
   assert.equal(cargoProfileDirectory("dev"), "debug");
   assert.equal(cargoProfileDirectory("test"), "debug");
   assert.equal(cargoProfileDirectory("release"), "release");

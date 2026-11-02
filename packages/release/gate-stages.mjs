@@ -1,6 +1,6 @@
 // The stages behind the one door (Adrian, 2026-10-25): rightkit-gate --to <stage> runs every stage up to <stage>, in order, for the
 // commit at HEAD, and stops at the first that fails. Class A always runs first. The stages reuse the existing owners instead of
-// reimplementing them: the gate's own scans for check/compile, `right-release` for package (source QA, then the build that seals the
+// reimplementing them: the gate's own scans for check/compile, `right-release` for package (the build that seals the
 // exact artifact set), installed QA on that sealed set, and upload of that same sealed set. Those right-release commands refuse to
 // run unless a live door run launched them (requireDoorRun), so there is no side door into a stage.
 //

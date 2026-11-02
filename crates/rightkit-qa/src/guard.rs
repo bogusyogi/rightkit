@@ -582,7 +582,7 @@ fn qa_script_issues(scripts: &BTreeMap<String, String>, dev_url: Option<&str>) -
             issues.push(format!(
                 "package script {name} runs `tauri dev` with qa-native: QA would drive the dev \
                  server, not the built app. Build the app instead, for example \
-                 `tauri build --debug --features qa-native`"
+                 `tauri build --features qa-native`"
             ));
             continue;
         }
@@ -600,7 +600,7 @@ fn qa_script_issues(scripts: &BTreeMap<String, String>, dev_url: Option<&str>) -
                  first, and tauri.conf.json declares build.devUrl ({url}): QA would run a missing \
                  or stale frontend, or the dev server. Build the frontend before cargo \
                  (`pnpm build && cargo build --features qa-native`) or use \
-                 `tauri build --debug --features qa-native`"
+                 `tauri build --features qa-native`"
             ));
         }
     }
@@ -882,7 +882,7 @@ fn run() {
     /// The older debug-only form, with its compile_error. Still accepted.
     const RUST_DEBUG_ONLY: &str = r##"
 #[cfg(all(not(debug_assertions), feature = "qa-native"))]
-compile_error!("qa-native is debug only");
+compile_error!("qa-native needs debug assertions");
 fn run() {
     #[cfg(all(debug_assertions, feature = "qa-native"))]
     if let Some(p) = rightkit_qa_driver::embedded::Control::<tauri::Wry>::new().build_if_enabled() { b = b.plugin(p); }

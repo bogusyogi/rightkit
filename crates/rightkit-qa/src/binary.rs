@@ -31,8 +31,10 @@
 //! retained copy of the replaced build (D01), whichever source found the build. A QA launch never
 //! runs from a broker generation path.
 //!
-//! Every candidate must exist, be a regular file, be named `<bin>` (or `<bin>.exe`) and must not sit in a
-//! `release` profile directory. A shipping or release-tier artifact is never picked.
+//! Every candidate must exist, be a regular file, be named `<bin>` (or `<bin>.exe`) and not be an installed app.
+//! A dev build is the `release` Cargo profile plus `qa-native` (GATE-CONTRACT GC-A07), so a `release` profile
+//! directory is accepted. What keeps a shipping artifact out is the control marker every candidate must carry:
+//! `right-release` refuses to seal or upload a build that has it, so a release-tier build has none.
 //!
 //! # Broker format
 //!
@@ -40,8 +42,8 @@
 //! (`compilerArtifacts`), no executable path, so they cannot name the last built artifact. What is stable
 //! is the workspace state: `ws/<key>/identity.json` (`{"schemaVersion":1,"key","canonicalRoot"}`) and the
 //! target tree `ws/<key>/g/<generation>/<leaf>/...` where `<leaf>` is `t` or `target`. Under the leaf
-//! sits `[<triple>/]<profile>/<bin>[.exe]`. Only the dev profiles `release-iterate`, `debug` and `dev` are
-//! read; the newest by modification time wins.
+//! sits `[<triple>/]<profile>/<bin>[.exe]`. Only the profiles `release` (the dev build), `release-iterate`,
+//! `debug` and `dev` are read; the newest by modification time wins.
 use crate::util::{err, Error, Result};
 use std::path::{Path, PathBuf};
 
@@ -56,8 +58,10 @@ pub const QA_CONTROL_MARKER: &str = "RIGHTKIT-QA-CONTROL-SERVER-PRESENT";
 pub const STASH_DIR: &str = ".rightkit-qa-bin";
 /// Default pointer file name, relative to the app root.
 pub const POINTER_FILE: &str = ".rightkit-qa-app-binary";
-/// Profile directories the broker lookup reads. `release` is never in this list.
-pub const DEV_PROFILES: [&str; 3] = ["release-iterate", "debug", "dev"];
+/// Profile directories the broker lookup reads. The dev build is the `release` profile plus `qa-native`
+/// (GATE-CONTRACT GC-A07); the older dev profiles stay readable. The control marker, not the directory,
+/// tells a QA build from a plain one.
+pub const DEV_PROFILES: [&str; 4] = ["release", "release-iterate", "debug", "dev"];
 
 /// Which source produced the path.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -231,7 +235,7 @@ pub fn has_qa_marker(path: &Path) -> std::io::Result<bool> {
     }
 }
 
-/// Exists, a regular file, named `<bin>` or `<bin>.exe`, and not in a `release` profile directory.
+/// Exists, a regular file, named `<bin>` or `<bin>.exe`, and not an installed app.
 pub fn validate(path: &Path, bin: &str) -> Result<()> {
     crate::installed::refuse_installed(path, "app binary")?;
     let meta =
@@ -241,13 +245,6 @@ pub fn validate(path: &Path, bin: &str) -> Result<()> {
     }
     if !name_matches(path, bin) {
         return err(format!("{} is not named {bin}", path.display()));
-    }
-    if path
-        .parent()
-        .and_then(|p| p.file_name())
-        .is_some_and(|n| n == "release")
-    {
-        return err(format!("{} is a release-tier artifact", path.display()));
     }
     Ok(())
 }
@@ -862,7 +859,7 @@ mod tests {
     }
 
     #[test]
-    fn broker_picks_newest_dev_profile_and_never_release() {
+    fn broker_picks_newest_marked_build_in_the_release_profile_too() {
         let base = tmp("broker");
         let app = base.join("app");
         std::fs::create_dir_all(&app).unwrap();
@@ -878,7 +875,8 @@ mod tests {
             .join(exe("myapp"));
         touch(&old, 500);
         touch(&new, 100);
-        touch(&rel, 1); // newest, but release tier
+        // Newest, in the `release` directory, but without the control marker: a release-tier build.
+        write_exe(&rel, 1, false);
         let env = |_: &str| None;
         let got = resolve(&query(
             "myapp",
@@ -888,6 +886,18 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(got.path, new);
+        assert_eq!(got.source, BinarySource::BrokerTarget(ws.clone()));
+
+        // The dev build is the release profile plus `qa-native`: marked, it is the newest and wins.
+        touch(&rel, 1);
+        let got = resolve(&query(
+            "myapp",
+            &app,
+            Some(base.join("rightkit-build-control")),
+            &env,
+        ))
+        .unwrap();
+        assert_eq!(got.path, rel);
         assert_eq!(got.source, BinarySource::BrokerTarget(ws));
     }
 
@@ -972,7 +982,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_directories_and_release_dirs() {
+    fn validate_rejects_directories_and_accepts_the_release_dir() {
         let base = tmp("val");
         let dir = base.join("myapp");
         std::fs::create_dir_all(&dir).unwrap();
@@ -982,10 +992,9 @@ mod tests {
             .contains("not a file"));
         let rel = base.join("target/release").join(exe("myapp"));
         touch(&rel, 1);
-        assert!(validate(&rel, "myapp")
-            .unwrap_err()
-            .0
-            .contains("release-tier"));
+        // The dev build is the release profile plus `qa-native` (GC-A07); the control marker, not the
+        // directory, separates it from a shipping build.
+        assert!(validate(&rel, "myapp").is_ok());
         let ok = base.join("target/release-iterate").join(exe("myapp"));
         touch(&ok, 1);
         assert!(validate(&ok, "myapp").is_ok());

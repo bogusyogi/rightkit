@@ -5,12 +5,14 @@
 //   - panic = "unwind" in dev and release,
 //   - no [profile.release-iterate] (and nothing that inherits it),
 //   - no [profile.test] overrides (test inherits dev).
-// The same scan also flags the two source patterns the single dev profile makes wrong, because a dev
-// build now has debug_assertions on:
-//   - `cfg_attr(not(debug_assertions), windows_subsystem = ...)`: an installed dev app would open a
-//     console window on Windows. Set windows_subsystem = "windows" unconditionally.
-//   - an environment-variable override gated by cfg(debug_assertions): move it to the app's test-mode
-//     feature. Heuristic: a cfg(debug_assertions) attribute or cfg! within 12 lines before an env read.
+// [profile.dev] is the class B profile (cargo test, check, clippy). The installers, dev and release, both
+// build with [profile.release] (GATE-CONTRACT GC-A07): the dev installer is the release profile plus the
+// `qa-native` feature, so it has no debug_assertions, and the release tool's scans (not debug assertions)
+// keep the QA control server out of a release.
+// The same scan also flags a source pattern that behaves differently between the profiles:
+//   - an environment-variable override gated by cfg(debug_assertions): it is compiled in for cargo test and
+//     absent from both installers. Gate it on an explicit feature instead. Heuristic: a
+//     cfg(debug_assertions) attribute or cfg! within 12 lines before an env read.
 //     Suppress a reviewed site with a `rightkit-allow: debug-assertions-env` comment on the cfg line or
 //     the line above it.
 // The template file is the single source: this module reads it, it never copies the values.
@@ -28,7 +30,6 @@ const ENV_WINDOW_LINES = 12;
 // Never part of an app's shipped source: tests, examples, benches and vendored reference copies.
 const SOURCE_SKIP = new Set(["tests", "examples", "benches", "reference"]);
 const ENV_READ = /env::var|var_os|env::set_var|env::remove_var|\benv!\s*\(|option_env!|_env\(|env_var|env_nonempty/;
-const WINDOWS_SUBSYSTEM_GATED = /cfg_attr\s*\((?:(?!\]).)*?not\s*\(\s*debug_assertions\s*\)(?:(?!\]).)*?windows_subsystem/gs;
 
 export function loadCargoProfileTemplate(file = CARGO_PROFILE_TEMPLATE) {
   const profile = parse(readFileSync(file, "utf8")).profile ?? {};
@@ -149,7 +150,7 @@ function* rustFiles(dir) {
   }
 }
 
-// Source patterns the single dev profile makes wrong (see the header). Returns findings with a line number.
+// Source patterns that behave differently between the profiles (see the header). Returns findings with a line number.
 export function scanDebugAssertionSources(root) {
   const findings = [];
   for (const file of rustFiles(root)) {
@@ -157,9 +158,6 @@ export function scanDebugAssertionSources(root) {
     if (!text.includes("debug_assertions")) continue;
     const label = path.relative(root, file).split(path.sep).join("/");
     const lineAt = (index) => text.slice(0, index).split("\n").length;
-    for (const match of text.matchAll(WINDOWS_SUBSYSTEM_GATED)) {
-      findings.push({ rule: "windows-subsystem", file: label, line: lineAt(match.index), message: 'cfg_attr(not(debug_assertions), windows_subsystem = ...) opens a console for installed dev apps; set windows_subsystem = "windows" unconditionally' });
-    }
     const lines = text.split("\n");
     lines.forEach((line, index) => {
       const trimmed = line.trim();
@@ -167,7 +165,7 @@ export function scanDebugAssertionSources(root) {
       if (!/#!?\[cfg|cfg!\s*\(/.test(line)) return;
       if (line.includes(ENV_ALLOW_MARKER) || (lines[index - 1] ?? "").includes(ENV_ALLOW_MARKER)) return;
       if (ENV_READ.test(lines.slice(index, index + ENV_WINDOW_LINES + 1).join("\n"))) {
-        findings.push({ rule: "debug-assertions-env", file: label, line: index + 1, message: "environment-variable override gated by cfg(debug_assertions); move it to the app's test-mode feature" });
+        findings.push({ rule: "debug-assertions-env", file: label, line: index + 1, message: "environment-variable override gated by cfg(debug_assertions): present in cargo test, absent from both installers (dev and release use [profile.release]); gate it on an explicit feature" });
       }
     });
   }

@@ -28,7 +28,7 @@ test("the dev config accepts a debug build, the emulator and device ABIs, and an
   assert.equal(target.build.length, 1);
   const command = androidDevelopmentNdkCommand(target.ndk);
   assert.equal(command.cmd, "cargo");
-  assert.ok(!command.args.includes("--release"));
+  assert.ok(command.args.includes("--release")); // GC-A07: the dev copy is the release profile
   assert.equal(validateDevelopmentConfig(config({ build }), "android", { root }).ndk, null);
   for (const suffix of ["dev", "qa", "test", "debug"]) assert.doesNotThrow(() => validateAndroidDevelopment({ build, install: install({ package: `com.orthiclabs.heardright.${suffix}` }) }, { root }));
 });

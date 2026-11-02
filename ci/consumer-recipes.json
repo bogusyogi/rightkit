@@ -2329,7 +2329,7 @@
     "rightkit-qa": {
       "pkId": "PK14",
       "id": "ci/consumers/rightkit-qa/src/main.rs",
-      "dependency": "rightkit-qa = { version = \"=0.10.1\" }",
+      "dependency": "rightkit-qa = { version = \"=0.10.2\" }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],

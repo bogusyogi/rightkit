@@ -25,7 +25,6 @@ import { main } from "../../packages/release/bin/rightkit-gate.mjs";
 export const MECHANISMS = {
   "class-a-red": { refuse: true, expect: /stopped at check/, what: "class A fails on the host" },
   "compile-red": { refuse: true, expect: /stopped at compile/, what: "the compile fails" },
-  "source-qa-red": { refuse: true, expect: /stopped at package/, what: "source QA fails while packaging" },
   "build-red": { refuse: true, expect: /stopped at package/, what: "the signed build fails" },
   "build-seals-nothing": { refuse: true, expect: /sealed nothing/, what: "the build exits 0 but writes no sealed set" },
   "installed-qa-red": { refuse: true, expect: /stopped at qualify/, what: "installed QA fails on the qualifying host" },
@@ -94,7 +93,6 @@ export async function trial({ seed, mechanism, mutant = null }) {
       transcript.push(`[${runner}] right-release ${args.join(" ")}${opts?.env?.RK_GATE_RUN ? " (door run)" : " (NO door run)"}`);
       if (!opts?.env?.RK_GATE_RUN) problems.push(`right-release ${verb} ran outside a door run`);
       const commit = head();
-      if (verb === "qa" && args.includes("source")) { hit("source-qa-red"); return { status: mechanism === "source-qa-red" ? 1 : 0 }; }
       if (verb === "build") {
         if (runner === "publisher") problems.push("the publisher built: it may only upload qualified bytes");
         hit("build-red"); hit("build-seals-nothing");

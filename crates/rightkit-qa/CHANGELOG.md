@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.2 (unpublished; GATE-CONTRACT GC-A07)
+
+- Changed (dev build = the release profile plus `qa-native`): the control surface no longer needs debug assertions. `embedded` and `in_app` compile under `cfg(feature = "control")` alone, and the `compile_error!` that refused `control` without `debug_assertions` is gone. The release tool, not a compile-time profile check, keeps the control server out of a release: `right-release` scans every sealed binary for `QA_CONTROL_MARKER` and refuses a release or update build that carries it or that names `qa-native` or `test-mode`.
+- Changed (`binary`): `DEV_PROFILES` gains `release`, and `validate` no longer refuses a binary under a `release` profile directory (the dev build lives in `target/<triple>/release`). The control marker every candidate must carry is what separates a QA build from a shipping one. Tests: `broker_picks_newest_marked_build_in_the_release_profile_too`, `validate_rejects_directories_and_accepts_the_release_dir`.
+- The guard still accepts both the feature-only `qa-native` gate and the older `debug_assertions` form.
+
 ## 0.10.1 (unpublished)
 
 - Fixed (`userdata::Guard::for_workspace`): a scenario world's home, which the pool creates at `<rightkit-qa>/<run>/worlds/wNNN/home` (`pool::WorldPlan::world`), is accepted as a QA home location. 0.10.0 accepted only a home directly under a `rightkit-qa` directory, so every pooled `ui_launch` refused itself with `not-a-qa-root` and nothing launched (HeardRight source QA). Its QA root is the world directory `wNNN`, which also holds the world's control socket and token file (`pool::world_env`); a home directly under `rightkit-qa` stays its own root. Any other place is still refused. Tests: `a_scenario_world_home_has_its_world_directory_as_the_qa_root`, and `world_workspace_moves_every_profile_path_into_the_world_and_shares_none` runs the launch guard over every path a world hands the app.

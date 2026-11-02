@@ -1,5 +1,6 @@
 # RightKit standard Cargo profiles for every app workspace (Adrian, 2026-10-16; Astra-reviewed option C).
-# One development profile: Cargo's built-in `dev`, used by build, test, check, clippy and `right-release dev`.
+# [profile.dev] is for cargo test, check and clippy (class B). Installers, dev and release, both use
+# [profile.release] (GATE-CONTRACT GC-A07): the dev installer is the release profile plus `qa-native`; no dev-installer profile.
 # `release-iterate` is retired. Panic behaviour is the same in every app: unwind.
 # Copy these tables verbatim into the app's workspace-root Cargo.toml; the RightKit ownership scanner
 # flags any deviation. Keep the app's existing [profile.release] optimization keys, but set panic = "unwind".

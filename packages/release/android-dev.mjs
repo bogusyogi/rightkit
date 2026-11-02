@@ -60,8 +60,9 @@ export function validateAndroidDevelopment(target, { root }) {
   return { ndk };
 }
 
+// GATE-CONTRACT GC-A07: the dev copy's Rust is the release profile (one unit set and cache with the release build).
 export function androidDevelopmentNdkCommand(ndk) {
-  return androidNdkCommand(ndk, { profile: "dev" });
+  return androidNdkCommand(ndk, { profile: "release" });
 }
 
 export function resolveAdb(env = process.env, { exists = existsSync, platform = process.platform } = {}) {

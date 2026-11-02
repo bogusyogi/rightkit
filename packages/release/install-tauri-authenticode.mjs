@@ -5,7 +5,7 @@
 //   1. build the app without bundling    (`target.build`: a `tauri build ... --no-bundle`; runDevelopment runs it before this module)
 //   2. patch the bundle marker           (UNK -> NSS BEFORE signing: Tauri rewrites it during bundling, and doing that to signed bytes breaks Authenticode)
 //   3. sign the exe and its sidecars, then verify them (signer subject, timestamp)
-//   4. carried `tauri bundle --bundles nsis --debug`   (the installer embeds the exe as signed)
+//   4. carried `tauri bundle --bundles nsis` (the installer embeds the exe as signed)
 //   5. check the payload                 (the exe inside the installer is byte for byte the signed one)
 //   6. sign the installer, then verify it
 //   7. install                           (the silent installer, as the unsigned kind runs it)
@@ -74,10 +74,10 @@ export function validateAuthenticodeBuild(build, label = "development.targets.wi
   if (!builds) refuse("TAURI_AUTHENTICODE_BUILD", `${label} has no \`tauri build --no-bundle\` step: this install kind signs the raw exe the build leaves in its output directory`);
 }
 
-/** The carried bundle command (step 4): the same Tauri bundle the release makes, debug profile, no Tauri-side signing (the installer is signed by step 6). */
+/** The carried bundle command (step 4): the same Tauri bundle the release makes (the release profile, GC-A07: no `--debug`), no Tauri-side signing (the installer is signed by step 6). */
 export function authenticodeBundleCommand(descriptor) {
   const override = { bundle: { createUpdaterArtifacts: false, windows: { signCommand: null } } };
-  return { cmd: "pnpm", args: ["exec", "tauri", "bundle", "--bundles", "nsis", "--debug", "--target", descriptor.targetTriple, "--config", JSON.stringify(override)], ...(descriptor.tauriCwd ? { cwd: descriptor.tauriCwd } : {}), name: "tauri bundle" };
+  return { cmd: "pnpm", args: ["exec", "tauri", "bundle", "--bundles", "nsis", "--target", descriptor.targetTriple, "--config", JSON.stringify(override)], ...(descriptor.tauriCwd ? { cwd: descriptor.tauriCwd } : {}), name: "tauri bundle" };
 }
 
 const exeBase = (name) => String(name).replace(/\.exe$/i, "");
