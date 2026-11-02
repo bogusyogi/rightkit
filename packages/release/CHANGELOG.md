@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.25 (unpublished)
+## 0.6.26 (unpublished)
+
+- **Direct cargo on a broker host runs the broker's own toolchain and plugins (fixes every Dell Class A on 0.6.25).** The gate's direct, non-compiling cargo (GC-A11) took cargo from PATH with the RustRight shims removed. The Dell has no cargo on PATH (`spawn cargo ENOENT`), rustup's default there is another toolchain (1.97.1 instead of the broker's 1.98.0), and cargo-deny / cargo-audit live only in the broker's registered tools. `managed-cargo.mjs` `brokerToolchain` now reads the broker config (`tools`: cargo, then the registered cargo plugins; the managed control root's config, else the data root's) and `directCargoPath` puts those folders first and uses that cargo. Linux and CI, with no broker config, keep PATH.
+
+## 0.6.25 — 2026-11-03
 
 - **Build-helper trace (rightkit#1450).** Class A refuses a build script or proc macro not yet traced on this host. `right-release build-helpers trace-all` traces every gated workspace with one password prompt. The tracers follow the build's whole process tree: macOS `eslogger` (Endpoint Security; needs sudo and Full Disk Access for the terminal), Linux `strace -ff`, Windows ETW (`logman` + `tracerpt`, Administrator). Verdicts from the earlier name-filtered `fs_usage` tracer no longer count. On Linux and CI, `check --trace-missing` traces untraced units itself; CI caches the list. A repository's committed `.rightkit/build-helper-trace.json` is read with the host list.
 - **The vite `dist` is cached.** The web build's output is restored with its original modification times when its committed inputs (everything outside the Rust crates), the Node version and the `VITE_` environment are unchanged, so vite does not run and the Tauri crate that embeds `dist` stays fresh. Measured on HeardRight: vite takes 0.5-1.2 s and about 570 MB, and its output is byte-identical across runs.

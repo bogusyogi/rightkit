@@ -125,11 +125,11 @@
         "reason": "ci/asset-gated.json: FFmpeg binary for the media cross-check (tests/media_ffmpeg.rs); its skip-handling tests also print SKIP markers by design; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "@rightkit/release": {
-        "version": "0.6.25",
+        "version": "0.6.26",
         "allow": [
           "allow_no_test"
         ],
-        "reason": "Adrian, 2026-11-03: \"publish without tests, after publish is done, then work on the tests and keep it for next version\". Every old test of the package was deleted (\"delete all of them, replace them with e2e tests\"); the end-to-end suite lands in 0.6.26, so 0.6.25 has no test script and qualifies on preflight, Class A and the native verify of its sealed archive. Route: the hosted qualify-direct workflow (the broker release preflight, rk-npm-preflight.mjs, requires a test script and is digest-pinned in RustRight)."
+        "reason": "Adrian, 2026-11-03: \"publish without tests, after publish is done, then work on the tests and keep it for next version\". Every old test of the package was deleted (\"delete all of them, replace them with e2e tests\"); until the end-to-end suite lands the package has no test script and qualifies on preflight, Class A and the native verify of its sealed archive. Published from the local host without provenance (rightkit#1471, #1472)."
       },
       "@rightkit/legal": {
         "version": "0.6.3",

@@ -16,9 +16,9 @@ the build refuses one behind its latest, and `template-contract.test.mjs` requir
 command (`pnpm check`) ships from 0.6.6, and the JSON release config is loaded by every command from 0.6.6, so `pnpm release:*` and
 `pnpm dev:build:*` run from the pinned package.
 
-**Pin sequencing.** This template pins `@rightkit/release` 0.6.13, the latest published release; RightKit's own tree is at 0.6.25 (unpublished). The template's
-commands wait for 0.6.25 only for what that release adds (the route probe, and Mac and Dell building the commit's snapshot through the broker carrier): everything the
-template itself runs is in 0.6.13. The pin moves to 0.6.25 in the commit after it is published, and this paragraph is deleted in that commit.
+**Pin sequencing.** This template pins `@rightkit/release` 0.6.13, the latest published release; RightKit's own tree is at 0.6.26 (unpublished). The template's
+commands wait for 0.6.26 only for what that release adds (the route probe, and Mac and Dell building the commit's snapshot through the broker carrier): everything the
+template itself runs is in 0.6.13. The pin moves to 0.6.26 in the commit after it is published, and this paragraph is deleted in that commit.
 
 The template commits no git hook: commit and push run no gate and no local hook check (`docs/GATE-CONTRACT.md`). `prepare`
 runs `rightkit-gate install-hook`, which writes no hook; it removes a `.githooks/pre-push`, forwarder or ownership pre-commit hook that an

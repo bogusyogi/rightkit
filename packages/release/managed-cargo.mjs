@@ -156,7 +156,31 @@ export function realCargoOf(candidates, readHead = fileHead, readMap = (file) =>
  * RIGHTKIT_MANAGED_AGENT_BIN, or a script that routes through the broker, read 4 KiB at most), and the first real cargo left on it.
  * Plain `cargo` then can only be a real toolchain; with none, a cargo launch fails as missing, never through a shim.
  */
-export function directCargoPath({ env = process.env, exists = existsSync, readHead = fileHead, platform = process.platform, gateWrappers = false } = {}) {
+/**
+ * The broker's own registered toolchain on a broker host (Mac, Dell): `{ cargo, dirs }` from its config's `tools` (cargo's toolchain bin first,
+ * then the registered cargo plugins cargo-deny, cargo-audit, ...), or null when no broker config is readable (Linux, CI). The gate's direct,
+ * non-compiling cargo (GATE-CONTRACT GC-A11) runs exactly the broker's pinned toolchain and plugins, never whatever PATH or rustup's
+ * default holds (the Dell has no cargo on PATH; rustup's default there is another toolchain). The config is the live one at the managed
+ * control root, else the data root's (a host whose control-root move has not happened yet).
+ */
+const BROKER_PLUGIN_TOOLS = Object.freeze(["cargo-deny", "cargo-audit", "cargo-about", "cargo-outdated", "cargo-machete", "cargo-upgrade", "cargo-set-version"]);
+export function brokerToolchain({ env = process.env, platform = process.platform, readFile = (f) => readFileSync(f, "utf8"), exists = existsSync } = {}) {
+  let roots; try { roots = resolveManagedRoots({ env, platform }); } catch { return null; }
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  for (const file of [roots.configPath, roots.dataRoot ? paths.join(roots.dataRoot, "config.json") : null].filter(Boolean)) {
+    let config; try { if (!exists(file)) continue; config = JSON.parse(readFile(file)); } catch { continue; }
+    const tools = Array.isArray(config?.tools) ? config.tools : [];
+    const byId = new Map(tools.filter((t) => t && typeof t.id === "string" && typeof t.path === "string").map((t) => [t.id, t]));
+    const cargo = byId.get("cargo");
+    if (!cargo || !exists(cargo.path)) continue;
+    const dirOf = (t) => (typeof t.root === "string" && t.root ? t.root : paths.dirname(t.path));
+    const dirs = [dirOf(cargo), ...BROKER_PLUGIN_TOOLS.map((id) => byId.get(id)).filter((t) => t && exists(t.path)).map(dirOf)];
+    return { cargo: cargo.path, dirs: [...new Set(dirs)], config: file };
+  }
+  return null;
+}
+
+export function directCargoPath({ env = process.env, exists = existsSync, readHead = fileHead, platform = process.platform, gateWrappers = false, broker = brokerToolchain({ env, platform, exists }) } = {}) {
   // `platform` only matters for a forced direct run on Windows (a recorded broker exception): ";" separators, backslash paths, cargo.exe.
   const win = platform === "win32";
   const norm = (d) => (win ? String(d).replaceAll("\\", "/") : d);
@@ -173,6 +197,8 @@ export function directCargoPath({ env = process.env, exists = existsSync, readHe
     kept.push(dir);
     if (!cargo && found) cargo = found;
   }
+  // A broker host: its registered toolchain and plugins come first, and its cargo is the one used.
+  if (broker) return { path: [...broker.dirs, ...kept.filter((d) => !broker.dirs.includes(d))].join(win ? ";" : ":"), dropped, cargo: broker.cargo, broker: broker.config };
   return { path: kept.join(win ? ";" : ":"), dropped, cargo };
 }
 
