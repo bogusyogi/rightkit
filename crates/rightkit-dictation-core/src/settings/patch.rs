@@ -328,7 +328,7 @@ pub fn apply_patch_to(blob: &mut SettingsBlob, patch: &Value) -> Result<(), Stri
                     .as_str()
                     .ok_or("legal_acceptance_version must be string")?
                     .trim();
-                if version != required_legal_acceptance_version() {
+                if required_legal_acceptance_version() != Some(version) {
                     return Err("legal_acceptance_version is not current".to_string());
                 }
                 staged.legal_acceptance_version = Some(version.to_string());
@@ -358,7 +358,7 @@ pub fn apply_patch_to(blob: &mut SettingsBlob, patch: &Value) -> Result<(), Stri
                     .ok_or("legal_material_sha256 must be string")?
                     .trim()
                     .to_ascii_lowercase();
-                if hash != required_legal_material_sha256() {
+                if required_legal_material_sha256() != Some(hash.as_str()) {
                     return Err("legal_material_sha256 is not current".to_string());
                 }
                 staged.legal_material_sha256 = Some(hash);

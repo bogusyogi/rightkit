@@ -1,6 +1,12 @@
 use super::*;
 use rightkit_transcript_library::history::HistoryRetention;
 
+const TEST_LEGAL_CONTRACT: &str = r#"{"acceptanceVersion":"heardright-test-1","materialSha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}"#;
+
+fn configure_test_legal_contract() {
+    configure_legal_contract(TEST_LEGAL_CONTRACT).unwrap();
+}
+
 #[test]
 fn defaults_are_safe() {
     assert_eq!(DEFAULT_CLOSE_BEHAVIOR, "destroy");
@@ -558,6 +564,7 @@ fn migration_never_forces_completed_users_back_into_onboarding() {
 
 #[test]
 fn legal_acceptance_is_current_only_for_the_exact_required_version_and_fields() {
+    configure_test_legal_contract();
     let mut blob = SettingsBlob {
         onboarding_complete: Some(true),
         ..Default::default()
@@ -582,6 +589,7 @@ fn legal_acceptance_is_current_only_for_the_exact_required_version_and_fields() 
 
 #[test]
 fn legal_acceptance_patch_rejects_invalid_eligibility_or_hash_atomically() {
+    configure_test_legal_contract();
     let mut blob = SettingsBlob::default();
     let bad_basis = apply_patch_to(
         &mut blob,
