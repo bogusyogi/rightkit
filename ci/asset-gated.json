@@ -21,6 +21,7 @@
     "rightkit-video-project": "editing FFmpeg and ffprobe (RIGHTKIT_FFMPEG, RIGHTKIT_FFPROBE) and a talking-head clip (RIGHTKIT_TALKING_HEAD_CLIP) for tests/ingest.rs, tests/render_polish.rs and tests/audio_processing_real.rs; missing assets print SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes them fail"
   },
   "npm": {
+    "@rightkit/release": "local-publish.mjs forwards RIGHTKIT_REQUIRE_ASSETS to the units it runs; release's own tests need no assets",
     "@rightkit/legal": "packages/legal/test/tooling.test.mjs 'npm generator invokes production pnpm scanner in app root & preserves output on failure' is skipped on win32 by design (POSIX shebang scanner fixture); every other legal test runs on both hosts"
   }
 }
