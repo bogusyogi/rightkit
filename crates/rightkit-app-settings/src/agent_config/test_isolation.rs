@@ -3,7 +3,7 @@
 //! A `test-mode` binary honours `RIGHTKIT_SUITE_ROOT` (the app root is then
 //! `<suite root>/apps/the host app`) and, when it is NOT set, falls back to the real per-user root.
 //! Every harness that spawns a the host app binary, or runs in-process code that calls
-//! [`crate::agent_config::state_root`], goes through this module so that fallback can never happen silently:
+//! [`crate::agent_config::state_root`](fn@crate::agent_config::state_root), goes through this module so that fallback can never happen silently:
 //! each entry point asserts the suite root is a fresh directory inside a temp dir and refuses
 //! anything that overlaps the real `Orthic Labs` data folder.
 
