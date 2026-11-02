@@ -72,6 +72,7 @@ fn is_placeholder(_metadata: &fs::Metadata) -> bool {
     false
 }
 
+#[cfg(target_os = "macos")]
 const SF_DATALESS: u32 = 0x4000_0000;
 
 fn os_error(error: std::io::Error) -> FsError {
