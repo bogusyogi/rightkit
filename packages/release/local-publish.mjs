@@ -77,6 +77,31 @@ export class LocalPublishError extends Error {
 }
 const refuse = (message) => { throw new LocalPublishError(message); };
 
+/** Lines of a failed step's output kept in its refusal: the tail, where test failures and the final errors are. */
+export const STEP_FAILURE_LINES = 400;
+
+/**
+ * A failed step's output as a refusal can carry it. cargo's `--message-format=json-render-diagnostics` stdout is mostly
+ * compiler-artifact and build-script records (megabytes for a large crate); embedded whole, the refusal was cut off as the
+ * process exited and the test failures after them never reached the log. Artifact, build-script and build-finished records are
+ * dropped, a compiler message keeps its rendered text, and only the last STEP_FAILURE_LINES lines are kept, with a count of
+ * what was cut.
+ */
+export function stepFailureOutput(text, limit = STEP_FAILURE_LINES) {
+  const lines = [];
+  for (const line of String(text ?? "").split("\n")) {
+    if (line.startsWith("{\"reason\":")) {
+      let record;
+      try { record = JSON.parse(line); } catch { lines.push(line); continue; }
+      if (record.reason === "compiler-message" && typeof record.message?.rendered === "string") lines.push(...record.message.rendered.replace(/\n$/, "").split("\n"));
+      continue;
+    }
+    lines.push(line);
+  }
+  if (lines.length <= limit) return lines.join("\n");
+  return `[${lines.length - limit} earlier line(s) cut]\n${lines.slice(-limit).join("\n")}`;
+}
+
 export const DEFAULT_CONCURRENCY = 4;
 const MAX_CONCURRENCY = 8;
 const CRATE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -724,7 +749,7 @@ async function* publishUnitStages(parsed, deps, batch) {
     const row = { command: commandText, ok: false, isTest: step.test && TEST_COMMAND.test(commandText) };
     if (result.error || result.status !== 0) {
       steps.push(row);
-      refuse(`${plan.id} step failed (${result.error?.message ?? `exit ${result.status}`}): ${commandText}\nstdout:\n${result.stdout ?? ""}\nstderr:\n${result.stderr ?? ""}`);
+      refuse(`${plan.id} step failed (${result.error?.message ?? `exit ${result.status}`}): ${commandText}\nstdout:\n${stepFailureOutput(result.stdout)}\nstderr:\n${stepFailureOutput(result.stderr)}`);
     }
     row.ok = true;
     // GATE-CONTRACT GC-A08: a broker compiles a `cargo test` and never runs it. Its reply names that; the executables its JSON listing
