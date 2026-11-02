@@ -3,6 +3,7 @@
 ## 0.2.13 (unreleased)
 
 - Feature `agent_media`: agent media capture/transcode helpers gated by agent policy, moved from CodeRight `coderight-media`.
+- BREAKING (source): `native::NativeLibrary::SherpaOnnx` and the two `sherpa-onnx` catalog rows (`sherpa-onnx-1.13.4-macos-universal`, `sherpa-onnx-1.13.4-windows-x64`) are removed. Keyword spotting is now the Rust `rightkit_asr::kws`, so no sherpa-onnx C API library is shipped or loaded. The enum is `#[non_exhaustive]`, but a `match` that names the variant stops compiling. Staged in the unreleased 0.2.13 section, not a new version, to avoid a 0.3 requirement bump in every dependent (see the 0.2.11 note).
 
 ## 0.2.11 — unpublished staging
 

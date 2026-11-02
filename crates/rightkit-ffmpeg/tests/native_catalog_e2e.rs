@@ -20,7 +20,7 @@ fn root() -> PathBuf {
 }
 
 #[test]
-fn embedded_catalog_pins_one_version_per_library_and_covers_all_eight_libraries() {
+fn embedded_catalog_pins_one_version_per_library_and_covers_all_seven_libraries() {
     let catalog = NativeCatalog::embedded().unwrap();
     for library in [
         NativeLibrary::Ffmpeg,
@@ -30,7 +30,6 @@ fn embedded_catalog_pins_one_version_per_library_and_covers_all_eight_libraries(
         NativeLibrary::Libgit2,
         NativeLibrary::Ggml,
         NativeLibrary::WhisperCpp,
-        NativeLibrary::SherpaOnnx,
     ] {
         assert!(
             catalog.suite_version(library).is_some(),
@@ -360,7 +359,7 @@ fn every_serving_dynamic_library_row_names_an_existing_notice_under_third_party(
 /// session without a Windows host) or `planned` (no digest), carries `hostProof` `never-run`, and
 /// none is `approved`. A new non-FFmpeg Windows row must be listed here or the test fails, so
 /// its host proof is decided on purpose; promoting a row to `approved` means removing it.
-const NEVER_RUN_WINDOWS_ROWS: [&str; 9] = [
+const NEVER_RUN_WINDOWS_ROWS: [&str; 8] = [
     "onnxruntime-1.24.4-windows-x64-directml",
     "directml-1.15.4-windows-x64",
     "pdfium-chromium-8021-windows-x64",
@@ -369,7 +368,6 @@ const NEVER_RUN_WINDOWS_ROWS: [&str; 9] = [
     "ggml-base-0.20.2-windows-x64",
     "ggml-cpu-0.20.2-windows-x64",
     "ggml-vulkan-0.20.2-windows-x64",
-    "sherpa-onnx-1.13.4-windows-x64",
 ];
 
 #[test]
@@ -436,7 +434,6 @@ fn pinned_windows_rows_serve_but_planned_ones_never_resolve() {
         (NativeLibrary::Ggml, "ggml-base.dll"),
         (NativeLibrary::Ggml, "ggml-cpu.dll"),
         (NativeLibrary::Ggml, "ggml-vulkan.dll"),
-        (NativeLibrary::SherpaOnnx, "sherpa-onnx-c-api.dll"),
     ] {
         assert!(
             matches!(
@@ -520,18 +517,12 @@ fn real_local_artifacts_and_locks_match_their_catalog_records() {
     let root = root();
     let mut verified = Vec::new();
 
-    let files: [(NativeLibrary, &str, &str, &str); 2] = [
+    let files: [(NativeLibrary, &str, &str, &str); 1] = [
         (
             NativeLibrary::Ffmpeg,
             "macos",
             "aarch64",
             "heardright/tauri-app-next/src-tauri/resources/runtime/ffmpeg",
-        ),
-        (
-            NativeLibrary::SherpaOnnx,
-            "macos",
-            "aarch64",
-            "cutright/runtime/packs/speech/bin/libsherpa-onnx-c-api.dylib",
         ),
     ];
     for (lib, os, arch, rel) in files {

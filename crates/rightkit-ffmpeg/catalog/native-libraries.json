@@ -185,24 +185,6 @@
       "verification": { "method": "file-sha256", "evidence": "ScrapeRight's Windows archive pin (adac8ce0, chromium/8021). 2026-10-24 (cloud session, no Windows host): the archive downloaded, sha256 adac8ce0...88c4 (the pin ScrapeRight carries); sha256 is bin/pdfium.dll (7262720 bytes) extracted from it; contentSha256 is its Authenticode-rule digest (content_digest). Never loaded on a Windows host: hostProof never-run." }
     },
     {
-      "id": "sherpa-onnx-1.13.4-macos-universal",
-      "library": "sherpa-onnx",
-      "version": "1.13.4",
-      "os": "macos",
-      "arch": "universal",
-      "status": "approved",
-      "linkage": "dynamic-library",
-      "artifactFileName": "libsherpa-onnx-c-api.dylib",
-      "sha256": "1f16f3dc70afaa25e774f36113365f7ace836c927ea485350124ac3f3d836ecf",
-      "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/v1.13.4",
-      "licenseSpdx": "Apache-2.0",
-      "noticeFiles": ["third-party/Apache-2.0.txt"],
-      "verification": {
-        "method": "file-sha256",
-        "evidence": "HeardRight resources/runtime and CutRight packs/speech/PACK.json (revision 142807252687d81b40d6315f23470a1512a00de3)"
-      }
-    },
-    {
       "id": "sqlite-vec-0.1.9-any",
       "library": "sqlite-vec",
       "version": "0.1.9",
@@ -436,21 +418,6 @@
       "noticeFiles": ["third-party/whisper.cpp-MIT.txt"],
       "hostProof": "never-run",
       "verification": { "method": "none", "evidence": "planned (lane C5-17): the Windows whisper.cpp 1.9.3 set with the Vulkan backend is to be built by RightKit CI (the ffmpeg-windows.yml pattern) and qualified on the Dell; HeardRight ships its Windows whisper runtime from a gitignored directory checked for presence only. No digest until that build exists, so the row never resolves." }
-    },
-    {
-      "id": "sherpa-onnx-1.13.4-windows-x64",
-      "library": "sherpa-onnx",
-      "version": "1.13.4",
-      "os": "windows",
-      "arch": "x86_64",
-      "status": "planned",
-      "linkage": "dynamic-library",
-      "artifactFileName": "sherpa-onnx-c-api.dll",
-      "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/v1.13.4",
-      "licenseSpdx": "Apache-2.0",
-      "noticeFiles": ["third-party/Apache-2.0.txt"],
-      "hostProof": "never-run",
-      "verification": { "method": "none", "evidence": "planned (lane C5-13): HeardRight ships a Windows sherpa-onnx C API DLL whose digest is not catalogued; the row gets that file's digest and provenance after host proof on the Dell. No digest yet, so the row never resolves." }
     }
   ]
 }

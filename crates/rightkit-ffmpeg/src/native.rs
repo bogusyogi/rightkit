@@ -2,8 +2,8 @@
 //!
 //! Generalises the FFmpeg artifact catalog ([`crate::ArtifactCatalog`], which
 //! stays untouched) to every native dependency apps may bundle or link:
-//! FFmpeg, ONNX Runtime, PDFium, sqlite-vec, libgit2, GGML, whisper.cpp and
-//! sherpa-onnx. Every record pins ONE version per library and OS for the suite,
+//! FFmpeg, ONNX Runtime, PDFium, sqlite-vec, libgit2, GGML and whisper.cpp.
+//! Every record pins ONE version per library and OS for the suite,
 //! carries digests, SPDX licence, notices, platforms and a verification
 //! method, and is checked fail-closed.
 //!
@@ -54,7 +54,6 @@ pub enum NativeLibrary {
     Libgit2,
     Ggml,
     WhisperCpp,
-    SherpaOnnx,
     /// `DirectML.dll`, which ONNX Runtime's DirectML execution provider loads on Windows.
     Directml,
 }
