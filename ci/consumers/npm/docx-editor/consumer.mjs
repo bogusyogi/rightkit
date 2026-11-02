@@ -8,7 +8,7 @@ const recipeId = 'docx-editor-root-export-consumer';
 const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
-const surface = [".", "./*", "./*.css", "./*.json"];
+const surface = [".", "./documents/docx/DocxPane", "./documents/docx/blankDocx", "./documents/docx/docxToMarkdown", "./documents/docx/menuApi", "./package.json", "./styles.css"];
 const expected = ["setHostAppName", "hostAppName", "DocxPane"];
 
 try {

@@ -8,7 +8,7 @@ const recipeId = 'agent-ui-hooks-root-export-consumer';
 const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
-const surface = [".", "./*", "./*.css", "./*.json"];
+const surface = [".", "./components/app/sessionExport", "./components/chat/timelineScrollAnchoring", "./components/sanitizeError", "./components/workbench/DiffView", "./hooks/app/useAppInteractionActions", "./hooks/app/useAppSessionActions", "./hooks/app/useAppShellActions", "./hooks/browser/useBrowserWorkspace", "./hooks/useAccounts", "./hooks/useApprovals", "./hooks/useAttachmentStaging", "./hooks/useChatTimelineScroll", "./hooks/useComposerEditorProjection", "./hooks/useDaemonConnection", "./hooks/useEditorBuffer", "./hooks/useMemoryFiles", "./hooks/useQueuedMessages", "./hooks/useRuntimeAggregates", "./hooks/useRuntimePanels", "./hooks/useSessionEvents", "./hooks/useSessionList", "./hooks/useTeamsRuntime", "./hooks/useUpdateStatus", "./hooks/useWorkspaceArtifacts", "./hooks/useWorkspaceContextSwitch", "./hooks/useWorkspaceFile", "./hooks/useWorkspaceSearch", "./hooks/useWorkspaceStartupProjection", "./hooks/useWorkspaceTree", "./hooks/useWorktreeProjection", "./package.json"];
 const expected = ["setHostAppName", "hostAppName", "renderStructuredSessionExport"];
 
 try {

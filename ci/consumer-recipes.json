@@ -701,9 +701,8 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./package.json",
+        "./styles.css"
       ],
       "closure": {
         "install": {
@@ -723,7 +722,7 @@
       },
       "files": {
         "ci/consumers/npm/agent-ui-approvals/README.md": "39e66f62f6991b9e313cdaa11cb8219b56fa42a377622610479ee5b85992c0b1",
-        "ci/consumers/npm/agent-ui-approvals/consumer.mjs": "441715b820766b67393371cec3deefdf70ff30b8e3c4619507ce89a0812410bc",
+        "ci/consumers/npm/agent-ui-approvals/consumer.mjs": "2b249fff3c04b999bf377622d2cd37a909e9a74facf69dfe28ad3b25bfad3f35",
         "ci/consumers/npm/agent-ui-approvals/package.json": "bd9ce3a8c779cfee4a644d30753f010ff8618ce77cb7fc692fb92f83a665d382",
         "ci/consumers/npm/agent-ui-approvals/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -736,9 +735,8 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./package.json",
+        "./styles.css"
       ],
       "closure": {
         "install": {
@@ -764,7 +762,7 @@
       },
       "files": {
         "ci/consumers/npm/agent-ui-components/README.md": "a5b6fbd2afd41711bcd4960e3b9a4d4daaac83fe08fd9db004177c8285987165",
-        "ci/consumers/npm/agent-ui-components/consumer.mjs": "ca1257fc85f766586caf21c65f9e312269b19032ae1decfa5815b70a5a7c3812",
+        "ci/consumers/npm/agent-ui-components/consumer.mjs": "e93c693554e81959dc2e95c39b6cab846f7c627acdc08752f490662906b07101",
         "ci/consumers/npm/agent-ui-components/package.json": "df25963492ee52a3579908849383e60ba689f91b11ac122630739171bbce27d6",
         "ci/consumers/npm/agent-ui-components/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -777,9 +775,123 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./components/CommandPalette",
+        "./components/Icon",
+        "./components/PaneErrorBoundary",
+        "./components/PaneLoading",
+        "./components/app/AppShellHeader",
+        "./components/app/WorkspaceTrustGate",
+        "./components/app/types",
+        "./extensions/ExtensionSlot",
+        "./hooks/palette/usePaletteRecents",
+        "./hooks/runtime/useSchedulesRuntime",
+        "./hooks/runtime/useWebhookTriggersRuntime",
+        "./hooks/useConfirmationDialog",
+        "./hooks/useGoalManagement",
+        "./hooks/useLicenseState",
+        "./hooks/useLspSettings",
+        "./hooks/useSubAgents",
+        "./lib/accounts/accounts",
+        "./lib/analytics/analyticsProjection",
+        "./lib/api-contract",
+        "./lib/appSurfaceProps/backgroundTasksTypes",
+        "./lib/claudeModels",
+        "./lib/cliProviders",
+        "./lib/cliUpdate/updateProjection",
+        "./lib/composer/completionRanking",
+        "./lib/composer/editorProjection",
+        "./lib/concurrency/runtimeGuards",
+        "./lib/conductorModels",
+        "./lib/conductorOptions",
+        "./lib/connection/connectionAttemptState",
+        "./lib/connection/connectionErrorProjection",
+        "./lib/connection/recovery/recoveryPolicy",
+        "./lib/daemon",
+        "./lib/daemon/browserWorkspace",
+        "./lib/daemon/cli-providers",
+        "./lib/daemon/config-host",
+        "./lib/daemon/delivery-environments-attention",
+        "./lib/daemon/drivers",
+        "./lib/daemon/inference",
+        "./lib/daemon/marketplaces",
+        "./lib/daemon/memright",
+        "./lib/daemon/streamReconcile",
+        "./lib/daemon/workflows",
+        "./lib/daemon/workspace-files",
+        "./lib/git/gitIndexMutationQueue",
+        "./lib/messageNotices",
+        "./lib/notifications",
+        "./lib/orchestrationNotices",
+        "./lib/performance/longTranscriptRender",
+        "./lib/pluginContributionProjection",
+        "./lib/pluginContributionTypes",
+        "./lib/promptTemplates/compilePrompt",
+        "./lib/promptTemplates/roles",
+        "./lib/promptTemplates/styles",
+        "./lib/promptTemplates/templates",
+        "./lib/providerPresets",
+        "./lib/remote/remoteClient",
+        "./lib/secureStore",
+        "./lib/sessionShareCode",
+        "./lib/shellWindow",
+        "./lib/shortcuts/bindings",
+        "./lib/shortcuts/dispatcher",
+        "./lib/shortcuts/schema",
+        "./lib/statusToast",
+        "./lib/streamDeltaBatcher",
+        "./lib/terminal/suggest/ghostText",
+        "./lib/terminal/suggest/suggestionEngine",
+        "./lib/tools/managedToolHealth",
+        "./lib/tools/useManagedToolHealth",
+        "./lib/transcriptGroups",
+        "./lib/transcriptMessages",
+        "./lib/transcriptSearch",
+        "./lib/types",
+        "./lib/types/cliProviders",
+        "./lib/types/inference",
+        "./lib/types/references",
+        "./lib/types/settings-plugins",
+        "./lib/types/workspace-files",
+        "./lib/usage/turnUsageProjection",
+        "./lib/usage/usageProjection",
+        "./lib/utils",
+        "./lib/worktrees/worktreeProjectionManager",
+        "./package.json",
+        "./qaBuild",
+        "./state/accountSelectionStore",
+        "./state/attentionStore",
+        "./state/browserStore",
+        "./state/composerModeStore",
+        "./state/composerScopeStore",
+        "./state/composerStore",
+        "./state/connectionProfiles",
+        "./state/deliveryStore",
+        "./state/diagnosticsStore",
+        "./state/editorBufferStore",
+        "./state/environmentsStore",
+        "./state/executionStore",
+        "./state/goalsStore",
+        "./state/importedThemeStore",
+        "./state/layoutStore",
+        "./state/legal",
+        "./state/license",
+        "./state/localModelStore",
+        "./state/paletteStore",
+        "./state/platform",
+        "./state/proBridge",
+        "./state/projectRecentsStore",
+        "./state/rateLimitStore",
+        "./state/referenceStore",
+        "./state/rightPanelStore",
+        "./state/sessionAttentionStore",
+        "./state/sidePanelStore",
+        "./state/streamingStore",
+        "./state/subagentsStore",
+        "./state/telegramStore",
+        "./state/themeStore",
+        "./state/updates",
+        "./state/workspaceStore",
+        "./types/browserWorkspace"
       ],
       "closure": {
         "install": {
@@ -805,7 +917,7 @@
       },
       "files": {
         "ci/consumers/npm/agent-ui-core/README.md": "46f02e8e9a374dd8de0c1e81c00ffaac36be2bce9dc42d86f39f812cd4727e60",
-        "ci/consumers/npm/agent-ui-core/consumer.mjs": "7e7ccc57a41c5dca74c4d924ca37a008c144a53c3152fa6feab12265c16719a2",
+        "ci/consumers/npm/agent-ui-core/consumer.mjs": "381058b521739d663e08a4951ef94f140aa821709b13197f6b2438bad2c14e78",
         "ci/consumers/npm/agent-ui-core/package.json": "ef2edd0b093114e0ea5cc45d64c54e620381dc013321d355bc716b25266b25b6",
         "ci/consumers/npm/agent-ui-core/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -818,9 +930,37 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./components/app/sessionExport",
+        "./components/chat/timelineScrollAnchoring",
+        "./components/sanitizeError",
+        "./components/workbench/DiffView",
+        "./hooks/app/useAppInteractionActions",
+        "./hooks/app/useAppSessionActions",
+        "./hooks/app/useAppShellActions",
+        "./hooks/browser/useBrowserWorkspace",
+        "./hooks/useAccounts",
+        "./hooks/useApprovals",
+        "./hooks/useAttachmentStaging",
+        "./hooks/useChatTimelineScroll",
+        "./hooks/useComposerEditorProjection",
+        "./hooks/useDaemonConnection",
+        "./hooks/useEditorBuffer",
+        "./hooks/useMemoryFiles",
+        "./hooks/useQueuedMessages",
+        "./hooks/useRuntimeAggregates",
+        "./hooks/useRuntimePanels",
+        "./hooks/useSessionEvents",
+        "./hooks/useSessionList",
+        "./hooks/useTeamsRuntime",
+        "./hooks/useUpdateStatus",
+        "./hooks/useWorkspaceArtifacts",
+        "./hooks/useWorkspaceContextSwitch",
+        "./hooks/useWorkspaceFile",
+        "./hooks/useWorkspaceSearch",
+        "./hooks/useWorkspaceStartupProjection",
+        "./hooks/useWorkspaceTree",
+        "./hooks/useWorktreeProjection",
+        "./package.json"
       ],
       "closure": {
         "install": {
@@ -837,7 +977,7 @@
       },
       "files": {
         "ci/consumers/npm/agent-ui-hooks/README.md": "44926a26e99d7e2355002f501f0dcdae72272405d2e62c79b541b12aa54472b8",
-        "ci/consumers/npm/agent-ui-hooks/consumer.mjs": "9dfeb42c0431d536713a09ce4fdbf231f62d590b73d9bdf3c3a1c27c96351df3",
+        "ci/consumers/npm/agent-ui-hooks/consumer.mjs": "9363009e3bfb197e8a6f12e83f6332a2154d012c6aa92bd048a526d620beb0e2",
         "ci/consumers/npm/agent-ui-hooks/package.json": "a9867d5dd0ace2046dfcd4dae96500c7699759e14cfe8f44cc08e833efed6bbc",
         "ci/consumers/npm/agent-ui-hooks/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -850,9 +990,34 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./components/PluginContributionHost",
+        "./components/remote/RemoteDevicesPanel",
+        "./components/remote/RemoteHostsPanel",
+        "./components/settings/helpers",
+        "./components/settings/keyboard/KeyboardShortcutsSettings",
+        "./components/settings/marketplace/McpDiscoverPanel",
+        "./components/settings/marketplace/SkillMarketplace",
+        "./components/settings/tabs/AppearanceTab",
+        "./components/settings/tabs/ConductorsTab",
+        "./components/settings/tabs/DiagnosticsTab",
+        "./components/settings/tabs/ExecutionBackendsTab",
+        "./components/settings/tabs/LicenseTab",
+        "./components/settings/tabs/LspTab",
+        "./components/settings/tabs/MemoryTab",
+        "./components/settings/tabs/ProvidersTab",
+        "./components/settings/tabs/RepairTab",
+        "./components/settings/tabs/RootModelPicker",
+        "./components/settings/tabs/RuntimeMiddlewareTab",
+        "./components/settings/tabs/WorkspaceTab",
+        "./components/settings/tabs/models/ModelEmptyStates",
+        "./components/settings/tabs/permissions/PersistentPermissionRuleList",
+        "./components/settings/tabs/plugins/InstalledPluginsList",
+        "./components/settings/tabs/remote/RemoteChannelsPanel",
+        "./components/settings/tabs/remote/TelegramStatusPanel",
+        "./components/settings/tabs/shared",
+        "./components/settings/tabs/skills/SkillShared",
+        "./components/settings/tabs/skills/SkillTrainingRunList",
+        "./package.json"
       ],
       "closure": {
         "install": {
@@ -871,7 +1036,7 @@
       },
       "files": {
         "ci/consumers/npm/agent-ui-settings/README.md": "87cc9203ef817a05bcde74b31cfde4acd8e97973cc7db0481c88a7d40870a4a0",
-        "ci/consumers/npm/agent-ui-settings/consumer.mjs": "038fac5918fa7cba684c4381c841330175256c73a701faaf7773dde0a4e2d2c7",
+        "ci/consumers/npm/agent-ui-settings/consumer.mjs": "1f2d273882cc6a1223fef8f16bb4cff47b2e9b300602903e2f9be2757872b247",
         "ci/consumers/npm/agent-ui-settings/package.json": "a3492aaa1b20f4bc3c65822a92867d1f46599ff923ec8f70b690d139e9d25564",
         "ci/consumers/npm/agent-ui-settings/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -884,9 +1049,8 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./package.json",
+        "./styles.css"
       ],
       "closure": {
         "install": {
@@ -897,7 +1061,7 @@
       },
       "files": {
         "ci/consumers/npm/agent-ui-web/README.md": "d6231a8a134aaa1d7ede0c9c10d7474132ac6d177281c2f3705cfe0b9f39ba19",
-        "ci/consumers/npm/agent-ui-web/consumer.mjs": "9bfe85951db565ebf70783e40b1de9e6e278da3db4f4e3bdea204336608e357f",
+        "ci/consumers/npm/agent-ui-web/consumer.mjs": "0bfd17bc40e363e12d9275af4e38e15721959ab47ecb44a2850542fb3f62287f",
         "ci/consumers/npm/agent-ui-web/package.json": "37b9a53046dcfe6cc3d7a4d510b3bf143ae0c1aac61483498b0b3e55f7860261",
         "ci/consumers/npm/agent-ui-web/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -910,9 +1074,43 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./components/RuntimePane",
+        "./components/VirtualizedCodeBlock",
+        "./components/runtime/ArtifactRowsPanel",
+        "./components/runtime/MarkdownArtifactView",
+        "./components/runtime/MemoryRuntimePanel",
+        "./components/runtime/RecipeScheduleDialog",
+        "./components/runtime/SchedulesRuntimePanel",
+        "./components/runtime/TeamsRuntimePanel",
+        "./components/runtime/WorkspaceFileViewer",
+        "./components/workbench/ApprovalDetails",
+        "./components/workbench/ApprovalKeyHandler",
+        "./components/workbench/AwaySummaryCard",
+        "./components/workbench/ContextBadges",
+        "./components/workbench/ConversationFindBar",
+        "./components/workbench/DispatchBadge",
+        "./components/workbench/DriverLifecycleStrip",
+        "./components/workbench/PermissionCard",
+        "./components/workbench/PlanPrompt",
+        "./components/workbench/QuestionPrompt",
+        "./components/workbench/QueuedMessageRow",
+        "./components/workbench/ReasoningBlock",
+        "./components/workbench/RenderedMessageContent",
+        "./components/workbench/RunAnnouncer",
+        "./components/workbench/SessionActionBar",
+        "./components/workbench/SessionEmptyState",
+        "./components/workbench/SessionMinimap",
+        "./components/workbench/StructuredQuestionCard",
+        "./components/workbench/TasksPane",
+        "./components/workbench/TranscriptBubble",
+        "./components/workbench/TranscriptSearchBar",
+        "./components/workbench/TranscriptStream",
+        "./components/workbench/WorkbenchContentProps",
+        "./components/workbench/references/DocumentPreview",
+        "./components/workbench/references/ImageGallery",
+        "./components/workbench/references/ReferenceChipStrip",
+        "./components/workbench/useConversationFind",
+        "./package.json"
       ],
       "closure": {
         "install": {
@@ -930,7 +1128,7 @@
       },
       "files": {
         "ci/consumers/npm/agent-ui-workbench/README.md": "83593e8bcb9448d7cc7e895f4d834b79f6b9da7c6c498866b7c399f07a1057f4",
-        "ci/consumers/npm/agent-ui-workbench/consumer.mjs": "cc182a02ff9e07d81f8ea3c4480323eacd1fc7689e17caec7d7f5c9c33bf8ac4",
+        "ci/consumers/npm/agent-ui-workbench/consumer.mjs": "85ae35f2526a85d4b24c1f5fcc253873a94e43131ec180509ba172a6961ea325",
         "ci/consumers/npm/agent-ui-workbench/package.json": "a77aec311ed98b9e08d034f7e2bd53ec27bfeff54f5796cda964d0a86705fb2f",
         "ci/consumers/npm/agent-ui-workbench/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -971,9 +1169,20 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./components/ErrorBanner",
+        "./components/PageShell",
+        "./hooks/useHistorySourceSelection",
+        "./hooks/usePlatform",
+        "./lib/fieldStore",
+        "./lib/homeMetrics",
+        "./lib/license",
+        "./lib/settingsRegistry",
+        "./lib/tauri",
+        "./lib/ui",
+        "./package.json",
+        "./pages/history/AppIcon",
+        "./pages/history/historyUtils",
+        "./voice/components/VoiceConversation"
       ],
       "closure": {
         "install": {
@@ -997,7 +1206,7 @@
       },
       "files": {
         "ci/consumers/npm/dictation-ui/README.md": "87d785ae2c5108c56de7fb65b2b2974d4e0c6aef6342b34292c2650558776621",
-        "ci/consumers/npm/dictation-ui/consumer.mjs": "1e9d9329713af12415673482adfde61fe04faf9df98d5e2831cf4968e91873d3",
+        "ci/consumers/npm/dictation-ui/consumer.mjs": "57a1bf89c959c9d9c91a0e9ac4a67eb128cf03adbfc50c31e75c4d29f84fb77a",
         "ci/consumers/npm/dictation-ui/package.json": "cec3d47765b1ceaf8060e158746d29d4fcebed758c901f79dde31704811f5e19",
         "ci/consumers/npm/dictation-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -1010,9 +1219,64 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./app/BlockDraftContext",
+        "./app/blockDrafts",
+        "./app/chrome",
+        "./app/deferredMount",
+        "./app/documentPrinting",
+        "./app/dropCoordination",
+        "./app/nativePrintPreview",
+        "./app/resourceCensus",
+        "./app/shell/docBar",
+        "./app/shell/nativeMenu",
+        "./app/shortcutChords",
+        "./app/useCloseFindOnSurfaceChange",
+        "./app/useEditText",
+        "./documents/BackToTopButton",
+        "./documents/DocumentToolbarFind",
+        "./documents/DocumentToolbarShell",
+        "./documents/FullscreenIcon",
+        "./documents/PreviewChrome",
+        "./documents/PreviewMessage",
+        "./documents/base64",
+        "./documents/mdx/mdxRuntimeScript",
+        "./documents/pdf/NativePdfDocument",
+        "./documents/pdf/PdfViewer",
+        "./documents/pdf/macPdfNativeBridge",
+        "./documents/pdf/pdfEditModel",
+        "./documents/pdf/pdfEditor",
+        "./documents/pdf/pdfToMarkdown",
+        "./documents/perfEventCounters",
+        "./documents/preview/usePreviewFrameSrc",
+        "./documents/previewViewport",
+        "./documents/scopedSelectAll",
+        "./documents/searchUtils",
+        "./documents/splitResizeMath",
+        "./documents/toolbarPrimitives",
+        "./documents/txt/cmScroll",
+        "./documents/types",
+        "./documents/useMirroredEditText",
+        "./documents/usePreviewFind",
+        "./documents/useSplitResize",
+        "./documents/web/webUrl",
+        "./package.json",
+        "./platform",
+        "./settings/fonts",
+        "./settings/rk-settings.css",
+        "./settings/sections/EditorSection",
+        "./settings/sections/FileAssociationsSection",
+        "./settings/sections/ThemeSection",
+        "./settings/sections/TypographySection",
+        "./settings/sections/onOff",
+        "./settings/settings",
+        "./settings/themes",
+        "./state/bridgeEvents",
+        "./state/diagnostics",
+        "./state/errors",
+        "./state/motion",
+        "./state/recentUrls",
+        "./state/tauriBridge",
+        "./styles.css"
       ],
       "closure": {
         "install": {
@@ -1036,7 +1300,7 @@
       },
       "files": {
         "ci/consumers/npm/document-core/README.md": "03b09c349079000a76b25b9381408fa2f552bc512583ae6900e76f9a7930ea74",
-        "ci/consumers/npm/document-core/consumer.mjs": "728075d1940445678179c40ff9deb4fef68e16a3021cc9f881b89d0a065331a1",
+        "ci/consumers/npm/document-core/consumer.mjs": "0f6a3e75d1d6002168318fadd321251698fcdfa7a2ec94eb547871570fe93472",
         "ci/consumers/npm/document-core/package.json": "d8e58958e093df57afaa83c9464511bd26f9734ea1bdd77a67e031a400bbb4cf",
         "ci/consumers/npm/document-core/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -1049,9 +1313,8 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./package.json",
+        "./styles.css"
       ],
       "closure": {
         "install": {
@@ -1093,7 +1356,7 @@
       },
       "files": {
         "ci/consumers/npm/document-workspace/README.md": "73e6357bf6bd69fe4d97c2c4048d0581583192fb956ffc6d46779e639700d0db",
-        "ci/consumers/npm/document-workspace/consumer.mjs": "0286e6fd44dade179c2c5b458b38039fded7edf16c893de975ff04f605652d54",
+        "ci/consumers/npm/document-workspace/consumer.mjs": "376ee9ec1737b6a2c78858d06c50e5e32ba90fed304b36e4b4de08c177a84b06",
         "ci/consumers/npm/document-workspace/package.json": "1af58ff9e54e84de62f0ceba2db4bc3ed7a4ee871b93dc276b5225ca85ece12a",
         "ci/consumers/npm/document-workspace/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -1106,9 +1369,12 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./documents/docx/DocxPane",
+        "./documents/docx/blankDocx",
+        "./documents/docx/docxToMarkdown",
+        "./documents/docx/menuApi",
+        "./package.json",
+        "./styles.css"
       ],
       "closure": {
         "install": {
@@ -1129,7 +1395,7 @@
       },
       "files": {
         "ci/consumers/npm/docx-editor/README.md": "da82457027d747ab311651736729a08ab289c45746c720bdb7d66caa0c979cca",
-        "ci/consumers/npm/docx-editor/consumer.mjs": "d006af23fbf42a3da105cfbeeb61573c3e69354fb6048380fe3a082170247b0f",
+        "ci/consumers/npm/docx-editor/consumer.mjs": "be62e8ee0d2434c1bb0759ad85ade3cdd2bd42de8aad1ad288e9b127f244d24c",
         "ci/consumers/npm/docx-editor/package.json": "9c789eb92b5a0d2616ee1a26d9ec0094dd6798c2e5666a6dedeb0b01290fbc59",
         "ci/consumers/npm/docx-editor/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -1142,9 +1408,38 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./documents/html/HtmlDocumentBridge",
+        "./documents/html/HtmlDocumentChrome",
+        "./documents/html/HtmlDocumentEdit",
+        "./documents/html/HtmlDocumentToolbars",
+        "./documents/html/HtmlDocumentView",
+        "./documents/html/HtmlSafeBlockEditor",
+        "./documents/html/htmlDocumentShared",
+        "./documents/html/htmlInline",
+        "./documents/html/htmlResourceLifecycle",
+        "./documents/html/sessionTypes",
+        "./documents/html/sourceMap",
+        "./documents/html/useHtmlAutoViewport",
+        "./documents/html/useHtmlBlockDrafts",
+        "./documents/html/useHtmlBlockOps",
+        "./documents/html/useHtmlBlockUndoRedo",
+        "./documents/html/useHtmlColdState",
+        "./documents/html/useHtmlInframeTarget",
+        "./documents/html/useHtmlInspect",
+        "./documents/html/useHtmlLiveCssBridge",
+        "./documents/html/useHtmlNavigation",
+        "./documents/html/useHtmlPageBuffer",
+        "./documents/html/useHtmlPreviewControls",
+        "./documents/html/useHtmlPreviewFind",
+        "./documents/html/useHtmlPreviewLifecycle",
+        "./documents/html/useHtmlReload",
+        "./documents/html/useHtmlRichEditState",
+        "./documents/html/useHtmlSafeBlockEntry",
+        "./documents/html/useHtmlSourceDrawerResize",
+        "./documents/html/useHtmlSrcDocLifecycle",
+        "./documents/html/useHtmlSubPages",
+        "./documents/html/useSiteRootGrant",
+        "./package.json"
       ],
       "closure": {
         "install": {
@@ -1169,7 +1464,7 @@
       },
       "files": {
         "ci/consumers/npm/html-editor/README.md": "81c00bf6ec38282b7f514f37177bfaf54ad05564340e7e717c3a6322b3ed29a6",
-        "ci/consumers/npm/html-editor/consumer.mjs": "846b27722e25833ecdb0c26ef2a7064cba91d3f3dd9e6e7a6ad33a47b232d013",
+        "ci/consumers/npm/html-editor/consumer.mjs": "ccb3194a9aecc8d14d6fff6b74dac9a9a3fb4c89e6ce8e4c84acdff1a91716ef",
         "ci/consumers/npm/html-editor/package.json": "047bcbc2d5ff9160e46b7c237092925bcc8d625c6321cc8696d91dec8f1d2837",
         "ci/consumers/npm/html-editor/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -1182,9 +1477,8 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./package.json",
+        "./styles.css"
       ],
       "closure": {
         "install": {
@@ -1211,7 +1505,7 @@
       },
       "files": {
         "ci/consumers/npm/library-ui/README.md": "8521e747fbf31d1ba630b7ba5928820f9522e569b409e02fc1f8154c1a4c4ef1",
-        "ci/consumers/npm/library-ui/consumer.mjs": "dedf5aabdc2b85e85ecd787f7f1bb3ffe5405a0317c4bfd26a80f0fcb78682e7",
+        "ci/consumers/npm/library-ui/consumer.mjs": "bd5a642b9e74e447b42751321a662a4b25d5f4fca66379783fe4badac92502ca",
         "ci/consumers/npm/library-ui/package.json": "66684047e6c026d07990ad232a195ad856f06fed993560454cc1327ab4399afe",
         "ci/consumers/npm/library-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -1224,9 +1518,20 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./components/AccountSwitcher",
+        "./components/Icons",
+        "./hooks/dialog",
+        "./hooks/useDrive",
+        "./lib/calendarUtils",
+        "./lib/ipc",
+        "./lib/ipc/agentApprovals",
+        "./lib/mail",
+        "./lib/preferences",
+        "./lib/visibleText",
+        "./package.json",
+        "./store/index",
+        "./store/types",
+        "./styles.css"
       ],
       "closure": {
         "install": {
@@ -1259,7 +1564,7 @@
       },
       "files": {
         "ci/consumers/npm/mail-ui/README.md": "7277e2a628480d982fb3efb809167690d91ff3a8ac5c82b38e1075403494f7ac",
-        "ci/consumers/npm/mail-ui/consumer.mjs": "26c14f448d3aa0e52418f07b2b9baeaa35b01c511229fdb47df46297d51f368b",
+        "ci/consumers/npm/mail-ui/consumer.mjs": "3f70cdad582f03e1259dbe47b6d60dd72fedd4ac12bdaa04212b73c75bb3c86f",
         "ci/consumers/npm/mail-ui/package.json": "e07d3eabd1c8bb7427c6fdc6ea228c2bc62eb6ac00912ce9a29908f7df446ee8",
         "ci/consumers/npm/mail-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -1272,9 +1577,32 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./documents/markdown/MarkdownCoreProvider",
+        "./documents/markdown/MarkdownEditor",
+        "./documents/markdown/MarkdownProtectedBlock",
+        "./documents/markdown/analysis/analyzeMarkdown",
+        "./documents/markdown/analysis/markdownIssueCodeMirror",
+        "./documents/markdown/assets/markdownAsset",
+        "./documents/markdown/assets/markdownAssetSettings",
+        "./documents/markdown/assets/smartPaste",
+        "./documents/markdown/core/MarkdownDocumentCore",
+        "./documents/markdown/core/MarkdownDocumentTypes",
+        "./documents/markdown/core/types",
+        "./documents/markdown/core/useMarkdownCoreSubscription",
+        "./documents/markdown/export/markdownExportTypes",
+        "./documents/markdown/export/renderMarkdownExport",
+        "./documents/markdown/exportMarkdown",
+        "./documents/markdown/insert/markdownInsertTemplates",
+        "./documents/markdown/markdownDocumentActivity",
+        "./documents/markdown/markdownTools",
+        "./documents/markdown/projection/pmSelectionBridge",
+        "./documents/markdown/properties/MarkdownWorkspacePanel",
+        "./documents/markdown/references/markdownCompletion",
+        "./documents/markdown/tables/markdownTableCommands",
+        "./documents/mdx/MdxPreviewFrame",
+        "./documents/mdx/mdxCompiler",
+        "./package.json",
+        "./styles.css"
       ],
       "closure": {
         "install": {
@@ -1313,7 +1641,7 @@
       },
       "files": {
         "ci/consumers/npm/markdown-editor/README.md": "423fdd32ae1f42f2ac5b7a1278cd8698ba4726101538e0c3625b759feec9be78",
-        "ci/consumers/npm/markdown-editor/consumer.mjs": "412eb25a3f3b13889579affa97c262b1cc40b4f993d0968df3169618e5489cef",
+        "ci/consumers/npm/markdown-editor/consumer.mjs": "b142bf1e17e5d5b15e800e7f172a5224e1d7f7d3904fc0dd3e9af59a642f6543",
         "ci/consumers/npm/markdown-editor/package.json": "574d72ca53ec89c5132a25bd9bf718e4ea4c75511e32064b8959d369e293d54e",
         "ci/consumers/npm/markdown-editor/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -1326,9 +1654,8 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./package.json",
+        "./styles.css"
       ],
       "closure": {
         "install": {
@@ -1355,7 +1682,7 @@
       },
       "files": {
         "ci/consumers/npm/media-gen-ui/README.md": "a95700534bf253dbb7f8cab40292e619580bee1d57a0883d9820b9340b6f8e86",
-        "ci/consumers/npm/media-gen-ui/consumer.mjs": "2f4e3c1e6d91d95076a022b31e4b28aab3b81c550f1c980beffa24367c5e5a23",
+        "ci/consumers/npm/media-gen-ui/consumer.mjs": "38f8d6aa2a8e4d503e59ac88976cc135d75608ec7ea6e4bc8dd1beda8ee07fd6",
         "ci/consumers/npm/media-gen-ui/package.json": "9297b2d04e964b78671516c14de2e3c5c3a844b6db4ef6186e146f0b781c17c4",
         "ci/consumers/npm/media-gen-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -1368,9 +1695,7 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./package.json"
       ],
       "closure": {
         "install": {
@@ -1386,7 +1711,7 @@
       },
       "files": {
         "ci/consumers/npm/social-ui/README.md": "52ce438812281093bc2357a6ef26ffa3b32e54454d2c6643f972a23abbacef4a",
-        "ci/consumers/npm/social-ui/consumer.mjs": "61ce3dd83c7298db5f1f52a5735cd22ce14d7834d42724c3fc7f4606db49ef97",
+        "ci/consumers/npm/social-ui/consumer.mjs": "ffaef8321b410b1408c13006d052e5d6a68ce7e89c6eb050972b349a508e0415",
         "ci/consumers/npm/social-ui/package.json": "3f7cd724c8628e862b0502e1a7941472298414fc5cde3753b600bda30ed15491",
         "ci/consumers/npm/social-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -1399,9 +1724,22 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./activityLease",
+        "./api",
+        "./components/Chart",
+        "./lib/qr",
+        "./metrics",
+        "./onboarding/gate",
+        "./package.json",
+        "./styles.css",
+        "./views/LauncherSettings",
+        "./views/NearbySettings",
+        "./views/Storage",
+        "./views/membrane.css",
+        "./views/monitor.css",
+        "./views/settings.css",
+        "./views/settingsKit",
+        "./visible"
       ],
       "closure": {
         "install": {
@@ -1423,7 +1761,7 @@
       },
       "files": {
         "ci/consumers/npm/system-ui/README.md": "1a980fa4920b52834a6692c4dfaedd90afdf00b59de3f7baeec1d9a81cc22422",
-        "ci/consumers/npm/system-ui/consumer.mjs": "cbeddd958e23c2b61ce38839e4063988d9a8ca1ddb26ab7c03a52a537eb356a5",
+        "ci/consumers/npm/system-ui/consumer.mjs": "bebc6b8c5d9630d69ed54078b1ffd1275d7c6dd38e2dbf72e580e07f49401263",
         "ci/consumers/npm/system-ui/package.json": "7f0defd9e4157d112ca84fee1da990fbef7e1836e755e89606a4148a8bdcd65a",
         "ci/consumers/npm/system-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -1436,9 +1774,9 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./components/PersistentTerminal",
+        "./components/TerminalPane",
+        "./package.json"
       ],
       "closure": {
         "install": {
@@ -1452,7 +1790,7 @@
       },
       "files": {
         "ci/consumers/npm/terminal-ui/README.md": "4ef817c49a481fe0dfe2be0e7d30184f48a2fded5769b9a277f5a0123a47e2dd",
-        "ci/consumers/npm/terminal-ui/consumer.mjs": "6185cbccab62315312706a5a55edf3ccc3bc76fe63242a745b9620603d413af6",
+        "ci/consumers/npm/terminal-ui/consumer.mjs": "66c85b9791f65c35a51edba07842f8edb7a630253683ab635f04977cbcfe0a37",
         "ci/consumers/npm/terminal-ui/package.json": "466aa9294f456ca4a2829cd2e4badbbb326955d63939a3e535a1dc6fa9ab9f33",
         "ci/consumers/npm/terminal-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -1465,9 +1803,8 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./package.json",
+        "./styles.css"
       ],
       "closure": {
         "install": {
@@ -1494,7 +1831,7 @@
       },
       "files": {
         "ci/consumers/npm/video-ui/README.md": "0978a36e561a06bfd485597d044de7d0b573698cfd96f6184e5ed09f40a29df6",
-        "ci/consumers/npm/video-ui/consumer.mjs": "c0081cf006176ef75808c603f9ea06987d998bca405b39bc6a8e0a233f5e85ef",
+        "ci/consumers/npm/video-ui/consumer.mjs": "844803897a41278dd90868e5b75daa615dfe0f86a3020cdc824415b4ab557d35",
         "ci/consumers/npm/video-ui/package.json": "a49507aea5c6fc3eddf225eae868cc582aa3767047e017ea7d7fe153c026fa20",
         "ci/consumers/npm/video-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
@@ -1527,9 +1864,7 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./*",
-        "./*.css",
-        "./*.json"
+        "./package.json"
       ],
       "closure": {
         "install": {
@@ -1544,7 +1879,7 @@
       },
       "files": {
         "ci/consumers/npm/workspace-ui/README.md": "b1bfb8b718207ff6f59dfeaed6e4e9931c21dade676e08fa6d0e09f6da9324de",
-        "ci/consumers/npm/workspace-ui/consumer.mjs": "88bd9ff0c3ad42ea908b74dc73aed065fca475fececf4057e3a1ce99566be37b",
+        "ci/consumers/npm/workspace-ui/consumer.mjs": "a4faa4c7e6ad992bb39f6bcfff0a60fccc05eae24f1d9673c72886c76594942a",
         "ci/consumers/npm/workspace-ui/package.json": "4f2887d837e5e573306c23200a092d7181fb756e30736dd10dad98ac0e02d210",
         "ci/consumers/npm/workspace-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
