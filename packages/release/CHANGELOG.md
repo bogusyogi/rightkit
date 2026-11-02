@@ -1,6 +1,14 @@
 # Changelog
 
-## 0.6.27 (unpublished)
+## 0.6.28 (unpublished)
+
+- **No phantom Cargo workspace at a repository root (fixes every cloud publish on 0.6.27).** With no Rust unit in play, the default workspace counts only when it has a `Cargo.toml`. RightKit's root `rust-toolchain.toml` had made the npm units' Class A plan `cargo-metadata`, `cargo-deny`, `cargo-audit` and `build-helpers` at the root, which has no manifest.
+- **Linux trace resolves relative paths where the process wrote them.** `strace` runs with `-y`, and a relative path resolves against the directory its fd prints (`AT_FDCWD</cwd>`); rustc's `full.rmeta` / `lib.rmeta` writes in its own working directory were judged outside the allowed folders.
+- **Windows trace maps kernel paths to drive letters (fixes every Dell FAIL on 0.6.27).** The `QueryDosDevice` helper's C# carried literal backslashes (`[DllImport(\"kernel32.dll\")]`), Add-Type failed, the device map came back empty, and every `\Device\HarddiskVolumeN\...` write (cargo's own registry, the probe's temp folder) was judged outside. The map is fixed, a device must be followed by `\` (volume 3 never matches volume 30), and an empty map stops the trace instead of recording false verdicts. A failed entry is retraced on the next run.
+- **The Mac trace drains eslogger before stopping it.** The session stopped one second after the last build; eslogger's buffered output still held those builds' events, and each was failed as "not observed" (19 on the 2026-11-03 Mac run, all stamped at a session end). Marker files are now created in the session folder until one appears in the recording (two minutes at most).
+- **`trace-all` traces a gate snapshot.** A folder with `.rightkit` and no `.git` (`<managed root>/snapshots/<key>`) counts as gated.
+
+## 0.6.27 — 2026-11-03
 
 - **Build-helper trace, ready for every host.** `right-release build-helpers trace` / `trace-all`:
   - runs `--jobs N` builds at once (default 4), starting the next as each finishes;

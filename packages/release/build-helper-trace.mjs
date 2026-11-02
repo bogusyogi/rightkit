@@ -169,11 +169,15 @@ export function parseStraceWrites(text, { cwd = "/" } = {}) {
   const out = new Set();
   for (const line of String(text).split(/\r?\n/)) {
     if (/=\s*-1\s/.test(line) || /<unfinished \.\.\.>/.test(line)) continue;
+    // With `strace -y`, a directory fd prints its real path (`AT_FDCWD</abs/cwd>`, `5</abs/dir>`): a relative path resolves against that,
+    // never against a guessed folder (rustc writes `full.rmeta` relative to its own working directory).
+    const dirOf = new Map([...line.matchAll(/(?:AT_FDCWD|\d+)<([^>]+)>,\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => [m[2], m[1]]));
+    const resolveIt = (p) => (path.posix.isAbsolute(p) ? p : path.posix.resolve(dirOf.get(p) ?? cwd, p));
     let paths = [];
     const open = OPEN.exec(line);
     if (open) { if (/O_WRONLY|O_RDWR|O_CREAT|O_TRUNC|O_APPEND/.test(open[3])) paths = [open[2]]; }
     else if (MUTATING.test(line)) paths = [...line.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
-    for (const p of paths) if (p) out.add(path.posix.isAbsolute(p) ? p : path.posix.resolve(cwd, p));
+    for (const p of paths) if (p) out.add(resolveIt(p));
   }
   return [...out];
 }
@@ -210,7 +214,7 @@ export function parseEtwWrites(xml, { rootPid, devices = {} }) {
       if (tree.has(parent)) tree.add(child);
     }
   }
-  const toDos = (p) => { if (!p) return null; for (const [dev, letter] of Object.entries(devices)) if (p.toLowerCase().startsWith(dev.toLowerCase())) return letter + p.slice(dev.length); return p; };
+  const toDos = (p) => { if (!p) return null; for (const [dev, letter] of Object.entries(devices)) if (p.toLowerCase().startsWith(`${dev.toLowerCase()}\\`)) return letter + p.slice(dev.length); return p; };
   const names = new Map(); const out = new Set();
   for (const ev of events) {
     if (provider(ev) !== "Microsoft-Windows-Kernel-File" || !tree.has(pidOf(ev))) continue;
@@ -330,7 +334,7 @@ export function etwWritesByRoot(file, roots, devices = {}) {
     if (provider(ev) === "Microsoft-Windows-Kernel-Process" && id(ev) === 1) parent.set(Number(field(ev, "ProcessID")), Number(field(ev, "ParentProcessID")));
   });
   const rootOf = rootFinder(parent, roots); const out = new Map([...roots].map((r) => [r, new Set()]));
-  const toDos = (p) => { if (!p) return null; for (const [dev, letter] of Object.entries(devices)) if (p.toLowerCase().startsWith(dev.toLowerCase())) return letter + p.slice(dev.length); return p; };
+  const toDos = (p) => { if (!p) return null; for (const [dev, letter] of Object.entries(devices)) if (p.toLowerCase().startsWith(`${dev.toLowerCase()}\\`)) return letter + p.slice(dev.length); return p; };
   const names = new Map();
   forEachRecord(file, "</Event>", (ev) => {
     if (provider(ev) !== "Microsoft-Windows-Kernel-File") return;

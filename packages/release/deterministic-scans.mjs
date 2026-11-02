@@ -1071,7 +1071,9 @@ export function planScans({
   const wsOf = (n) => (rustMap ? rustMap.get(n).cargoDir : cargoWs);
   const crateOf = (n) => (rustMap?.get(n)?.crate ?? n);
   const featuresOf = (n) => crateFeatures?.[n] ?? crateFeatures?.[crateOf(n)] ?? {};
-  const workspaces = rustMap && rustMap.size ? [...new Set([...rustMap.values()].map((u) => u.cargoDir))].sort() : [cargoWs];
+  // With no Rust unit in play the default workspace counts only when it has a Cargo.toml: a root rust-toolchain.toml (or other Rust config)
+  // in a crate-per-workspace repository must not turn the repository root into a phantom workspace whose cargo scans have no manifest.
+  const workspaces = rustMap && rustMap.size ? [...new Set([...rustMap.values()].map((u) => u.cargoDir))].sort() : (exists(path.join(contentRoot, cargoWs === "." ? "Cargo.toml" : `${cargoWs}/Cargo.toml`)) ? [cargoWs] : []);
   const lockOf = (ws) => (rustLocks?.[ws] instanceof Map ? rustLocks[ws] : ws === cargoWs && rustLock instanceof Map ? rustLock : null);
   const rustDir = (n) => (rustMap ? rustMap.get(n).dir : `crates/${n}`);
   const npmDir = (n) => (npmMap ? npmMap.get(n).dir : `packages/${n}`);

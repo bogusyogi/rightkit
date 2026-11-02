@@ -63,7 +63,8 @@ export function cargoWorkspaces(root, { depth = 4, fsApi = fs } = {}) {
   };
   walk(root, depth);
   // Only repositories the gate builds: the workspace's repository root (nearest .git) carries a .rightkit directory.
-  const gated = (dir) => { for (let d = dir; ; d = path.dirname(d)) { if (fsApi.existsSync(path.join(d, ".git"))) return fsApi.existsSync(path.join(d, ".rightkit")); if (path.dirname(d) === d) return false; } };
+  // A gate snapshot of a commit (<managed root>/snapshots/<key>) has .rightkit but no .git: the first ancestor with either decides.
+  const gated = (dir) => { for (let d = dir; ; d = path.dirname(d)) { if (fsApi.existsSync(path.join(d, ".rightkit"))) return true; if (fsApi.existsSync(path.join(d, ".git"))) return false; if (path.dirname(d) === d) return false; } };
   return found.filter(gated).sort();
 }
 
@@ -143,8 +144,10 @@ function mainWith(argv, { env, platform, run, log, err }) {
       // ETW kernel sessions need an elevated shell; kernel paths are mapped back to drive letters once (QueryDosDevice).
       const admin = run("net", ["session"], { encoding: "utf8" });
       if (admin.status !== 0) { err("right-release build-helpers trace: run from an elevated (Administrator) shell; ETW kernel tracing needs it"); return 2; }
-      const map = run("powershell", ["-NoProfile", "-Command", "$s='[DllImport(\\\"kernel32.dll\\\")] public static extern uint QueryDosDevice(string d, System.Text.StringBuilder b, uint m);'; $k=Add-Type -MemberDefinition $s -Name K -Namespace W -PassThru; foreach($d in [IO.DriveInfo]::GetDrives()){ $l=$d.Name.Substring(0,2); $b=New-Object Text.StringBuilder 512; [void]$k::QueryDosDevice($l,$b,512); \"$l=$b\" }"], { encoding: "utf8" });
+      const map = run("powershell", ["-NoProfile", "-Command", "$s='[DllImport(\"kernel32.dll\")] public static extern uint QueryDosDevice(string d, System.Text.StringBuilder b, uint m);'; $k=Add-Type -MemberDefinition $s -Name K -Namespace W -PassThru; foreach($d in [IO.DriveInfo]::GetDrives()){ $l=$d.Name.Substring(0,2); $b=New-Object Text.StringBuilder 512; [void]$k::QueryDosDevice($l,$b,512); \"$l=$b\" }"], { encoding: "utf8" });
       for (const line of String(map.stdout ?? "").split(/\r?\n/)) { const m = /^([A-Z]:)=(\\Device\\\S+)$/.exec(line.trim()); if (m) devices[m[2]] = m[1]; }
+      // Without the map every kernel path would be judged outside the allowed folders: stop instead of recording false verdicts.
+      if (!Object.keys(devices).length) { err(`right-release build-helpers trace: could not map kernel device paths to drive letters (QueryDosDevice): ${String(map.stderr ?? "").trim().split(/\r?\n/)[0] ?? ""}`); return 2; }
     }
     const recordRepo = rest.includes("--record-repo");
     const cargoHome = env.CARGO_HOME ?? path.join(os.homedir(), ".cargo");
@@ -174,7 +177,7 @@ function mainWith(argv, { env, platform, run, log, err }) {
       const buildEnv = { ...env, CARGO_TARGET_DIR: target, CARGO_BUILD_JOBS: perBuildJobs };
       const straceOut = path.join(scratch, "strace");
       const job = platform === "linux"
-        ? { cmd: "strace", args: ["-ff", "-qq", "-o", straceOut, "-e", "trace=open,openat,openat2,creat,rename,renameat,renameat2,unlink,unlinkat,mkdir,mkdirat,rmdir,link,linkat,symlink,symlinkat,truncate,chmod,fchmodat,chown,fchownat,lchown,utimensat", "cargo", ...buildArgs], env: buildEnv }
+        ? { cmd: "strace", args: ["-ff", "-qq", "-y", "-o", straceOut, "-e", "trace=open,openat,openat2,creat,rename,renameat,renameat2,unlink,unlinkat,mkdir,mkdirat,rmdir,link,linkat,symlink,symlinkat,truncate,chmod,fchmodat,chown,fchownat,lchown,utimensat", "cargo", ...buildArgs], env: buildEnv }
         : { cmd: "cargo", args: buildArgs, env: buildEnv };
       job.label = `${unit.crate} ${unit.version}`;
       return { unit, scratch, target, straceOut, job };
@@ -188,7 +191,32 @@ function mainWith(argv, { env, platform, run, log, err }) {
       const tracer = run("sh", ["-c", `sudo -n eslogger fork exec create rename unlink link truncate open close clone copyfile exchangedata > '${traceFile}' 2>'${traceFile}.err' & echo $!`], { encoding: "utf8" });
       const tracerPid = String(tracer.stdout ?? "").trim();
       run("sleep", ["2"]);
-      stopTracer = () => { run("sleep", ["1"]); if (tracerPid) { run("sudo", ["-n", "pkill", "-INT", "-P", tracerPid]); run("kill", [tracerPid]); run("sleep", ["1"]); } };
+      // Drain before stopping: eslogger writes a block-buffered file and Endpoint Security delivers late, so the last builds' events were
+      // still in flight when a fixed one-second wait ended (every "build was not observed" fail on the Mac was a build that finished last
+      // in its session). Marker files are created in the session folder, one a second, until the first appears in the recording: every
+      // event before it is then on disk. Two minutes without it leaves the verdicts to judgeTrace, which fails a build it did not see.
+      const drain = () => {
+        const tag = `rk-bht-drain-${process.pid}-`;
+        let from = 0; try { from = fs.statSync(traceFile).size; } catch { /* nothing yet */ }
+        for (let i = 0; i < 120; i += 1) {
+          fs.writeFileSync(path.join(sessionDir, `${tag}${i}`), "");
+          run("sleep", ["1"]);
+          let size = 0; try { size = fs.statSync(traceFile).size; } catch { continue; }
+          if (size <= from) continue;
+          const fd = fs.openSync(traceFile, "r");
+          try {
+            const chunk = Buffer.alloc(8 << 20);
+            for (let at = from; at < size; at += chunk.length - tag.length) {
+              const n = fs.readSync(fd, chunk, 0, chunk.length, at);
+              if (chunk.subarray(0, n).includes(tag)) return true;
+            }
+          } finally { fs.closeSync(fd); }
+          from = Math.max(from, size - tag.length);
+        }
+        err("right-release build-helpers trace: eslogger did not record the drain marker within 2 minutes; builds it did not see are judged unobserved");
+        return false;
+      };
+      stopTracer = () => { drain(); if (tracerPid) { run("sudo", ["-n", "pkill", "-INT", "-P", tracerPid]); run("kill", [tracerPid]); run("sleep", ["1"]); } };
     } else if (platform === "win32") {
       // One ETW session with both kernel providers, each with an explicit level (0x5): a separate process-only session without a level
       // recorded nothing on the Dell (proc.etl 0 MB), so no write could be tied to its build. Tested on the Dell: process starts (with
