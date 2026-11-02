@@ -65,7 +65,7 @@ A gate build takes these bytes through the stage-sidecar `sources` route, never 
 
 ## Native library catalog
 
-`native::NativeCatalog` (`catalog/native-libraries.json`, feature `native`) pins every native file the suite ships: FFmpeg, ONNX Runtime, DirectML, PDFium, sqlite-vec, libgit2, ggml, whisper.cpp and sherpa-onnx. One row is one file for one OS and architecture. Statuses: `approved` (digest verified against a real artifact), `pinned` (version and digests pinned, not yet proven on a host), `planned` (no digest, never resolvable) and `stale-unverified` (history). Only `approved` and `pinned` rows serve a file (`NativeStatus::serves`); a planned or stale row never does.
+`native::NativeCatalog` (`catalog/native-libraries.json`, feature `native`) pins every native file the suite ships: FFmpeg, ONNX Runtime, DirectML, PDFium, sqlite-vec, libgit2, ggml and whisper.cpp. One row is one file for one OS and architecture. Statuses: `approved` (digest verified against a real artifact), `pinned` (version and digests pinned, not yet proven on a host), `planned` (no digest, never resolvable) and `stale-unverified` (history). Only `approved` and `pinned` rows serve a file (`NativeStatus::serves`); a planned or stale row never does.
 
 Optional row fields:
 
