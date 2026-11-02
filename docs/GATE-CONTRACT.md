@@ -24,10 +24,11 @@
 
 [GC-A07] 2026-11-02: **Dev is the installed app; there is no debug copy; QA journeys run after the build.**
 - **No debug build anywhere.** No stage builds a debug or `--debug` QA copy, a test-mode copy, or any QA app.
-- **Dev is the real, bundled, signed, installed app with rk qa** (`qa-native`). It may use a faster Cargo profile than release, because it is not a release.
+- **Dev is the real, bundled, signed, installed app with rk qa** (`qa-native`). It is built with **the same Cargo profile as release**: one unit set, one warm cache, one target directory. Adrian reversed the earlier allowance for a faster dev profile; this is a hard constraint. Adrian, 2026-11-02: "Ok so I reverse my decision on different lto whatever for dev and release. If that means that it will be double disk, no cache: that's a hard constraint."
+- **The QA control server is allowed only in dev.** The release tool's feature and binary scans (`qa-native` and `test-mode` are forbidden in a release) keep it out of every release. Debug assertions are not the guard: rightkit-qa compiles its control surface on the release profile.
 - **QA journeys are out of the build.** They run after the build, against the installed dev copy. Nothing is built for QA inside the compile or package stage.
 - **Release carries no QA control server.**
-- **A dev profile is a new build scope.** The broker reads its first units as new, never as unexplained rebuilds.
+- **The dev build adds only the `qa-native` feature to the release profile.** The units that feature changes are new to the broker, never unexplained rebuilds.
 
 Every other clause is read around this one. Adrian, 2026-11-02, relayed verbatim by the Dell HR chat: "ok, one thing we have established is we are getting rid of debug. dev is actual installer with rk qa/ it can have faster compile like fat or thin or whatever, since it is not release. and qa journey will be moved out of build. this decision is already locked. everything else has to be worked around this." To rkn the same day: "this goes in the contracts asap".
 
@@ -411,7 +412,7 @@ Every operative requirement id of this contract, its subject, status (`operative
 | GC-A04 | A build is from the selected commit through the gate's one warm snapshot; the cloud has no broker (2026-10-29) | operative | D1, B11, BR20, B3 |
 | GC-A05 | The broker runs no gate and no RightKit code; Class A, its verdict reuse and the admission check are the gate's (2026-10-29) | operative | D2, B19 |
 | GC-A06 | A gate candidate runs on the real broker of every managed host before apps (2026-10-30) | operative | BR30, B13, B36 |
-| GC-A07 | Dev is the installed app with rk qa (a faster profile is allowed); no debug or QA copy is built; QA journeys run after the build against the installed dev copy; no control server in release (2026-11-02) | operative, overrides GC-I10 | - |
+| GC-A07 | Dev is the installed app with rk qa, built on the release Cargo profile (one unit set and cache; hard constraint); no debug or QA copy is built; QA journeys run after the build against the installed dev copy; the control server only in dev, never in release (2026-11-02) | operative, overrides GC-I10 | - |
 | GC-T01 | Origin host | operative | B3 |
 | GC-T02 | Native build target | operative | - |
 | GC-T03 | Qualification runner | operative | - |
