@@ -285,14 +285,14 @@ test('isolated workspace overrides are deterministic exact reviewed RightKit pin
   const name = NAME; const entry = clone(inventory.npm[name]);
   delete entry.importClosures; entry.closure.declaredOnly = [];
   entry.closure.install = { react: '19.1.0', '@rightkit/logs': '0.1.6', '@rightkit/app-update': '0.4.0' };
-  const config = 'packages: []\noverrides:\n  "@rightkit/app-update": "0.4.0"\n  "@rightkit/logs": "0.1.6"\n';
+  const config = 'packages: []\nminimumReleaseAgeExclude:\n  - "@rightkit/*"\noverrides:\n  "@rightkit/app-update": "0.4.0"\n  "@rightkit/logs": "0.1.6"\n';
   assert.equal(scratchWorkspace(entry, name), config);
   entry.closure.install = Object.fromEntries(Object.entries(entry.closure.install).reverse());
   assert.equal(scratchWorkspace(entry, name), config, 'inventory object insertion order does not alter config bytes');
   entry.closure.install['@rightkit/logs'] = '^0.1.6';
   assert.throws(() => scratchWorkspace(entry, name), /exact registry version/);
   entry.closure.install = { react: '19.1.0' };
-  assert.equal(scratchWorkspace(entry, name), 'packages: []\noverrides: {}\n');
+  assert.equal(scratchWorkspace(entry, name), 'packages: []\nminimumReleaseAgeExclude:\n  - "@rightkit/*"\noverrides: {}\n');
 });
 
 test('workspace binding rejects age/trust policy changes even with recomputed digests', () => {
@@ -317,7 +317,7 @@ test('tauri age exception is singleton reviewed dependency bytes, never another 
   assert.equal(entry.closure.install['@tauri-apps/plugin-dialog'], '2.8.3');
   const config = scratchWorkspace(entry, name); const digest = sha('sha256', config);
   assert.equal(validateWorkspaceBinding({ file: '/scratch/pnpm-workspace.yaml', before: config, after: config, beforeSha256: digest, afterSha256: digest }, entry, name, '/scratch', path.posix), true);
-  assert.match(scratchWorkspace(entry, name), /^packages: \[\]\nminimumReleaseAgeExclude:\n  - "@rightkit\/logs@0\.1\.6"\noverrides:/);
+  assert.match(scratchWorkspace(entry, name), /^packages: \[\]\nminimumReleaseAgeExclude:\n  - "@rightkit\/\*"\n  - "@rightkit\/logs@0\.1\.6"\noverrides:/);
   assert.deepEqual(closureAgeExceptions(inventory.npm[NAME], NAME), []);
   const approvals = [{ registry: 'npm', ...CLOSURE_APPROVAL, reviewer: 'reviewed', reviewRef: 'reviewed-source' }];
   assert.doesNotThrow(() => validateClosureApproval(approvals, entry, name));
@@ -365,7 +365,7 @@ test('QA age exception requires exact approved Chrome package, version, archive 
 
 test('QA workspace permits only exact selected Chrome age exception & rejects config substitution', () => {
   const name = '@rightkit/qa'; const entry = inventory.npm[name]; const scratch = '/scratch/consumer';
-  const config = 'packages: []\nminimumReleaseAgeExclude:\n  - "@rightkit/qa-chrome@0.1.12"\noverrides:\n  "@rightkit/qa-chrome": "0.1.12"\n';
+  const config = 'packages: []\nminimumReleaseAgeExclude:\n  - "@rightkit/*"\n  - "@rightkit/qa-chrome@0.1.12"\noverrides:\n  "@rightkit/qa-chrome": "0.1.12"\n';
   assert.equal(scratchWorkspace(entry, name), config);
   const digest = sha('sha256', config);
   const good = { file: `${scratch}/pnpm-workspace.yaml`, before: config, after: config, beforeSha256: digest, afterSha256: digest };
