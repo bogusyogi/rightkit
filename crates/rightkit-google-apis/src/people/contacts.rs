@@ -165,6 +165,7 @@ pub async fn create_contact(
 }
 
 /// Update an existing contact (requires its current `etag`). Writable scope.
+#[allow(clippy::too_many_arguments)] // one argument per API field, as the host's call sites pass them
 pub async fn update_contact(
     client_id: &str,
     client_secret: &str,

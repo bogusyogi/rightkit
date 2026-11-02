@@ -196,6 +196,7 @@ pub fn attachment_name_and_mime(name: &str, mime_type: &str) -> (String, String)
 /// * `folder_id`  — None → root, Some(id) → that folder's children.
 /// * `query`      — if present, overrides folder_id; searches by name.
 /// * `page_token` — pass the `next_page_token` from the previous call to page.
+#[allow(clippy::too_many_arguments)] // one argument per API field, as the host's call sites pass them
 pub async fn list_files(
     client_id: &str,
     client_secret: &str,

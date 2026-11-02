@@ -264,6 +264,7 @@ pub async fn set_task_status(
 /// Not yet wired to a Tauri command (Tasks edit UI pending); covered by
 /// `db/tests.rs`.
 #[allow(dead_code)]
+#[allow(clippy::too_many_arguments)] // one argument per API field, as the host's call sites pass them
 pub async fn update_task(
     client_id: &str,
     client_secret: &str,

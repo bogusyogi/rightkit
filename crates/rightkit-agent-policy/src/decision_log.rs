@@ -73,7 +73,7 @@ impl DecisionLog {
     /// Append a decision record.
     ///
     /// Any context entry whose key matches a forbidden fragment (see
-    /// [`FORBIDDEN_CONTEXT_KEY_FRAGMENTS`]) is dropped rather than stored —
+    /// `FORBIDDEN_CONTEXT_KEY_FRAGMENTS`) is dropped rather than stored —
     /// the log never carries secret values even if a caller passes one in
     /// by mistake. Returns the record actually stored (post-scrubbing) so
     /// callers can confirm what was retained.

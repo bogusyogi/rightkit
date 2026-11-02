@@ -273,6 +273,10 @@ fn unavailable(e: io::Error) -> LifecycleError {
 // Generation fence
 // ---------------------------------------------------------------------------------------------
 
+/// How long a request whose connection closed waits for the host's exit to become observable before
+/// its transport error is reported as such.
+const HOST_EXIT_SETTLE: Duration = Duration::from_millis(500);
+
 /// A request was issued under, or a reply tagged with, an epoch that is no longer current.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Stale {
@@ -1268,6 +1272,16 @@ impl Session {
         self.confirm_current()?;
         let ticket = self.inner.fence.issue(self.epoch)?;
         let reply = self.link.call(method, params);
+        // A connection the host closed under this request is the common sign that the host left: give
+        // its exit a moment to become observable (the owned child reaped, the record's process gone)
+        // so the caller sees StaleGeneration, not a bare transport error, when that is what happened.
+        if reply.is_err() && self.link.is_closed() {
+            let settle = Instant::now() + HOST_EXIT_SETTLE;
+            while Instant::now() < settle {
+                self.confirm_current()?;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
         // The reply counts only while the host is still the one this session was bound to.
         self.confirm_current()?;
         self.inner.fence.admit_reply(&ticket)?;

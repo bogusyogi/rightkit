@@ -132,6 +132,7 @@ fn clean_addrs(s: &str) -> String {
 /// are DOMPurify-sanitized in the webview first). Bcc is included so Gmail
 /// delivers to those recipients; Gmail strips the Bcc header from the copy.
 /// `in_reply_to` (the original Message-ID) threads replies for other clients.
+#[allow(clippy::too_many_arguments)] // one argument per API field, as the host's call sites pass them
 pub fn build_raw_mime(
     from: &str,
     to: &str,

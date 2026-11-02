@@ -153,7 +153,7 @@ impl AutoApprovalClassifier {
     /// trusting a threshold crossing that the model itself is barely sure of.
     pub const GRAY_ZONE_BAND: f64 = 0.08;
 
-    /// Whether `f`'s score falls within [`GRAY_ZONE_BAND`] of either decision
+    /// Whether `f`'s score falls within [`Self::GRAY_ZONE_BAND`] of either decision
     /// boundary. Independent of which tier the score lands in.
     pub fn is_gray_zone(&self, f: &ToolCallFeatures) -> bool {
         Self::score_is_gray_zone(self.compute_score(f))
@@ -169,7 +169,7 @@ impl AutoApprovalClassifier {
 
     /// Classify with an explicit gray-zone flag (S:B4).
     ///
-    /// The tier is unchanged from [`classify`] -- gray-zone status never
+    /// The tier is unchanged from [`Self::classify`] -- gray-zone status never
     /// changes the caller's behavior on its own, only whether the decision is
     /// annotated as requiring reviewer attention rather than presented as
     /// confident. This keeps `classify` cheap for callers that only need the
