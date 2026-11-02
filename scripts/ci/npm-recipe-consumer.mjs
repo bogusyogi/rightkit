@@ -191,12 +191,16 @@ export function validateClosureProvenance(evidence, lock, entry, name, scratch, 
   need(artifact?.path === api.join(scratch, name === '@rightkit/qa' ? 'closure-qa-chrome.tgz' : 'closure-logs.tgz') && artifact.sha256 === approved.sha256 && artifact.version === approved.version && artifact.resolution === 'fetched' && artifact.installationBinding === 'all-archive-files-sha256' && Number.isSafeInteger(artifact.archiveFileCount) && artifact.archiveFileCount > 0, 'installed dependency provenance differs from approved registry tarball');
 }
 
+// First-party packages are exempt from pnpm's release-age wait (Adrian, 2026-11-02): RightKit's own packages are published only by
+// publish-direct.yml from CI-qualified bytes with registry provenance, and a chain of them otherwise publishes one level per day.
+// Third-party dependencies keep the wait; the reviewed dependency-byte exceptions below stay as they are.
+export const FIRST_PARTY_AGE_EXCLUDE = '@rightkit/*';
 /** An owned, isolated workspace applies only exact reviewed RightKit closure pins, with only its explicit reviewed dependency-byte exception. */
 export function scratchWorkspace(entry, name) {
   validateRecipeEntry(entry, name);
   const pins = Object.entries(entry.closure.install).filter(([dep]) => NAME.test(dep)).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-  const exceptions = closureAgeExceptions(entry, name);
-  return `packages: []\n${exceptions.length ? `minimumReleaseAgeExclude:\n${exceptions.map(spec => `  - ${JSON.stringify(spec)}\n`).join('')}` : ''}${pins.length ? `overrides:\n${pins.map(([dep, version]) => `  ${JSON.stringify(dep)}: ${JSON.stringify(version)}\n`).join('')}` : 'overrides: {}\n'}`;
+  const exceptions = [FIRST_PARTY_AGE_EXCLUDE, ...closureAgeExceptions(entry, name)];
+  return `packages: []\nminimumReleaseAgeExclude:\n${exceptions.map(spec => `  - ${JSON.stringify(spec)}\n`).join('')}${pins.length ? `overrides:\n${pins.map(([dep, version]) => `  ${JSON.stringify(dep)}: ${JSON.stringify(version)}\n`).join('')}` : 'overrides: {}\n'}`;
 }
 
 /** No config or policy mutation is admitted, including pnpm-generated minimumReleaseAgeExclude entries. */
