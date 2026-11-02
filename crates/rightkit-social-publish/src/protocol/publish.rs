@@ -54,28 +54,9 @@ pub struct PublishResolution {
     pub remote_id_entered_by_hand: bool,
 }
 
-/// One media item in a job payload. `url` is where the platform fetches the file; the object-storage
-/// upload that produces it is not built, so it comes from the enqueue input.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PublishMedia {
-    pub hash: String,
-    pub kind: String,
-    #[serde(default)]
-    pub duration_ms: Option<u64>,
-    #[serde(default)]
-    pub url: Option<String>,
-}
-
-/// What the job posts, frozen at enqueue from the approved calendar entry revision.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PublishPayload {
-    pub caption: String,
-    pub format: String,
-    #[serde(default)]
-    pub media: Vec<PublishMedia>,
-    #[serde(default)]
-    pub settings: Value,
-}
+// The payload a job carries is the platform modules' wire shape (one definition, so the machine and the
+// platform request builders agree on the type).
+pub use crate::wire::{PublishMedia, PublishPayload};
 
 /// Remote ids recorded after each successful phase.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
