@@ -1,4 +1,4 @@
-// Sibling fragment of stall_guardrail.rs — included via `include!()`. Pure
+// Sibling fragment of stall_guardrail.rs — included by the parent module. Pure
 // helpers: canonicalize the JSON arguments (sort object keys recursively),
 // then hash the canonical form so re-ordered fields hash identically.
 

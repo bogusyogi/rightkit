@@ -197,79 +197,79 @@ pub struct ContractShape {
 // retains matching canonical files at its root for its non-Rust bindings.
 const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
-macro_rules! shape {
-    ($name:literal, $schema:literal, $fixture:literal) => {
-        ContractShape {
-            name: $name,
-            schema_path: concat!("schemas/", $schema),
-            fixture_path: concat!("schemas/operations/", $fixture),
-            schema: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/assets/schemas/",
-                $schema
-            )),
-            fixture: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/assets/operations/",
-                $fixture
-            )),
-        }
-    };
-}
-
 /// Every typed contract shape, in canonical order. Used by the round-trip tests
 /// and re-exported for downstream gates.
 pub const SHAPES: &[ContractShape] = &[
-    shape!(
-        "ScopeGrantV1",
-        "scope-grant.v1.schema.json",
-        "scope-grant.v1.golden.json"
-    ),
-    shape!(
-        "ContextCandidateSetV1",
-        "context-candidate-set.v1.schema.json",
-        "context-candidate-set.v1.golden.json"
-    ),
-    shape!(
-        "ContextPacketV1",
-        "context-packet.v1.schema.json",
-        "context-packet.v1.golden.json"
-    ),
-    shape!(
-        "ContextReceiptV1",
-        "context-receipt.v1.schema.json",
-        "context-receipt.v1.golden.json"
-    ),
-    shape!(
-        "KnowledgeEmissionV1",
-        "knowledge-emission.v1.schema.json",
-        "knowledge-emission.v1.golden.json"
-    ),
-    shape!(
-        "ObservableEventV1",
-        "observable-event.v1.schema.json",
-        "observable-event.v1.golden.json"
-    ),
-    shape!(
-        "WorkspaceEpochV1",
-        "workspace-epoch.v1.schema.json",
-        "workspace-epoch.v1.golden.json"
-    ),
-    shape!(
-        "DiagnosticEvidenceSnapshotV1",
-        "diagnostic-evidence-snapshot.v1.schema.json",
-        "diagnostic-evidence-snapshot.v1.golden.json"
-    ),
-    shape!(
-        "DiagnosticGateDecisionV1",
-        "diagnostic-gate-decision.v1.schema.json",
-        "diagnostic-gate-decision.v1.golden.json"
-    ),
-    shape!(
-        "CoverageObligationV1",
-        "coverage-obligation.v1.schema.json",
-        "coverage-obligation.v1.golden.json"
-    ),
+    ContractShape {
+        name: "ScopeGrantV1",
+        schema_path: "schemas/scope-grant.v1.schema.json",
+        fixture_path: "schemas/operations/scope-grant.v1.golden.json",
+        schema: include_str!("../assets/schemas/scope-grant.v1.schema.json"),
+        fixture: include_str!("../assets/operations/scope-grant.v1.golden.json"),
+    },
+    ContractShape {
+        name: "ContextCandidateSetV1",
+        schema_path: "schemas/context-candidate-set.v1.schema.json",
+        fixture_path: "schemas/operations/context-candidate-set.v1.golden.json",
+        schema: include_str!("../assets/schemas/context-candidate-set.v1.schema.json"),
+        fixture: include_str!("../assets/operations/context-candidate-set.v1.golden.json"),
+    },
+    ContractShape {
+        name: "ContextPacketV1",
+        schema_path: "schemas/context-packet.v1.schema.json",
+        fixture_path: "schemas/operations/context-packet.v1.golden.json",
+        schema: include_str!("../assets/schemas/context-packet.v1.schema.json"),
+        fixture: include_str!("../assets/operations/context-packet.v1.golden.json"),
+    },
+    ContractShape {
+        name: "ContextReceiptV1",
+        schema_path: "schemas/context-receipt.v1.schema.json",
+        fixture_path: "schemas/operations/context-receipt.v1.golden.json",
+        schema: include_str!("../assets/schemas/context-receipt.v1.schema.json"),
+        fixture: include_str!("../assets/operations/context-receipt.v1.golden.json"),
+    },
+    ContractShape {
+        name: "KnowledgeEmissionV1",
+        schema_path: "schemas/knowledge-emission.v1.schema.json",
+        fixture_path: "schemas/operations/knowledge-emission.v1.golden.json",
+        schema: include_str!("../assets/schemas/knowledge-emission.v1.schema.json"),
+        fixture: include_str!("../assets/operations/knowledge-emission.v1.golden.json"),
+    },
+    ContractShape {
+        name: "ObservableEventV1",
+        schema_path: "schemas/observable-event.v1.schema.json",
+        fixture_path: "schemas/operations/observable-event.v1.golden.json",
+        schema: include_str!("../assets/schemas/observable-event.v1.schema.json"),
+        fixture: include_str!("../assets/operations/observable-event.v1.golden.json"),
+    },
+    ContractShape {
+        name: "WorkspaceEpochV1",
+        schema_path: "schemas/workspace-epoch.v1.schema.json",
+        fixture_path: "schemas/operations/workspace-epoch.v1.golden.json",
+        schema: include_str!("../assets/schemas/workspace-epoch.v1.schema.json"),
+        fixture: include_str!("../assets/operations/workspace-epoch.v1.golden.json"),
+    },
+    ContractShape {
+        name: "DiagnosticEvidenceSnapshotV1",
+        schema_path: "schemas/diagnostic-evidence-snapshot.v1.schema.json",
+        fixture_path: "schemas/operations/diagnostic-evidence-snapshot.v1.golden.json",
+        schema: include_str!("../assets/schemas/diagnostic-evidence-snapshot.v1.schema.json"),
+        fixture: include_str!("../assets/operations/diagnostic-evidence-snapshot.v1.golden.json"),
+    },
+    ContractShape {
+        name: "DiagnosticGateDecisionV1",
+        schema_path: "schemas/diagnostic-gate-decision.v1.schema.json",
+        fixture_path: "schemas/operations/diagnostic-gate-decision.v1.golden.json",
+        schema: include_str!("../assets/schemas/diagnostic-gate-decision.v1.schema.json"),
+        fixture: include_str!("../assets/operations/diagnostic-gate-decision.v1.golden.json"),
+    },
+    ContractShape {
+        name: "CoverageObligationV1",
+        schema_path: "schemas/coverage-obligation.v1.schema.json",
+        fixture_path: "schemas/operations/coverage-obligation.v1.golden.json",
+        schema: include_str!("../assets/schemas/coverage-obligation.v1.schema.json"),
+        fixture: include_str!("../assets/operations/coverage-obligation.v1.golden.json"),
+    },
 ];
 
 pub mod explicit;
