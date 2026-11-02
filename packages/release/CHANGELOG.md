@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.23 (unpublished)
+## 0.6.24 (unpublished)
+
+- **The admission host-tools row probes cargo and rustc from the app's primary checkout counterpart on a door split (HeardRight Dell package, 2026-11-02):** `right-release build` probed `cargo --version` and `rustc -vV` with the snapshot as its working directory, and the Windows managed cargo shim refuses a directory outside the primary checkout (`RK_NOT_PRIMARY_CHECKOUT`). On a door split the probes now run from `releaseSource.checkoutAppRoot`, which selects the same rust-toolchain.
+
+## 0.6.23
 
 - **`right-release disk install` schedules the real node file, not a version manager's link (Dell "RightKit Disk Hygiene" task exit 0x80070003, 2026-11-02):** the task named `process.execPath`, which on the Dell is nvm-windows' `C:\nvm4w\nodejs\node.exe`, a symlink into the user profile that the scheduled task context could not follow. The job now names `realpath(process.execPath)`. Re-run `right-release disk install` on a host to re-register.
 - **A typed broker refusal with nothing spawned records its sub-handle unsent at once (HeardRight Mac, 2026-11-02):** 42 carried scans refused while the broker's admission was paused left sub-handles the broker never admitted. Its lease status for a member-less handle is UNKNOWN, so a dead owner's record could not be reclaimed. As `broker-busy` already did, a `broker-refused-*` outcome with no request reference (carried calls) or a refusal in a scan's captured output with no request reference (carried scans) now marks the sub-handle unsent through the build ownership, naming the refusal.

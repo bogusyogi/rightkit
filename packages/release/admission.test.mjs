@@ -688,3 +688,18 @@ test("media-sidecar-catalog: with no catalog in the config, the rightkit-ffmpeg 
   assert.equal((await unit("media-sidecar-catalog", { root, config: app, target: { mediaSidecar: { nope: 1 } }, ...never, ...withLayout(manifest) })).row.status, "skipped");
   assert.deepEqual(never.calls, []);
 });
+
+test("host-tools on a door split: cargo and rustc are probed from the app's primary checkout counterpart, never the snapshot (a managed shim refuses it: RK_NOT_PRIMARY_CHECKOUT, Dell 2026-11-02)", async () => {
+  const feed = { packageManager: "pnpm@11.25.0" };
+  const cwds = {};
+  const host = posixHost({
+    answers: { "pnpm --version": ok("11.25.0\n"), "cargo --version": ok("cargo 1.98.0"), "rustc -vV": RUSTC("1.98.0") },
+    files: { "/snap/app/package.json": JSON.stringify({ packageManager: "pnpm@11.25.0" }), "/snap/app/rust-toolchain.toml": '[toolchain]\nchannel = "1.98.0"\n', "/checkout/app": "" },
+  });
+  const spawn = (file, args = [], opts = {}) => { cwds[`${path.basename(file)} ${args.join(" ")}`] = opts.cwd; return host.spawn(file, args, opts); };
+  const releaseSource = { mode: "snapshot", checkoutAppRoot: "/checkout/app", snapshot: "/snap", checkout: "/checkout" };
+  assert.deepEqual((await unit("host-tools", { root: "/snap/app", config: APP, target: {}, feed, ...host, spawn, releaseSource })).details, []);
+  assert.equal(cwds["cargo --version"], "/checkout/app");
+  assert.equal(cwds["rustc -vV"], "/checkout/app");
+  assert.equal(cwds["pnpm --version"], "/snap/app", "pnpm still answers from the app root");
+});

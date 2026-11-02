@@ -174,12 +174,15 @@ export const HOST_ROWS = Object.freeze([
         if (failed(result)) found.push(`required command failed: pnpm --version failed: ${why(result)}`);
         else if (expected && result.stdout.trim() !== expected) found.push(`pnpm ${result.stdout.trim()} is installed but ${source} pins pnpm@${expected}; install the pinned version (corepack prepare pnpm@${expected} --activate)`);
       }
+      // The toolchain version probes run from the app's PRIMARY checkout counterpart on a door split: a managed cargo/rustc shim refuses a working directory
+      // outside the primary checkout (the snapshot: RK_NOT_PRIMARY_CHECKOUT, HeardRight Dell 2026-11-02), and the counterpart selects the same rust-toolchain.
+      const toolCwd = ctx.releaseSource?.mode === "snapshot" && typeof ctx.releaseSource.checkoutAppRoot === "string" && ctx.exists(ctx.releaseSource.checkoutAppRoot) ? ctx.releaseSource.checkoutAppRoot : ctx.root;
       if (present.has("cargo")) {
-        const result = probe(ctx, "cargo", ["--version"]);
+        const result = probe(ctx, "cargo", ["--version"], { cwd: toolCwd });
         if (failed(result)) found.push(`required command failed: cargo --version failed: ${why(result)}`);
       }
       if (present.has("rustc")) {
-        const result = probe(ctx, "rustc", ["-vV"]);
+        const result = probe(ctx, "rustc", ["-vV"], { cwd: toolCwd });
         if (failed(result)) found.push(`required command failed: rustc -vV failed: ${why(result)}`);
         else {
           const release = /^release:\s*(\S+)/m.exec(result.stdout)?.[1];
