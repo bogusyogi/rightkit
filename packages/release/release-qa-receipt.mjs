@@ -1,9 +1,8 @@
 // Release QA receipts (hardening step 4): no signed release on any channel without a passing, artifact-bound
 // QA receipt for the exact commit.
 //
-//   source stage    admits the candidate build/sign: QA ran against the committed source.
-//   installed stage admits upload/publication: QA ran on the built, sealed artifacts (exact sha256) and chains
-//                   to the source receipt digest recorded in the sealed manifest.
+//   installed stage admits upload/publication: QA ran on the built, sealed artifacts (exact sha256).
+//   There is no source stage (GATE-CONTRACT GC-A07): QA journeys run after the build against the installed dev copy.
 //
 // A receipt is written only by `right-release qa`, which runs RightKit's own runner (`rightkit-qa`), digests the
 // runner binary and the evidence bundle it produced, evaluates the protected QA floor, and MACs the result with a
@@ -25,7 +24,7 @@ import { SCANNER_VERSION } from "./ownership.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const HEX64 = /^[a-f0-9]{64}$/;
 export const QA_RECEIPT_SCHEMA = 1;
-export const QA_STAGES = Object.freeze(["source", "installed"]);
+export const QA_STAGES = Object.freeze(["installed"]);
 export const QA_KEY_ENV = "RIGHTKIT_QA_RECEIPT_KEY";
 const MAC_DOMAIN = "rightkit-qa-receipt-v1\0";
 
@@ -49,22 +48,6 @@ export function qaCommandFor({ stage, platform, releaseId, configName = "right-r
 
 export function qaReceiptPath({ repoRoot, releaseId, platform, stage }) {
   return path.join(repoRoot, ".right-release", "qa", releaseId, platformDirOf(platform), `${stage}.receipt.json`);
-}
-
-export const QA_CARRIED_RECEIPT_ENV = "RIGHT_RELEASE_QA_RECEIPT";
-
-/**
- * Receipt carried from the job that ran source QA to the signing job (Orthic-Labs/rightkit#183).
- * `RIGHT_RELEASE_QA_RECEIPT` names the receipt file, or a directory holding `source.receipt.json`.
- * Returns the file path when it exists, else null. The carried file is verified exactly like a local one
- * (MAC, commit, tree, lockfile closure, config, floor, bundle), so carrying adds no trust.
- */
-export function carriedSourceReceiptPath(env = process.env) {
-  const value = String(env?.[QA_CARRIED_RECEIPT_ENV] ?? "").trim();
-  if (!value) return null;
-  const resolved = path.resolve(value);
-  const file = existsSync(resolved) && statSync(resolved).isDirectory() ? path.join(resolved, "source.receipt.json") : resolved;
-  return existsSync(file) ? file : null;
 }
 
 export function loadQaFloor(dir = here) {
@@ -196,7 +179,7 @@ export function receiptDigest(receipt) {
 
 export function buildQaReceipt({
   stage, app, platform, releaseId, source, closure, releaseConfigSha256, qa, floor, floorDigest, policyBundleDigest,
-  runner, evidence, evidenceSha256, required, artifacts = [], sourceReceiptDigest = null, now = new Date(), journeys = null, execution = null,
+  runner, evidence, evidenceSha256, required, artifacts = [], now = new Date(), journeys = null, execution = null,
 }) {
   const evidenceOk = evidence?.status === "passed" && Boolean(evidence?.finishedAt);
   const status = evidenceOk && required.every((item) => item.status === "passed") ? "passed" : "failed";
@@ -211,7 +194,7 @@ export function buildQaReceipt({
     runner,
     evidence: { sha256: evidenceSha256, runId: evidence?.runId ?? null, status: evidence?.status ?? null, schemaVersion: evidence?.schemaVersion ?? null },
     required, checks: (evidence?.checks ?? []).map((check) => ({ name: String(check.name), status: String(check.status) })),
-    artifacts, sourceReceiptDigest, status, createdAt: now.toISOString(),
+    artifacts, status, createdAt: now.toISOString(),
     ...(journeys ? { journeys } : {}),
     ...(execution ? { execution } : {}),
   };
@@ -221,7 +204,7 @@ export function buildQaReceipt({
  * Verify a receipt against the exact current state. Returns { ok, reason, receipt }.
  * `expected.artifacts` ([{name, sha256}]) must equal the receipt's artifacts exactly (installed stage).
  */
-export function verifyQaReceipt(receipt, { key, stage, repoRoot, releaseConfigSha256, floorDir = here, artifacts, sourceReceiptDigest, gitRunner, policyBundleDigest, source, closure }) {
+export function verifyQaReceipt(receipt, { key, stage, repoRoot, releaseConfigSha256, floorDir = here, artifacts, gitRunner, policyBundleDigest, source, closure }) {
   const refuse = (reason) => ({ ok: false, reason });
   if (!receipt || receipt.schema !== QA_RECEIPT_SCHEMA) return refuse("receipt is missing or has an unsupported schema");
   if (receipt.stage !== stage) return refuse(`receipt is for stage ${receipt.stage}, not ${stage}`);
@@ -257,7 +240,6 @@ export function verifyQaReceipt(receipt, { key, stage, repoRoot, releaseConfigSh
     const wanted = [...(artifacts ?? [])].map((item) => `${item.name}:${item.sha256}`).sort();
     const have = (receipt.artifacts ?? []).map((item) => `${item.name}:${item.sha256}`).sort();
     if (!wanted.length || JSON.stringify(wanted) !== JSON.stringify(have)) return refuse("receipt artifact hashes do not match the sealed artifacts");
-    if (!sourceReceiptDigest || receipt.sourceReceiptDigest !== sourceReceiptDigest) return refuse("installed QA is not chained to the source QA receipt sealed into this release");
   }
   return { ok: true, receipt };
 }
@@ -277,25 +259,6 @@ function loadKeyOrRefuse(opts, command) {
 }
 
 /**
- * Build gate: source QA must have passed for this exact commit before a candidate is built/signed.
- * Returns the receipt digest to record in the sealed manifest.
- */
-export function assertSourceQaAdmission({ repoRoot, releaseId, platform, configName, releaseConfigSha256, ...opts }) {
-  const command = qaCommandFor({ stage: "source", platform, releaseId, configName });
-  // A receipt carried from the QA job (RIGHT_RELEASE_QA_RECEIPT) wins over the local path; the signing job has no local one.
-  const carried = carriedSourceReceiptPath(opts.env ?? process.env);
-  const receipt = readQaReceipt(carried ?? qaReceiptPath({ repoRoot, releaseId, platform, stage: "source" }));
-  if (!receipt) throw new QaAdmissionError(`no source QA receipt for ${releaseId} (${platform}); a candidate cannot be built or signed without passing source QA`, { command });
-  const verdict = verifyQaReceipt(receipt, { key: loadKeyOrRefuse(opts, command), stage: "source", repoRoot, releaseConfigSha256, floorDir: opts.floorDir, gitRunner: opts.gitRunner, policyBundleDigest: opts.policyBundleDigest, source: opts.source, closure: opts.closure });
-  if (!verdict.ok) throw new QaAdmissionError(`source QA receipt rejected: ${verdict.reason}`, { command });
-  if (carried && (receipt.releaseId !== releaseId || receipt.platform !== platform)) {
-    throw new QaAdmissionError(`source QA receipt rejected: carried receipt is for ${receipt.releaseId} (${receipt.platform}), not ${releaseId} (${platform})`, { command });
-  }
-  opts.afterVerify?.(receipt); // hardening hook (release-qa-hardening.mjs); throws QaAdmissionError
-  return { digest: receipt.digest, floorDigest: receipt.floor.digest };
-}
-
-/**
  * Upload/publication gate for every provider (R2 + RightApps, GitHub Releases, updater channels): an installed-QA
  * receipt for the exact sealed artifact hashes and commit must exist and pass. Dev builds never reach this gate —
  * install-app --dev and the devArtifact lane never upload — and there is deliberately no manifest flag that skips it.
@@ -308,7 +271,6 @@ export function assertInstalledQaAdmission({ repoRoot, manifest, platform, confi
   const verdict = verifyQaReceipt(receipt, {
     key: loadKeyOrRefuse(opts, command), stage: "installed", repoRoot, releaseConfigSha256, floorDir: opts.floorDir,
     artifacts: (manifest.files ?? []).map((file) => ({ name: file.name, sha256: file.sha256 })),
-    sourceReceiptDigest: manifest.qa?.sourceReceiptDigest,
     gitRunner: opts.gitRunner, policyBundleDigest: opts.policyBundleDigest, source: opts.source, closure: opts.closure,
   });
   if (!verdict.ok) throw new QaAdmissionError(`installed QA receipt rejected: ${verdict.reason}`, { command });

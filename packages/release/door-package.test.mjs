@@ -111,16 +111,16 @@ test("[7.04 positive] --to package seals the SELECTED commit from the snapshot t
   const fx = appFixture(t);
   const r = await fx.door(["--to", "package", "--platform", "mac", "--commit", fx.c1]);
   assert.equal(r.code, 0, r.all);
-  // Sidecars once, then qa (source) and build, each inside the snapshot with the split in its environment.
+  // Sidecars once, then build, inside the snapshot with the split in its environment.
   assert.equal(fx.captures.length, 1, "the sidecars are staged once per door run");
-  assert.deepEqual(fx.launches.map((l) => l.verb), ["qa", "build"]);
-  assert.deepEqual(fx.launches[0].args, ["qa", "--stage", "source", "--platform", "mac"]); assert.deepEqual(fx.launches[1].args, ["build", "--platform", "mac"]);
+  assert.deepEqual(fx.launches.map((l) => l.verb), ["build"], "GC-A07: no source QA runs in the package stage");
+  assert.deepEqual(fx.launches[0].args, ["build", "--platform", "mac"]);
   for (const l of [...fx.captures, ...fx.launches]) {
     assert.equal(fs.realpathSync(l.cwd), fs.realpathSync(fx.snapshot()), "right-release runs inside the snapshot");
     assert.equal(l.env.RK_GATE_CHECKOUT, fs.realpathSync(fx.repo));
     assert.ok(!Object.hasOwn(l.env, "TAURI_CONFIG"));
   }
-  // Row 7.04c (R-T1, 7.09): the checkout's output directory, resolved by the door in the primary checkout, is handed to qa and build absolute; the sealed manifest records it.
+  // Row 7.04c (R-T1, 7.09): the checkout's output directory, resolved by the door in the primary checkout, is handed to build absolute; the sealed manifest records it.
   for (const l of fx.launches) assert.equal(l.env.CARGO_TARGET_DIR, fx.checkoutTarget, `${l.verb} is handed the bound target`);
   assert.equal(fs.existsSync(path.join(fx.snapshot(), "src-tauri", "target")), false, "no target in the snapshot");
   // The checkout keeps its edits and is never what the build read.
@@ -139,32 +139,6 @@ test("[7.04 positive] --to package seals the SELECTED commit from the snapshot t
   assert.equal(ledgerEntry.sha256, sha256("engine-bytes"));
 });
 
-test("[rightkit#1309] --to package hands the compile's recorded output directories to source QA only, while the record still proves them intact; the build never gets them", { skip: POSIX_SIM }, async (t) => {
-  const fx = appFixture(t);
-  const compiled = tmp(t, "rk-qa-compiled-");
-  fs.mkdirSync(path.join(compiled, "debug"), { recursive: true });
-  fs.writeFileSync(path.join(compiled, "debug", "shell"), "qa-shell");
-  const runCompile = async ({ reportOutputs } = {}) => { reportOutputs?.([compiled]); return 0; };
-  const r = await fx.door(["--to", "package", "--platform", "mac", "--commit", fx.c1], { runCompile });
-  assert.equal(r.code, 0, r.all);
-  const recorded = fx.receipts.get(fx.c1).stages.compile.outputs.dirs;
-  assert.deepEqual(recorded, [fs.realpathSync(compiled)]);
-  const [qa, build] = fx.launches;
-  assert.deepEqual(JSON.parse(qa.env.RIGHT_RELEASE_QA_COMPILED_DIRS), recorded, "source QA is handed exactly the directories the compile recorded");
-  assert.equal(Object.hasOwn(build.env, "RIGHT_RELEASE_QA_COMPILED_DIRS"), false, "the build is not");
-});
-
-test("[rightkit#1309] a compile record that no longer proves its outputs is not handed to source QA, and the run says why", { skip: POSIX_SIM }, async (t) => {
-  const fx = appFixture(t);
-  const compiled = tmp(t, "rk-qa-compiled-");
-  fs.mkdirSync(path.join(compiled, "debug"), { recursive: true });
-  const runCompile = async ({ reportOutputs } = {}) => { reportOutputs?.([compiled]); return 0; };
-  const r = await fx.door(["--to", "package", "--platform", "mac", "--commit", fx.c1], { runCompile, compileReuseProblem: () => "output directory X is gone" });
-  assert.equal(r.code, 0, r.all);
-  assert.match(r.all, /the compile outputs are not handed to source QA: output directory X is gone/);
-  assert.equal(Object.hasOwn(fx.launches[0].env, "RIGHT_RELEASE_QA_COMPILED_DIRS"), false);
-});
-
 test("[Q1 positive 3] --to package ALONE after a compile-only run re-stages (the sync removed the ledger) and seals; the sealed sidecar sha256 equals the ledger's", { skip: POSIX_SIM }, async (t) => {
   const fx = appFixture(t);
   let r = await fx.door(["--to", "compile", "--commit", fx.c1]);
@@ -176,7 +150,7 @@ test("[Q1 positive 3] --to package ALONE after a compile-only run re-stages (the
   assert.equal(r.code, 0, r.all);
   assert.match(r.all, /\[compile\] already passed/);
   assert.equal(fx.captures.length, 2, "the package-only run staged the sidecars again, once");
-  assert.deepEqual(fx.launches.map((l) => l.verb), ["qa", "build"]);
+  assert.deepEqual(fx.launches.map((l) => l.verb), ["build"]);
   const stage = fx.receipts.get(fx.c1).stages.package;
   const entry = stage.snapshot.ledger.find((e) => e.path === fx.staged);
   const manifest = JSON.parse(fs.readFileSync(path.join(fx.repo, ".right-release/sealed", `app-1.0.0-${fx.c1.slice(0, 8)}`, "mac", "release-manifest.json"), "utf8"));
@@ -323,7 +297,7 @@ test("[7.04] the wiring that makes package work in a split is present in every f
   assert.match(cli, /const SPLIT_COMMANDS = new Set\(\["dev", "test", "stage-sidecar", "web-build", "build", "package", "release", "qa"\]\)/);
   assert.match(cli, /key === "upload" && MOBILE_UPLOAD\(args\)/);
   const br = read("build-release.mjs");
-  assert.match(br, /resolveReleaseSource\(/); assert.match(br, /assertReleaseSource\(releaseSource/); assert.match(br, /qaAdmissionSourceOptions\(releaseSource\)/);
+  assert.match(br, /resolveReleaseSource\(/); assert.match(br, /assertReleaseSource\(releaseSource/); assert.doesNotMatch(br, /admitSourceQa|qaAdmissionSourceOptions/, "the build runs no QA admission (GC-A07)");
   assert.doesNotMatch(br, /git\(repoRoot, \["rev-parse", "HEAD"\]\)/, "no HEAD read left in the build");
   assert.doesNotMatch(br, /git\(invocationRoot, \["rev-parse", "HEAD"\]\)/);
   assert.match(br, /splitSealSource \? \{ tree: splitSealSource\.tree, source: "snapshot" \}/, "the manifest records the tree and the snapshot source");

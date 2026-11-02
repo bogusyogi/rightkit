@@ -21,7 +21,6 @@ const commands = new Map([
   ["sign-windows", "sign-windows.mjs"],
   ["sign-updater", "sign-updater.mjs"],
   ["sign-dev-artifact", "sign-dev-artifact.mjs"],
-  ["sign-qa-bundle", "sign-qa-bundle.mjs"],
   ["sign-candidate", "sign-candidate.mjs"],
   ["engine-locate", "engine-locator.mjs"],
   ["stage-sidecar", "stage-sidecar-command.mjs"],
@@ -329,8 +328,6 @@ Commands:
                                                       Fail when a built web dist/ carries a forbidden marker string or mock/fixture chunk name (dev, mock or fixture code in release)
   sign-dev-artifact --artifact <dir> --manifest <sign.json> [--metadata <payload.json>] [--evidence <path>] [--dry-run]
                                                       Developer ID sign an existing CI dev artifact per file with fixed identifiers; never builds, notarizes or publishes (macOS)
-  sign-qa-bundle --app <abs .app> --qa-root <abs dir> [--entitlements <abs plist>] [--out <evidence.json>]
-                                                      QA ONLY: ad hoc sign a bundle inside a QA scratch root, nested code first, outer last, never --deep, never the signing agent (macOS); not a release artifact
   sign-candidate --platform win|mac --artifact <dir> --candidate-receipt <receipt.json> --out <binding.json> [--manifest <sign.json>] [--publisher <subject>] [--dry-run]
                                                       Sign the exact unsigned candidate bytes (sha256 checked against the candidate receipt) instead of rebuilding; writes a candidate-sha -> signed-sha binding receipt
   engine-locate --engine cutright|genright [--sha256 <hex>] [--json]
@@ -342,10 +339,10 @@ Commands:
   upload --platform ios --release <id> [--apply]       Sealed IPA to TestFlight, then the exact build into the beta groups; dry run unless --apply (macOS)
   ios-credentials store --key-id <KEYID> --issuer <uuid> | check
                                                       Put the App Store Connect API key (stdin), key id and issuer into the login Keychain once, or check them; never a file (macOS)
-  qa --stage source|installed --platform mac|win [--release <id>]   Run rightkit-qa (and the journeys lane when the config sets qa.journeys) and write the sealed QA receipt. Refused inside a QA run. The receipt must match the platform and release id, come from an approved runner digest, and show every release-critical journey passed
-                                                      Admission is per app, and per stage (source = build, installed = upload and publish), in qa-admission-policy.json: warn (default) records a refusal and continues; refuse blocks that stage. Only adrian moves an app or stage from refuse back to warn, or approves a runner
-  qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]            List source/installed QA status per release; exit 1 if an uploaded build lacks passing QA
-  qa policy show | set --app <app> --mode warn|refuse --set-by <name> [--stage source|installed]
+  qa --stage installed --platform mac|win [--release <id>]   Run rightkit-qa (and the journeys lane when the config sets qa.journeys) and write the sealed QA receipt. Refused inside a QA run. The receipt must match the platform and release id, come from an approved runner digest, and show every release-critical journey passed
+                                                      Admission is per app (installed = upload and publish; there is no source stage, GATE-CONTRACT GC-A07), in qa-admission-policy.json: warn (default) records a refusal and continues; refuse blocks the publication. Only adrian moves an app from refuse back to warn, or approves a runner
+  qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]            List installed QA status per release; exit 1 if an uploaded build lacks passing QA
+  qa policy show | set --app <app> --mode warn|refuse --set-by <name> [--stage installed]
                                                       Show the QA admission policy, or set an app's mode (both stages, or one with --stage)
   qa policy approve-runner --runner <file> --version <v> --platform mac|win --set-by adrian [--note <text>]
                                                       Approve a rightkit-qa runner build for one platform: the file must report "rightkit-qa <v>" from --version and <v> must be the published version

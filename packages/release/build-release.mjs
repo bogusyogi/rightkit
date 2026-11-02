@@ -27,10 +27,9 @@ import { sccacheRefusal } from "./admission-host.mjs";
 import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { fileURLToPath } from "node:url";
 import { dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
-import { assertInsideSource, assertReleaseSource, gitRootOf, isSnapshotSource, qaAdmissionSourceOptions, resolveReleaseSource, sourceRootOf } from "./release-source-identity.mjs";
+import { assertInsideSource, assertReleaseSource, gitRootOf, isSnapshotSource, resolveReleaseSource, sourceRootOf } from "./release-source-identity.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import { ArtifactPathError, assertSplitCommandPaths, boundTargetsEvidence, releaseCommandSteps, resolveArtifactPath as resolveSplitArtifactPath, splitArtifactContext } from "./release-artifact-path.mjs";
-import { admitSourceQa } from "./release-qa-audit.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, verifySealedRelease, watchProgress } from "./release-state.mjs";
 import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
@@ -361,11 +360,6 @@ try {
   for (const check of preflight) {
     if (check.status !== "ok") console.error(`[right-release] preflight ${check.name}: ${check.detail}`);
   }
-  // Hardening step 4: source QA is recorded, not enforced. A missing or rejected receipt warns loudly and the outcome
-  // is sealed into the manifest (`qa.status`) for `right-release qa audit`. Dev lanes (install-app --dev) never reach this file.
-  // A split compares the source QA receipt with the SELECTED commit (its tree, repository identity and lockfile closure from its objects), not HEAD.
-  const qaAdmission = admitSourceQa({ repoRoot: layout.repoRoot, releaseId, platform, configName: path.relative(process.cwd(), configPath) || path.basename(configPath), releaseConfigSha256: hashFile(configPath), ...qaAdmissionSourceOptions(releaseSource) });
-
   // A tool being INSTALLED is not the same as it being the one PATH picks. The
   // vendored-OpenSSL build shells out to `perl`, and under Git Bash/MSYS that
   // resolves to MSYS Perl, which cannot configure OpenSSL. Put the real Windows
@@ -602,7 +596,7 @@ try {
         });
       },
       seal: async ({ sealedDir }) => {
-        sealRelease({ configRoot: appRoot, managedCargoTarget, artifactPaths, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot, rightkitRegistryFields: rightKitResolution ? registryManifestFields(rightKitResolution.snapshot, RELEASE_TOOL_VERSION) : undefined, splitSealSource: splitSource ? { commit: releaseSource.commit, tree: releaseSource.tree, snapshotAppRoot: appRoot, checkoutAppRoot: releaseSource.checkoutAppRoot } : null });
+        sealRelease({ configRoot: appRoot, managedCargoTarget, artifactPaths, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, managedRoot, stateRoot, rightkitRegistryFields: rightKitResolution ? registryManifestFields(rightKitResolution.snapshot, RELEASE_TOOL_VERSION) : undefined, splitSealSource: splitSource ? { commit: releaseSource.commit, tree: releaseSource.tree, snapshotAppRoot: appRoot, checkoutAppRoot: releaseSource.checkoutAppRoot } : null });
         verifySealedRelease(sealedDir);
         if (cacheMode === "shared") markCacheEntrySuccessful({ layout: sharedLayout });
         checkpoint(stateRoot, "sealed");
@@ -695,7 +689,7 @@ function sqlCipherFeatures(text) {
     .filter((value) => /sqlcipher|openssl/i.test(value));
 }
 
-function sealRelease({ configRoot, managedCargoTarget, artifactPaths = null, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot, rightkitRegistryFields, splitSealSource = null }) {
+function sealRelease({ configRoot, managedCargoTarget, artifactPaths = null, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, managedRoot, stateRoot, rightkitRegistryFields, splitSealSource = null }) {
   // Every app's release config names installer/updater artifacts
   // relative to its resolved native target. On a broker-managed host that
   // directory is never populated (the broker owns CARGO_TARGET_DIR and
@@ -869,7 +863,6 @@ function sealRelease({ configRoot, managedCargoTarget, artifactPaths = null, and
     // The exact registry resolution (identities, digests, registries, policy revision, observation time, observed latest)
     // this release was built against. Upload and resume consume it; neither resolves again.
     ...rightkitRegistryFields,
-    qa: qaAdmission,
     // DevTools allowance (owner's fixed design): { mode: "denied" } for every app; content-only only for an allow-listed app.
     devtools: devtoolsEvidence(resolveDevtoolsAllowance({ config, root: configRoot })),
     platform,

@@ -150,7 +150,7 @@ export function assertBindsSource(source, record, label = "the record") {
 }
 
 /**
- * The `{ commit, tree, repositoryIdentity }` a source QA receipt binds, for a snapshot source: the selected commit and tree, and the
+ * The `{ commit, tree, repositoryIdentity }` a QA receipt binds, for a snapshot source: the selected commit and tree, and the
  * repository identity from the checkout's origin. Reads no HEAD. (The checkout route keeps release-qa-receipt.mjs `sourceIdentity`.)
  */
 export function snapshotSourceIdentity(source, git = spawnSync) {
@@ -160,7 +160,7 @@ export function snapshotSourceIdentity(source, git = spawnSync) {
 }
 
 /**
- * The `{ source, closure }` options `admitSourceQa` / `assertSourceQaAdmission` / `assertInstalledQaAdmission` take so that the receipt they
+ * The `{ source, closure }` options `admitInstalledQa` / `assertInstalledQaAdmission` take so that the receipt they
  * verify is compared with the SELECTED commit (its tree, its repository identity, its lockfile closure read from its objects) instead of the
  * checkout's HEAD. `{}` for the checkout route: those functions then read HEAD exactly as before. Spread it into their options.
  */

@@ -3,17 +3,16 @@
 //
 //   { "schema": 1,
 //     "apps": { "<app>": { "mode": "warn" | "refuse", "since": "YYYY-MM-DD", "set_by": "<name>",
-//                          "stages": { "source":    { "mode": .., "since": .., "set_by": .. },
-//                                      "installed": { "mode": .., "since": .., "set_by": .. } } } },
+//                          "stages": { "installed": { "mode": .., "since": .., "set_by": .. } } } },
 //     "approvedRunners": [ { "sha256": "<64 hex>", "version": "<rightkit-qa version>", "platform": "mac" | "win",
 //                            "set_by": "<name>", "since": "YYYY-MM-DD", "note": "..." } ] }
 //
 // An app with no entry is in `warn` mode (default). In `refuse` mode `admit()` throws instead of warning.
 //
-// Stages: the build (`source`) and publication (`installed`) admissions each have their own mode. An app entry is the
-// app-level { mode, since, set_by } (governs both stages), a `stages` object, or both; a stage entry overrides the
-// app-level mode for that stage. An app entry needs a mode or a non-empty `stages`. Only `source` and `installed` are
-// stage keys.
+// Stages: the publication (`installed`) admission is the only one (GATE-CONTRACT GC-A07 removed source QA). An app entry is the
+// app-level { mode, since, set_by }, a `stages` object, or both; a stage entry overrides the
+// app-level mode for that stage. An app entry needs a mode or a non-empty `stages`. Only `installed` is a
+// stage key.
 //
 // Approved runners: `sha256` is required (lowercase hex). `platform` ("mac" | "win") binds the approval to the
 // platform the receipt is sealed or published for; an entry without it approves the digest on every platform (legacy
@@ -50,8 +49,8 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 export const QA_ADMISSION_POLICY_FILE = "qa-admission-policy.json";
 export const QA_POLICY_BASELINE_REF_ENV = "RIGHT_RELEASE_QA_POLICY_BASELINE_REF";
 export const ADMISSION_MODES = Object.freeze(["warn", "refuse"]);
-/** The admissions an app's mode can be set for: the build (source) and the publication (installed). */
-export const ADMISSION_STAGES = Object.freeze(["source", "installed"]);
+/** The admissions an app's mode can be set for: the publication (installed); there is no source stage (GATE-CONTRACT GC-A07). */
+export const ADMISSION_STAGES = Object.freeze(["installed"]);
 /** The platforms an approved runner can be bound to. */
 export const RUNNER_PLATFORMS = Object.freeze(["mac", "win"]);
 /** The only `set_by` that may move an app back from refuse, or approve a runner. */
@@ -205,7 +204,7 @@ export function loadAdmissionPolicy({ dir = here, baseline, baselineRef, env = p
 }
 
 /**
- * The mode for an app at `stage` ("source" | "installed"): the stage entry, else the app-level entry, else `warn`.
+ * The mode for an app at `stage` ("installed"): the stage entry, else the app-level entry, else `warn`.
  * Without a stage it is the app-level result.
  */
 export function admissionModeFor(policy, app, stage) {
@@ -326,7 +325,7 @@ export function main(args, {
       stdout(`qa runner approved: ${entry.sha256} rightkit-qa ${entry.version} (${entry.platform ?? "any platform"}, since ${entry.since}, set_by ${entry.set_by})`);
       return 0;
     }
-    stderr(`usage: ${program} show\n       ${program} set --app <app> --mode warn|refuse --set-by <name> [--stage source|installed]\n       ${program} approve-runner --runner <file> --version <v> --platform mac|win --set-by <name> [--note <text>]`);
+    stderr(`usage: ${program} show\n       ${program} set --app <app> --mode warn|refuse --set-by <name> [--stage installed]\n       ${program} approve-runner --runner <file> --version <v> --platform mac|win --set-by <name> [--note <text>]`);
     return 2;
   } catch (error) {
     stderr(`release-qa-policy: ${error.message}`);

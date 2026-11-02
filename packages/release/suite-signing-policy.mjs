@@ -1,12 +1,11 @@
 // The signing policy of a gate-run test or dev build (rightkit#1303, GATE-CONTRACT "One signing identity per product, every build"). Pure: it reads
-// nothing but what its caller hands it, so the gate's route decision (rightkit-gate.mjs routePlan, from the commit's own bytes), the `sign` step
-// (suite-signing.mjs, from the snapshot) and the tests all judge the same text.
+// nothing but what its caller hands it, so the gate's route decision (rightkit-gate.mjs routePlan, from the commit's own bytes) and the tests all judge the same text.
 //
 //   - The identity is derived, never declared: the app's tauri.conf.json `identifier` is the one id. Mac install.bundleId must equal it, and a
 //     dev or test Tauri `--config` that overrides it is refused. The team is DEFAULT_TEAM, the signer subject WINDOWS_SIGNER_SUBJECT.
 //   - A suite that builds a product (tauri build/bundle, or a cargo build of the tauri package or a sidecar package) must be named by a later `sign`
-//     step; a Windows dev `install.kind: "tauri"` is refused (`tauri-authenticode` is the signed route); `sign-qa-bundle` and RIGHTKIT_DEV_SIGNING
-//     (ad hoc) are refused.
+//     step; a Windows dev `install.kind: "tauri"` is refused (`tauri-authenticode` is the signed route); RIGHTKIT_DEV_SIGNING
+//     (ad hoc) is refused.
 //   - These refusals apply on Mac and Dell only (process.platform darwin or win32). Linux builds sign nothing and hosted CI is exempt.
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -14,14 +13,6 @@ import { DEFAULT_TEAM, WINDOWS_SIGNER_SUBJECT } from "./signing-identity.mjs";
 
 export const SIGN_TEAM = DEFAULT_TEAM;
 export const SIGN_SUBJECT = WINDOWS_SIGNER_SUBJECT;
-/** The environment variable a successful `sign` step sets for the suites after it: the signed copy of the first file. */
-export const QA_APP_BINARY_ENV = "RIGHTKIT_QA_APP_BINARY";
-/** The environment variable a successful `sign` step sets beside it: the path of the signing evidence file (signed files, sha256 before and after, identity). */
-export const QA_SIGNING_EVIDENCE_ENV = "RIGHTKIT_QA_SIGNING_EVIDENCE";
-/** GB-42: set beside the two above: a JSON object mapping each file a `sign` step signed (its `path`, relative to the output layout) to its signed copy, so a
- * consumer is handed every declared sidecar's signed bytes, not only the main binary's. */
-export const QA_SIGNED_FILES_ENV = "RIGHTKIT_QA_SIGNED_FILES";
-export const SIGN_STEP_KEYS = Object.freeze(["name", "sign"]);
 export const WINDOWS_TAURI_KIND = "tauri";
 export const WINDOWS_SIGNED_KIND = "tauri-authenticode";
 
@@ -44,44 +35,7 @@ export class SuiteSigningError extends Error {
 }
 const refuse = (code, message, details) => { throw new SuiteSigningError(code, message, details); };
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SIGNING_ID = /^[A-Za-z0-9][A-Za-z0-9.-]{0,254}$/;
-
-/** A relative path with no `..`, no drive, no root: the form a sign file path takes inside a receipt's output directory. Returns it with `/`. */
-export function containedRelative(value, label) {
-  if (typeof value !== "string" || !value.trim()) refuse("SIGN_STEP_PATH", `${label} must be a non-empty relative path`);
-  const normalized = value.replaceAll("\\", "/");
-  if (path.isAbsolute(value) || path.win32.isAbsolute(value) || /^[A-Za-z]:/.test(value) || normalized.startsWith("/") || normalized.split("/").includes("..") || normalized.split("/").includes("")) {
-    refuse("SIGN_STEP_PATH", `${label} must be a relative path inside the earlier suite's output directory (no absolute path, no .., no empty segment): ${JSON.stringify(value)}`);
-  }
-  return normalized;
-}
-
-/**
- * Validate one `sign` spec: `{ files: [{ from, path }] }`. `from` names an EARLIER suite of the same list (`earlier` is the set of names declared
- * before this step), `path` is relative to that suite's carried-receipt output directory. Returns the spec with normalized paths.
- */
-export function validateSignSpec(sign, label, earlier) {
-  if (!isObject(sign)) refuse("SIGN_STEP_SHAPE", `${label} must be an object { files: [{ from, path }] }`);
-  const unknown = Object.keys(sign).filter((key) => key !== "files");
-  if (unknown.length) refuse("SIGN_STEP_SHAPE", `${label} has unknown key(s): ${unknown.join(", ")} (allowed: files). The identity is derived from the product, never declared here`);
-  if (!Array.isArray(sign.files) || sign.files.length === 0) refuse("SIGN_STEP_SHAPE", `${label}.files must be a non-empty list of { from, path }`);
-  const seen = new Set();
-  const files = sign.files.map((item, index) => {
-    const at = `${label}.files[${index}]`;
-    if (!isObject(item)) refuse("SIGN_STEP_SHAPE", `${at} must be { from, path }`);
-    const extra = Object.keys(item).filter((key) => key !== "from" && key !== "path");
-    if (extra.length) refuse("SIGN_STEP_SHAPE", `${at} has unknown key(s): ${extra.join(", ")} (allowed: from, path)`);
-    if (typeof item.from !== "string" || !NAME.test(item.from)) refuse("SIGN_STEP_FROM", `${at}.from must name an earlier suite`);
-    if (!earlier.has(item.from)) refuse("SIGN_STEP_FROM", `${at}.from ${JSON.stringify(item.from)} is not a suite declared before this step (${[...earlier].join(", ") || "none"}); a sign step signs what an earlier suite built`);
-    const rel = containedRelative(item.path, `${at}.path`);
-    const key = `${item.from}\0${rel}`;
-    if (seen.has(key)) refuse("SIGN_STEP_SHAPE", `${at} repeats ${item.from}:${rel}`);
-    seen.add(key);
-    return { from: item.from, path: rel };
-  });
-  return { files };
-}
 
 // ---- what a step is -------------------------------------------------------------------------------------------------------------
 
@@ -391,13 +345,11 @@ function signPathNames(file, layout, bin) {
 }
 
 /**
- * GB-42 (GATE 42, E19; stable identity before launch): why an earlier sign step never makes `cargo run` or an integration test that uses
- * CARGO_BIN_EXE_ safe. The signer signs a COPY outside the build's output directory, and neither Cargo nor a compile-time literal is redirected to it
- * (RIGHTKIT_QA_APP_BINARY changes nothing for them), so such a step starts the raw, unsigned bytes in the target directory even though the sign
- * declaration names the right paths. The supported route is: compile only (`cargo test --no-run`, a build), sign, then a consumer that is handed the
- * signed path (the QA runner, which reads RIGHTKIT_QA_APP_BINARY and RIGHTKIT_QA_SIGNED_FILES) and runs prebuilt bytes.
+ * GB-42 (GATE 42, E19; stable identity before launch): why `cargo run` or an integration test that uses CARGO_BIN_EXE_ is never safe in a build
+ * stage. Cargo resolves the product bin inside the build's output directory, so such a step starts the raw, unsigned bytes in the target directory.
+ * Product bins run only from the installed, signed build (GATE-CONTRACT GC-A07: QA journeys run after the build against the installed dev copy).
  */
-export const RAW_TARGET_LAUNCH = "launches a product bin Cargo resolves inside the build's target directory (cargo run, or an integration test using CARGO_BIN_EXE_): the signer signs a copy elsewhere and nothing redirects Cargo or a compile-time literal to it, so an earlier sign step does not bind the bytes that run. Build compile-only (cargo test --no-run), sign, then run a consumer that is handed the signed path (RIGHTKIT_QA_APP_BINARY, RIGHTKIT_QA_SIGNED_FILES)";
+export const RAW_TARGET_LAUNCH = "launches a product bin Cargo resolves inside the build's target directory (cargo run, or an integration test using CARGO_BIN_EXE_): the signer signs a copy elsewhere and nothing redirects Cargo or a compile-time literal to it, so the bytes that run are never the signed ones. Product bins run only from the installed, signed build (GATE-CONTRACT GC-A07)";
 
 /**
  * Launch binding (rightkit#1303): the earlier sign steps that satisfy a launching suite must name, in `sign.files`, each executable it launches. `launch` is
@@ -435,11 +387,9 @@ export function isProductBuildStep(step, targets = { packages: new Set(), manife
   return found.product || found.launches || found.unknown.length > 0;
 }
 
-/** Why a step asks for ad hoc signing (the QA bundle signer, or the ad hoc opt-in), or null. */
+/** Why a step asks for ad hoc signing (the ad hoc opt-in), or null. */
 export function adHocReason(step) {
   const words = stepWords(step);
-  const bad = words.find((word) => /sign-qa-bundle/.test(word));
-  if (bad !== undefined) return `${JSON.stringify(bad)} runs the ad hoc QA bundle signer (sign-qa-bundle)`;
   const named = words.find((word) => /RIGHTKIT_DEV_SIGNING/.test(word));
   if (named !== undefined) return `${JSON.stringify(named)} names RIGHTKIT_DEV_SIGNING`;
   if (isObject(step?.env) && Object.keys(step.env).some((key) => key === "RIGHTKIT_DEV_SIGNING")) return "its env sets RIGHTKIT_DEV_SIGNING (ad hoc signing)";

@@ -1,4 +1,4 @@
-// Shared builders for the QA admission hardening tests (release-qa-hardening.test.mjs, release-qa-carried.test.mjs).
+// Shared builders for the QA admission hardening tests (release-qa-hardening.test.mjs).
 // Test support only: nothing in the release path imports this file.
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -82,6 +82,10 @@ export function journeysReceiptJson({ root, platform = "mac", manifestText = MAN
   };
 }
 
+/** The one sealed artifact the installed-stage fixtures publish, and the manifest that names it (GATE-CONTRACT GC-A07: installed is the only QA stage). */
+export const ARTIFACTS = [{ name: "demo.dmg", sha256: SHA("a"), sizeBytes: 3 }];
+export const manifestOf = (root, releaseId) => ({ releaseId, app: "demo", commit: sourceIdentity(root).commit, files: ARTIFACTS });
+
 export const accepting = () => ({ status: 0, stdout: "receipt claims passed, recomputed passed: ACCEPTED\n", stderr: "" });
 export const refusing = () => ({ status: 1, stdout: "- journey_failed [J-001]: journey failed\nreceipt claims passed, recomputed failed: REFUSED\n", stderr: "" });
 
@@ -89,12 +93,12 @@ const qa = { version: "1", config: "rightkit-qa.toml", journeys: {}, checks: { "
 const evidence = () => ({ schemaVersion: 4, runId: "r1", status: "passed", finishedAt: "2026-10-09T00:00:00Z", checks: [{ name: "app.launch", status: "passed" }] });
 
 /**
- * A sealed source (or installed) QA receipt written where the gate reads it, as `right-release qa` would write it
+ * A sealed installed QA receipt written where the gate reads it, as `right-release qa` would write it
  * with qa.journeys configured. Timestamps are relative to now so the execution window precedes admission.
  */
 export function writeHardenedReceipt(root, {
-  stage = "source", platform = "mac", releaseId, receiptPlatform = platform, receiptReleaseId = releaseId, statuses = {}, runnerSha = RUNNER_SHA,
-  spawn = accepting, execution, tweakBlock, nowMs = Date.now(), artifacts = [], sourceReceiptDigest = null,
+  stage = "installed", platform = "mac", releaseId, receiptPlatform = platform, receiptReleaseId = releaseId, statuses = {}, runnerSha = RUNNER_SHA,
+  spawn = accepting, execution, tweakBlock, nowMs = Date.now(), artifacts = ARTIFACTS,
 } = {}) {
   const at = (offsetSec) => new Date(nowMs + offsetSec * 1000).toISOString();
   const dir = mkdtempSync(path.join(tmpdir(), "rk-qa-jr-"));
@@ -111,7 +115,7 @@ export function writeHardenedReceipt(root, {
   const receipt = sealQaReceipt(buildQaReceipt({
     stage, app: "demo", platform: receiptPlatform, releaseId: receiptReleaseId, source, closure: dependencyClosure(root, source.commit), releaseConfigSha256: SHA("d"),
     qa, floor, floorDigest: digest, policyBundleDigest: BUNDLE, runner: { basename: "rightkit-qa", path: "/x/rightkit-qa", sha256: runnerSha },
-    evidence: evidence(), evidenceSha256: SHA("f"), required, artifacts, sourceReceiptDigest, journeys: block, now: new Date(nowMs - 5000),
+    evidence: evidence(), evidenceSha256: SHA("f"), required, artifacts, journeys: block, now: new Date(nowMs - 5000),
     execution: execution === false ? null : (execution ?? { startedAt: at(-120), finishedAt: at(-10), runnerPids: [4242], sealerPid: 4343 }),
   }), KEY);
   writeQaReceipt(qaReceiptPath({ repoRoot: root, releaseId, platform, stage }), receipt);

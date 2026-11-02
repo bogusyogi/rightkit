@@ -17,7 +17,7 @@ import { createCommittedOwnershipEvidenceForTest, verifyOwnershipEvidenceForTest
 import { ownershipCheck, preflightFailures } from "./preflight.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { runQa } from "./release-qa-command.mjs";
-import { assertSourceQaAdmission } from "./release-qa-receipt.mjs";
+import { assertInstalledQaAdmission } from "./release-qa-receipt.mjs";
 import {
   NO_REPOSITORY_CODE, ReleaseSourceError, assertBindsSource, assertInsideSource, assertReleaseSource, gitRootOf, isSnapshotSource, qaAdmissionSourceOptions, resolveReleaseSource, snapshotSourceIdentity, sourceRootOf,
 } from "./release-source-identity.mjs";
@@ -296,21 +296,25 @@ test("[7.04] preflight ownership: the factory receives the source, and evidence 
 // ---- right-release qa (qualify) --------------------------------------------------------------------------------------------------
 
 const store = { read: () => "unit-test-key" };
+// Installed is the only QA stage (GATE-CONTRACT GC-A07): the sealed release it checks is the one the selected commit built.
+const installedArgs = (fx) => ({ stage: "installed", releaseIdArg: `demo-1.0.0-${fx.commit.slice(0, 8)}` });
+const SEALED_FILES = [{ name: "demo.dmg", sha256: "a".repeat(64), sizeBytes: 3 }];
+const sealedStub = (fx) => () => ({ sealedDir: fx.snapshot, manifest: { commit: fx.commit, tree: fx.tree, files: SEALED_FILES } });
 const passingEvidence = () => ({ schemaVersion: 4, runId: "r1", status: "passed", finishedAt: "2026-10-09T00:00:00Z", checks: [
   { name: "app.launch", status: "passed" }, { name: "journey.open-doc", status: "passed" }, { name: "journey.save", status: "passed" },
 ] });
 
-test("[7.04] qa --stage source from a split seals the selected commit's source: config and QA plan come from the snapshot, HEAD ahead and a dirty checkout change nothing, and no status or HEAD is read", async () => {
+test("[7.04] qa --stage installed from a split seals the selected commit's receipt: config and QA plan come from the snapshot, HEAD ahead and a dirty checkout change nothing, and no status or HEAD is read", async () => {
   const fx = fixture();
   const evidenceFile = path.join(fx.dir, "evidence.json"); fs.writeFileSync(evidenceFile, JSON.stringify(passingEvidence()));
   const rec = recorder();
   const seen = [];
   const deps = (extra = {}) => ({
-    env: { ...process.env, ...fx.env }, gitRunner: rec.run, quiet: true, credentialStore: store, policyBundleDigest: "b".repeat(64), runnerFile: path.join(fx.snapshot, "rightkit-qa"),
+    verifySealedRelease: sealedStub(fx), env: { ...process.env, ...fx.env }, gitRunner: rec.run, quiet: true, credentialStore: store, policyBundleDigest: "b".repeat(64), runnerFile: path.join(fx.snapshot, "rightkit-qa"),
     spawnRunner: (_command, args, options) => { seen.push({ args, cwd: options.cwd, commit: options.env.RIGHT_RELEASE_QA_COMMIT }); return { status: 0, stdout: `[qa] 3 passed, 0 failed, 0 skipped; evidence ${evidenceFile}\n`, stderr: "" }; },
     ...extra,
   });
-  const { receipt, file } = await runQa({ stage: "source", platform: "mac", configPath: path.join(fx.snapshot, "right-release.config.mjs"), deps: deps() });
+  const { receipt, file } = await runQa({ ...installedArgs(fx), platform: "mac", configPath: path.join(fx.snapshot, "right-release.config.mjs"), deps: deps() });
   assert.equal(receipt.status, "passed");
   assert.equal(receipt.commit, fx.commit, "the receipt names the selected commit, not HEAD"); assert.equal(receipt.tree, fx.tree);
   assert.equal(receipt.repositoryIdentity, "https://github.com/bogusyogi/example-app");
@@ -319,33 +323,34 @@ test("[7.04] qa --stage source from a split seals the selected commit's source: 
   assert.equal(seen.length, 1); assert.equal(seen[0].cwd, fx.snapshot, "the runner runs in the snapshot's app root"); assert.equal(seen[0].commit, fx.commit);
   assert.ok(seen[0].args.includes(path.join(fx.snapshot, "rightkit-qa.toml")), "the QA plan is the snapshot's");
   assert.deepEqual(rec.offending(), [], `no status, symbolic-ref or HEAD revision from right-release qa: ${JSON.stringify(rec.offending())}`);
-  // The build's source-QA admission verifies this receipt. Against HEAD (the checkout route's identity) it is for another commit; with the
+  // The publication's installed-QA admission verifies this receipt. Against HEAD (the checkout route's identity) it is for another commit; with the
   // split's identity options it is the selected commit's receipt and admits.
-  const admission = { repoRoot: fx.checkout, releaseId: receipt.releaseId, platform: "mac", configName: "right-release.config.mjs", credentialStore: store, policyBundleDigest: "b".repeat(64),
+  const manifest = { releaseId: receipt.releaseId, commit: fx.commit, files: SEALED_FILES };
+  const admission = { repoRoot: fx.checkout, manifest, platform: "mac", configName: "right-release.config.mjs", credentialStore: store, policyBundleDigest: "b".repeat(64),
     releaseConfigSha256: createHash("sha256").update(fs.readFileSync(path.join(fx.snapshot, "right-release.config.mjs"))).digest("hex") };
-  assert.throws(() => assertSourceQaAdmission(admission), /receipt is for commit .*, current commit is/, "the checkout's HEAD is not the selected commit");
+  assert.throws(() => assertInstalledQaAdmission(admission), /receipt is for commit .*, current commit is/, "the checkout's HEAD is not the selected commit");
   const options = qaAdmissionSourceOptions(resolveReleaseSource({ cwd: fx.snapshot, env: fx.env }), rec.run);
   assert.equal(options.source.commit, fx.commit); assert.equal(options.source.tree, fx.tree); assert.ok(options.closure.digest);
-  assert.equal(assertSourceQaAdmission({ ...admission, ...options }).digest, receipt.digest);
+  assert.equal(assertInstalledQaAdmission({ ...admission, ...options }).digest, receipt.digest);
   assert.deepEqual(qaAdmissionSourceOptions(resolveReleaseSource({ cwd: fx.checkout, env: {} })), {}, "the checkout route passes nothing and reads HEAD as before");
 });
 
 test("[7.04] qa under a split refuses a config outside the snapshot (R5), a split it cannot prove (R2), and a QA plan or runner that leaves the snapshot, starting no runner; R1: a dirty checkout without a split is still refused", async () => {
   const fx = fixture();
   const noRunner = () => { assert.fail("no runner may start"); };
-  const base = { env: { ...process.env, ...fx.env }, quiet: true, credentialStore: store, policyBundleDigest: "b".repeat(64), spawnRunner: noRunner };
-  await assert.rejects(runQa({ stage: "source", platform: "mac", configPath: path.join(fx.checkout, "right-release.config.mjs"), deps: { ...base, runnerFile: path.join(fx.snapshot, "rightkit-qa") } }),
+  const base = { verifySealedRelease: sealedStub(fx), env: { ...process.env, ...fx.env }, quiet: true, credentialStore: store, policyBundleDigest: "b".repeat(64), spawnRunner: noRunner };
+  await assert.rejects(runQa({ ...installedArgs(fx), platform: "mac", configPath: path.join(fx.checkout, "right-release.config.mjs"), deps: { ...base, runnerFile: path.join(fx.snapshot, "rightkit-qa") } }),
     (e) => e.code === "RK_SOURCE_SPLIT" && /outside the snapshot/.test(e.message), "R5: the config sits in the checkout");
   fs.rmSync(fx.runFile);
-  await assert.rejects(runQa({ stage: "source", platform: "mac", configPath: path.join(fx.snapshot, "right-release.config.mjs"), deps: { ...base, runnerFile: path.join(fx.snapshot, "rightkit-qa") } }),
+  await assert.rejects(runQa({ ...installedArgs(fx), platform: "mac", configPath: path.join(fx.snapshot, "right-release.config.mjs"), deps: { ...base, runnerFile: path.join(fx.snapshot, "rightkit-qa") } }),
     (e) => e.code === "RK_SOURCE_SPLIT" && /no live door run/.test(e.message), "R2: the run is gone, and nothing falls back to the checkout");
   fx.writeRun();
   // A QA plan that points out of the snapshot.
   fs.writeFileSync(path.join(fx.snapshot, "right-release.config.mjs"), fx.filesAtC["right-release.config.mjs"].replace("config: 'rightkit-qa.toml'", `config: '../checkout/rightkit-qa.toml'`));
-  await assert.rejects(runQa({ stage: "source", platform: "mac", configPath: path.join(fx.snapshot, "right-release.config.mjs"), deps: { ...base, runnerFile: path.join(fx.snapshot, "rightkit-qa") } }),
+  await assert.rejects(runQa({ ...installedArgs(fx), platform: "mac", configPath: path.join(fx.snapshot, "right-release.config.mjs"), deps: { ...base, runnerFile: path.join(fx.snapshot, "rightkit-qa") } }),
     (e) => /qa\.config .* is outside the snapshot/.test(e.message), "R5: the QA plan in the checkout");
   // R1: no split, dirty checkout.
-  await assert.rejects(runQa({ stage: "source", platform: "mac", configPath: path.join(fx.checkout, "right-release.config.mjs"), deps: { ...base, env: { ...process.env, RK_GATE_RUN: "", RK_GATE_CHECKOUT: "" }, skipPrimaryCheckout: true, runnerFile: path.join(fx.checkout, "rightkit-qa") } }),
+  await assert.rejects(runQa({ ...installedArgs(fx), platform: "mac", configPath: path.join(fx.checkout, "right-release.config.mjs"), deps: { ...base, env: { ...process.env, RK_GATE_RUN: "", RK_GATE_CHECKOUT: "" }, skipPrimaryCheckout: true, runnerFile: path.join(fx.checkout, "rightkit-qa") } }),
     /right-release qa requires a clean working tree/);
 });
 

@@ -1549,7 +1549,7 @@ test("--to release: package seals, qualify and release use exactly that sealed s
   const c = capture();
   assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch"], { ...c.io, cwd: root, ...io, env: publisher }), 0, c.err.join("\n"));
   assert.deepEqual(calls.map((x) => x.args), [
-    "qa --stage source --platform win", "build --platform win",
+    "build --platform win",
     `qa --stage installed --platform win --release app-1.0.0-${head.slice(0, 8)}`,
     `upload --release app-1.0.0-${head.slice(0, 8)} --platform win --tier patch`,
   ]);
@@ -1595,7 +1595,7 @@ test("--receipt-out / --receipt-in: a later job on another runner takes the seal
   t.after(() => fs.rmSync(out, { force: true }));
   const pack = capture();
   assert.equal(await main(["--to", "package", "--platform", "win", "--receipt-out", out], { ...pack.io, cwd: root, ...io("direct") }), 0, pack.err.join("\n"));
-  assert.deepEqual(calls, ["check", "compile", "qa --stage source --platform win", "build --platform win"]);
+  assert.deepEqual(calls, ["check", "compile", "build --platform win"]);
   // The qualification runner: a fresh receipt store, another executor; the imported receipt binds the same source and sealed bytes.
   fs.rmSync(path.join(root, ".git", "rightkit-gate"), { recursive: true, force: true });
   calls.length = 0;
@@ -1719,7 +1719,7 @@ test("a nested app goes through the door: a run from apps/<app> keys its receipt
   const c = capture();
   assert.equal(await main(["--to", "package", "--platform", "mac"], { ...c.io, cwd: path.join(root, appDir), ...io }), 0, c.err.join("\n"));
   assert.match(c.out.join("\n"), /--to package for \w{12} \(app apps\/one\): check -> compile -> package/);
-  assert.ok(calls.includes("qa --stage source --platform mac @apps/one") && calls.includes("build --platform mac @apps/one"), calls.join(" | "));
+  assert.ok(!calls.some((c) => c.startsWith("qa --stage source")) && calls.includes("build --platform mac @apps/one"), calls.join(" | "));
   assert.ok(calls.some((x) => x === "sealed@apps/one"), calls.join(" | "));
   const receipts = path.join(root, ".git", "rightkit-gate", "receipts");
   assert.ok(fs.existsSync(path.join(receipts, `${commit}--apps__one.json`)), fs.readdirSync(receipts).join(", "));

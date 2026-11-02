@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 import {
-  admitInstalledQa, admitSourceQa, auditMain, auditQa, formatAuditTable, installedQaRecordPath,
+  admitInstalledQa, auditMain, auditQa, formatAuditTable, installedQaRecordPath,
 } from "./release-qa-audit.mjs";
 import { fileURLToPath } from "node:url";
 import { policyWith } from "./release-qa-fixtures.mjs";
@@ -35,33 +35,8 @@ const gateOpts = (root) => ({
   credentialStore: refusingKey,
 });
 
-test("source QA refusal warns once, continues, and seals a missing status", () => {
-  const root = repo();
-  try {
-    const lines = [];
-    const qa = admitSourceQa(gateOpts(root), { warn: (line) => lines.push(line) });
-    assert.equal(qa.status, "missing");
-    assert.match(qa.reason, /no source QA receipt for demo-1\.0\.0-abcd1234/);
-    assert.equal(lines.length, 1);
-    assert.match(lines[0], /^\[right-release\] QA warning: .*; release continues and is recorded as QA missing for audit\. Run: right-release qa --stage source --platform mac/);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test("source QA rejected receipt (unavailable key) is recorded as rejected", () => {
-  const root = repo();
-  try {
-    const file = path.join(root, ".right-release", "qa", "demo-1.0.0-abcd1234", "mac", "source.receipt.json");
-    mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify({ schema: 1, stage: "source" }));
-    const lines = [];
-    const qa = admitSourceQa(gateOpts(root), { warn: (line) => lines.push(line) });
-    assert.equal(qa.status, "rejected");
-    assert.match(lines[0], /recorded as QA rejected/);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test("source QA still throws non-refusal errors", () => {
-  assert.throws(() => admitSourceQa({ ...gateOpts(null), repoRoot: undefined }, { warn: () => assert.fail("must not warn") }), TypeError);
+test("installed QA still throws non-refusal errors", () => {
+  assert.throws(() => admitInstalledQa({ ...gateOpts(null), repoRoot: undefined, manifest: { releaseId: "demo-1.0.0-abcd1234", commit: "x", files: [] } }, { provider: "r2", warn: () => assert.fail("must not warn") }), TypeError);
 });
 
 test("installed QA refusal warns, records qa-installed.json, and does not throw", () => {
@@ -80,24 +55,20 @@ test("installed QA refusal warns, records qa-installed.json, and does not throw"
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("audit: passed, missing source, missing installed, rejected, and not-uploaded rows", () => {
+test("audit: passed, missing installed, rejected, and not-uploaded rows", () => {
   const root = repo();
   try {
-    seal(root, "app-1.0.0-aaaaaaaa", "mac", { status: "passed", sourceReceiptDigest: SHA("1"), floorDigest: SHA("2") });
+    seal(root, "app-1.0.0-aaaaaaaa", "mac", { floorDigest: SHA("2") });
     installed(root, "app-1.0.0-aaaaaaaa", "mac", { status: "passed", receiptDigest: SHA("3"), checkedAt: "2026-10-06T00:00:00.000Z", provider: "github-releases" });
-    seal(root, "app-1.0.1-bbbbbbbb", "mac", { status: "missing", reason: "no source QA receipt" });
-    installed(root, "app-1.0.1-bbbbbbbb", "mac", { status: "passed", receiptDigest: SHA("3"), checkedAt: "2026-10-06T00:00:00.000Z", provider: "r2" });
-    seal(root, "app-1.0.2-cccccccc", "windows", { status: "passed", sourceReceiptDigest: SHA("1"), floorDigest: SHA("2") });
+    seal(root, "app-1.0.2-cccccccc", "windows", { floorDigest: SHA("2") });
     installed(root, "app-1.0.2-cccccccc", "windows", { status: "missing", reason: "no installed QA receipt", checkedAt: "2026-10-06T00:00:00.000Z", provider: "r2" });
-    seal(root, "app-1.0.3-dddddddd", "mac", { status: "passed", sourceReceiptDigest: SHA("1"), floorDigest: SHA("2") });
+    seal(root, "app-1.0.3-dddddddd", "mac", { floorDigest: SHA("2") });
     installed(root, "app-1.0.3-dddddddd", "mac", { status: "rejected", reason: "installed QA receipt rejected: stale", checkedAt: "2026-10-06T00:00:00.000Z", provider: "r2" });
-    seal(root, "app-1.0.4-eeeeeeee", "mac", { status: "missing", reason: "no source QA receipt" });
+    seal(root, "app-1.0.4-eeeeeeee", "mac", {});
 
     const report = auditQa({ repoRoot: root });
     const byId = Object.fromEntries(report.rows.map((row) => [row.releaseId, row]));
     assert.equal(byId["app-1.0.0-aaaaaaaa"].ok, true);
-    assert.equal(byId["app-1.0.1-bbbbbbbb"].source.status, "missing");
-    assert.equal(byId["app-1.0.1-bbbbbbbb"].ok, false);
     assert.equal(byId["app-1.0.2-cccccccc"].installed.status, "missing");
     assert.equal(byId["app-1.0.2-cccccccc"].ok, false);
     assert.equal(byId["app-1.0.3-dddddddd"].installed.status, "rejected");
@@ -107,7 +78,7 @@ test("audit: passed, missing source, missing installed, rejected, and not-upload
     assert.equal(report.ok, false);
     const table = formatAuditTable(report);
     assert.match(table, /FLAG/);
-    assert.match(table, /3 uploaded build\(s\) lack passing QA/);
+    assert.match(table, /2 uploaded build\(s\) lack passing QA/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -117,17 +88,16 @@ test("audit exit codes, --json, --since, and legacy manifests", () => {
     const out = [];
     const run = (args) => auditMain(["--app", root, ...args], { stdout: (text) => out.push(text), stderr: (text) => out.push(text) });
     assert.equal(run([]), 0);
-    // legacy manifest: sourceReceiptDigest with no status counts as passed; uploaded legacy build without a record is flagged
-    seal(root, "old-1.0.0-11111111", "mac", { sourceReceiptDigest: SHA("1"), floorDigest: SHA("2") }, { sealedAt: "2026-09-01T00:00:00.000Z" });
+    // a legacy manifest (it still records a `qa` block, no longer read) with an uploaded build and no installed record is flagged
+    seal(root, "old-1.0.0-11111111", "mac", { floorDigest: SHA("2") }, { sealedAt: "2026-09-01T00:00:00.000Z" });
     const state = path.join(root, ".right-release", "state", "old-1.0.0-11111111", "mac");
     mkdirSync(state, { recursive: true });
     writeFileSync(path.join(state, "verified-update-github-releases.json"), "{}");
-    seal(root, "new-1.0.0-22222222", "mac", { status: "passed", sourceReceiptDigest: SHA("1"), floorDigest: SHA("2") });
+    seal(root, "new-1.0.0-22222222", "mac", { floorDigest: SHA("2") });
     installed(root, "new-1.0.0-22222222", "mac", { status: "passed", receiptDigest: SHA("3"), checkedAt: "2026-10-06T00:00:00.000Z", provider: "r2" });
     out.length = 0;
     assert.equal(run(["--json"]), 1);
     const json = JSON.parse(out[0]);
-    assert.equal(json.rows.find((row) => row.releaseId === "old-1.0.0-11111111").source.status, "passed");
     assert.equal(json.rows.find((row) => row.releaseId === "old-1.0.0-11111111").installed.status, "missing");
     assert.equal(run(["--since", "2026-10-01"]), 0);
     assert.equal(run(["--since", "nope"]), 2);
@@ -138,7 +108,7 @@ test("audit exit codes, --json, --since, and legacy manifests", () => {
 test("right-release qa audit is wired through the CLI", () => {
   const root = repo();
   try {
-    seal(root, "app-1.0.0-aaaaaaaa", "mac", { status: "passed", sourceReceiptDigest: SHA("1"), floorDigest: SHA("2") });
+    seal(root, "app-1.0.0-aaaaaaaa", "mac", { floorDigest: SHA("2") });
     const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli", "right-release.mjs");
     const result = spawnSync(process.execPath, [cli, "qa", "audit", "--app", root], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -147,45 +117,27 @@ test("right-release qa audit is wired through the CLI", () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-// C4-22: the build and the publication admissions read their own mode.
+// C4-22 (GATE-CONTRACT GC-A07: installed is the only admission): the installed stage reads its own entry, else the app-level mode.
 const stagedPolicy = (stages) => policyWith({ apps: { demo: { stages } } });
 const refuseEntry = { mode: "refuse", since: "2026-10-24", set_by: "adrian" };
 const warnEntry = { mode: "warn", since: "2026-10-24", set_by: "adrian" };
 const installedOpts = (root) => ({ repoRoot: root, manifest: { releaseId: "demo-1.0.0-abcd1234", commit: "x", files: [] }, platform: "mac", configName: "right-release.config.mjs", releaseConfigSha256: SHA("d"), credentialStore: refusingKey });
 
-test("C4-22: source refuse with installed warn refuses the build but only records the missing installed QA", () => {
+test("C4-22: installed refuse refuses publication; an app-level refuse governs it and a stage entry relaxes it", () => {
   const root = repo();
   try {
-    const policy = stagedPolicy({ source: refuseEntry, installed: warnEntry });
-    // Build: the missing source receipt is refused, nothing is sealed.
-    assert.throws(() => admitSourceQa(gateOpts(root), { warn: () => assert.fail("must not warn"), policy }),
-      (error) => error instanceof QaAdmissionError && /QA admission refused for demo \(policy refuse since 2026-10-24 by adrian\): no source QA receipt/.test(error.message));
-    // Publication: the same app, the missing installed receipt is a recorded warning, not a throw.
+    const policy = stagedPolicy({ installed: refuseEntry });
+    assert.throws(() => admitInstalledQa(installedOpts(root), { provider: "r2", warn: () => assert.fail("must not warn"), policy }),
+      (error) => error instanceof QaAdmissionError && /QA admission refused for demo \(policy refuse since 2026-10-24 by adrian\): no installed QA receipt/.test(error.message));
+    const both = policyWith({ apps: { demo: refuseEntry } });
+    assert.throws(() => admitInstalledQa(installedOpts(root), { provider: "r2", warn: () => assert.fail("must not warn"), policy: both }), QaAdmissionError);
+    const relaxed = policyWith({ apps: { demo: { ...refuseEntry, stages: { installed: warnEntry } } } });
     const lines = [];
-    const record = admitInstalledQa(installedOpts(root), { provider: "r2", warn: (line) => lines.push(line), policy, now: () => new Date("2026-10-10T01:02:03.000Z") });
+    const record = admitInstalledQa(installedOpts(root), { provider: "r2", warn: (line) => lines.push(line), policy: relaxed, now: () => new Date("2026-10-10T01:02:03.000Z") });
     assert.equal(record.status, "missing");
     assert.equal(lines.length, 1);
     assert.match(lines[0], /QA warning: no installed QA receipt.*recorded as QA missing for audit/);
     const file = installedQaRecordPath({ repoRoot: root, releaseId: "demo-1.0.0-abcd1234", platform: "mac" });
     assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), { status: "missing", reason: record.reason, checkedAt: "2026-10-10T01:02:03.000Z", provider: "r2" });
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test("C4-22: installed refuse with source warn warns at build and refuses publication; an app-level refuse still governs both", () => {
-  const root = repo();
-  try {
-    const policy = stagedPolicy({ source: warnEntry, installed: refuseEntry });
-    const lines = [];
-    assert.equal(admitSourceQa(gateOpts(root), { warn: (line) => lines.push(line), policy }).status, "missing");
-    assert.equal(lines.length, 1);
-    assert.throws(() => admitInstalledQa(installedOpts(root), { provider: "r2", warn: () => assert.fail("must not warn"), policy }),
-      (error) => error instanceof QaAdmissionError && /QA admission refused for demo \(policy refuse since 2026-10-24 by adrian\): no installed QA receipt/.test(error.message));
-    const both = policyWith({ apps: { demo: refuseEntry } });
-    assert.throws(() => admitSourceQa(gateOpts(root), { warn: () => assert.fail("must not warn"), policy: both }), QaAdmissionError);
-    assert.throws(() => admitInstalledQa(installedOpts(root), { provider: "r2", warn: () => assert.fail("must not warn"), policy: both }), QaAdmissionError);
-    // A stage entry relaxes an app-level refuse for that stage only.
-    const relaxed = policyWith({ apps: { demo: { ...refuseEntry, stages: { installed: warnEntry } } } });
-    assert.throws(() => admitSourceQa(gateOpts(root), { warn: () => assert.fail("must not warn"), policy: relaxed }), QaAdmissionError);
-    assert.equal(admitInstalledQa(installedOpts(root), { provider: "r2", warn: () => {}, policy: relaxed }).status, "missing");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Windows Authenticode signing through Azure Artifact Signing. Two entries: the CLI (`node sign-windows.mjs [--dry-run|--verify-only] [--receipt <file>] <file>...`,
-// unchanged) and the functions `signWindowsFiles` / `verifyWindowsFiles` that the gate's in-process signing steps reuse (suite-signing.mjs), so there is
+// unchanged) and the functions `signWindowsFiles` / `verifyWindowsFiles` that the gate's signing steps reuse, so there is
 // one signer and one verifier. The identity is the signer SUBJECT (WINDOWS_SIGNER_SUBJECT), never a thumbprint.
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";

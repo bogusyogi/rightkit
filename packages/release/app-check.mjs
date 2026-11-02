@@ -1494,7 +1494,7 @@ export const BUILD_REFUSES = Object.freeze(["switches-inventory"]);
 
 /** The checked commands that qualify, sign, ship or upload: they owe the release tier (every rule). The rest owe the compile tier. */
 export const RELEASE_TIER_COMMANDS = Object.freeze(new Set(["release", "upload", "publish", "publish-update", "github", "sign-windows", "sign-updater", "create-mac-updater", "sign-candidate"]));
-/** `qa --stage installed` qualifies the sealed build and owes the release tier; `qa --stage source` runs inside the package stage and owes the compile tier. */
+/** `qa --stage installed` qualifies the sealed build and owes the release tier; any other `qa` stage owes the compile tier (`qa --stage source` is refused, GATE-CONTRACT GC-A07). */
 export const tierForCommand = (name, args = []) => (name === "qa" ? (args.includes("installed") ? "release" : "compile") : RELEASE_TIER_COMMANDS.has(name) ? "release" : "compile");
 
 /** Every other right-release command, each with why the check does not guard it. A command that is in neither map fails the
@@ -1506,7 +1506,6 @@ export const UNCHECKED_COMMANDS = new Map([
   ["hardening", "scans artifacts named on the command line; reads no source tree"],
   ["harden", "alias of hardening"],
   ["hardeningscan", "alias of hardening"],
-  ["sign-qa-bundle", "QA-only ad hoc signing inside a scratch root; not a release artifact"],
   ["engine-locate", "prints the verified path of an installed engine; reads no app source"],
   ["init", "renames the desktop template in place; there is no committed app to check yet"],
   ["pe", "inspects one PE file named on the command line"],

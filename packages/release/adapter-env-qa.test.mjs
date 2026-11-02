@@ -272,4 +272,4 @@ test("[RA-08] through the door a Gradle step's own signing-file variable is refu
   assert.equal(clean.env, undefined, "no RUSTRIGHT_ADAPTER_ENV, no variable");
 });
 
-// QA on the snapshot route (a direct step, the carried build of a run-tests step, the path rules): qa-snapshot.test.mjs.
+// A rightkit-qa step is refused on every route (GATE-CONTRACT GC-A07): build-launch.test.mjs.

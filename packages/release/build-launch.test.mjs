@@ -30,21 +30,18 @@ test("managed host: pnpm is a rightkit-pnpm broker job; cargo and rustright go b
   assert.deepEqual(buildLaunch(process.execPath, [ownRightRelease, "web-build"], managed), { command: process.execPath, args: [ownRightRelease, "web-build"] });
 });
 
-test("managed host: node runs a workspace script as a rightkit-node broker job; a rightkit-qa run is a rightkit-qa broker job", () => {
+test("managed host: node runs a workspace script as a rightkit-node broker job", () => {
   const host = { ...managed, cwd: "/w/app" };
   assert.deepEqual(buildLaunch("node", ["node_modules/vite/bin/vite.js", "build"], host), { command: CLIENT, args: ["run", "rightkit-node", "--", "node_modules/vite/bin/vite.js", "build"] });
   assert.deepEqual(buildLaunch(process.execPath, ["/w/app/scripts/dev-build.mjs", "--platform", "mac"], host).args, ["run", "rightkit-node", "--", "scripts/dev-build.mjs", "--platform", "mac"]);
-  // GB-27: the broker registers no rightkit-qa adapter; outside a snapshot stage a QA step has no route (see the GB-27 test below).
-  assert.throws(() => buildLaunch("rightkit-qa", ["run-tests", "--app", "heardright"], host), (e) => e.code === BUILD_LAUNCH_REFUSED && /no uncarried route/.test(e.message));
 });
 
-test("[GB-27] a rightkit-qa step with no snapshot carrier never requests the unregistered rightkit-qa adapter, in either spelling; it is refused before any spawn", () => {
-  const host = { ...managed, cwd: "/w/app" };
-  for (const [command, args] of [["rightkit-qa", ["run-tests", "--app", "a"]], ["rustright", ["run", "rightkit-qa", "--", "run-tests", "--app", "a"]]]) {
-    let launched = null;
-    try { launched = buildLaunch(command, args, host); } catch (e) { assert.equal(e.code, BUILD_LAUNCH_REFUSED, `${command}: ${e.message}`); continue; }
-    assert.notDeepEqual(launched.args?.slice(0, 2), ["run", "rightkit-qa"], `${command} must not be sent as an adapter job: ${JSON.stringify(launched)}`);
-    assert.fail(`${command} ${args.join(" ")} was launched without a carrier: ${JSON.stringify(launched)}`);
+test("[GC-A07] a rightkit-qa step is refused on every route and in both spellings, before any spawn: a build or test step runs no QA", () => {
+  const snapshot = { ...managed, cwd: "/w/app", env: { ...managed.env, RK_GATE_CHECKOUT: "/w/checkout" } };
+  for (const host of [{ ...managed, cwd: "/w/app" }, direct, unreachable, snapshot]) {
+    for (const [command, args] of [["rightkit-qa", ["run-tests", "--app", "a"]], ["rightkit-qa", ["journeys", "run"]], ["rustright", ["run", "rightkit-qa", "--", "run-tests", "--app", "a"]]]) {
+      assert.throws(() => buildLaunch(command, args, host), (e) => e.code === BUILD_LAUNCH_REFUSED && (command !== "rightkit-qa" || /GC-A07/.test(e.message)), `${command} ${args.join(" ")}`);
+    }
   }
 });
 
@@ -66,7 +63,7 @@ test("host detection reads the cargo on PATH: the RightKit cargo guard makes it 
 });
 
 test("a managed host whose broker is unreachable refuses every launch; a host without a broker runs directly", () => {
-  for (const [command, args] of [["pnpm", ["run", "build"]], ["cargo", ["build"]], ["node", ["scripts/build.mjs"]], ["rightkit-qa", ["run-tests"]]]) {
+  for (const [command, args] of [["pnpm", ["run", "build"]], ["cargo", ["build"]], ["node", ["scripts/build.mjs"]]]) {
     assert.throws(() => buildLaunch(command, args, unreachable), (e) => e.code === BUILD_LAUNCH_REFUSED && /broker-managed/.test(e.message), command);
   }
   assert.deepEqual(buildLaunch("pnpm", ["run", "build"], direct), { command: "pnpm", args: ["run", "build"] });

@@ -1241,7 +1241,7 @@ async function installHook(o, root) {
 
 /**
  * Runs every stage up to `--to`, in order, for HEAD: check (class A), compile (the whole gate over every file), then, through the existing
- * owners, package (source QA, then `right-release build`, which seals the exact artifact set), qualify (installed QA on that sealed set)
+ * owners, package (`right-release build`, which seals the exact artifact set; no source QA, GATE-CONTRACT GC-A07), qualify (installed QA on that sealed set)
  * and release (`right-release upload` of that same sealed set). Stops at the first stage that fails. check and compile are reused from
  * the receipt only when every bound input is unchanged; the right-release stages run under a live door run, so they refuse any other
  * caller (gate-stages.mjs requireDoorRun).
@@ -1649,7 +1649,6 @@ async function runStages(o, args, root, git, io) {
         const packageTarget = await packageSidecarTarget({ o, ds, configs: packageConfigs });
         ok = await stageSidecarsOnce({ o, ds, root, git, configs: packageConfigs, appDir, cli, commonDir, commit, tree, stage, executor, target: packageTarget });
       }
-      // Source QA (right-release qa --stage source) exists for mac and win only; a mobile package is the signed build alone.
       // Row 7.04c (R-T1, 7.09): the snapshot holds no Cargo target. On a direct host the checkout's output directory is resolved here, in the primary
       // checkout, and handed to right-release absolute: it binds every manifest's target for this stage, and the sealed manifest must record it back
       // (the door never trusts the child's value alone). One workspace is pinned as a whole; several are refused, naming them. A broker host's target
@@ -1670,16 +1669,7 @@ async function runStages(o, args, root, git, io) {
         else if (packageMulti.note) o.out(`${tag} [package] ${packageMulti.note}`);
       }
       const packageEnv = packagePin.dir ? { CARGO_TARGET_DIR: packagePin.dir } : (packageMulti?.env ?? {});
-      // The QA shell the compile built is source QA's binary (rightkit#1309): the compile's recorded output directories are handed to `right-release qa` only
-      // while that record still proves the outputs intact; it stages the declared layout from them in a run-scoped directory, never in the snapshot (qa-layout.mjs).
-      const compileDirs = receipt.stages.compile?.outputs?.dirs;
-      const compiledProblem = (o.compileReuseProblem ?? compileReuseProblem)(receipt.stages.compile, { env: o.env });
-      // A direct host's suites (qa.layout.build) have no carried receipts: what they build lands in the output directories pinned here (test-command.mjs).
-      const pinnedDirs = packagePin.dirs ?? (packagePin.dir ? [packagePin.dir] : []);
-      const buildEnv = pinnedDirs.length ? { ...packageEnv, RIGHTKIT_GATE_TARGET_DIRS: JSON.stringify(pinnedDirs) } : packageEnv;
-      const qaEnv = !mobile && !compiledProblem && Array.isArray(compileDirs) && compileDirs.length ? { ...buildEnv, RIGHT_RELEASE_QA_COMPILED_DIRS: JSON.stringify(compileDirs) } : buildEnv;
-      if (ok && !mobile && compiledProblem && Array.isArray(compileDirs)) o.out(`${tag} [package] the compile outputs are not handed to source QA: ${compiledProblem}`);
-      ok = ok && (mobile || await rightRelease(stage, ["qa", "--stage", "source", "--platform", platform], qaEnv)) && await rightRelease(stage, ["build", "--platform", platform], packageEnv);
+      ok = ok && await rightRelease(stage, ["build", "--platform", platform], packageEnv);
       const sealed = ok ? (o.sealedFor ?? sealedFor)({ root: releaseRoot, commit, platform }) : null;
       if (ok && !sealed) { o.err(`${tag} [package] the build reported success but sealed nothing for ${commit.slice(0, 8)} on ${platform}`); ok = false; }
       if (sealed) extra = { platform, sealed: sealed.id, manifestSha256: sealed.digest };

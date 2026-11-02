@@ -55,9 +55,7 @@ test("a product build: tauri build and bundle, and a cargo build of the tauri pa
   assert.equal(is({ node: "scripts/x.mjs" }), false);
 });
 
-test("ad hoc: sign-qa-bundle and RIGHTKIT_DEV_SIGNING, in a command, an argument or the env", () => {
-  assert.match(adHocReason({ node: "scripts/sign-qa-bundle.mjs" }), /sign-qa-bundle/);
-  assert.match(adHocReason({ cmd: "right-release", args: ["sign-qa-bundle", "--app", "x"] }), /sign-qa-bundle/);
+test("ad hoc: RIGHTKIT_DEV_SIGNING, in an argument or the env", () => {
   assert.match(adHocReason({ cmd: "x", env: { RIGHTKIT_DEV_SIGNING: "ci-adhoc" } }), /RIGHTKIT_DEV_SIGNING/);
   assert.match(adHocReason({ cmd: "env", args: ["RIGHTKIT_DEV_SIGNING=ci-adhoc", "x"] }), /RIGHTKIT_DEV_SIGNING/);
   assert.equal(adHocReason({ cmd: "pnpm", args: ["exec", "tauri", "build"] }), null);
@@ -92,7 +90,6 @@ test("a suite that builds a product needs a LATER sign step that names it", () =
 });
 
 test("ad hoc signing, an identifier override and a mismatched mac bundle id are refused, each with its code", () => {
-  assert.deepEqual(codes(refusals({ tests: { suites: [{ name: "x", node: "scripts/sign-qa-bundle.mjs" }] } })), ["RK_SUITE_ADHOC_SIGNING"]);
   assert.deepEqual(codes(refusals({ tests: { suites: [{ name: "x", cmd: "node", args: ["a.mjs"], env: { RIGHTKIT_DEV_SIGNING: "ci-adhoc" } }] } })), ["RK_SUITE_ADHOC_SIGNING"]);
   const override = { name: "build-app", cmd: "pnpm", args: ["exec", "tauri", "build", "--config", { $json: { identifier: "app.dev" } }] };
   assert.deepEqual(codes(refusals({ tests: { suites: [override, SIGN] } })), ["RK_SUITE_IDENTIFIER_OVERRIDE"]);
@@ -102,7 +99,7 @@ test("ad hoc signing, an identifier override and a mismatched mac bundle id are 
   assert.deepEqual(codes(refusals(dev({ kind: "tauri", productName: "X", signing: "ci-adhoc" }), { to: "dev" })), ["RK_SUITE_ADHOC_SIGNING"]);
   const overrideBuild = { cmd: "pnpm", args: ["exec", "tauri", "build", "--config", '{"identifier":"x.y"}'] };
   assert.deepEqual(codes(refusals(dev({ kind: "tauri-devid" }, [overrideBuild]), { to: "dev" })), ["RK_SUITE_IDENTIFIER_OVERRIDE"]);
-  assert.deepEqual(codes(refusals(dev({ kind: "tauri-devid" }, [{ cmd: "node", args: ["sign-qa-bundle.mjs"] }]), { to: "dev" })), ["RK_SUITE_ADHOC_SIGNING"]);
+  assert.deepEqual(codes(refusals(dev({ kind: "tauri-devid" }, [{ cmd: "node", args: ["a.mjs"], env: { RIGHTKIT_DEV_SIGNING: "ci-adhoc" } }]), { to: "dev" })), ["RK_SUITE_ADHOC_SIGNING"]);
   // A missing tauri.conf.json cannot prove the bundle id: refused as a mismatch, not passed.
   assert.deepEqual(codes(refusals(dev({ kind: "tauri-devid", bundleId: "app.x" }), { to: "dev", readFile: () => null })), ["RK_SUITE_IDENTIFIER_MISMATCH"]);
 });
@@ -120,7 +117,7 @@ test("the Windows `tauri` install kind is refused on a Windows host; tauri-authe
 test("each refusal fires on darwin and win32 and on neither linux nor hosted CI", () => {
   const configs = [
     { to: "test", config: { tests: { suites: [BUILD, QA] } }, code: "RK_SUITE_UNSIGNED_BUILD" },
-    { to: "test", config: { tests: { suites: [{ name: "x", node: "sign-qa-bundle.mjs" }] } }, code: "RK_SUITE_ADHOC_SIGNING" },
+    { to: "test", config: { tests: { suites: [{ name: "x", cmd: "node", args: ["a.mjs"], env: { RIGHTKIT_DEV_SIGNING: "ci-adhoc" } }] } }, code: "RK_SUITE_ADHOC_SIGNING" },
     { to: "test", config: { tests: { suites: [{ ...BUILD, args: [...BUILD.args, "--config", '{"identifier":"a.b"}'] }, SIGN] } }, code: "RK_SUITE_IDENTIFIER_OVERRIDE" },
     { to: "test", config: { ...ENGINE, tests: { suites: [{ name: "build-all", cmd: "cargo", args: ["build"] }, { name: "sign-shell", sign: { files: [{ from: "build-all", path: "debug/rightapp" }] } }, { name: "e2e", cmd: "cargo", args: ["test", "-p", "rightapp-engine", "--test", "e2e"] }] } }, code: "RK_SUITE_LAUNCH_UNBOUND" },
     { to: "dev", config: { development: { targets: { mac: { build: [], install: { kind: "tauri-devid", bundleId: "app.other" } } } } }, code: "RK_SUITE_IDENTIFIER_MISMATCH", only: "darwin" },
@@ -179,7 +176,17 @@ test("the route's code list is the base codes plus exactly the codes the signing
 const ENGINE = { sidecars: { sidecars: [{ kind: "cargo-bin", package: "rightapp-engine", manifestPath: "crates/engine/Cargo.toml" }] } };
 const RUNNERS = { cargo: { cmd: "cargo" }, pnpm: { cmd: "pnpm" } };
 const PLAN_CONFIG = { ...ENGINE, tests: { runners: RUNNERS, suites: [BUILD, SIGN, QA] } };
-const planOf = (options, config = PLAN_CONFIG) => planTests(config, { appRoot: os.tmpdir(), ...options });
+// A `sign` entry can no longer be planned (GATE-CONTRACT GC-A07 removed the sign step), but the policy still judges plan items that carry one: they are built by hand here.
+function planOf(options, config = PLAN_CONFIG) {
+  const suites = config.tests?.suites ?? [];
+  if (options.runner !== undefined || !suites.some((entry) => entry.sign)) return planTests({ ...config, tests: { ...config.tests, suites: suites.filter((entry) => !entry.sign) } }, { appRoot: os.tmpdir(), ...options });
+  const all = suites.flatMap((entry) => (entry.sign
+    ? [{ name: entry.name, group: entry.name, sign: entry.sign, step: null, extraArgs: [], requires: [...new Set(entry.sign.files.map((file) => file.from))] }]
+    : planTests({ ...config, tests: { ...config.tests, suites: [entry] } }, { appRoot: os.tmpdir() })));
+  let selected = options.suites?.length ? all.filter((item) => options.suites.includes(item.name) || options.suites.includes(item.group)) : all;
+  if (options.passthrough?.length) selected = [{ ...selected[0], extraArgs: [...options.passthrough] }];
+  return selected;
+}
 const planRefusals = (plan, over = {}) => planSigningRefusals({ config: PLAN_CONFIG, plan, platform: "darwin", env: {}, readFile, listFiles, ...over });
 
 test("H1: runner mode, a lone build suite and passthrough are judged on the plan that runs; the four Oracle reproductions and HeardRight's are refused", () => {
@@ -193,7 +200,7 @@ test("H1: runner mode, a lone build suite and passthrough are judged on the plan
   const hr = { sidecars: { sidecars: [{ kind: "cargo-bin", package: "heardright-engine", manifestPath: "crates/engine/Cargo.toml" }] }, tests: { runners: RUNNERS, suites: [BUILD, SIGN] } };
   assert.deepEqual(codes(planSigningRefusals({ config: hr, plan: planOf({ runner: "cargo", passthrough: ["build", "-p", "heardright-engine"] }, hr), platform: "darwin", env: {}, readFile, listFiles })), ["RK_SUITE_UNSIGNED_BUILD"]);
   // Ad hoc signing smuggled in by passthrough.
-  assert.deepEqual(codes(planRefusals(planOf({ suites: ["qa"], passthrough: ["--sign", "sign-qa-bundle"] }))), ["RK_SUITE_ADHOC_SIGNING"]);
+  assert.deepEqual(codes(planRefusals(planOf({ suites: ["qa"], passthrough: ["RIGHTKIT_DEV_SIGNING=ci-adhoc"] }))), ["RK_SUITE_ADHOC_SIGNING"]);
   // A properly planned build + sign passes, whole or as a named group; Linux and hosted CI are exempt.
   assert.deepEqual(planRefusals(planOf({})), []);
   assert.deepEqual(planRefusals(planOf({ suites: ["build-app", "sign-app"] })), []);
@@ -521,7 +528,7 @@ test(".mjs config: right-release test refuses an unsigned product build before a
 });
 
 test(".mjs config: ad hoc signing and an identifier override are refused by the test runner too", async (t) => {
-  for (const [suite, wanted] of [[{ name: "x", node: "scripts/sign-qa-bundle.mjs" }, "RK_SUITE_ADHOC_SIGNING"], [{ ...BUILD, args: ["exec", "tauri", "build", "--config", '{"identifier":"x.y"}'] }, "RK_SUITE_IDENTIFIER_OVERRIDE"]]) {
+  for (const [suite, wanted] of [[{ name: "x", cmd: "node", args: ["a.mjs"], env: { RIGHTKIT_DEV_SIGNING: "ci-adhoc" } }, "RK_SUITE_ADHOC_SIGNING"], [{ ...BUILD, args: ["exec", "tauri", "build", "--config", '{"identifier":"x.y"}'] }, "RK_SUITE_IDENTIFIER_OVERRIDE"]]) {
     const app = mjsApp(t, { tests: { suites: [suite, SIGN] } });
     const loaded = await loadAppConfig(app.file);
     const errors = [];

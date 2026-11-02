@@ -8,7 +8,7 @@ import { spawnSync } from "./background-process.mjs";
 import { computePolicyBundle, diffPolicyBundles, POLICY_BUNDLE_ENTRYPOINTS, QA_FLOOR_FILE, validatePolicyBundle } from "./ownership-policy-bundle.mjs";
 import { ProtectedSecretMissingError } from "./protected-credentials.mjs";
 import {
-  assertInstalledQaAdmission, assertSourceQaAdmission, buildQaReceipt, dependencyClosure, evaluateRequiredChecks, loadQaFloor,
+  assertInstalledQaAdmission, buildQaReceipt, dependencyClosure, evaluateRequiredChecks, loadQaFloor,
   qaReceiptPath, resolveQaReceiptKey, sealQaReceipt, sourceIdentity, validateAppQaConfig, writeQaReceipt, QaAdmissionError,
 } from "./release-qa-receipt.mjs";
 import { runQa } from "./release-qa-command.mjs";
@@ -43,7 +43,7 @@ const passingEvidence = () => ({ schemaVersion: 4, runId: "r1", status: "passed"
 ] });
 const floorFixture = () => loadQaFloor(here);
 
-function receiptFor(root, { stage = "installed", evidence = passingEvidence(), artifacts = [{ name: "demo.dmg", sha256: SHA("a"), sizeBytes: 3 }], sourceReceiptDigest = SHA("c"), bundle = BUNDLE, runnerName = "rightkit-qa", key = KEY } = {}) {
+function receiptFor(root, { stage = "installed", evidence = passingEvidence(), artifacts = [{ name: "demo.dmg", sha256: SHA("a"), sizeBytes: 3 }], bundle = BUNDLE, runnerName = "rightkit-qa", key = KEY } = {}) {
   const { floor, digest } = floorFixture();
   const source = sourceIdentity(root);
   const required = evaluateRequiredChecks({ floor, stage, qa, evidence });
@@ -51,7 +51,7 @@ function receiptFor(root, { stage = "installed", evidence = passingEvidence(), a
     stage, app: "demo", platform: "mac", releaseId: "demo-1.0.0-abcd1234", source, closure: dependencyClosure(root, source.commit),
     releaseConfigSha256: SHA("d"), qa, floor, floorDigest: digest, policyBundleDigest: bundle,
     runner: { basename: runnerName, path: "/x/rightkit-qa", sha256: SHA("e") }, evidence, evidenceSha256: SHA("f"), required,
-    artifacts: stage === "installed" ? artifacts : [], sourceReceiptDigest: stage === "installed" ? sourceReceiptDigest : null,
+    artifacts: stage === "installed" ? artifacts : [],
   }), key);
   writeQaReceipt(qaReceiptPath({ repoRoot: root, releaseId: "demo-1.0.0-abcd1234", platform: "mac", stage }), receipt);
   return receipt;
@@ -59,7 +59,7 @@ function receiptFor(root, { stage = "installed", evidence = passingEvidence(), a
 
 const manifestFor = (root, overrides = {}) => ({
   releaseId: "demo-1.0.0-abcd1234", commit: sourceIdentity(root).commit,
-  files: [{ name: "demo.dmg", sha256: SHA("a"), sizeBytes: 3 }], qa: { sourceReceiptDigest: SHA("c") }, ...overrides,
+  files: [{ name: "demo.dmg", sha256: SHA("a"), sizeBytes: 3 }], ...overrides,
 });
 const gate = (root, manifest = manifestFor(root), extra = {}) => assertInstalledQaAdmission({
   repoRoot: root, manifest, platform: "mac", configName: "right-release.config.mjs", releaseConfigSha256: SHA("d"),
@@ -124,7 +124,7 @@ test("skipped or missing required check refuses even though the runner exited", 
   assert.deepEqual(results.map((r) => [r.id, r.status]), [["smoke.launch", "passed"], ["journey", "missing"]]);
 });
 
-test("forged receipts refuse: wrong key, edited body, wrong runner, unchained to the source receipt", () => {
+test("forged receipts refuse: wrong key, edited body, wrong runner", () => {
   const root = fixture();
   try {
     receiptFor(root, { key: "attacker-key" });
@@ -135,9 +135,6 @@ test("forged receipts refuse: wrong key, edited body, wrong runner, unchained to
     assert.throws(() => gate(root, manifestFor(root, { files: [{ name: "demo.dmg", sha256: SHA("9"), sizeBytes: 3 }] })), /do not match its digest/);
     receiptFor(root, { runnerName: "my-fake-runner" });
     assert.throws(() => gate(root), /not produced by the rightkit-qa runner/);
-    receiptFor(root);
-    assert.throws(() => gate(root, manifestFor(root, { qa: { sourceReceiptDigest: SHA("1") } })), /not chained to the source QA receipt/);
-    assert.throws(() => gate(root, manifestFor(root, { qa: undefined })), /not chained/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -153,26 +150,6 @@ test("a changed QA floor or policy bundle invalidates existing receipts", () => 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("source gate: missing refuses with command, passing admits and returns the digest sealed into the manifest", () => {
-  const root = fixture();
-  try {
-    const releaseId = `demo-1.0.0-${sourceIdentity(root).commit.slice(0, 8)}`;
-    const opts = { repoRoot: root, releaseId, platform: "mac", configName: "right-release.config.mjs", releaseConfigSha256: SHA("d"), credentialStore: store, policyBundleDigest: BUNDLE, floorDir: here };
-    assert.throws(() => assertSourceQaAdmission(opts), /no source QA receipt.*right-release qa --stage source --platform mac/s);
-    const { floor, digest } = floorFixture();
-    const source = sourceIdentity(root);
-    const evidence = passingEvidence();
-    const receipt = sealQaReceipt(buildQaReceipt({
-      stage: "source", app: "demo", platform: "mac", releaseId, source, closure: dependencyClosure(root, source.commit), releaseConfigSha256: SHA("d"), qa, floor, floorDigest: digest,
-      policyBundleDigest: BUNDLE, runner: { basename: "rightkit-qa", path: "/x", sha256: SHA("e") }, evidence, evidenceSha256: SHA("f"),
-      required: evaluateRequiredChecks({ floor, stage: "source", qa, evidence }),
-    }), KEY);
-    writeQaReceipt(qaReceiptPath({ repoRoot: root, releaseId, platform: "mac", stage: "source" }), receipt);
-    assert.deepEqual(assertSourceQaAdmission(opts), { digest: receipt.digest, floorDigest: digest });
-    assert.throws(() => assertSourceQaAdmission({ ...opts, releaseConfigSha256: SHA("0") }), /release config changed/);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
 test("right-release qa writes the receipt through the runner path and fails closed when the runner fails", async () => {
   const root = fixture();
   try {
@@ -183,7 +160,8 @@ test("right-release qa writes the receipt through the runner path and fails clos
     const evidenceFile = path.join(mkdtempSync(path.join(tmpdir(), "rk-qa-ev-")), "evidence.json");
     const run = async (evidence, status) => {
       writeFileSync(evidenceFile, JSON.stringify(evidence));
-      return runQa({ stage: "source", platform: "mac", configPath: path.join(root, "right-release.config.mjs"), deps: {
+      return runQa({ stage: "installed", platform: "mac", releaseIdArg: "demo-1.0.0-abcd1234", configPath: path.join(root, "right-release.config.mjs"), deps: {
+        verifySealedRelease: () => ({ sealedDir: root, manifest: { commit: sourceIdentity(root).commit, files: [{ name: "demo.dmg", sha256: SHA("a"), sizeBytes: 3 }] } }),
         skipPrimaryCheckout: true, quiet: true, credentialStore: store, policyBundleDigest: BUNDLE, runnerFile: path.join(root, "rightkit-qa"),
         spawnRunner: () => ({ status, stdout: `[qa] 3 passed, 0 failed, 0 skipped; evidence ${evidenceFile}\n`, stderr: "" }),
       } });
@@ -205,7 +183,7 @@ test("app QA config cannot drop a floor-required check", () => {
   assert.deepEqual(validateAppQaConfig(qa, floor, "installed"), []);
   const dropped = { ...qa, checks: { "smoke.launch": ["app.launch"] } };
   assert.match(validateAppQaConfig(dropped, floor, "installed").join(";"), /journey/);
-  assert.match(validateAppQaConfig(undefined, floor, "source").join(";"), /must declare qa/);
+  assert.match(validateAppQaConfig(undefined, floor, "installed").join(";"), /must declare qa/);
 });
 
 test("QA floor is part of the protected policy bundle: changing it changes the bundle digest", () => {
@@ -213,7 +191,7 @@ test("QA floor is part of the protected policy bundle: changing it changes the b
   const base = { scannerVersion: "1.0.0", manifest: { schema: 1 }, registry: null, allowlist: null, files: [] };
   const floor = JSON.parse(readFileSync(path.join(here, QA_FLOOR_FILE), "utf8"));
   const a = computePolicyBundle({ ...base, qaFloor: floor });
-  const dropped = { ...floor, stages: { ...floor.stages, source: { required: ["smoke.launch"] } } };
+  const dropped = { ...floor, stages: { ...floor.stages, installed: { required: ["smoke.launch"] } } };
   const b = computePolicyBundle({ ...base, qaFloor: dropped });
   assert.notEqual(a.digest, b.digest);
   assert.notEqual(a.qaFloorDigest, b.qaFloorDigest);
@@ -235,7 +213,7 @@ test("receipt key comes from the protected store; the CI env fallback is limited
 test("dev lanes never reach the upload gate (install-app --dev, development lane); no manifest flag skips it", () => {
   for (const file of ["install-app.mjs", "development.mjs", "portable-development.mjs", "development-signing.mjs"]) {
     const source = readFileSync(path.join(here, file), "utf8");
-    assert.doesNotMatch(source, /assertInstalledQaAdmission|assertSourceQaAdmission|admitInstalledQa|admitSourceQa|upload-release|publish-update/, `${file} must stay outside the release QA gate`);
+    assert.doesNotMatch(source, /assertInstalledQaAdmission|admitInstalledQa|upload-release|publish-update/, `${file} must stay outside the release QA gate`);
   }
   const gateSource = readFileSync(path.join(here, "release-qa-receipt.mjs"), "utf8");
   assert.doesNotMatch(gateSource, /manifest\.kind|manifest\.dev|process\.env\.RIGHT_RELEASE_(?:SKIP|DEV)/);
@@ -246,6 +224,5 @@ test("dev lanes never reach the upload gate (install-app --dev, development lane
     assert.doesNotMatch(source, /assertInstalledQaAdmission|QA_ADMISSION_REFUSED/, `${file} must not block on QA`);
   }
   const build = readFileSync(path.join(here, "build-release.mjs"), "utf8");
-  assert.match(build, /admitSourceQa/);
-  assert.doesNotMatch(build, /assertSourceQaAdmission|QA_ADMISSION_REFUSED/);
+  assert.doesNotMatch(build, /admitSourceQa|assertSourceQaAdmission|QA_ADMISSION_REFUSED/, "the build stage runs no QA admission (GATE-CONTRACT GC-A07)");
 });

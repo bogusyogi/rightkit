@@ -1,12 +1,10 @@
 // QA admission plus the ad hoc `right-release qa audit` scan.
 //
 // Per-app policy (qa-admission-policy.json, release-qa-policy.mjs): `warn` is the default, `refuse` is switched on
-// per app once the app has earned it, and separately per stage: the build (source) admission and the publication
-// (installed) admission each read their own mode. The gates in release-qa-receipt.mjs verify receipts, and the
+// per app once the app has earned it. Only the publication (installed) admission exists (GATE-CONTRACT GC-A07: no source QA stage). The gates in release-qa-receipt.mjs verify receipts, and the
 // hardening in release-qa-hardening.mjs re-checks platform, release id, approved runner digest (for that platform),
 // every release-critical journey and the signing/test separation. In warn mode a refusal becomes a loud stderr
-// warning and a durable record (the sealed manifest `qa` field for the source stage,
-// `state/<releaseId>/<platformDir>/qa-installed.json` for the installed stage). In refuse mode the same refusal
+// warning and a durable record (`state/<releaseId>/<platformDir>/qa-installed.json`). In refuse mode the same refusal
 // throws a QaAdmissionError and nothing is sealed or published. `qa audit` reads the records so a weekly run can
 // flag released builds that lack passing QA.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -14,13 +12,13 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { hardenQaReceipt } from "./release-qa-hardening.mjs";
 import { admissionModeFor, loadAdmissionPolicy } from "./release-qa-policy.mjs";
-import { assertInstalledQaAdmission, assertSourceQaAdmission, loadQaFloor, QaAdmissionError, qaReceiptPath, readQaReceipt } from "./release-qa-receipt.mjs";
+import { assertInstalledQaAdmission, loadQaFloor, QaAdmissionError, qaReceiptPath, readQaReceipt } from "./release-qa-receipt.mjs";
 import { platformDirOf, platformOfDir } from "./platform-dir.mjs";
 
 
 /** "missing" when no receipt exists; "rejected" for anything else the gate refused (bad receipt, no key, wrong commit). */
 function refusalStatus(error) {
-  return /^no (?:source|installed) QA receipt/.test(error.message) ? "missing" : "rejected";
+  return /^no installed QA receipt/.test(error.message) ? "missing" : "rejected";
 }
 const refusalReason = (error) => String(error.message).split("\n  run:")[0];
 
@@ -58,14 +56,6 @@ function hardening(stage, opts, loaded, hooks) {
   });
 }
 
-/** Build stage. Returns the `qa` block sealed into the release manifest. */
-export function admitSourceQa(opts, hooks = {}) {
-  const { loaded, app, mode } = policyContext(opts, hooks, "source");
-  const outcome = admit(() => assertSourceQaAdmission({ ...opts, afterVerify: hardening("source", opts, loaded, hooks) }), { ...hooks, mode, app });
-  if (outcome.status === "passed") return { status: "passed", sourceReceiptDigest: outcome.result.digest, floorDigest: outcome.result.floorDigest };
-  return { status: outcome.status, reason: outcome.reason };
-}
-
 export const installedQaRecordPath = ({ repoRoot, releaseId, platform }) =>
   path.join(repoRoot, ".right-release", "state", releaseId, platformDirOf(platform), "qa-installed.json");
 
@@ -92,13 +82,6 @@ export function admitInstalledQa(opts, { provider, now = () => new Date(), ...ho
 const readJson = (file) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return null; } };
 const subdirs = (dir) => (existsSync(dir) ? readdirSync(dir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name) : []);
 
-function sourceStatus(manifest) {
-  const qa = manifest.qa;
-  if (qa?.status === "passed" || (!qa?.status && qa?.sourceReceiptDigest)) return { status: "passed" };
-  if (qa?.status) return { status: qa.status, ...(qa.reason ? { reason: qa.reason } : {}) };
-  return { status: "missing", reason: "sealed manifest records no source QA" };
-}
-
 function installedStatus({ repoRoot, releaseId, platformDir }) {
   const stateDir = path.join(repoRoot, ".right-release", "state", releaseId, platformDir);
   const record = readJson(path.join(stateDir, "qa-installed.json"));
@@ -121,12 +104,11 @@ export function auditQa({ repoRoot, since } = {}) {
       if (!manifest) continue;
       if (since && String(manifest.sealedAt ?? "") < since) continue;
       const installed = installedStatus({ repoRoot, releaseId, platformDir });
-      const source = sourceStatus(manifest);
       const { uploaded, ...installedRest } = installed;
       rows.push({
         releaseId, platform: platformDir, version: manifest.version ?? null, sealedAt: manifest.sealedAt ?? null, uploaded,
-        source, installed: installedRest,
-        ok: !uploaded || (source.status === "passed" && installedRest.status === "passed"),
+        installed: installedRest,
+        ok: !uploaded || installedRest.status === "passed",
       });
     }
   }
@@ -135,8 +117,8 @@ export function auditQa({ repoRoot, since } = {}) {
 
 export function formatAuditTable(report) {
   if (!report.rows.length) return "right-release qa audit: no sealed releases found";
-  const header = ["release", "platform", "source", "installed", "result"];
-  const body = report.rows.map((row) => [row.releaseId, row.platform, row.source.status, row.installed.status, row.ok ? (row.uploaded ? "ok" : "ok (not uploaded)") : "FLAG"]);
+  const header = ["release", "platform", "installed", "result"];
+  const body = report.rows.map((row) => [row.releaseId, row.platform, row.installed.status, row.ok ? (row.uploaded ? "ok" : "ok (not uploaded)") : "FLAG"]);
   const widths = header.map((_, column) => Math.max(header[column].length, ...body.map((line) => line[column].length)));
   const line = (cells) => cells.map((cell, column) => cell.padEnd(widths[column])).join("  ").trimEnd();
   const flagged = report.rows.filter((row) => !row.ok);
@@ -144,7 +126,7 @@ export function formatAuditTable(report) {
     line(header), ...body.map(line),
     "",
     flagged.length
-      ? `${flagged.length} uploaded build(s) lack passing QA:\n${flagged.map((row) => `  ${row.releaseId} ${row.platform}: ${[row.source.status !== "passed" && `source ${row.source.status}${row.source.reason ? ` (${row.source.reason})` : ""}`, row.installed.status !== "passed" && `installed ${row.installed.status}${row.installed.reason ? ` (${row.installed.reason})` : ""}`].filter(Boolean).join("; ")}`).join("\n")}`
+      ? `${flagged.length} uploaded build(s) lack passing QA:\n${flagged.map((row) => `  ${row.releaseId} ${row.platform}: ${[row.installed.status !== "passed" && `installed ${row.installed.status}${row.installed.reason ? ` (${row.installed.reason})` : ""}`].filter(Boolean).join("; ")}`).join("\n")}`
       : "all uploaded builds have passing QA",
   ].join("\n");
 }

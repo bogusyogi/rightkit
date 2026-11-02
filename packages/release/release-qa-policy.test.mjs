@@ -173,110 +173,100 @@ test("runner entries are validated: sha256 required, version, platform, set_by, 
   assert.match(validateAdmissionPolicy(policyOf({}, [{ version: "0.9.0" }])).join(";"), /lowercase 64-hex sha256/);
 });
 
-test("per-stage modes: a stage entry overrides the app-level mode, else the app-level mode applies, else warn", () => {
+test("per-stage modes: the installed entry overrides the app-level mode, else the app-level mode applies, else warn (installed is the only stage, GC-A07)", () => {
   const policy = policyOf({
     both: refuse("adrian"),
-    split: { ...warn("adrian"), stages: { source: refuse("adrian") } },
-    onlyInstalled: { stages: { installed: refuse("adrian") } },
+    split: { ...warn("adrian"), stages: { installed: refuse("adrian") } },
   });
-  assert.deepEqual(ADMISSION_STAGES, ["source", "installed"]);
-  assert.equal(admissionModeFor(policy, "both", "source").mode, "refuse");
+  assert.deepEqual(ADMISSION_STAGES, ["installed"]);
   assert.equal(admissionModeFor(policy, "both", "installed").mode, "refuse");
-  assert.equal(admissionModeFor(policy, "split", "source").mode, "refuse");
-  assert.equal(admissionModeFor(policy, "split", "installed").mode, "warn");
-  assert.equal(admissionModeFor(policy, "onlyInstalled", "installed").mode, "refuse");
-  assert.deepEqual(admissionModeFor(policy, "onlyInstalled", "source"), { mode: "warn", since: null, set_by: null });
-  assert.deepEqual(admissionModeFor(policy, "missing", "source"), { mode: "warn", since: null, set_by: null });
-  assert.deepEqual(admissionModeFor(policy, "split", "source"), { mode: "refuse", since: "2026-10-01", set_by: "adrian" });
+  assert.equal(admissionModeFor(policy, "split", "installed").mode, "refuse");
+  assert.deepEqual(admissionModeFor(policy, "missing", "installed"), { mode: "warn", since: null, set_by: null });
+  assert.deepEqual(admissionModeFor(policy, "split", "installed"), { mode: "refuse", since: "2026-10-01", set_by: "adrian" });
   // A stage entry can be warn under an app-level refuse.
   const relaxed = policyOf({ app: { ...refuse("adrian"), stages: { installed: warn("adrian") } } });
-  assert.equal(admissionModeFor(relaxed, "app", "source").mode, "refuse");
   assert.equal(admissionModeFor(relaxed, "app", "installed").mode, "warn");
   // Without a stage it is the app-level result, as before.
   assert.deepEqual(admissionModeFor(policy, "both"), { mode: "refuse", since: "2026-10-01", set_by: "adrian" });
   assert.deepEqual(admissionModeFor(policy, "split"), { mode: "warn", since: "2026-10-02", set_by: "adrian" });
-  assert.deepEqual(admissionModeFor(policy, "onlyInstalled"), { mode: "warn", since: null, set_by: null });
   assert.deepEqual(admissionModeFor(policy, "missing"), { mode: "warn", since: null, set_by: null });
 });
 
 test("per-stage validation: unknown stage keys, empty entries and incomplete stage entries are refused", () => {
   const problems = (entry) => validateAdmissionPolicy(policyOf({ demo: entry })).join(";");
-  assert.deepEqual(validateAdmissionPolicy(policyOf({ demo: { stages: { source: refuse() } } })), [], "an app governed by its stages alone is valid");
-  assert.deepEqual(validateAdmissionPolicy(policyOf({ demo: { ...warn(), stages: { source: refuse(), installed: warn() } } })), []);
-  assert.match(problems({ stages: { build: refuse() } }), /policy app demo has unknown stage "build" \(expected source or installed\)/);
-  assert.match(problems({ ...refuse(), stages: { Source: refuse() } }), /unknown stage "Source"/);
+  assert.deepEqual(validateAdmissionPolicy(policyOf({ demo: { stages: { installed: refuse() } } })), [], "an app governed by its stages alone is valid");
+  assert.deepEqual(validateAdmissionPolicy(policyOf({ demo: { ...warn(), stages: { installed: refuse() } } })), []);
+  assert.match(problems({ stages: { build: refuse() } }), /policy app demo has unknown stage "build" \(expected installed\)/);
+  assert.match(problems({ ...refuse(), stages: { Installed: refuse() } }), /unknown stage "Installed"/);
+  assert.match(problems({ ...refuse(), stages: { source: refuse() } }), /unknown stage "source"/, "there is no source stage any more (GC-A07)");
   assert.match(problems({}), /mode must be warn or refuse/);
   assert.match(problems({ stages: {} }), /needs a mode or a non-empty stages object/);
   assert.deepEqual(validateAdmissionPolicy(policyOf({ demo: { ...refuse(), stages: {} } })), [], "a mode with no stage entries is the old form");
   assert.match(problems({ stages: [] }), /stages must be an object/);
-  assert.match(problems({ stages: { source: null } }), /stage source must be an object/);
-  assert.match(problems({ stages: { source: { mode: "maybe", since: "x", set_by: "" } } }), /stage source mode must be warn or refuse.*stage source since must be YYYY-MM-DD.*stage source set_by is required/);
+  assert.match(problems({ stages: { installed: null } }), /stage installed must be an object/);
+  assert.match(problems({ stages: { installed: { mode: "maybe", since: "x", set_by: "" } } }), /stage installed mode must be warn or refuse.*stage installed since must be YYYY-MM-DD.*stage installed set_by is required/);
   assert.match(problems({ mode: "maybe", since: "x", set_by: "", stages: { installed: refuse() } }), /policy app demo mode must be warn or refuse/);
 });
 
 test("set --stage writes only that stage; set without a stage writes the app-level entry and removes the stages", () => withDir((ctx) => {
-  assert.deepEqual(setAdmissionMode({ app: "demo", mode: "refuse", setBy: "automation", stage: "source", dir: ctx.dir, now: NOW }), { mode: "refuse", since: "2026-10-24", set_by: "automation" });
-  assert.deepEqual(ctx.read().apps.demo, { stages: { source: { mode: "refuse", since: "2026-10-24", set_by: "automation" } } });
-  setAdmissionMode({ app: "demo", mode: "warn", setBy: "automation", stage: "installed", dir: ctx.dir, now: NOW });
-  assert.deepEqual(Object.keys(ctx.read().apps.demo.stages), ["source", "installed"]);
+  assert.deepEqual(setAdmissionMode({ app: "demo", mode: "refuse", setBy: "automation", stage: "installed", dir: ctx.dir, now: NOW }), { mode: "refuse", since: "2026-10-24", set_by: "automation" });
+  assert.deepEqual(ctx.read().apps.demo, { stages: { installed: { mode: "refuse", since: "2026-10-24", set_by: "automation" } } });
   const loaded = loadAdmissionPolicy({ dir: ctx.dir, baseline: false }).policy;
-  assert.equal(admissionModeFor(loaded, "demo", "source").mode, "refuse");
-  assert.equal(admissionModeFor(loaded, "demo", "installed").mode, "warn");
-  // Other fields are kept: an app-level mode and the other stage survive a stage write.
-  ctx.write(policyOf({ demo: { ...warn(), stages: { installed: refuse() } } }));
-  setAdmissionMode({ app: "demo", mode: "refuse", setBy: "automation", stage: "source", dir: ctx.dir, now: NOW });
-  assert.deepEqual(ctx.read().apps.demo, { ...warn(), stages: { source: { mode: "refuse", since: "2026-10-24", set_by: "automation" }, installed: refuse() } });
-  // Without a stage, one mode governs both stages again.
+  assert.equal(admissionModeFor(loaded, "demo", "installed").mode, "refuse");
+  // Other fields are kept: an app-level mode survives a stage write.
+  ctx.write(policyOf({ demo: warn() }));
+  setAdmissionMode({ app: "demo", mode: "refuse", setBy: "automation", stage: "installed", dir: ctx.dir, now: NOW });
+  assert.deepEqual(ctx.read().apps.demo, { ...warn(), stages: { installed: { mode: "refuse", since: "2026-10-24", set_by: "automation" } } });
+  // Without a stage, the app-level mode governs again.
   setAdmissionMode({ app: "demo", mode: "refuse", setBy: "automation", dir: ctx.dir, now: NOW });
   assert.deepEqual(ctx.read().apps.demo, { mode: "refuse", since: "2026-10-24", set_by: "automation" });
-  assert.throws(() => setAdmissionMode({ app: "demo", mode: "refuse", setBy: "x", stage: "build", dir: ctx.dir }), /stage must be source or installed/);
-  assert.throws(() => setAdmissionMode({ app: "demo", mode: "refuse", setBy: "x", stage: "", dir: ctx.dir }), /stage must be source or installed/);
+  assert.throws(() => setAdmissionMode({ app: "demo", mode: "refuse", setBy: "x", stage: "build", dir: ctx.dir }), /stage must be installed/);
+  assert.throws(() => setAdmissionMode({ app: "demo", mode: "refuse", setBy: "x", stage: "", dir: ctx.dir }), /stage must be installed/);
+  assert.throws(() => setAdmissionMode({ app: "demo", mode: "refuse", setBy: "x", stage: "source", dir: ctx.dir }), /stage must be installed/);
 }));
 
-test("refuse -> warn for one stage is refused without adrian and accepted with adrian; the other stage keeps refusing", () => withDir((ctx) => {
-  ctx.write(policyOf({ demo: { stages: { source: refuse(), installed: refuse() } } }));
+test("refuse -> warn for the installed stage is refused without adrian and accepted with adrian", () => withDir((ctx) => {
+  ctx.write(policyOf({ demo: { stages: { installed: refuse() } } }));
   for (const setBy of ["automation", "Adrian", "someone-else"]) {
-    assert.throws(() => setAdmissionMode({ app: "demo", mode: "warn", setBy, stage: "source", dir: ctx.dir }), /demo \(source\): refuse -> warn requires set_by "adrian"/);
+    assert.throws(() => setAdmissionMode({ app: "demo", mode: "warn", setBy, stage: "installed", dir: ctx.dir }), /demo \(installed\): refuse -> warn requires set_by "adrian"/);
   }
-  assert.equal(ctx.read().apps.demo.stages.source.mode, "refuse", "a refused change leaves the file untouched");
-  assert.equal(setAdmissionMode({ app: "demo", mode: "warn", setBy: "adrian", stage: "source", dir: ctx.dir }).mode, "warn");
+  assert.equal(ctx.read().apps.demo.stages.installed.mode, "refuse", "a refused change leaves the file untouched");
+  assert.equal(setAdmissionMode({ app: "demo", mode: "warn", setBy: "adrian", stage: "installed", dir: ctx.dir }).mode, "warn");
   const policy = loadAdmissionPolicy({ dir: ctx.dir, baseline: false }).policy;
-  assert.equal(admissionModeFor(policy, "demo", "source").mode, "warn");
-  assert.equal(admissionModeFor(policy, "demo", "installed").mode, "refuse");
+  assert.equal(admissionModeFor(policy, "demo", "installed").mode, "warn");
   // A stage entry that relaxes an app-level refuse is the same downgrade.
   ctx.write(policyOf({ demo: refuse() }));
   assert.throws(() => setAdmissionMode({ app: "demo", mode: "warn", setBy: "automation", stage: "installed", dir: ctx.dir }), /demo \(installed\): refuse -> warn requires set_by "adrian"/);
   assert.equal(setAdmissionMode({ app: "demo", mode: "warn", setBy: "adrian", stage: "installed", dir: ctx.dir }).mode, "warn");
-  assert.equal(admissionModeFor(ctx.read(), "demo", "source").mode, "refuse");
   // The transition rule covers the whole result: an app-level warn without a stage also drops the stage refuse.
-  ctx.write(policyOf({ demo: { ...warn("adrian"), stages: { source: refuse() } } }));
-  assert.throws(() => setAdmissionMode({ app: "demo", mode: "warn", setBy: "automation", dir: ctx.dir }), /demo \(source\): refuse -> warn/);
+  ctx.write(policyOf({ demo: { ...warn("adrian"), stages: { installed: refuse() } } }));
+  assert.throws(() => setAdmissionMode({ app: "demo", mode: "warn", setBy: "automation", dir: ctx.dir }), /demo \(installed\): refuse -> warn/);
   assert.equal(setAdmissionMode({ app: "demo", mode: "warn", setBy: "adrian", dir: ctx.dir }).set_by, "adrian");
   assert.deepEqual(ctx.read().apps.demo.stages, undefined);
   // warn -> refuse needs no owner.
-  assert.equal(setAdmissionMode({ app: "demo", mode: "refuse", setBy: "automation", stage: "source", dir: ctx.dir }).mode, "refuse");
+  assert.equal(setAdmissionMode({ app: "demo", mode: "refuse", setBy: "automation", stage: "installed", dir: ctx.dir }).mode, "refuse");
 }));
 
 test("removing an app (or a stage entry) whose stage was refuse is refused, against the baseline too", () => withDir((ctx) => {
-  const previous = policyOf({ demo: { ...warn("adrian"), stages: { source: refuse() } }, other: warn() });
+  const previous = policyOf({ demo: { ...warn("adrian"), stages: { installed: refuse() } }, other: warn() });
   const problems = checkPolicyTransition(previous, policyOf({ other: warn() }));
   assert.equal(problems.length, 1);
-  assert.match(problems[0], /^demo \(source\): the refuse entry was removed; only adrian may move an app back to warn/);
+  assert.match(problems[0], /^demo \(installed\): the refuse entry was removed; only adrian may move an app back to warn/);
   // The stage entry removed while the app-level mode is warn: the stage falls back to that warn, so it needs adrian.
-  assert.match(checkPolicyTransition(previous, policyOf({ demo: warn(), other: warn() })).join(";"), /demo \(source\): refuse -> warn requires set_by "adrian", got "automation"/);
+  assert.match(checkPolicyTransition(previous, policyOf({ demo: warn(), other: warn() })).join(";"), /demo \(installed\): refuse -> warn requires set_by "adrian", got "automation"/);
   assert.deepEqual(checkPolicyTransition(previous, policyOf({ demo: warn("adrian"), other: warn() })), []);
   // The stage entry removed while the app-level mode is refuse: still refuse, nothing loosened.
   const staged = policyOf({ demo: { ...refuse(), stages: { installed: refuse() } } });
   assert.deepEqual(checkPolicyTransition(staged, policyOf({ demo: refuse() })), []);
-  // An app that was refuse at both stages and is gone names both stages in one message.
-  assert.deepEqual(checkPolicyTransition(policyOf({ demo: refuse() }), EMPTY), [`demo (source, installed): the refuse entry was removed; only adrian may move an app back to warn (set mode warn with set_by "adrian")`]);
+  // An app that was refuse and is gone names the stage.
+  assert.deepEqual(checkPolicyTransition(policyOf({ demo: refuse() }), EMPTY), [`demo (installed): the refuse entry was removed; only adrian may move an app back to warn (set mode warn with set_by "adrian")`]);
   // Warn entries (either form) are never a downgrade to remove.
-  assert.deepEqual(checkPolicyTransition(policyOf({ a: warn(), b: { stages: { source: warn() } } }), EMPTY), []);
+  assert.deepEqual(checkPolicyTransition(policyOf({ a: warn(), b: { stages: { installed: warn() } } }), EMPTY), []);
   // On load against a baseline.
   const baseline = JSON.stringify(previous);
   ctx.write(policyOf({ other: warn() }));
-  assert.throws(() => loadAdmissionPolicy({ dir: ctx.dir, baseline }), /weakens its baseline.*demo \(source\): the refuse entry was removed/);
-  ctx.write(policyOf({ demo: { ...warn("adrian"), stages: { source: warn("adrian") } }, other: warn() }));
+  assert.throws(() => loadAdmissionPolicy({ dir: ctx.dir, baseline }), /weakens its baseline.*demo \(installed\): the refuse entry was removed/);
+  ctx.write(policyOf({ demo: { ...warn("adrian"), stages: { installed: warn("adrian") } }, other: warn() }));
   assert.equal(loadAdmissionPolicy({ dir: ctx.dir, baseline }).baseline, "supplied");
 }));
 
@@ -329,17 +319,19 @@ test("main: show, set (with and without --stage), approve-runner, usage and fail
   assert.equal(out[0], "qa admission: demo (installed stage) -> warn (since 2026-10-24, set_by adrian)");
   assert.deepEqual(Object.keys(ctx.read().apps.demo), ["mode", "since", "set_by", "stages"]);
   assert.equal(admissionModeFor(ctx.read(), "demo", "installed").mode, "warn");
-  assert.equal(admissionModeFor(ctx.read(), "demo", "source").mode, "refuse");
 
   assert.equal(run(["set", "--app", "demo", "--mode", "warn", "--set-by", "automation", "--stage", "source"]), 1);
-  assert.match(err[0], /^release-qa-policy: QA admission policy change refused: demo \(source\): refuse -> warn requires set_by "adrian"/);
+  assert.match(err[0], /stage must be installed/, "there is no source stage any more (GC-A07)");
+  assert.equal(run(["set", "--app", "demo", "--mode", "refuse", "--set-by", "automation", "--stage", "installed"]), 0);
+  assert.equal(run(["set", "--app", "demo", "--mode", "warn", "--set-by", "automation", "--stage", "installed"]), 1);
+  assert.match(err[0], /^release-qa-policy: QA admission policy change refused: demo \(installed\): refuse -> warn requires set_by "adrian"/);
   assert.equal(run(["set", "--app", "demo", "--mode", "maybe", "--set-by", "adrian"]), 1);
   assert.match(err[0], /mode must be warn or refuse/);
   assert.equal(run(["set", "--app", "demo", "--mode", "warn", "--set-by", "adrian", "--stage", "build"]), 1);
-  assert.match(err[0], /stage must be source or installed/);
+  assert.match(err[0], /stage must be installed/);
   // `--stage` with no value is an error, not a silent app-level write that would drop the stages.
   assert.equal(run(["set", "--app", "demo", "--mode", "warn", "--set-by", "adrian", "--stage"]), 1);
-  assert.match(err[0], /stage must be source or installed/);
+  assert.match(err[0], /stage must be installed/);
   assert.ok(ctx.read().apps.demo.stages, "the stages survived");
 
   const approveArgs = ["approve-runner", "--runner", ctx.runner, "--version", VERSION, "--platform", "mac", "--set-by", "adrian", "--note", "dell"];
@@ -357,7 +349,7 @@ test("main: show, set (with and without --stage), approve-runner, usage and fail
   assert.equal(run(["approve-runner"]), 1);
 
   assert.equal(run([]), 2);
-  assert.match(err[0], /^usage: release-qa-policy\.mjs show\n.*set --app <app> --mode warn\|refuse --set-by <name> \[--stage source\|installed\]\n.*approve-runner --runner <file> --version <v> --platform mac\|win --set-by <name> \[--note <text>\]$/s);
+  assert.match(err[0], /^usage: release-qa-policy\.mjs show\n.*set --app <app> --mode warn\|refuse --set-by <name> \[--stage installed\]\n.*approve-runner --runner <file> --version <v> --platform mac\|win --set-by <name> \[--note <text>\]$/s);
   assert.equal(run(["bogus"]), 2);
   assert.equal(run(["bogus"], { program: "right-release qa policy" }), 2);
   assert.match(err[0], /^usage: right-release qa policy show/);

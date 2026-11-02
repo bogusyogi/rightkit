@@ -165,32 +165,6 @@ test("[GB-44] first suite fails, an unrelated second fails, a third needs the fi
   assert.throws(() => planTests({ tests: { suites: [{ name: "a", cmd: "node", requires: ["later"] }, { name: "later", cmd: "node" }] } }, { appRoot }), /requires must be a list of earlier suite names/);
 });
 
-test("[GB-44] a failed sign step signs nothing and no product consumer runs after it, but suites before it and independent ones keep their diagnostics; a sign whose build failed is skipped, not attempted", async () => {
-  const signing = (name, from) => ({ name, sign: { files: [{ from, path: "debug/rightapp" }] } });
-  const cfg = { tests: { suites: [
-    { name: "build", cmd: "node", args: ["build.mjs"] },
-    { name: "lint", cmd: "node", args: ["lint.mjs"] },
-    signing("sign", "build"),
-    { name: "e2e", cmd: "node", args: ["e2e.mjs"], env: { RIGHTKIT_QA_APP_BINARY: "$signed" } },
-    { name: "docs", cmd: "node", args: ["docs.mjs"], requires: [] },
-  ] } };
-  const plan = planTests(cfg, { appRoot });
-  const calls = []; const signed = [];
-  // 1. The build fails: the sign is skipped (never attempted), the consumer is skipped, lint and docs still run.
-  const buildFails = await runSuites(plan, { door: (c, a) => ({ command: c, args: a }), appRoot, env: {}, spawnFn: fakeSpawn([1, 0, 0], calls), log: () => {}, errLog: () => {}, signStep: () => { signed.push("attempted"); throw new Error("must not sign"); } });
-  assert.deepEqual(calls.map((c) => path.basename(c.args[0])), ["build.mjs", "lint.mjs", "docs.mjs"]);
-  assert.deepEqual(signed, []);
-  assert.deepEqual(buildFails.results.map((r) => [r.suite, r.skipped === true ? "skipped" : r.exitCode]), [["build", 1], ["lint", 0], ["sign", "skipped"], ["e2e", "skipped"], ["docs", 0]]);
-  assert.equal(buildFails.exitCode, 1);
-  // 2. The build passes but the sign fails: the consumer never launches; independent suites still run.
-  const calls2 = [];
-  const { SuiteSigningError } = await import("./suite-signing-policy.mjs");
-  const signFails = await runSuites(plan, { door: (c, a) => ({ command: c, args: a }), appRoot, env: {}, spawnFn: fakeSpawn([0, 0, 0], calls2), log: () => {}, errLog: () => {}, signStep: () => { throw new SuiteSigningError("SIGN_FAILED", "codesign refused"); } });
-  assert.deepEqual(calls2.map((c) => path.basename(c.args[0])), ["build.mjs", "lint.mjs", "docs.mjs"], "no product consumer after a failed sign");
-  assert.deepEqual(signFails.results.map((r) => [r.suite, r.skipped === true ? "skipped" : r.exitCode]), [["build", 0], ["lint", 0], ["sign", 1], ["e2e", "skipped"], ["docs", 0]]);
-  assert.equal(signFails.exitCode, 1);
-});
-
 test("command-spec: loadAppConfig loads right-release.config.json from the working directory and names the app root", async () => {
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "command-spec-json-")));
   const previous = process.cwd();
@@ -218,59 +192,4 @@ test("command-spec: loadAppConfig still imports a legacy right-release.config.mj
     assert.equal((await loadAppConfig()).config.app, "legacy");
     assert.equal(parseTestArgs([]).config, "right-release.config.mjs");
   } finally { process.chdir(previous); rmSync(root, { recursive: true, force: true }); }
-});
-
-test("[GB-79] a planned `rightkit-qa journeys run` suite fails at planning with the named capability before ANY suite runs (no earlier build is wasted, nothing is skipped, an empty journey set is never green)", async () => {
-  const { QA_JOURNEYS_UNSUPPORTED, qaJourneysRunStep } = await import("./test-command.mjs");
-  const cfg = { tests: { suites: [
-    { name: "build", cmd: "node", args: ["build.mjs"] },
-    { name: "journeys", cmd: "rightkit-qa", args: ["journeys", "run", "--app", "x"] },
-  ] } };
-  const plan = planTests(cfg, { appRoot });
-  const calls = []; const errs = [];
-  const result = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 0], calls), log: () => {}, errLog: (l) => errs.push(l), snapshotStage: true, qaCapability: () => false });
-  assert.equal(result.exitCode, 1);
-  assert.deepEqual(calls, [], "the earlier build suite never ran: planning refused first");
-  const directCalls = [];
-  const direct = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 0], directCalls), log: () => {}, errLog: () => {}, snapshotStage: false, qaCapability: () => false });
-  assert.equal(direct.exitCode, 0);
-  assert.equal(directCalls.length, 2, "outside a gate-carried snapshot stage the suite starts as before");
-  assert.match(errs.join("\n"), new RegExp(`\\[${QA_JOURNEYS_UNSUPPORTED}\\] journeys:.*journeys-prebuilt-input`));
-  assert.equal(qaJourneysRunStep({ cmd: "rightkit-qa", args: ["run-tests"] }), false);
-  assert.equal(qaJourneysRunStep({ cmd: "/x/rightkit-qa", args: ["journeys", "run"] }), true);
-  assert.equal(qaJourneysRunStep({ cmd: "rightkit-qa", args: ["journeys"] }, ["run"]), true, "passthrough arguments count");
-  assert.equal(qaJourneysRunStep({ cmd: "rightkit-qa", args: ["journeys", "receipt", "--root", "."] }), false, "reading a receipt compiles nothing");
-  // With the capability (rightkit-qa implements the prebuilt journey input) the same plan starts both suites; the door carries the build.
-  const capableCalls = [];
-  const capable = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 0], capableCalls), log: () => {}, errLog: () => {}, snapshotStage: true, qaCapability: () => true });
-  assert.equal(capable.exitCode, 0);
-  assert.equal(capableCalls.length, 2, "with journeys-prebuilt-input both suites start");
-  // A step that names its own listing, attestation or plan flag is an input the gate did not verify: refused at planning, whatever the capability.
-  for (const flag of [["--from-cargo-json", "/x/l.jsonl"], ["--prebuilt-attestation", "/x/a.json"], ["--print-build-plan"]]) {
-    const own = planTests({ tests: { suites: [{ name: "build", cmd: "node", args: ["build.mjs"] }, { name: "journeys", cmd: "rightkit-qa", args: ["journeys", "run", ...flag] }] } }, { appRoot });
-    const ownCalls = []; const ownErrs = [];
-    const refused = await runSuites(own, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 0], ownCalls), log: () => {}, errLog: (l) => ownErrs.push(l), snapshotStage: true, qaCapability: () => true });
-    assert.equal(refused.exitCode, 1, flag.join(" "));
-    assert.deepEqual(ownCalls, [], `${flag[0]}: refused before any suite ran`);
-    assert.match(ownErrs.join("\n"), new RegExp(`${flag[0]} is the gate's own`));
-  }
-});
-
-test("a direct host's suite outputs are the gate's pinned target directories; `within` sees them and the signed files before the signed copies go", async () => {
-  const cfg = { tests: { suites: [
-    { name: "build", cmd: "node", args: ["build.mjs"] },
-    { name: "sign", sign: { files: [{ from: "build", path: "debug/rightapp" }] } },
-  ] } };
-  const plan = planTests(cfg, { appRoot });
-  const target = path.join(appRoot, "target");
-  const seen = [];
-  const signStep = ({ outputDirsOf }) => { seen.push(outputDirsOf("build")); return { appBinary: "/signed/rightapp", signedFiles: { "debug/rightapp": "/signed/rightapp" }, evidence: {}, evidenceFile: "/signed/e.json", signedDir: path.join(appRoot, "no-such-signed-dir") }; };
-  const result = await runSuites(plan, { door: (c, a) => ({ command: c, args: a }), appRoot, env: { RIGHTKIT_GATE_TARGET_DIRS: JSON.stringify([target, "relative/ignored"]) }, spawnFn: fakeSpawn([0], []), log: () => {}, errLog: () => {}, signStep,
-    within: ({ outputs, env }) => ({ dirs: outputs.get("build"), signed: JSON.parse(env.RIGHTKIT_QA_SIGNED_FILES) }) });
-  assert.equal(result.exitCode, 0);
-  assert.deepEqual(seen, [[target]]);
-  assert.deepEqual(result.within, { dirs: [target], signed: { "debug/rightapp": "/signed/rightapp" } });
-  const failed = await runSuites(plan, { door: (c, a) => ({ command: c, args: a }), appRoot, env: {}, spawnFn: fakeSpawn([1], []), log: () => {}, errLog: () => {}, signStep, within: () => assert.fail("within runs only when every suite passed") });
-  assert.equal(failed.exitCode, 1);
-  assert.equal(failed.within, undefined);
 });

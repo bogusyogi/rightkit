@@ -143,7 +143,7 @@ test("the CLI turns the typed token failure into exit 1 with its code, after cle
 });
 
 test("no signing path calls process.exit but the CLI entry", () => {
-  for (const file of ["sign-windows.mjs", "suite-signing.mjs", "suite-signing-policy.mjs", "install-tauri-authenticode.mjs"]) {
+  for (const file of ["sign-windows.mjs", "suite-signing-policy.mjs", "install-tauri-authenticode.mjs"]) {
     const exits = fs.readFileSync(new URL(`./${file}`, import.meta.url), "utf8").split("\n").filter((line) => /process\.exit\(/.test(line) && !line.trimStart().startsWith("//"));
     if (file === "sign-windows.mjs") assert.equal(exits.length, 1, "only the entry line exits");
     else assert.deepEqual(exits, [], file);

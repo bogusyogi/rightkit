@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.25 (unpublished)
+
+- **Debug, test-mode and QA copies are gone from every build stage (GATE-CONTRACT GC-A07, Adrian 2026-11-02: "we are getting rid of debug ... qa journey will be moved out of build"):** the package stage runs only `right-release build` (no `right-release qa --stage source`, no compile-output handoff, no `RIGHT_RELEASE_QA_COMPILED_DIRS` or `RIGHTKIT_GATE_TARGET_DIRS`); `right-release qa --stage source` refuses with "source QA is removed (GATE-CONTRACT GC-A07): QA journeys run after the build against the installed dev copy", and `--carry-to`, `RIGHT_RELEASE_QA_RECEIPT`, `assertSourceQaAdmission`, `admitSourceQa`, the `source` floor stage and admission stage, the sealed manifest's `qa` block and the installed receipt's `sourceReceiptDigest` chain are removed (the audit and `qa policy` know only the installed stage). `right-release test` drops the suite `sign` step, the journeys-prebuilt gating and the `within` hook, and the door (`build-launch.mjs`) refuses every `rightkit-qa` step. Deleted: `qa-layout.mjs`, `qa-snapshot.mjs`, `qa-snapshot-run.mjs`, `qa-journeys-prebuilt.mjs`, `qa-journeys-prebuilt-run.mjs`, `suite-signing.mjs`, `sign-qa-bundle.mjs` (and the `right-release sign-qa-bundle` command) with their tests, plus `release-qa-carried.test.mjs`. `suite-signing-policy.mjs` keeps the route refusals and product identity and drops the QA signing constants and `validateSignSpec`.
+
 ## 0.6.24 (unpublished)
 
 - **A sidecar row the platform filter skips is not judged for universal slices (HeardRight Mac package, 2026-11-02):** staging `universal-apple-darwin` refused HeardRight's Windows-only ffmpeg row (`platforms: ["win"]`, one Windows source) with "sources.ffmpeg needs { aarch64, x86_64 } sources for universal-apple-darwin". `parseFfmpegSources` now applies the universal rule only to a row that is not skipped, as the prebuilt rows already did.
