@@ -8,7 +8,7 @@ pub(crate) fn wav_source_contains_no_clock_sleep_or_product_decision_logic() {
         "TAIL_",
         "CMD_",
         "PAUSE_GATE",
-        "Sherpa",
+        "KWS",
     ] {
         assert!(
             !source.contains(forbidden),
@@ -20,7 +20,7 @@ pub(crate) fn wav_source_contains_no_clock_sleep_or_product_decision_logic() {
 #[test]
 pub(crate) fn virtual_clock_contains_no_audio_or_control_policy() {
     let source = include_str!("worker_clock.rs");
-    for forbidden in ["transcribe_", "TAIL_", "CMD_", "PAUSE_GATE", "Sherpa"] {
+    for forbidden in ["transcribe_", "TAIL_", "CMD_", "PAUSE_GATE", "KWS"] {
         assert!(
             !source.contains(forbidden),
             "worker clock duplicated forbidden runtime concern: {forbidden}"
@@ -38,7 +38,7 @@ pub(crate) fn replay_driver_contains_no_wall_clock_pacing_or_recognition_policy(
         "TAIL_",
         "CMD_",
         "PAUSE_GATE",
-        "Sherpa",
+        "KWS",
     ] {
         assert!(
             !source.contains(forbidden),

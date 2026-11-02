@@ -246,7 +246,7 @@ fn provisioned_service_worker_replay_dictation_preempts_file_work() {
     env.set("RIGHTKIT_COREML_MODEL_DIR", &coreml_model_dir);
     env.set("ORTHIC_SHARED_DIR", suite.root.join("shared"));
     env.set("RIGHT_SUITE_DIR", suite.root.join("suite"));
-    env.set("RIGHTKIT_SHERPA_KWS_DIR", &kws_dir);
+    env.set("RIGHTKIT_KWS_DIR", &kws_dir);
     env.set("RIGHTKIT_ASR_BACKEND", "parakeet-tdt");
     env.set("RIGHTKIT_DICTATION_LANG", "auto");
     env.set("RIGHTKIT_SCHEDULED_STATIC15", "0");
@@ -379,7 +379,7 @@ fn provisioned_service_verbatim_survives_dictation_pause() {
     env.set("ORTHIC_SHARED_DIR", suite.root.join("shared"));
     env.set("RIGHT_SUITE_DIR", suite.root.join("shared"));
     env.set(
-        "RIGHTKIT_SHERPA_KWS_DIR",
+        "RIGHTKIT_KWS_DIR",
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources/kws"),
     );
     env.set("RIGHTKIT_ASR_BACKEND", "parakeet-tdt");

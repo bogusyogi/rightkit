@@ -6,7 +6,7 @@
 //!
 //! - app data root: `rightkit_dictation_core::app_paths` (the OS account's known folder; the direct-root
 //!   override exists only in test builds);
-//! - models base, Sherpa KWS directory, bundled ffmpeg, CoreML cache, Whisper CoreML fallback:
+//! - models base, KWS directory, bundled ffmpeg, CoreML cache, Whisper CoreML fallback:
 //!   `rightkit_dictation_models::model_paths`, which resolves bundled resources from the engine's
 //!   own executable location. The installers place the engine beside the shell executable
 //!   (Windows NSIS; macOS `Contents/MacOS`), with resources under `resources/` or
@@ -23,7 +23,7 @@ pub(crate) fn resolve() -> EnginePaths {
     EnginePaths {
         app_data_root: rightkit_dictation_core::app_paths::app_data_root(),
         models_base: model_paths::install_base(),
-        sherpa_kws_dir: model_paths::sherpa_kws_dir(),
+        kws_dir: model_paths::kws_dir(),
         ffmpeg: model_paths::bundled_ffmpeg_path(),
         coreml_compiled_cache: model_paths::coreml_compiled_cache_dir(),
         whisper_coreml_dir: model_paths::whisper_coreml_fallback_dir(),
@@ -45,7 +45,7 @@ pub(crate) fn install() {
     tracing::info!(
         app_data_root = %resolved.app_data_root.display(),
         models_base = %resolved.models_base.display(),
-        sherpa_kws_dir = %resolved.sherpa_kws_dir.display(),
+        kws_dir = %resolved.kws_dir.display(),
         ffmpeg = ?resolved.ffmpeg,
         "engine paths resolved"
     );

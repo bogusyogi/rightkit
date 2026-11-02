@@ -510,7 +510,7 @@ impl Worker {
                 return;
             }
         }
-        // Sherpa bounds a confidence-gated Static15 seam. Its token
+        // KWS bounds a confidence-gated Static15 seam. Its token
         // timestamp is not an audio cut authority: if no safe seam
         // resolves, preserve full audio & clean confirmed residue later.
         let trigger_cut = resolve_trigger_audio_cut(

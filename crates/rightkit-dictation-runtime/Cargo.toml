@@ -14,7 +14,6 @@ name = "rightkit_dictation_runtime"
 path = "src/lib.rs"
 
 [features]
-rust-kws = ["rightkit-dictation-inference/rust-kws"]
 test-mode = ["rightkit-daemon/test-mode", "rightkit-dictation-core/test-mode", "rightkit-dictation-inference/test-mode", "rightkit-dictation-text-pipeline/test-mode", "rightkit-dictation-command-host/test-mode", "rightkit-dictation-models/test-mode", "rightkit-onnx/dev-overrides"]
 
 [dependencies]
