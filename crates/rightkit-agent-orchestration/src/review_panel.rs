@@ -17,7 +17,7 @@ use crate::conductor::{Worker, WorkerResult, WorkerTask};
 use crate::jury::{JurorVerdict, JuryDecision, JurySystem};
 
 const DELIBERATION_BALLOT_TEMPLATE: &str =
-    include_str!("../../../../assets/prompts/agents/jury-deliberation.md");
+    include_str!("../data/coding/prompts/jury-deliberation.md");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PanelKind {
