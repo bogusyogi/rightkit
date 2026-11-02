@@ -1065,7 +1065,7 @@ pub fn process_alive(pid: u32) -> bool {
 
 /// Stop a RECORDED sd-server (an orphan this process does not own) and its live descendants.
 /// The caller has already proven the pid is that server. Captures the pid's identity now and
-/// signals only that identity (see [`kill_verified_pid`]). True when the pid is gone (including
+/// signals only that identity (see `kill_verified_pid`). True when the pid is gone (including
 /// when it never existed).
 pub fn kill_recorded_tree(pid: u32) -> bool {
     let Some(nz) = std::num::NonZeroU32::new(pid) else {

@@ -355,7 +355,7 @@ pub(crate) fn same_process_alive(pid: u32, started: Option<&str>) -> bool {
 }
 
 /// The kill rule: a recorded server process is the one we mean only when the pid is alive AND
-/// its start time equals the recorded `server_started` (within [`START_TOLERANCE`]). The start
+/// its start time equals the recorded `server_started` (within `START_TOLERANCE`). The start
 /// time closes pid reuse. The executable path is not compared: a process that execs keeps its pid
 /// and start time (rightkit-child-process `AdoptedIdentity`: pid plus start time IS the identity),
 /// so the path is informational only. `Ok` carries the proven identity for the kill; `Err` says
