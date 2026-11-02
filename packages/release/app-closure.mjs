@@ -159,7 +159,7 @@ export function closureOf({ scopeDirs, npmUnits = [], rustUnits = [], readFile }
 // The Class A Cargo scans deterministic-scans.mjs plans: `cargo-metadata|cargo-deny|cargo-audit[:<workspace label>]` run in the Cargo workspace
 // named by the scan's `cwd` (none = the repository root workspace); `cargo-package-list:<unit name>` runs for one unit. The workspace label
 // in an id is not always the directory (a crate-per-workspace layout labels by crate), so the workspace is read from `cwd`, never the id.
-const CARGO_WORKSPACE_SCAN = /^cargo-(?:metadata|deny|audit)(?::.+)?$/;
+const CARGO_WORKSPACE_SCAN = /^(?:cargo-(?:metadata|deny|audit)|build-helpers)(?::.+)?$/;
 const CARGO_PACKAGE_LIST = /^cargo-package-list:(.+)$/;
 const cleanWorkspace = (dir) => posix(dir ?? ".").replace(/^\.\//, "").replace(/\/+$/, "") || ".";
 
