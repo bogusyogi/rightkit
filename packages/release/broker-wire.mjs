@@ -217,6 +217,10 @@ export function refusalInCapturedOutput(text) {
     const diagnosis = diagnoseControlReply(event);
     if (diagnosis.kind === "refused") return { code: diagnosis.code, refusal: diagnosis.refusal, retryable: diagnosis.retryable === true, message: diagnosis.message };
   }
+  // The client's plain-text form of the same refusal (its stderr without --json): `rustright: admission is paused; resume with rustright resume-admission`.
+  // Without it a paused broker read as "no request reference" (HeardRight Mac, 2026-11-02).
+  const paused = /^rustright: (admission is paused\b[^\r\n]*)/m.exec(String(text ?? ""));
+  if (paused) return { code: "RK_ADMISSION_PAUSED", refusal: "paused", retryable: false, message: paused[1].trim() };
   return null;
 }
 

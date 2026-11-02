@@ -357,3 +357,8 @@ test("real broker: [GB-52] a carried call with a spent operation deadline is nev
   assert.equal(r.outcome.code, "operation-deadline", JSON.stringify(r.outcome));
   assert.equal(fx.submits.length >= 1, true, "the sub-handle stays recorded: none is cleared by a cancel");
 });
+
+test("the client's plain-text paused line is the typed paused refusal, never a missing request reference (HeardRight Mac, 2026-11-02)", () => {
+  assert.deepEqual(refusalInCapturedOutput("rustright: admission is paused; resume with rustright resume-admission\n"), { code: "RK_ADMISSION_PAUSED", refusal: "paused", retryable: false, message: "admission is paused; resume with rustright resume-admission" });
+  assert.equal(refusalInCapturedOutput("compiling foo\nrustright: request 1234\n"), null, "other client lines are not a refusal");
+});

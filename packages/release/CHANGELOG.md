@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.22 (unpublished)
+## 0.6.23 (unpublished)
+
+- **A paused broker reads as paused, not as a missing request reference (HeardRight Mac, 2026-11-02):** `refusalInCapturedOutput` read only JSON frames, so the client's plain-text `rustright: admission is paused; resume with rustright resume-admission` fell through to "no request reference". It is now the typed `RK_ADMISSION_PAUSED` refusal (`broker-refused-paused`, nothing spawned, never a build outcome).
+
+## 0.6.22
 
 - **A broker compile's binaries are read from `<target>/<triple>/debug`, not the stale `<target>/debug` (rustright#209 item 5; the broker owner caught it installing RustRight d378d32):** broker jobs build with `--target <triple>`, so `<target>/debug/<bin>` held October binaries while this compile's were under `<target>/aarch64-apple-darwin/debug`, and 0.6.20 recorded the stale ones as built. Each row now carries `path` (relative to `dir`: `debug/<bin>` on a direct host, `<triple>/debug/<bin>` on a broker host, the triple taken from the scan's broker receipt `targetTriple`), the marker is `built-bin-targets/2`, and a broker directory whose receipt names no triple records nothing.
 - **Declared compile inputs a stage produces no longer fail the gate's receipt checks, and only the gate's own producing steps may produce them (HeardRight through the broker, 2026-11-02; Sage decision after two Oracle blocks; broker rustright d378d32):** the broker now admits a snapshot request with a declared input absent (recorded `{path, absent: true}`), lets adapter jobs write declared inputs, and still refuses a cargo compile whose inputs changed while it ran.
