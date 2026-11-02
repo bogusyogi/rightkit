@@ -7,10 +7,10 @@
 //! it at OpenRouter or a custom OpenAI-compatible endpoint via `base_url`.
 //!
 //! `ra-018` decomposition: this file is now a facade. Wire DTOs/stream
-//! accumulation live in [`wire`], HTTP request/response handling in
-//! [`transport`], retry/backoff/rate-limit parsing in [`retry`], the per-host
-//! circuit breaker in [`breaker`], API-key resolution in [`credentials`], and
-//! the known-provider catalog in [`catalog`]. `OpenAiCompatClient`'s public
+//! accumulation live in `wire`, HTTP request/response handling in
+//! `transport`, retry/backoff/rate-limit parsing in `retry`, the per-host
+//! circuit breaker in `breaker`, API-key resolution in `credentials`, and
+//! the known-provider catalog in `catalog`. `OpenAiCompatClient`'s public
 //! API, module path (`crate::agent_providers::client::OpenAiCompatClient`), and wire format
 //! are unchanged — see
 //! `.audit/20260901-daemon-deep-r3/architect/decomposition-plans.md`.

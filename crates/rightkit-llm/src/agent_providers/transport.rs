@@ -444,7 +444,7 @@ pub fn classify_context_overflow(error: &ProviderError) -> bool {
 
 /// Transport-layer request-shaping hooks used by constrained sampling
 /// ([`crate::SchemaConstraint`] via `ChatRequest::with_response_schema`) and explicit prompt-cache breakpoint
-/// placement ([`crate::agent_providers::prompt_cache`]). Optional and additive: a caller that
+/// placement (`prompt_cache`). Optional and additive: a caller that
 /// never populates these fields gets byte-identical wire requests to before
 /// this type existed.
 #[derive(Debug, Clone, Default)]
