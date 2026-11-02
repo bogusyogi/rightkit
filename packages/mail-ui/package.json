@@ -11,12 +11,56 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./*.css": "./dist/*.css",
-    "./*.json": "./dist/*.json",
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js"
-    }
+    "./styles.css": "./dist/styles.css",
+    "./components/AccountSwitcher": {
+      "types": "./dist/components/AccountSwitcher.d.ts",
+      "import": "./dist/components/AccountSwitcher.js"
+    },
+    "./components/Icons": {
+      "types": "./dist/components/Icons.d.ts",
+      "import": "./dist/components/Icons.js"
+    },
+    "./hooks/dialog": {
+      "types": "./dist/hooks/dialog.d.ts",
+      "import": "./dist/hooks/dialog.js"
+    },
+    "./hooks/useDrive": {
+      "types": "./dist/hooks/useDrive.d.ts",
+      "import": "./dist/hooks/useDrive.js"
+    },
+    "./lib/calendarUtils": {
+      "types": "./dist/lib/calendarUtils.d.ts",
+      "import": "./dist/lib/calendarUtils.js"
+    },
+    "./lib/ipc": {
+      "types": "./dist/lib/ipc.d.ts",
+      "import": "./dist/lib/ipc.js"
+    },
+    "./lib/ipc/agentApprovals": {
+      "types": "./dist/lib/ipc/agentApprovals.d.ts",
+      "import": "./dist/lib/ipc/agentApprovals.js"
+    },
+    "./lib/mail": {
+      "types": "./dist/lib/mail.d.ts",
+      "import": "./dist/lib/mail.js"
+    },
+    "./lib/preferences": {
+      "types": "./dist/lib/preferences.d.ts",
+      "import": "./dist/lib/preferences.js"
+    },
+    "./lib/visibleText": {
+      "types": "./dist/lib/visibleText.d.ts",
+      "import": "./dist/lib/visibleText.js"
+    },
+    "./store/index": {
+      "types": "./dist/store/index.d.ts",
+      "import": "./dist/store/index.js"
+    },
+    "./store/types": {
+      "types": "./dist/store/types.d.ts",
+      "import": "./dist/store/types.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

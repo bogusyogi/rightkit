@@ -11,12 +11,59 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./*.css": "./dist/*.css",
-    "./*.json": "./dist/*.json",
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js"
-    }
+    "./components/ErrorBanner": {
+      "types": "./dist/components/ErrorBanner.d.ts",
+      "import": "./dist/components/ErrorBanner.js"
+    },
+    "./components/PageShell": {
+      "types": "./dist/components/PageShell.d.ts",
+      "import": "./dist/components/PageShell.js"
+    },
+    "./hooks/useHistorySourceSelection": {
+      "types": "./dist/hooks/useHistorySourceSelection.d.ts",
+      "import": "./dist/hooks/useHistorySourceSelection.js"
+    },
+    "./hooks/usePlatform": {
+      "types": "./dist/hooks/usePlatform.d.ts",
+      "import": "./dist/hooks/usePlatform.js"
+    },
+    "./lib/fieldStore": {
+      "types": "./dist/lib/fieldStore.d.ts",
+      "import": "./dist/lib/fieldStore.js"
+    },
+    "./lib/homeMetrics": {
+      "types": "./dist/lib/homeMetrics.d.ts",
+      "import": "./dist/lib/homeMetrics.js"
+    },
+    "./lib/license": {
+      "types": "./dist/lib/license.d.ts",
+      "import": "./dist/lib/license.js"
+    },
+    "./lib/settingsRegistry": {
+      "types": "./dist/lib/settingsRegistry.d.ts",
+      "import": "./dist/lib/settingsRegistry.js"
+    },
+    "./lib/tauri": {
+      "types": "./dist/lib/tauri.d.ts",
+      "import": "./dist/lib/tauri.js"
+    },
+    "./lib/ui": {
+      "types": "./dist/lib/ui.d.ts",
+      "import": "./dist/lib/ui.js"
+    },
+    "./pages/history/AppIcon": {
+      "types": "./dist/pages/history/AppIcon.d.ts",
+      "import": "./dist/pages/history/AppIcon.js"
+    },
+    "./pages/history/historyUtils": {
+      "types": "./dist/pages/history/historyUtils.d.ts",
+      "import": "./dist/pages/history/historyUtils.js"
+    },
+    "./voice/components/VoiceConversation": {
+      "types": "./dist/voice/components/VoiceConversation.d.ts",
+      "import": "./dist/voice/components/VoiceConversation.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

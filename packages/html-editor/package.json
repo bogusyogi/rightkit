@@ -11,12 +11,131 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./*.css": "./dist/*.css",
-    "./*.json": "./dist/*.json",
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js"
-    }
+    "./documents/html/HtmlDocumentBridge": {
+      "types": "./dist/documents/html/HtmlDocumentBridge.d.ts",
+      "import": "./dist/documents/html/HtmlDocumentBridge.js"
+    },
+    "./documents/html/HtmlDocumentChrome": {
+      "types": "./dist/documents/html/HtmlDocumentChrome.d.ts",
+      "import": "./dist/documents/html/HtmlDocumentChrome.js"
+    },
+    "./documents/html/HtmlDocumentEdit": {
+      "types": "./dist/documents/html/HtmlDocumentEdit.d.ts",
+      "import": "./dist/documents/html/HtmlDocumentEdit.js"
+    },
+    "./documents/html/HtmlDocumentToolbars": {
+      "types": "./dist/documents/html/HtmlDocumentToolbars.d.ts",
+      "import": "./dist/documents/html/HtmlDocumentToolbars.js"
+    },
+    "./documents/html/HtmlDocumentView": {
+      "types": "./dist/documents/html/HtmlDocumentView.d.ts",
+      "import": "./dist/documents/html/HtmlDocumentView.js"
+    },
+    "./documents/html/HtmlSafeBlockEditor": {
+      "types": "./dist/documents/html/HtmlSafeBlockEditor.d.ts",
+      "import": "./dist/documents/html/HtmlSafeBlockEditor.js"
+    },
+    "./documents/html/htmlDocumentShared": {
+      "types": "./dist/documents/html/htmlDocumentShared.d.ts",
+      "import": "./dist/documents/html/htmlDocumentShared.js"
+    },
+    "./documents/html/htmlInline": {
+      "types": "./dist/documents/html/htmlInline.d.ts",
+      "import": "./dist/documents/html/htmlInline.js"
+    },
+    "./documents/html/htmlResourceLifecycle": {
+      "types": "./dist/documents/html/htmlResourceLifecycle.d.ts",
+      "import": "./dist/documents/html/htmlResourceLifecycle.js"
+    },
+    "./documents/html/sessionTypes": {
+      "types": "./dist/documents/html/sessionTypes.d.ts",
+      "import": "./dist/documents/html/sessionTypes.js"
+    },
+    "./documents/html/sourceMap": {
+      "types": "./dist/documents/html/sourceMap.d.ts",
+      "import": "./dist/documents/html/sourceMap.js"
+    },
+    "./documents/html/useHtmlAutoViewport": {
+      "types": "./dist/documents/html/useHtmlAutoViewport.d.ts",
+      "import": "./dist/documents/html/useHtmlAutoViewport.js"
+    },
+    "./documents/html/useHtmlBlockDrafts": {
+      "types": "./dist/documents/html/useHtmlBlockDrafts.d.ts",
+      "import": "./dist/documents/html/useHtmlBlockDrafts.js"
+    },
+    "./documents/html/useHtmlBlockOps": {
+      "types": "./dist/documents/html/useHtmlBlockOps.d.ts",
+      "import": "./dist/documents/html/useHtmlBlockOps.js"
+    },
+    "./documents/html/useHtmlBlockUndoRedo": {
+      "types": "./dist/documents/html/useHtmlBlockUndoRedo.d.ts",
+      "import": "./dist/documents/html/useHtmlBlockUndoRedo.js"
+    },
+    "./documents/html/useHtmlColdState": {
+      "types": "./dist/documents/html/useHtmlColdState.d.ts",
+      "import": "./dist/documents/html/useHtmlColdState.js"
+    },
+    "./documents/html/useHtmlInframeTarget": {
+      "types": "./dist/documents/html/useHtmlInframeTarget.d.ts",
+      "import": "./dist/documents/html/useHtmlInframeTarget.js"
+    },
+    "./documents/html/useHtmlInspect": {
+      "types": "./dist/documents/html/useHtmlInspect.d.ts",
+      "import": "./dist/documents/html/useHtmlInspect.js"
+    },
+    "./documents/html/useHtmlLiveCssBridge": {
+      "types": "./dist/documents/html/useHtmlLiveCssBridge.d.ts",
+      "import": "./dist/documents/html/useHtmlLiveCssBridge.js"
+    },
+    "./documents/html/useHtmlNavigation": {
+      "types": "./dist/documents/html/useHtmlNavigation.d.ts",
+      "import": "./dist/documents/html/useHtmlNavigation.js"
+    },
+    "./documents/html/useHtmlPageBuffer": {
+      "types": "./dist/documents/html/useHtmlPageBuffer.d.ts",
+      "import": "./dist/documents/html/useHtmlPageBuffer.js"
+    },
+    "./documents/html/useHtmlPreviewControls": {
+      "types": "./dist/documents/html/useHtmlPreviewControls.d.ts",
+      "import": "./dist/documents/html/useHtmlPreviewControls.js"
+    },
+    "./documents/html/useHtmlPreviewFind": {
+      "types": "./dist/documents/html/useHtmlPreviewFind.d.ts",
+      "import": "./dist/documents/html/useHtmlPreviewFind.js"
+    },
+    "./documents/html/useHtmlPreviewLifecycle": {
+      "types": "./dist/documents/html/useHtmlPreviewLifecycle.d.ts",
+      "import": "./dist/documents/html/useHtmlPreviewLifecycle.js"
+    },
+    "./documents/html/useHtmlReload": {
+      "types": "./dist/documents/html/useHtmlReload.d.ts",
+      "import": "./dist/documents/html/useHtmlReload.js"
+    },
+    "./documents/html/useHtmlRichEditState": {
+      "types": "./dist/documents/html/useHtmlRichEditState.d.ts",
+      "import": "./dist/documents/html/useHtmlRichEditState.js"
+    },
+    "./documents/html/useHtmlSafeBlockEntry": {
+      "types": "./dist/documents/html/useHtmlSafeBlockEntry.d.ts",
+      "import": "./dist/documents/html/useHtmlSafeBlockEntry.js"
+    },
+    "./documents/html/useHtmlSourceDrawerResize": {
+      "types": "./dist/documents/html/useHtmlSourceDrawerResize.d.ts",
+      "import": "./dist/documents/html/useHtmlSourceDrawerResize.js"
+    },
+    "./documents/html/useHtmlSrcDocLifecycle": {
+      "types": "./dist/documents/html/useHtmlSrcDocLifecycle.d.ts",
+      "import": "./dist/documents/html/useHtmlSrcDocLifecycle.js"
+    },
+    "./documents/html/useHtmlSubPages": {
+      "types": "./dist/documents/html/useHtmlSubPages.d.ts",
+      "import": "./dist/documents/html/useHtmlSubPages.js"
+    },
+    "./documents/html/useSiteRootGrant": {
+      "types": "./dist/documents/html/useSiteRootGrant.d.ts",
+      "import": "./dist/documents/html/useSiteRootGrant.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

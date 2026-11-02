@@ -11,12 +11,471 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./*.css": "./dist/*.css",
-    "./*.json": "./dist/*.json",
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js"
-    }
+    "./components/CommandPalette": {
+      "types": "./dist/components/CommandPalette.d.ts",
+      "import": "./dist/components/CommandPalette.js"
+    },
+    "./components/Icon": {
+      "types": "./dist/components/Icon.d.ts",
+      "import": "./dist/components/Icon.js"
+    },
+    "./components/PaneErrorBoundary": {
+      "types": "./dist/components/PaneErrorBoundary.d.ts",
+      "import": "./dist/components/PaneErrorBoundary.js"
+    },
+    "./components/PaneLoading": {
+      "types": "./dist/components/PaneLoading.d.ts",
+      "import": "./dist/components/PaneLoading.js"
+    },
+    "./components/app/AppShellHeader": {
+      "types": "./dist/components/app/AppShellHeader.d.ts",
+      "import": "./dist/components/app/AppShellHeader.js"
+    },
+    "./components/app/WorkspaceTrustGate": {
+      "types": "./dist/components/app/WorkspaceTrustGate.d.ts",
+      "import": "./dist/components/app/WorkspaceTrustGate.js"
+    },
+    "./components/app/types": {
+      "types": "./dist/components/app/types.d.ts",
+      "import": "./dist/components/app/types.js"
+    },
+    "./extensions/ExtensionSlot": {
+      "types": "./dist/extensions/ExtensionSlot.d.ts",
+      "import": "./dist/extensions/ExtensionSlot.js"
+    },
+    "./hooks/palette/usePaletteRecents": {
+      "types": "./dist/hooks/palette/usePaletteRecents.d.ts",
+      "import": "./dist/hooks/palette/usePaletteRecents.js"
+    },
+    "./hooks/runtime/useSchedulesRuntime": {
+      "types": "./dist/hooks/runtime/useSchedulesRuntime.d.ts",
+      "import": "./dist/hooks/runtime/useSchedulesRuntime.js"
+    },
+    "./hooks/runtime/useWebhookTriggersRuntime": {
+      "types": "./dist/hooks/runtime/useWebhookTriggersRuntime.d.ts",
+      "import": "./dist/hooks/runtime/useWebhookTriggersRuntime.js"
+    },
+    "./hooks/useConfirmationDialog": {
+      "types": "./dist/hooks/useConfirmationDialog.d.ts",
+      "import": "./dist/hooks/useConfirmationDialog.js"
+    },
+    "./hooks/useGoalManagement": {
+      "types": "./dist/hooks/useGoalManagement.d.ts",
+      "import": "./dist/hooks/useGoalManagement.js"
+    },
+    "./hooks/useLicenseState": {
+      "types": "./dist/hooks/useLicenseState.d.ts",
+      "import": "./dist/hooks/useLicenseState.js"
+    },
+    "./hooks/useLspSettings": {
+      "types": "./dist/hooks/useLspSettings.d.ts",
+      "import": "./dist/hooks/useLspSettings.js"
+    },
+    "./hooks/useSubAgents": {
+      "types": "./dist/hooks/useSubAgents.d.ts",
+      "import": "./dist/hooks/useSubAgents.js"
+    },
+    "./lib/accounts/accounts": {
+      "types": "./dist/lib/accounts/accounts.d.ts",
+      "import": "./dist/lib/accounts/accounts.js"
+    },
+    "./lib/analytics/analyticsProjection": {
+      "types": "./dist/lib/analytics/analyticsProjection.d.ts",
+      "import": "./dist/lib/analytics/analyticsProjection.js"
+    },
+    "./lib/api-contract": {
+      "types": "./dist/lib/api-contract.d.ts",
+      "import": "./dist/lib/api-contract.js"
+    },
+    "./lib/appSurfaceProps/backgroundTasksTypes": {
+      "types": "./dist/lib/appSurfaceProps/backgroundTasksTypes.d.ts",
+      "import": "./dist/lib/appSurfaceProps/backgroundTasksTypes.js"
+    },
+    "./lib/claudeModels": {
+      "types": "./dist/lib/claudeModels.d.ts",
+      "import": "./dist/lib/claudeModels.js"
+    },
+    "./lib/cliProviders": {
+      "types": "./dist/lib/cliProviders.d.ts",
+      "import": "./dist/lib/cliProviders.js"
+    },
+    "./lib/cliUpdate/updateProjection": {
+      "types": "./dist/lib/cliUpdate/updateProjection.d.ts",
+      "import": "./dist/lib/cliUpdate/updateProjection.js"
+    },
+    "./lib/composer/completionRanking": {
+      "types": "./dist/lib/composer/completionRanking.d.ts",
+      "import": "./dist/lib/composer/completionRanking.js"
+    },
+    "./lib/composer/editorProjection": {
+      "types": "./dist/lib/composer/editorProjection.d.ts",
+      "import": "./dist/lib/composer/editorProjection.js"
+    },
+    "./lib/concurrency/runtimeGuards": {
+      "types": "./dist/lib/concurrency/runtimeGuards.d.ts",
+      "import": "./dist/lib/concurrency/runtimeGuards.js"
+    },
+    "./lib/conductorModels": {
+      "types": "./dist/lib/conductorModels.d.ts",
+      "import": "./dist/lib/conductorModels.js"
+    },
+    "./lib/conductorOptions": {
+      "types": "./dist/lib/conductorOptions.d.ts",
+      "import": "./dist/lib/conductorOptions.js"
+    },
+    "./lib/connection/connectionAttemptState": {
+      "types": "./dist/lib/connection/connectionAttemptState.d.ts",
+      "import": "./dist/lib/connection/connectionAttemptState.js"
+    },
+    "./lib/connection/connectionErrorProjection": {
+      "types": "./dist/lib/connection/connectionErrorProjection.d.ts",
+      "import": "./dist/lib/connection/connectionErrorProjection.js"
+    },
+    "./lib/connection/recovery/recoveryPolicy": {
+      "types": "./dist/lib/connection/recovery/recoveryPolicy.d.ts",
+      "import": "./dist/lib/connection/recovery/recoveryPolicy.js"
+    },
+    "./lib/daemon": {
+      "types": "./dist/lib/daemon.d.ts",
+      "import": "./dist/lib/daemon.js"
+    },
+    "./lib/daemon/browserWorkspace": {
+      "types": "./dist/lib/daemon/browserWorkspace.d.ts",
+      "import": "./dist/lib/daemon/browserWorkspace.js"
+    },
+    "./lib/daemon/cli-providers": {
+      "types": "./dist/lib/daemon/cli-providers.d.ts",
+      "import": "./dist/lib/daemon/cli-providers.js"
+    },
+    "./lib/daemon/config-host": {
+      "types": "./dist/lib/daemon/config-host.d.ts",
+      "import": "./dist/lib/daemon/config-host.js"
+    },
+    "./lib/daemon/delivery-environments-attention": {
+      "types": "./dist/lib/daemon/delivery-environments-attention.d.ts",
+      "import": "./dist/lib/daemon/delivery-environments-attention.js"
+    },
+    "./lib/daemon/drivers": {
+      "types": "./dist/lib/daemon/drivers.d.ts",
+      "import": "./dist/lib/daemon/drivers.js"
+    },
+    "./lib/daemon/inference": {
+      "types": "./dist/lib/daemon/inference.d.ts",
+      "import": "./dist/lib/daemon/inference.js"
+    },
+    "./lib/daemon/marketplaces": {
+      "types": "./dist/lib/daemon/marketplaces.d.ts",
+      "import": "./dist/lib/daemon/marketplaces.js"
+    },
+    "./lib/daemon/memright": {
+      "types": "./dist/lib/daemon/memright.d.ts",
+      "import": "./dist/lib/daemon/memright.js"
+    },
+    "./lib/daemon/streamReconcile": {
+      "types": "./dist/lib/daemon/streamReconcile.d.ts",
+      "import": "./dist/lib/daemon/streamReconcile.js"
+    },
+    "./lib/daemon/workflows": {
+      "types": "./dist/lib/daemon/workflows.d.ts",
+      "import": "./dist/lib/daemon/workflows.js"
+    },
+    "./lib/daemon/workspace-files": {
+      "types": "./dist/lib/daemon/workspace-files.d.ts",
+      "import": "./dist/lib/daemon/workspace-files.js"
+    },
+    "./lib/git/gitIndexMutationQueue": {
+      "types": "./dist/lib/git/gitIndexMutationQueue.d.ts",
+      "import": "./dist/lib/git/gitIndexMutationQueue.js"
+    },
+    "./lib/messageNotices": {
+      "types": "./dist/lib/messageNotices.d.ts",
+      "import": "./dist/lib/messageNotices.js"
+    },
+    "./lib/notifications": {
+      "types": "./dist/lib/notifications.d.ts",
+      "import": "./dist/lib/notifications.js"
+    },
+    "./lib/orchestrationNotices": {
+      "types": "./dist/lib/orchestrationNotices.d.ts",
+      "import": "./dist/lib/orchestrationNotices.js"
+    },
+    "./lib/performance/longTranscriptRender": {
+      "types": "./dist/lib/performance/longTranscriptRender.d.ts",
+      "import": "./dist/lib/performance/longTranscriptRender.js"
+    },
+    "./lib/pluginContributionProjection": {
+      "types": "./dist/lib/pluginContributionProjection.d.ts",
+      "import": "./dist/lib/pluginContributionProjection.js"
+    },
+    "./lib/pluginContributionTypes": {
+      "types": "./dist/lib/pluginContributionTypes.d.ts",
+      "import": "./dist/lib/pluginContributionTypes.js"
+    },
+    "./lib/promptTemplates/compilePrompt": {
+      "types": "./dist/lib/promptTemplates/compilePrompt.d.ts",
+      "import": "./dist/lib/promptTemplates/compilePrompt.js"
+    },
+    "./lib/promptTemplates/roles": {
+      "types": "./dist/lib/promptTemplates/roles.d.ts",
+      "import": "./dist/lib/promptTemplates/roles.js"
+    },
+    "./lib/promptTemplates/styles": {
+      "types": "./dist/lib/promptTemplates/styles.d.ts",
+      "import": "./dist/lib/promptTemplates/styles.js"
+    },
+    "./lib/promptTemplates/templates": {
+      "types": "./dist/lib/promptTemplates/templates.d.ts",
+      "import": "./dist/lib/promptTemplates/templates.js"
+    },
+    "./lib/providerPresets": {
+      "types": "./dist/lib/providerPresets.d.ts",
+      "import": "./dist/lib/providerPresets.js"
+    },
+    "./lib/remote/remoteClient": {
+      "types": "./dist/lib/remote/remoteClient.d.ts",
+      "import": "./dist/lib/remote/remoteClient.js"
+    },
+    "./lib/secureStore": {
+      "types": "./dist/lib/secureStore.d.ts",
+      "import": "./dist/lib/secureStore.js"
+    },
+    "./lib/sessionShareCode": {
+      "types": "./dist/lib/sessionShareCode.d.ts",
+      "import": "./dist/lib/sessionShareCode.js"
+    },
+    "./lib/shellWindow": {
+      "types": "./dist/lib/shellWindow.d.ts",
+      "import": "./dist/lib/shellWindow.js"
+    },
+    "./lib/shortcuts/bindings": {
+      "types": "./dist/lib/shortcuts/bindings.d.ts",
+      "import": "./dist/lib/shortcuts/bindings.js"
+    },
+    "./lib/shortcuts/dispatcher": {
+      "types": "./dist/lib/shortcuts/dispatcher.d.ts",
+      "import": "./dist/lib/shortcuts/dispatcher.js"
+    },
+    "./lib/shortcuts/schema": {
+      "types": "./dist/lib/shortcuts/schema.d.ts",
+      "import": "./dist/lib/shortcuts/schema.js"
+    },
+    "./lib/statusToast": {
+      "types": "./dist/lib/statusToast.d.ts",
+      "import": "./dist/lib/statusToast.js"
+    },
+    "./lib/streamDeltaBatcher": {
+      "types": "./dist/lib/streamDeltaBatcher.d.ts",
+      "import": "./dist/lib/streamDeltaBatcher.js"
+    },
+    "./lib/terminal/suggest/ghostText": {
+      "types": "./dist/lib/terminal/suggest/ghostText.d.ts",
+      "import": "./dist/lib/terminal/suggest/ghostText.js"
+    },
+    "./lib/terminal/suggest/suggestionEngine": {
+      "types": "./dist/lib/terminal/suggest/suggestionEngine.d.ts",
+      "import": "./dist/lib/terminal/suggest/suggestionEngine.js"
+    },
+    "./lib/tools/managedToolHealth": {
+      "types": "./dist/lib/tools/managedToolHealth.d.ts",
+      "import": "./dist/lib/tools/managedToolHealth.js"
+    },
+    "./lib/tools/useManagedToolHealth": {
+      "types": "./dist/lib/tools/useManagedToolHealth.d.ts",
+      "import": "./dist/lib/tools/useManagedToolHealth.js"
+    },
+    "./lib/transcriptGroups": {
+      "types": "./dist/lib/transcriptGroups.d.ts",
+      "import": "./dist/lib/transcriptGroups.js"
+    },
+    "./lib/transcriptMessages": {
+      "types": "./dist/lib/transcriptMessages.d.ts",
+      "import": "./dist/lib/transcriptMessages.js"
+    },
+    "./lib/transcriptSearch": {
+      "types": "./dist/lib/transcriptSearch.d.ts",
+      "import": "./dist/lib/transcriptSearch.js"
+    },
+    "./lib/types": {
+      "types": "./dist/lib/types.d.ts",
+      "import": "./dist/lib/types.js"
+    },
+    "./lib/types/cliProviders": {
+      "types": "./dist/lib/types/cliProviders.d.ts",
+      "import": "./dist/lib/types/cliProviders.js"
+    },
+    "./lib/types/inference": {
+      "types": "./dist/lib/types/inference.d.ts",
+      "import": "./dist/lib/types/inference.js"
+    },
+    "./lib/types/references": {
+      "types": "./dist/lib/types/references.d.ts",
+      "import": "./dist/lib/types/references.js"
+    },
+    "./lib/types/settings-plugins": {
+      "types": "./dist/lib/types/settings-plugins.d.ts",
+      "import": "./dist/lib/types/settings-plugins.js"
+    },
+    "./lib/types/workspace-files": {
+      "types": "./dist/lib/types/workspace-files.d.ts",
+      "import": "./dist/lib/types/workspace-files.js"
+    },
+    "./lib/usage/turnUsageProjection": {
+      "types": "./dist/lib/usage/turnUsageProjection.d.ts",
+      "import": "./dist/lib/usage/turnUsageProjection.js"
+    },
+    "./lib/usage/usageProjection": {
+      "types": "./dist/lib/usage/usageProjection.d.ts",
+      "import": "./dist/lib/usage/usageProjection.js"
+    },
+    "./lib/utils": {
+      "types": "./dist/lib/utils.d.ts",
+      "import": "./dist/lib/utils.js"
+    },
+    "./lib/worktrees/worktreeProjectionManager": {
+      "types": "./dist/lib/worktrees/worktreeProjectionManager.d.ts",
+      "import": "./dist/lib/worktrees/worktreeProjectionManager.js"
+    },
+    "./qaBuild": {
+      "types": "./dist/qaBuild.d.ts",
+      "import": "./dist/qaBuild.js"
+    },
+    "./state/accountSelectionStore": {
+      "types": "./dist/state/accountSelectionStore.d.ts",
+      "import": "./dist/state/accountSelectionStore.js"
+    },
+    "./state/attentionStore": {
+      "types": "./dist/state/attentionStore.d.ts",
+      "import": "./dist/state/attentionStore.js"
+    },
+    "./state/browserStore": {
+      "types": "./dist/state/browserStore.d.ts",
+      "import": "./dist/state/browserStore.js"
+    },
+    "./state/composerModeStore": {
+      "types": "./dist/state/composerModeStore.d.ts",
+      "import": "./dist/state/composerModeStore.js"
+    },
+    "./state/composerScopeStore": {
+      "types": "./dist/state/composerScopeStore.d.ts",
+      "import": "./dist/state/composerScopeStore.js"
+    },
+    "./state/composerStore": {
+      "types": "./dist/state/composerStore.d.ts",
+      "import": "./dist/state/composerStore.js"
+    },
+    "./state/connectionProfiles": {
+      "types": "./dist/state/connectionProfiles.d.ts",
+      "import": "./dist/state/connectionProfiles.js"
+    },
+    "./state/deliveryStore": {
+      "types": "./dist/state/deliveryStore.d.ts",
+      "import": "./dist/state/deliveryStore.js"
+    },
+    "./state/diagnosticsStore": {
+      "types": "./dist/state/diagnosticsStore.d.ts",
+      "import": "./dist/state/diagnosticsStore.js"
+    },
+    "./state/editorBufferStore": {
+      "types": "./dist/state/editorBufferStore.d.ts",
+      "import": "./dist/state/editorBufferStore.js"
+    },
+    "./state/environmentsStore": {
+      "types": "./dist/state/environmentsStore.d.ts",
+      "import": "./dist/state/environmentsStore.js"
+    },
+    "./state/executionStore": {
+      "types": "./dist/state/executionStore.d.ts",
+      "import": "./dist/state/executionStore.js"
+    },
+    "./state/goalsStore": {
+      "types": "./dist/state/goalsStore.d.ts",
+      "import": "./dist/state/goalsStore.js"
+    },
+    "./state/importedThemeStore": {
+      "types": "./dist/state/importedThemeStore.d.ts",
+      "import": "./dist/state/importedThemeStore.js"
+    },
+    "./state/layoutStore": {
+      "types": "./dist/state/layoutStore.d.ts",
+      "import": "./dist/state/layoutStore.js"
+    },
+    "./state/legal": {
+      "types": "./dist/state/legal.d.ts",
+      "import": "./dist/state/legal.js"
+    },
+    "./state/license": {
+      "types": "./dist/state/license.d.ts",
+      "import": "./dist/state/license.js"
+    },
+    "./state/localModelStore": {
+      "types": "./dist/state/localModelStore.d.ts",
+      "import": "./dist/state/localModelStore.js"
+    },
+    "./state/paletteStore": {
+      "types": "./dist/state/paletteStore.d.ts",
+      "import": "./dist/state/paletteStore.js"
+    },
+    "./state/platform": {
+      "types": "./dist/state/platform.d.ts",
+      "import": "./dist/state/platform.js"
+    },
+    "./state/proBridge": {
+      "types": "./dist/state/proBridge.d.ts",
+      "import": "./dist/state/proBridge.js"
+    },
+    "./state/projectRecentsStore": {
+      "types": "./dist/state/projectRecentsStore.d.ts",
+      "import": "./dist/state/projectRecentsStore.js"
+    },
+    "./state/rateLimitStore": {
+      "types": "./dist/state/rateLimitStore.d.ts",
+      "import": "./dist/state/rateLimitStore.js"
+    },
+    "./state/referenceStore": {
+      "types": "./dist/state/referenceStore.d.ts",
+      "import": "./dist/state/referenceStore.js"
+    },
+    "./state/rightPanelStore": {
+      "types": "./dist/state/rightPanelStore.d.ts",
+      "import": "./dist/state/rightPanelStore.js"
+    },
+    "./state/sessionAttentionStore": {
+      "types": "./dist/state/sessionAttentionStore.d.ts",
+      "import": "./dist/state/sessionAttentionStore.js"
+    },
+    "./state/sidePanelStore": {
+      "types": "./dist/state/sidePanelStore.d.ts",
+      "import": "./dist/state/sidePanelStore.js"
+    },
+    "./state/streamingStore": {
+      "types": "./dist/state/streamingStore.d.ts",
+      "import": "./dist/state/streamingStore.js"
+    },
+    "./state/subagentsStore": {
+      "types": "./dist/state/subagentsStore.d.ts",
+      "import": "./dist/state/subagentsStore.js"
+    },
+    "./state/telegramStore": {
+      "types": "./dist/state/telegramStore.d.ts",
+      "import": "./dist/state/telegramStore.js"
+    },
+    "./state/themeStore": {
+      "types": "./dist/state/themeStore.d.ts",
+      "import": "./dist/state/themeStore.js"
+    },
+    "./state/updates": {
+      "types": "./dist/state/updates.d.ts",
+      "import": "./dist/state/updates.js"
+    },
+    "./state/workspaceStore": {
+      "types": "./dist/state/workspaceStore.d.ts",
+      "import": "./dist/state/workspaceStore.js"
+    },
+    "./types/browserWorkspace": {
+      "types": "./dist/types/browserWorkspace.d.ts",
+      "import": "./dist/types/browserWorkspace.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

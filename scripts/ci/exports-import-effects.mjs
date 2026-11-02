@@ -65,7 +65,7 @@ export function checkPackage(dir, { spawn = spawnSync, node = process.execPath }
     if (!key.includes("*")) { targets.push({ key, target }); continue; }
     const matches = expandWildcard(dir, key, target);
     if (matches.length === 0 && !target.startsWith("./dist/")) result.findings.push({ key, problem: `${pkg.name}: wildcard export ${key} → ${target} matches no file in the source tree`, fix: "fix the pattern or drop the export; a wildcard that resolves nothing is a broken surface" });
-    if (matches.length === 0 && target.startsWith("./dist/")) result.notChecked.push({ key, target, why: `${target} is build output (not in the source tree); the sealed-byte import check covers it` });
+    if (target.startsWith("./dist/")) { result.findings.push({ key, problem: `${pkg.name}: wildcard export ${key} → ${target} points at build output; neither this probe nor the sealed-tarball check imports a pattern, so publication refuses it`, fix: "enumerate the exports: one key per subpath consumers import (each must import quietly in plain Node, or be listed in rightkit.publishCheck.skipImport)" }); continue; }
     targets.push(...matches);
   }
   const keys = new Set(targets.map((t) => t.key));

@@ -11,12 +11,127 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./*.css": "./dist/*.css",
-    "./*.json": "./dist/*.json",
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js"
-    }
+    "./components/app/sessionExport": {
+      "types": "./dist/components/app/sessionExport.d.ts",
+      "import": "./dist/components/app/sessionExport.js"
+    },
+    "./components/chat/timelineScrollAnchoring": {
+      "types": "./dist/components/chat/timelineScrollAnchoring.d.ts",
+      "import": "./dist/components/chat/timelineScrollAnchoring.js"
+    },
+    "./components/sanitizeError": {
+      "types": "./dist/components/sanitizeError.d.ts",
+      "import": "./dist/components/sanitizeError.js"
+    },
+    "./components/workbench/DiffView": {
+      "types": "./dist/components/workbench/DiffView.d.ts",
+      "import": "./dist/components/workbench/DiffView.js"
+    },
+    "./hooks/app/useAppInteractionActions": {
+      "types": "./dist/hooks/app/useAppInteractionActions.d.ts",
+      "import": "./dist/hooks/app/useAppInteractionActions.js"
+    },
+    "./hooks/app/useAppSessionActions": {
+      "types": "./dist/hooks/app/useAppSessionActions.d.ts",
+      "import": "./dist/hooks/app/useAppSessionActions.js"
+    },
+    "./hooks/app/useAppShellActions": {
+      "types": "./dist/hooks/app/useAppShellActions.d.ts",
+      "import": "./dist/hooks/app/useAppShellActions.js"
+    },
+    "./hooks/browser/useBrowserWorkspace": {
+      "types": "./dist/hooks/browser/useBrowserWorkspace.d.ts",
+      "import": "./dist/hooks/browser/useBrowserWorkspace.js"
+    },
+    "./hooks/useAccounts": {
+      "types": "./dist/hooks/useAccounts.d.ts",
+      "import": "./dist/hooks/useAccounts.js"
+    },
+    "./hooks/useApprovals": {
+      "types": "./dist/hooks/useApprovals.d.ts",
+      "import": "./dist/hooks/useApprovals.js"
+    },
+    "./hooks/useAttachmentStaging": {
+      "types": "./dist/hooks/useAttachmentStaging.d.ts",
+      "import": "./dist/hooks/useAttachmentStaging.js"
+    },
+    "./hooks/useChatTimelineScroll": {
+      "types": "./dist/hooks/useChatTimelineScroll.d.ts",
+      "import": "./dist/hooks/useChatTimelineScroll.js"
+    },
+    "./hooks/useComposerEditorProjection": {
+      "types": "./dist/hooks/useComposerEditorProjection.d.ts",
+      "import": "./dist/hooks/useComposerEditorProjection.js"
+    },
+    "./hooks/useDaemonConnection": {
+      "types": "./dist/hooks/useDaemonConnection.d.ts",
+      "import": "./dist/hooks/useDaemonConnection.js"
+    },
+    "./hooks/useEditorBuffer": {
+      "types": "./dist/hooks/useEditorBuffer.d.ts",
+      "import": "./dist/hooks/useEditorBuffer.js"
+    },
+    "./hooks/useMemoryFiles": {
+      "types": "./dist/hooks/useMemoryFiles.d.ts",
+      "import": "./dist/hooks/useMemoryFiles.js"
+    },
+    "./hooks/useQueuedMessages": {
+      "types": "./dist/hooks/useQueuedMessages.d.ts",
+      "import": "./dist/hooks/useQueuedMessages.js"
+    },
+    "./hooks/useRuntimeAggregates": {
+      "types": "./dist/hooks/useRuntimeAggregates.d.ts",
+      "import": "./dist/hooks/useRuntimeAggregates.js"
+    },
+    "./hooks/useRuntimePanels": {
+      "types": "./dist/hooks/useRuntimePanels.d.ts",
+      "import": "./dist/hooks/useRuntimePanels.js"
+    },
+    "./hooks/useSessionEvents": {
+      "types": "./dist/hooks/useSessionEvents.d.ts",
+      "import": "./dist/hooks/useSessionEvents.js"
+    },
+    "./hooks/useSessionList": {
+      "types": "./dist/hooks/useSessionList.d.ts",
+      "import": "./dist/hooks/useSessionList.js"
+    },
+    "./hooks/useTeamsRuntime": {
+      "types": "./dist/hooks/useTeamsRuntime.d.ts",
+      "import": "./dist/hooks/useTeamsRuntime.js"
+    },
+    "./hooks/useUpdateStatus": {
+      "types": "./dist/hooks/useUpdateStatus.d.ts",
+      "import": "./dist/hooks/useUpdateStatus.js"
+    },
+    "./hooks/useWorkspaceArtifacts": {
+      "types": "./dist/hooks/useWorkspaceArtifacts.d.ts",
+      "import": "./dist/hooks/useWorkspaceArtifacts.js"
+    },
+    "./hooks/useWorkspaceContextSwitch": {
+      "types": "./dist/hooks/useWorkspaceContextSwitch.d.ts",
+      "import": "./dist/hooks/useWorkspaceContextSwitch.js"
+    },
+    "./hooks/useWorkspaceFile": {
+      "types": "./dist/hooks/useWorkspaceFile.d.ts",
+      "import": "./dist/hooks/useWorkspaceFile.js"
+    },
+    "./hooks/useWorkspaceSearch": {
+      "types": "./dist/hooks/useWorkspaceSearch.d.ts",
+      "import": "./dist/hooks/useWorkspaceSearch.js"
+    },
+    "./hooks/useWorkspaceStartupProjection": {
+      "types": "./dist/hooks/useWorkspaceStartupProjection.d.ts",
+      "import": "./dist/hooks/useWorkspaceStartupProjection.js"
+    },
+    "./hooks/useWorkspaceTree": {
+      "types": "./dist/hooks/useWorkspaceTree.d.ts",
+      "import": "./dist/hooks/useWorkspaceTree.js"
+    },
+    "./hooks/useWorktreeProjection": {
+      "types": "./dist/hooks/useWorktreeProjection.d.ts",
+      "import": "./dist/hooks/useWorktreeProjection.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
