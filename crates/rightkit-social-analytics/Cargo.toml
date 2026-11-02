@@ -16,13 +16,14 @@ path = "src/lib.rs"
 [features]
 default = []
 # Engine command handlers (`cmd`): retention feedback import, listing, proposals and apply, over a video project.
-engine-commands = ["dep:rightkit-engine-host", "dep:rightkit-video-project", "dep:rightkit-timeline", "dep:rightkit-transcript"]
+engine-commands = ["dep:rightkit-engine-host", "dep:rightkit-video-project", "dep:rightkit-timeline", "dep:rightkit-transcript", "dep:rightkit-autoedit"]
 
 [dependencies]
 rightkit-engine-host = { version = "0.1.1", path = "../rightkit-engine-host", features = ["project-cmd"], optional = true }
 rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
 rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline", optional = true }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript", optional = true }
+rightkit-autoedit = { version = "0.1.1", path = "../rightkit-autoedit", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 rightkit-social-publish = { version = "0.1.1", path = "../rightkit-social-publish" }

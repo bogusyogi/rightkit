@@ -2105,6 +2105,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-autoedit"
+version = "0.1.1"
+dependencies = [
+ "blake3",
+ "rightkit-ffmpeg",
+ "rightkit-fs",
+ "rightkit-timeline",
+ "rightkit-transcript",
+ "rightkit-video-project",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "rightkit-cache"
 version = "0.2.3"
 dependencies = [
@@ -2256,6 +2271,7 @@ dependencies = [
 name = "rightkit-social-analytics"
 version = "0.1.1"
 dependencies = [
+ "rightkit-autoedit",
  "rightkit-engine-host",
  "rightkit-fs",
  "rightkit-http",
