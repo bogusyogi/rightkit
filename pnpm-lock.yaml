@@ -999,12 +999,30 @@ importers:
       '@rightkit/theme':
         specifier: workspace:^
         version: link:../theme
+      prosemirror-commands:
+        specifier: ^1.7.2
+        version: 1.7.2
+      prosemirror-dropcursor:
+        specifier: ^1.8.4
+        version: 1.8.4
+      prosemirror-history:
+        specifier: ^1.5.1
+        version: 1.5.1
+      prosemirror-keymap:
+        specifier: ^1.2.3
+        version: 1.2.3
       prosemirror-model:
         specifier: 1.25.12
         version: 1.25.12
       prosemirror-state:
         specifier: ^1.4.4
         version: 1.4.4
+      prosemirror-tables:
+        specifier: ^1.8.5
+        version: 1.8.5
+      prosemirror-transform:
+        specifier: ^1.12.2
+        version: 1.12.4
       prosemirror-view:
         specifier: 1.42.6
         version: 1.42.6
@@ -8192,7 +8210,7 @@ snapshots:
     dependencies:
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.4
-      prosemirror-view: 1.42.9
+      prosemirror-view: 1.42.6
 
   prosemirror-gapcursor@1.4.1:
     dependencies:
@@ -8240,7 +8258,7 @@ snapshots:
       prosemirror-model: 1.25.12
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.4
-      prosemirror-view: 1.42.9
+      prosemirror-view: 1.42.6
 
   prosemirror-transform@1.12.2:
     dependencies:

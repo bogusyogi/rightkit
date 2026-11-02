@@ -1389,8 +1389,14 @@
           "@eigenpal/docx-editor-react",
           "@phosphor-icons/react",
           "@rightkit/document-core",
+          "prosemirror-commands",
+          "prosemirror-dropcursor",
+          "prosemirror-history",
+          "prosemirror-keymap",
           "prosemirror-model",
           "prosemirror-state",
+          "prosemirror-tables",
+          "prosemirror-transform",
           "prosemirror-view"
         ]
       },
