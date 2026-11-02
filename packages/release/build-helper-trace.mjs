@@ -23,8 +23,9 @@ const CRATES_IO = new Set(["registry+https://github.com/rust-lang/crates.io-inde
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
 /** The unit key: sha256 of the canonical {crate, version, checksum, features (sorted), target, toolchain}. */
-export function buildHelperKey({ crate, version, checksum, features = [], target, toolchain }) {
-  return sha256(JSON.stringify({ crate, version, checksum, features: [...features].sort(), target, toolchain }));
+// No toolchain in the key (Adrian, 2026-11-03, rightkit#1473: "why would a rust upgrade void it"): a Rust upgrade never voids a trace list.
+export function buildHelperKey({ crate, version, checksum, features = [], target }) {
+  return sha256(JSON.stringify({ crate, version, checksum, features: [...features].sort(), target }));
 }
 
 /** Checksums of crates.io packages from a Cargo.lock text: Map "name version" -> checksum. */
@@ -93,8 +94,16 @@ export function recordTrace(file, unit, verdict, { now = () => new Date().toISOS
  */
 export function checkBuildHelpers(units, list) {
   const untraced = []; const failed = [];
+  // Entries recorded under the older key (which held the toolchain) are re-keyed from their own fields; a pass wins over a fail.
+  const byKey = new Map();
+  for (const entry of Object.values(list?.units ?? {})) {
+    if (!entry || typeof entry !== "object") continue;
+    const key = buildHelperKey(entry);
+    const had = byKey.get(key);
+    if (!had || (had.verdict !== "pass" && entry.verdict === "pass") || !TRUSTED_TRACERS.includes(had.tracer)) byKey.set(key, entry);
+  }
   for (const u of units) {
-    const entry = list?.units?.[u.key];
+    const entry = byKey.get(u.key);
     if (!entry || !u.checksum || !TRUSTED_TRACERS.includes(entry.tracer)) untraced.push(u);
     else if (entry.verdict !== "pass") failed.push({ unit: u, outside: entry.outside ?? [] });
   }
@@ -261,4 +270,78 @@ export function parseEsloggerWrites(text, { rootPid }) {
 export function readStraceFiles(prefix, { fsApi = fs } = {}) {
   const dir = path.dirname(prefix); const base = path.basename(prefix);
   return fsApi.readdirSync(dir).filter((n) => n.startsWith(`${base}.`)).map((n) => fsApi.readFileSync(path.join(dir, n), "utf8")).join("\n");
+}
+
+
+/** Calls `fn(record)` for every record of `file` separated by `sep`, reading 8 MiB at a time (a whole-run trace can pass Node's string limit). */
+export function forEachRecord(file, sep, fn, { fsApi = fs } = {}) {
+  const fd = fsApi.openSync(file, "r"); const buf = Buffer.alloc(8 << 20); let rest = "";
+  try {
+    for (let n = fsApi.readSync(fd, buf, 0, buf.length, null); n > 0; n = fsApi.readSync(fd, buf, 0, buf.length, null)) {
+      const parts = (rest + buf.toString("utf8", 0, n)).split(sep);
+      rest = parts.pop();
+      for (const part of parts) fn(part);
+    }
+    if (rest) fn(rest);
+  } finally { fsApi.closeSync(fd); }
+}
+
+/** The root (one of `roots`) a pid descends from, through `parent`, or null. */
+function rootFinder(parent, roots) {
+  const memo = new Map();
+  return (pid) => {
+    if (!Number.isInteger(pid)) return null;
+    if (memo.has(pid)) return memo.get(pid);
+    let found = null;
+    for (let p = pid, hops = 0; Number.isInteger(p) && hops < 64; p = parent.get(p), hops += 1) if (roots.has(p)) { found = p; break; }
+    memo.set(pid, found);
+    return found;
+  };
+}
+
+/** eslogger JSON lines from `file`, streamed: Map(root pid -> written paths) for every pid in `roots` (a Set), in two passes. */
+export function esloggerWritesByRoot(file, roots) {
+  const parent = new Map();
+  const parse = (line) => { if (!line.trim().startsWith("{")) return null; try { return JSON.parse(line); } catch { return null; } };
+  forEachRecord(file, "\n", (line) => {
+    const e = parse(line); if (!e) return;
+    const pid = e?.process?.audit_token?.pid; const ppid = e?.process?.ppid ?? e?.process?.original_ppid;
+    if (Number.isInteger(pid) && Number.isInteger(ppid) && !parent.has(pid)) parent.set(pid, ppid);
+    const child = e?.event?.fork?.child?.audit_token?.pid;
+    if (Number.isInteger(child) && Number.isInteger(pid)) parent.set(child, pid);
+  });
+  const rootOf = rootFinder(parent, roots); const out = new Map([...roots].map((r) => [r, new Set()]));
+  forEachRecord(file, "\n", (line) => {
+    const e = parse(line); if (!e) return;
+    const root = rootOf(e?.process?.audit_token?.pid); if (root === null) return;
+    for (const w of parseEsloggerWrites(line, { rootPid: e.process.audit_token.pid })) out.get(root).add(w);
+  });
+  return new Map([...out].map(([r, s]) => [r, [...s]]));
+}
+
+/** tracerpt XML from `file`, streamed by `</Event>`: Map(root pid -> written paths) for every pid in `roots`, kernel paths mapped by `devices`. */
+export function etwWritesByRoot(file, roots, devices = {}) {
+  const field = (ev, name) => new RegExp(`<Data Name="${name}">([^<]*)</Data>`).exec(ev)?.[1];
+  const id = (ev) => Number(/<EventID>(\d+)<\/EventID>/.exec(ev)?.[1]);
+  const pidOf = (ev) => Number(/ProcessID="(\d+)"/.exec(ev)?.[1]);
+  const provider = (ev) => /Provider Name="([^"]+)"/.exec(ev)?.[1] ?? "";
+  const parent = new Map();
+  forEachRecord(file, "</Event>", (ev) => {
+    if (provider(ev) === "Microsoft-Windows-Kernel-Process" && id(ev) === 1) parent.set(Number(field(ev, "ProcessID")), Number(field(ev, "ParentProcessID")));
+  });
+  const rootOf = rootFinder(parent, roots); const out = new Map([...roots].map((r) => [r, new Set()]));
+  const toDos = (p) => { if (!p) return null; for (const [dev, letter] of Object.entries(devices)) if (p.toLowerCase().startsWith(dev.toLowerCase())) return letter + p.slice(dev.length); return p; };
+  const names = new Map();
+  forEachRecord(file, "</Event>", (ev) => {
+    if (provider(ev) !== "Microsoft-Windows-Kernel-File") return;
+    const n = id(ev); const fileObject = field(ev, "FileObject");
+    if (n === 12) names.set(fileObject, field(ev, "FileName"));
+    const root = rootOf(pidOf(ev)); if (root === null) return;
+    const add = (p) => { const d = toDos(p); if (d) out.get(root).add(d); };
+    if (n === 12) { const disposition = (Number(field(ev, "CreateOptions") ?? 0) >>> 24) & 0xff; if (disposition !== 1) add(field(ev, "FileName")); }
+    else if (n === 30) add(field(ev, "FileName"));
+    else if (n === 16) add(names.get(fileObject));
+    else if (n === 26 || n === 27) add(field(ev, "FilePath") ?? field(ev, "FileName"));
+  });
+  return new Map([...out].map(([r, s]) => [r, [...s]]));
 }

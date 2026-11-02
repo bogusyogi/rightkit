@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildHelperRefusal, buildHelperUnits, checkBuildHelpers, hostListPath, judgeTrace, mergeLists, parseEsloggerWrites, parseEtwWrites, parseStraceWrites, readStraceFiles, readHostList, recordTrace, repoListPath } from "./build-helper-trace.mjs";
+import { buildHelperRefusal, buildHelperUnits, checkBuildHelpers, hostListPath, esloggerWritesByRoot, etwWritesByRoot, judgeTrace, mergeLists, parseStraceWrites, readStraceFiles, readHostList, recordTrace, repoListPath } from "./build-helper-trace.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { directCargoPath } from "./managed-cargo.mjs";
 
@@ -203,22 +203,23 @@ function mainWith(argv, { env, platform, run, log, err }) {
     finally { stopTracer(); }
     let results = [];
     try { results = JSON.parse(fs.readFileSync(resultFile, "utf8")); } catch { err(`right-release build-helpers trace: the build runner wrote no results (${runner?.error?.message ?? `exit ${runner?.status}`}); nothing recorded`); return 2; }
-    let sessionText = "";
-    if (platform === "darwin") { try { sessionText = fs.readFileSync(traceFile, "utf8"); } catch { /* no output */ } }
+    // The whole-run recording is streamed, never read into one string, and attributed to every build's tree in one pass.
+    const roots = new Set(results.filter((r) => r?.status === 0 && Number.isInteger(r.pid)).map((r) => r.pid));
+    let byRoot = new Map(); let recorded = false;
+    if (platform === "darwin") { try { recorded = fs.statSync(traceFile).size > 0; if (recorded) byRoot = esloggerWritesByRoot(traceFile, roots); } catch { /* no output */ } }
     if (platform === "win32") {
       const xml = path.join(sessionDir, "trace.xml");
       const exported = run("tracerpt", [etl.proc, etl.file, "-o", xml, "-of", "XML", "-y"], { encoding: "utf8" });
       if (exported.status !== 0) { err("right-release build-helpers trace: tracerpt could not export the ETW trace"); return 2; }
-      sessionText = fs.readFileSync(xml, "utf8");
+      try { recorded = fs.statSync(xml).size > 0; if (recorded) byRoot = etwWritesByRoot(xml, roots, devices); } catch { /* no output */ }
     }
-    if (platform !== "linux" && !sessionText.trim() && results.some((r) => r.status === 0)) { err(`right-release build-helpers trace: the ${platform === "darwin" ? "eslogger" : "ETW"} session recorded nothing; nothing recorded`); return 2; }
+    if (platform !== "linux" && !recorded && roots.size) { err(`right-release build-helpers trace: the ${platform === "darwin" ? "eslogger" : "ETW"} session recorded nothing; nothing recorded`); return 2; }
     prepared.forEach((b, k) => {
       const r = results[k] ?? {};
       if (r.status !== 0 || !Number.isInteger(r.pid)) { err(`right-release build-helpers trace: ${b.unit.crate} ${b.unit.version} did not build (${r.error ?? `exit ${r.status}`}); not recorded`); return; }
       let writes;
       if (platform === "linux") { let text = ""; try { text = readStraceFiles(b.straceOut); } catch { /* none */ } writes = parseStraceWrites(text, { cwd: path.dirname(path.resolve(manifestPath ?? "Cargo.toml")) }); }
-      else if (platform === "win32") writes = parseEtwWrites(sessionText, { rootPid: r.pid, devices });
-      else writes = parseEsloggerWrites(sessionText, { rootPid: r.pid });
+      else writes = byRoot.get(r.pid) ?? [];
       const allowed = platform === "win32" ? [b.scratch, cargoHome, os.tmpdir(), env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, "Temp") : null]
         : [b.scratch, cargoHome, os.tmpdir(), "/private/var/folders", "/dev", "/proc/self"];
       // Allowed folders by their real path: a linked CARGO_HOME (~/.cargo -> /Volumes/D/...) or temp (/var -> /private/var) is reported by
