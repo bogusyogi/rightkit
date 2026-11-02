@@ -889,10 +889,11 @@ impl BackgroundSemanticReviewResultV1 {
             .map_err(|_| BackgroundReviewValidationError::InvalidProvenance)?;
         match self.status {
             BackgroundSemanticReviewStatusV1::Proposals => {
-                if self.curation_proposals.is_empty() && self.memory_candidates.is_empty() {
-                    if self.next_cursor.is_some() {
-                        return Err(BackgroundReviewValidationError::EmptyResult);
-                    }
+                if self.curation_proposals.is_empty()
+                    && self.memory_candidates.is_empty()
+                    && self.next_cursor.is_some()
+                {
+                    return Err(BackgroundReviewValidationError::EmptyResult);
                 }
             }
             BackgroundSemanticReviewStatusV1::Blocked { .. }

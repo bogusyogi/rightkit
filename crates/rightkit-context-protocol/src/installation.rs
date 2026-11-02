@@ -252,6 +252,7 @@ impl InstallationManifestV1 {
     /// Rejections use deterministic precedence: installation, schema/build,
     /// then data root. `minted_at` is diagnostic metadata and is intentionally
     /// excluded from compatibility.
+    #[allow(clippy::result_large_err)] // the error carries both manifests for the caller's diagnostics
     pub fn verify_handshake(active: &Self, observed: &Self) -> Result<(), HandshakeError> {
         if active.installation_id != observed.installation_id
             || active.startup_generation != observed.startup_generation

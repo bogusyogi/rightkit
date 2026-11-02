@@ -5,14 +5,11 @@
 //! shapes are actually produced and consumed:
 //!
 //!   * `ScopeGrantV1`            — minted/validated by native federation code.
-//!   * `ContextCandidateSetV1`   — parsed by the admission planner
-//!                                 (`cortex-core::planner`) and emitted by federation.
+//!   * `ContextCandidateSetV1`   — parsed by the admission planner (`cortex-core::planner`) and emitted by federation.
 //!   * `ContextPacketV1`         — the bounded packet the planner emits.
-//!   * `ContextReceiptV1`        — the content-free per-candidate receipt (planner
-//!                                 receipt body; `schemaVersion` is the receipt
-//!                                 envelope version, 1 or 2).
-//!   * `KnowledgeEmissionV1`     — the proposal body persisted verbatim by
-//!                                 `membrane_knowledge_propose` / `ProposalStore`.
+//!   * `ContextReceiptV1`        — the content-free per-candidate receipt (planner receipt body; `schemaVersion` is the
+//!     receipt envelope version, 1 or 2).
+//!   * `KnowledgeEmissionV1`     — the proposal body persisted verbatim by `membrane_knowledge_propose` / `ProposalStore`.
 //!
 //! Serde conventions: every struct uses `rename_all = "camelCase"`; closed shapes
 //! (grant, candidate-set, packet, receipt) use `deny_unknown_fields`; optional

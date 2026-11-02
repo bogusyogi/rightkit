@@ -163,7 +163,7 @@ fn is_default_mesh_role(role: &String) -> bool {
 /// Longest `sig`: an Ed25519 signature is 64 bytes, 128 hex characters.
 const MAX_SIG_HEX: usize = 128;
 
-/// What a chat envelope signature is over, so it cannot be taken for any other the host app signature.
+// What a chat envelope signature is over, so it cannot be taken for any other the host app signature.
 
 /// `bytes` with its length in front, so no two field lists encode the same.
 fn put_field(out: &mut Vec<u8>, bytes: &[u8]) {
