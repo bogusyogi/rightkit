@@ -30,7 +30,12 @@
 - **Release carries no QA control server.**
 - **The dev build adds only the `qa-native` feature to the release profile.** The units that feature changes are new to the broker, never unexplained rebuilds.
 
-[GC-A08] 2026-11-02: **Cargo tests run outside the broker.** The broker compiles test binaries (`cargo test --no-run`). The gate then runs those binaries outside the broker. A broker job never executes tests. Adrian, in the Dell HR chat: "Cargo test compiles on broker but runs outside it, correct? It uses throwaway, including a throwaway db, doesn't it?", then "I specifically asked that tests not run inside the broker." The broker's two-pass test jobs (rustright `bdc309d`) conflict with this rule. BROKER-CONTRACT states it from the broker side.
+[GC-A08] 2026-11-02: **Cargo tests run outside the broker.**
+- `cargo test` through the broker is compile-only, and the broker itself adds `--no-run` to every `cargo test` and `cargo bench`, whatever the request says (rustright `06a7dfd`). There is no flag and no executing path.
+- The gate sends plain `cargo test --message-format=json`. It never passes `--no-run` itself. It then runs the listed test executables outside the broker.
+- A broker job never executes tests. `test --doc` and `nextest run` are refused by the broker.
+
+Adrian, 2026-11-02: "No, no flag. There is only one command and that is cargo test and that is no run by default. There is no fucking two ways about it." Adrian, in the Dell HR chat: "Cargo test compiles on broker but runs outside it, correct? It uses throwaway, including a throwaway db, doesn't it?", then "I specifically asked that tests not run inside the broker." The broker's two-pass test jobs (rustright `bdc309d`) conflict with this rule. BROKER-CONTRACT states it from the broker side.
 
 [GC-A09] 2026-11-02: **Tests are isolated by injection, in every app.** A test passes in its own data root (rightkit-fs `app_dirs`) and its own credential store (rightkit-credentials). In practice that is a temp root and a `MemoryBackend`. No `test-mode` feature exists to redirect them: test-mode features are removed from every RightKit crate and every app. Adrian, answering HRwin's item 1 (injection instead of test-mode): "Yes to 1 but that's not just a hr thing fucking is it? It goes in rk and applies across all my fucking apps." Issue: rightkit#1436.
 
