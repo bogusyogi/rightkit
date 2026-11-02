@@ -56,7 +56,7 @@ fn git(dir: &std::path::Path, args: &[&str]) -> Option<String> {
 fn git_identity(engine: &std::path::Path) -> Option<(String, String)> {
     let commit = git(engine, &["rev-parse", "HEAD"])?;
     let tree_id = git(engine, &["rev-parse", "HEAD:./"])?;
-    if let Some(head) = git(&engine, &["rev-parse", "--git-path", "HEAD"]) {
+    if let Some(head) = git(engine, &["rev-parse", "--git-path", "HEAD"]) {
         println!("cargo:rerun-if-changed={}", engine.join(head).display());
     }
     let tree = rightkit_fs::digest::sha256_bytes(tree_id.as_bytes());
