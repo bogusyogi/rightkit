@@ -199,7 +199,7 @@ export function scopeScans(scans, closure, { rustUnits = [], npmUnits = [] } = {
       // that could compile unrelated units. Scoped B execution is refused by the gate before planning.
       include = selected.length === s.batch.units.length;
     }
-    else if (rust) { const name = names.find((n) => rust[1] === n || rust[1].startsWith(`${n}:`)); if (!name) throw problem(`scan ${s.id} has no known Rust owner`); include = closure.rust.has(name); }
+    else if (rust) { const name = names.find((n) => rust[1] === n || rust[1].startsWith(`${n}:`) || rust[1].startsWith(`${n}@`)); if (!name) throw problem(`scan ${s.id} has no known Rust owner`); include = closure.rust.has(name); }
     else if (s.class === "B" || ["suite-api", "generated-docs", "test:scripts-ci"].includes(s.id)) include = closure.dirs.includes(".");
     else if (s.executes === true || s.kind === "test") {
       if (closure.dirs.includes(".")) include = true;
