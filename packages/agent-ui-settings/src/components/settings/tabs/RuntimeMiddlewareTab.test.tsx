@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import RuntimeMiddlewareTab from "./RuntimeMiddlewareTab";
+import RuntimeMiddlewareTab from "./RuntimeMiddlewareTab.js";
 import type { MiddlewareRegistrySnapshot } from "@rightkit/agent-ui-core/lib/types";
 
 // PA-07(c): `tool` / `requiresToolset` are free-form daemon-supplied strings

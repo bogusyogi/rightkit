@@ -28,19 +28,19 @@ import type {
   Yaml,
   Definition,
 } from "mdast";
-import { buildHeadingSlugs } from "../headingSlugs";
-import { nodeText } from "../semanticBlocks";
-import { parseToTree } from "../parseMarkdown";
-import { markdownHash } from "./markdownHash";
-import type { MarkdownNodeIdFactory } from "./MarkdownNodeIdFactory";
-import { rangeOf } from "./MarkdownSourceMap";
+import { buildHeadingSlugs } from "../headingSlugs.js";
+import { nodeText } from "../semanticBlocks.js";
+import { parseToTree } from "../parseMarkdown.js";
+import { markdownHash } from "./markdownHash.js";
+import type { MarkdownNodeIdFactory } from "./MarkdownNodeIdFactory.js";
+import { rangeOf } from "./MarkdownSourceMap.js";
 import type {
   MarkdownSourceMap,
   MarkdownSourceNode,
   MarkdownSourceNodeCandidate,
   MarkdownSourceNodeKind,
   MarkdownSourceRange,
-} from "./MarkdownSourceMap";
+} from "./MarkdownSourceMap.js";
 
 /**
  * Build candidate records for the supplied logical source. Always

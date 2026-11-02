@@ -6,7 +6,7 @@ import type {
 } from "@rightkit/agent-ui-core/lib/types";
 import { OfflinePanel } from "@rightkit/agent-ui-settings/components/settings/tabs/shared";
 import { SkillProposalMeta, SkillProposalStat } from "@rightkit/agent-ui-settings/components/settings/tabs/skills/SkillShared";
-import type { SkillGovernancePanelProps } from "./types";
+import type { SkillGovernancePanelProps } from "./types.js";
 
 export function SkillGovernancePanel({
   proposals,

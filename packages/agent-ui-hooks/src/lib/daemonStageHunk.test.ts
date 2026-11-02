@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as daemon from "@rightkit/agent-ui-core/lib/daemon";
-import type { StageDiffHunkPayload } from "../components/workbench/DiffView";
+import type { StageDiffHunkPayload } from "../components/workbench/DiffView.js";
 
 describe("stageDiffHunk", () => {
   afterEach(() => {

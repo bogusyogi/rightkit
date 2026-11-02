@@ -6,7 +6,7 @@ import {
   writeComposerValue,
   isComposerComposing,
   shouldSubmitComposerEnter,
-} from "./editorProjection";
+} from "./editorProjection.js";
 
 describe("composer editor projection", () => {
   it("reports inserted text for typing, replacement, and deletion", () => {

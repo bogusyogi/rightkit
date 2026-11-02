@@ -1,7 +1,7 @@
 import { cx } from "@rightkit/react-shell/react";
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
-import { buttonClass } from "../lib/ui";
+import { buttonClass } from "../lib/ui.js";
 
 export function DetailShell({ children }: { children: ReactNode }) {
   return (

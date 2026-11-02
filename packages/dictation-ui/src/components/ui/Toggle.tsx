@@ -4,7 +4,7 @@
 // fill when on).
 
 import { useToggle } from "@rightkit/react-shell/headless";
-import { getPlatform } from "../../hooks/usePlatform";
+import { getPlatform } from "../../hooks/usePlatform.js";
 
 interface ToggleProps {
   checked: boolean;

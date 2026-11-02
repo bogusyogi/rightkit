@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createSkillReference, githubRepositoryIdentity, toReferenceMeta } from "./references";
+import { createSkillReference, githubRepositoryIdentity, toReferenceMeta } from "./references.js";
 
 describe("semantic reference helpers", () => {
   it("recognizes only GitHub repository roots", () => {

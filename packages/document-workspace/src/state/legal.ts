@@ -1,5 +1,3 @@
-import legalContract from "@rightkit-host/src/generated/legal-contract.json";
-import legalManifest from "@rightkit-host/legal/legal-manifest.json";
 import {
   createAcceptanceReceipt,
   isCanonicalUtcTimestamp,
@@ -14,8 +12,18 @@ import type {
 } from "@rightkit/onboarding";
 import type { Settings } from "@rightkit/document-core/settings/settings";
 
-export const REQUIRED_LEGAL_ACCEPTANCE_VERSION = legalContract.acceptanceVersion;
-export const LEGAL_MATERIAL_SHA256 = legalContract.materialSha256;
+/** The host app's generated acceptance contract (src/generated/legal-contract.json). */
+export interface LegalContract {
+  acceptanceVersion: string;
+  materialSha256: string;
+  [key: string]: unknown;
+}
+
+// Set once by the host at startup (configureLegal): a published package cannot import files of the app that installs it.
+// ES module exports are live bindings, so every importer sees the configured values.
+let legalManifest: LegalManifest;
+export let REQUIRED_LEGAL_ACCEPTANCE_VERSION: string;
+export let LEGAL_MATERIAL_SHA256: string;
 
 export type LegalEligibilityBasis = NonNullable<Settings["legalEligibilityBasis"]>;
 
@@ -62,20 +70,31 @@ function manifestLinks(
     }));
 }
 
-export const LEGAL_GATE_DOCUMENTS: LegalGateDocumentLink[] = manifestLinks(
-  GATE_DOCUMENT_SHORT_TITLES,
-  ["third_party_notices"],
-);
+export let LEGAL_GATE_DOCUMENTS: LegalGateDocumentLink[] = [];
 
 /** Permanent legal links in Settings → About: every manifest document, with About's short names. */
-export const LEGAL_ABOUT_LINKS: LegalGateDocumentLink[] = manifestLinks({
-  license: "Ownership Notice",
-  eula: "EULA",
-  acceptable_use: "Acceptable Use",
-  product_schedule: "Product Schedule",
-  privacy_notice: "Privacy",
-  third_party_notices: "Third-party Notices",
-});
+export let LEGAL_ABOUT_LINKS: LegalGateDocumentLink[] = [];
+
+/** The host hands over its legal/legal-manifest.json and src/generated/legal-contract.json once at startup. */
+export function configureLegal({ manifest, contract }: { manifest: unknown; contract: LegalContract }): void {
+  const m = manifest as LegalManifest | null;
+  if (!m || !Array.isArray(m.documents)) throw new TypeError("configureLegal: a legal manifest with documents is required");
+  if (typeof contract?.acceptanceVersion !== "string" || typeof contract?.materialSha256 !== "string") {
+    throw new TypeError("configureLegal: the contract needs acceptanceVersion and materialSha256 strings");
+  }
+  legalManifest = m;
+  REQUIRED_LEGAL_ACCEPTANCE_VERSION = contract.acceptanceVersion;
+  LEGAL_MATERIAL_SHA256 = contract.materialSha256;
+  LEGAL_GATE_DOCUMENTS = manifestLinks(GATE_DOCUMENT_SHORT_TITLES, ["third_party_notices"]);
+  LEGAL_ABOUT_LINKS = manifestLinks({
+    license: "Ownership Notice",
+    eula: "EULA",
+    acceptable_use: "Acceptable Use",
+    product_schedule: "Product Schedule",
+    privacy_notice: "Privacy",
+    third_party_notices: "Third-party Notices",
+  });
+}
 
 /** True only when every field of the acceptance receipt is current: the
  *  acceptance version and material-document hash match the generated
@@ -95,7 +114,7 @@ export function legalAcceptanceCurrent(settings: LegalReceiptFields): boolean {
   // hash equality (above) proves the agreed documents are unchanged, so the receipt is rebuilt from
   // the manifest carrying the STORED acceptance version, and the package gate checks schema,
   // app key and version against the manifest.
-  const manifest = legalManifest as unknown as LegalManifest;
+  const manifest = legalManifest;
   const receipt = {
     ...createAcceptanceReceipt(manifest, {
       acceptedAt: settings.legalAcceptedAt,

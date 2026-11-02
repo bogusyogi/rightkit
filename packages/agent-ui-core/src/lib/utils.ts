@@ -1,6 +1,6 @@
-import type { PermissionMode } from "./daemon";
-import type { CoreSandboxSettings } from "./types";
-import { hostAppName } from "../appName";
+import type { PermissionMode } from "./daemon.js";
+import type { CoreSandboxSettings } from "./types.js";
+import { hostAppName } from "../appName.js";
 
 export function projectName(path: string) {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;

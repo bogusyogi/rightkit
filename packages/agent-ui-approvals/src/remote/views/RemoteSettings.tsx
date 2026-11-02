@@ -4,7 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Button, Toggle, Input } from "@rightkit/react-shell/react";
 import { isWindows, onProtectedPin, remoteUnlockApi, setProtectedSetting, type PinAsk } from "@rightkit/system-ui/api";
 import { SettingRow, SettingsGroup, SettingsItem } from "@rightkit/settings-ui/core";
-import { RemoteApprovals } from "./RemoteApprovals";
+import { RemoteApprovals } from "./RemoteApprovals.js";
 
 type Published = Record<string, unknown>;
 type SetFn = (key: string, value: unknown) => void;

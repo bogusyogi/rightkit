@@ -2,7 +2,7 @@
 // Invented store health for the mock. Every digest, path and receipt is fictional. The mock clock is
 // 2026-10-12 18:30 UTC. The mock computes the heartbeat's age and state from the `now` it is given, as the engine
 // does, so these record holds only the beat.
-import type { RestoreReceipt } from "../types";
+import type { RestoreReceipt } from "../types.js";
 
 export interface FixtureHeartbeat {
   pid: number;

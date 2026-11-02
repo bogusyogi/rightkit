@@ -30,12 +30,12 @@ import {
   requestSentence,
   secondsLeft,
   type QueueAction,
-} from "../lib/approvalQueue";
+} from "../lib/approvalQueue.js";
 import type { PendingApproval } from "@rightkit/mail-ui/lib/ipc/agentApprovals";
 import { formatBytes } from "@rightkit/settings-ui/core";
 import { bodyStats, displayBody, visibleText } from "@rightkit/mail-ui/lib/visibleText";
 import { Button, ModalShell } from "@rightkit/react-shell/react";
-import { AgentApprovalThread } from "./AgentApprovalThread";
+import { AgentApprovalThread } from "./AgentApprovalThread.js";
 
 type Props = {
   queue: PendingApproval[];

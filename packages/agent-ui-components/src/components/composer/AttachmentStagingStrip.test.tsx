@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { AttachmentStagingStrip } from "./AttachmentStagingStrip";
+import { AttachmentStagingStrip } from "./AttachmentStagingStrip.js";
 import type { StagedAttachment } from "@rightkit/agent-ui-hooks/hooks/useAttachmentStaging";
 
 const image: StagedAttachment = {

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { invoke } from "../../lib/tauri";
-import { cx, ui } from "../../lib/ui";
-import { isMac } from "../../hooks/usePlatform";
-import { AI_POLISH_PRIVACY_NOTICE } from "../../lib/privacyDisclosure";
-import { hostAppName } from "../../appName";
+import { invoke } from "../../lib/tauri.js";
+import { cx, ui } from "../../lib/ui.js";
+import { isMac } from "../../hooks/usePlatform.js";
+import { AI_POLISH_PRIVACY_NOTICE } from "../../lib/privacyDisclosure.js";
+import { hostAppName } from "../../appName.js";
 
 type L3KeyStatus = {
   groq_saved: boolean;

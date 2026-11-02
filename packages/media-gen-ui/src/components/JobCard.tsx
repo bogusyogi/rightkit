@@ -1,10 +1,10 @@
-import { assetUrl, isHeldJob } from '../lib/api';
-import { jobIsActive, type SessionJob } from '../lib/app-state';
-import { heldLabel, isRecoveredCode } from '../lib/held-job';
-import { formatDuration, stageLabel } from '../lib/gen-params';
+import { assetUrl, isHeldJob } from '../lib/api.js';
+import { jobIsActive, type SessionJob } from '../lib/app-state.js';
+import { heldLabel, isRecoveredCode } from '../lib/held-job.js';
+import { formatDuration, stageLabel } from '../lib/gen-params.js';
 import { Badge, Button, ProgressBar } from '@rightkit/react-shell/react';
-import { formatBytes, usd } from './ui';
-import { ErrorNote } from './ErrorNote';
+import { formatBytes, usd } from './ui.js';
+import { ErrorNote } from './ErrorNote.js';
 import { MediaPlayer } from '@rightkit/media-ui';
 
 export function statusText(job: SessionJob): string {

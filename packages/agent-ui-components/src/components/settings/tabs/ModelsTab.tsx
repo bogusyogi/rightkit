@@ -1,7 +1,7 @@
 import { Checkbox, Select } from "@rightkit/react-shell/react";
 import { useEffect, useState } from "react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import type { ModelsTabProps } from "./ModelsTabProps";
+import type { ModelsTabProps } from "./ModelsTabProps.js";
 import { OfflinePanel, DiagnosticsStat } from "@rightkit/agent-ui-settings/components/settings/tabs/shared";
 import RootModelPicker from "@rightkit/agent-ui-settings/components/settings/tabs/RootModelPicker";
 import { listInferenceCatalog } from "@rightkit/agent-ui-core/lib/daemon/inference";

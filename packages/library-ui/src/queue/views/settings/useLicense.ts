@@ -1,6 +1,6 @@
 import { useLicenseSection } from "@rightkit/settings-ui";
 import { useEffect, useRef } from "react";
-import { licenseClient, onLicenseChange, type LicenseView } from "../../lib/license";
+import { licenseClient, onLicenseChange, type LicenseView } from "../../lib/license.js";
 
 export interface LicenseState {
   license: LicenseView | null;

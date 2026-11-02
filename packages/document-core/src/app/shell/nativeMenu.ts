@@ -4,8 +4,8 @@
 // and runs the matching command when the menu fires `viewright:menu-command`.
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef } from "react";
-import { isMac } from "../../platform";
-import { inTauri } from "../../state/tauriBridge";
+import { isMac } from "../../platform.js";
+import { inTauri } from "../../state/tauriBridge.js";
 
 export interface NativeMenuCommand {
   id: string;

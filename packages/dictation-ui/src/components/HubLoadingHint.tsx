@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { isMac } from "../hooks/usePlatform";
+import { isMac } from "../hooks/usePlatform.js";
 
 // Staged reassurance under the hub loading spinner: silent for a normal
 // (<5s) load; explains the rare Neural Engine model re-specialization

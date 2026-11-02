@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
-import type { HtmlPageBuffer } from "./sessionTypes";
-import { commitHtmlMutation, type HtmlMutationPlan } from "./htmlMutationEngine";
+import type { HtmlPageBuffer } from "./sessionTypes.js";
+import { commitHtmlMutation, type HtmlMutationPlan } from "./htmlMutationEngine.js";
 
 interface Args {
   entryPath: string;

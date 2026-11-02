@@ -1,5 +1,5 @@
-export { diagnosticsLabel, diagnosticsStatusClass } from "../shared";
-import { diagnosticsLabel, diagnosticsStatusClass } from "../shared";
+export { diagnosticsLabel, diagnosticsStatusClass } from "../shared.js";
+import { diagnosticsLabel, diagnosticsStatusClass } from "../shared.js";
 import type { DiagnosticsReport } from "@rightkit/agent-ui-core/lib/types";
 
 export function RemoteStatusCard({

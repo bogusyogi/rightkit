@@ -18,28 +18,28 @@ import {
   readDocument,
   revokePath,
 } from "@rightkit/document-core/state/tauriBridge";
-import type { DocumentTabs } from "./useDocumentTabs";
+import type { DocumentTabs } from "./useDocumentTabs.js";
 import {
   clearFileDraft,
   flushDraft,
-} from "./documentDrafts";
+} from "./documentDrafts.js";
 import { errorMessage } from "@rightkit/document-core/state/errors";
-import { useDocumentRuntimeEffects } from "./useDocumentRuntimeEffects";
-import { useFormatDirtyState } from "./useFormatDirtyState";
-import { useHtmlSession, type HtmlConfirmState, type HtmlConflictState } from "./useHtmlSession";
-import { useDocumentLoader } from "./useDocumentLoader";
-import { useDocumentSaver } from "./useDocumentSaver";
-import { useDocumentWatcher, pickNextActive } from "./useDocumentWatcher";
+import { useDocumentRuntimeEffects } from "./useDocumentRuntimeEffects.js";
+import { useFormatDirtyState } from "./useFormatDirtyState.js";
+import { useHtmlSession, type HtmlConfirmState, type HtmlConflictState } from "./useHtmlSession.js";
+import { useDocumentLoader } from "./useDocumentLoader.js";
+import { useDocumentSaver } from "./useDocumentSaver.js";
+import { useDocumentWatcher, pickNextActive } from "./useDocumentWatcher.js";
 import { useSettings } from "@rightkit/document-core/settings/settings";
 import { createBlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
-import { useAutoSave } from "./useAutoSave";
-import { useCloseAll } from "./useCloseAll";
-import { useDraftConfirmGate } from "./useDraftConfirmGate";
-import { usePendingSavePaths } from "./usePendingSavePaths";
-import { useSetupRecovery } from "./useSetupRecovery";
-import { useDocumentDirty } from "./useDocumentDirty";
-import { useDocumentCreation } from "./useDocumentCreation";
-import { useDocumentOutputActions } from "./useDocumentOutputActions";
+import { useAutoSave } from "./useAutoSave.js";
+import { useCloseAll } from "./useCloseAll.js";
+import { useDraftConfirmGate } from "./useDraftConfirmGate.js";
+import { usePendingSavePaths } from "./usePendingSavePaths.js";
+import { useSetupRecovery } from "./useSetupRecovery.js";
+import { useDocumentDirty } from "./useDocumentDirty.js";
+import { useDocumentCreation } from "./useDocumentCreation.js";
+import { useDocumentOutputActions } from "./useDocumentOutputActions.js";
 
 const EMPTY_PENDING_SAVE_PATHS: ReadonlySet<string> = new Set();
 

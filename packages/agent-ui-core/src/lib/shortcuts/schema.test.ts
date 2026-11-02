@@ -5,8 +5,8 @@ import {
   getShortcutAction,
   getShortcutBindingConflicts,
   SHORTCUT_SCHEMA,
-} from "./schema";
-import { parseShortcut } from "./bindings";
+} from "./schema.js";
+import { parseShortcut } from "./bindings.js";
 
 describe("shortcut schema", () => {
   it("declares unique ids and valid bindings in Settings order", () => {

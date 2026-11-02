@@ -1,5 +1,5 @@
 import type { RoleMetric, TasteScore } from "@rightkit/agent-ui-core/lib/types";
-import { Dimension, RuntimeEmpty, ScoreBar, panelWrap, scoreColor } from "./shared";
+import { Dimension, RuntimeEmpty, ScoreBar, panelWrap, scoreColor } from "./shared.js";
 
 export function TastePanel({ rows }: { rows: TasteScore[] }) {
   if (!rows.length)

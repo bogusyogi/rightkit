@@ -6,7 +6,7 @@ import {
   type DeletedWorkspaceEntry,
   type RecoverableFileOperationsClient,
   useRecoverableFileOperations,
-} from "./useRecoverableFileOperations";
+} from "./useRecoverableFileOperations.js";
 
 const file = { name: "notes.md", path: "notes.md", kind: "file" as const };
 const receipt: DeletedWorkspaceEntry = {

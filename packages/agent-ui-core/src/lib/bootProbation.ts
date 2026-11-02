@@ -1,6 +1,6 @@
 import { type BootProbationRecord, createBootProbation } from "@rightkit/app-update";
 import { useEffect } from "react";
-import { logs } from "./logs";
+import { logs } from "./logs.js";
 
 const STORAGE_KEY = "coderight.bootProbation";
 

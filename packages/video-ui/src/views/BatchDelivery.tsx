@@ -1,8 +1,8 @@
 // Batch delivery — one project's timelines x presets as a resumable batch (batch.* engine methods).
 import { Badge, Button, Checkbox, Field, Input, Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, useToast } from "@rightkit/react-shell/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { assetUrl } from "../lib/asset";
-import { errorCode, errorMessage, onEngineEvent } from "../lib/engine";
+import { assetUrl } from "../lib/asset.js";
+import { errorCode, errorMessage, onEngineEvent } from "../lib/engine.js";
 import {
   type BatchCover,
   type BatchDocument,
@@ -19,8 +19,8 @@ import {
   recipeCancel,
   SETTINGS_CHANGED,
   variantsList,
-} from "../lib/media";
-import { Icon } from "../ui";
+} from "../lib/media.js";
+import { Icon } from "../ui/index.js";
 
 const PRESETS: { value: BatchPreset; label: string; shape: "wide" | "tall" | "square" }[] = [
   { value: "youtube", label: "YouTube 16:9", shape: "wide" },

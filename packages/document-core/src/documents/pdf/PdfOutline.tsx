@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { OutlineNode } from "./pdfShared";
+import type { OutlineNode } from "./pdfShared.js";
 
 // Recursive outline (bookmarks) tree. Each node with a destination is a clickable row; nodes with
 // children get an expand/collapse chevron (expanded by default).

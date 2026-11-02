@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useMemoryFiles } from "@rightkit/agent-ui-hooks/hooks/useMemoryFiles";
-import MemoryTab from "./MemoryTab";
+import MemoryTab from "./MemoryTab.js";
 
 vi.mock("@rightkit/agent-ui-hooks/hooks/useMemoryFiles", () => ({ useMemoryFiles: vi.fn() }));
 

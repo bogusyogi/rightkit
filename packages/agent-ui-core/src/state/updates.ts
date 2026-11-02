@@ -15,8 +15,8 @@ import {
   type UpdateCheckView,
   type UpdateMessageCode,
 } from "@rightkit/app-update/native";
-import { beginBootProbation, bootProbation } from "../lib/bootProbation";
-import { releasePlatform } from "./platform";
+import { beginBootProbation, bootProbation } from "../lib/bootProbation.js";
+import { releasePlatform } from "./platform.js";
 
 export type UpdateState =
   | "idle"

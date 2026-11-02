@@ -13,8 +13,8 @@ import type {
   ToolInvocationEventRow,
   ToolInvocationRecord,
   ToolsetProfile,
-} from "../types";
-import { requestDaemonApi } from "../generated/daemon-openapi";
+} from "../types.js";
+import { requestDaemonApi } from "../generated/daemon-openapi.js";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface WorkspaceMention {

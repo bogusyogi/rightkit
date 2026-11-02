@@ -1,5 +1,5 @@
 import { createNativeLegalReceiptPort, type LegalReceiptPort } from "@rightkit/onboarding";
-import { invoke } from "./invoke";
+import { invoke } from "./invoke.js";
 
 /** The native receipt port: create and reset are always present on this one. */
 type NativeLegalReceiptPort = LegalReceiptPort &

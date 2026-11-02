@@ -4,7 +4,7 @@ import { normalizeLivePreviewUrl } from "@rightkit/document-core/documents/web/w
 import { addRecentUrl } from "@rightkit/document-core/state/recentUrls";
 import { readClipboardContent, openLinkedDocument } from "@rightkit/document-core/state/tauriBridge";
 import { errorMessage } from "@rightkit/document-core/state/errors";
-import { localPathFromClipboardText } from "./clipboardPaths";
+import { localPathFromClipboardText } from "./clipboardPaths.js";
 
 /** Open from clipboard: copied files (CF_HDROP) open like a drag-drop; nothing → a toast. */
 export function useOpenFromClipboard({

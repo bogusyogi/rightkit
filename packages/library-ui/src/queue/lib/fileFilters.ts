@@ -1,4 +1,4 @@
-import mediaTypes from "../generated/media-types.json";
+import mediaTypes from "../generated/media-types.json" with { type: "json" };
 
 // Extensions come from the Rust table in crates/detect (media_types.rs), so the
 // picker can never lag behind what pasting accepts.

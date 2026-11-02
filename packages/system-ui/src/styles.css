@@ -1,0 +1,8 @@
+/* Every stylesheet this package's components use. Hosts import "<package>/styles.css" once (Node cannot import CSS from JS). */
+@import "./views/monitor.css";
+@import "./views/activity.css";
+@import "./views/apps.css";
+@import "./views/chat.css";
+@import "./views/cleanup.css";
+@import "./views/health.css";
+@import "./views/storage.css";

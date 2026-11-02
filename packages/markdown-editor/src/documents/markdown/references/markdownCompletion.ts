@@ -11,8 +11,8 @@
  * limit.
  */
 
-import type { MarkdownIndexedFile } from "./folderIndex";
-import type { MarkdownSourceNode } from "../core/MarkdownSourceMap";
+import type { MarkdownIndexedFile } from "./folderIndex.js";
+import type { MarkdownSourceNode } from "../core/MarkdownSourceMap.js";
 
 export interface CompletionOption {
   readonly label: string;

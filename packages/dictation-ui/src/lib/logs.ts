@@ -1,5 +1,5 @@
 import { createLogsClient, type LogsInvoke } from "@rightkit/logs";
-import { invoke } from "./tauri";
+import { invoke } from "./tauri.js";
 
 export const logs = createLogsClient({
   invoke: invoke as LogsInvoke,

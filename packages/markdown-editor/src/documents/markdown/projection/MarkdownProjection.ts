@@ -15,12 +15,12 @@
  */
 
 import type { Node as ProseMirrorNode, Schema } from "prosemirror-model";
-import { parseToTree } from "../parseMarkdown";
-import type { MarkdownSourceMap, MarkdownSourceNode } from "../core/MarkdownSourceMap";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import { markdownHash } from "../core/markdownHash";
-import { markdownToPmDoc } from "./pmFromMarkdown";
-import { markdownHybridSchema } from "../markdownHybridSchema";
+import { parseToTree } from "../parseMarkdown.js";
+import type { MarkdownSourceMap, MarkdownSourceNode } from "../core/MarkdownSourceMap.js";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import { markdownHash } from "../core/markdownHash.js";
+import { markdownToPmDoc } from "./pmFromMarkdown.js";
+import { markdownHybridSchema } from "../markdownHybridSchema.js";
 import { incProjectionRebuilds } from "@rightkit/document-core/documents/perfEventCounters";
 
 /**

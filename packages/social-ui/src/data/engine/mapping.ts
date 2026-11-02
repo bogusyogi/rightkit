@@ -40,14 +40,14 @@ import type {
   PublishNextView,
   PublishQuota,
   UnreadableRow,
-} from "../types";
+} from "../types.js";
 import type {
   OptimiseProposal,
   OptimiseState,
   SpendAllowance,
   SpendPrice,
   SpendReport,
-} from "../types";
+} from "../types.js";
 import type {
   Campaign,
   CampaignAttribution,
@@ -100,9 +100,9 @@ import type {
   AnalyticsSource,
   AnalyticsSummaryMetric,
   MetricImport,
-} from "../types";
-import { isKnownPlatform, isSocialPlatform } from "../platforms";
-import { EngineReadError } from "./errors";
+} from "../types.js";
+import { isKnownPlatform, isSocialPlatform } from "../platforms.js";
+import { EngineReadError } from "./errors.js";
 import type {
   EngineAccount,
   EngineCampaign,
@@ -156,8 +156,8 @@ import type {
   EngineHeartbeatStatus,
   EngineRestoreReceipt,
   EngineRestoreReceiptList,
-} from "./protocol";
-import { hostAppName } from "../../appName";
+} from "./protocol.js";
+import { hostAppName } from "../../appName.js";
 
 // "remake" is the format an accepted optimise suggestion gives its draft calendar entry.
 const FORMATS: readonly JobFormat[] = ["reel", "carousel", "photo", "short", "video", "text_post", "remake"];

@@ -6,11 +6,11 @@ import type {
   TelegramRemoteTest,
   TelegramRemoteUsers,
 } from "@rightkit/agent-ui-core/lib/types";
-import type { SettingsDraft } from "../types";
+import type { SettingsDraft } from "../types.js";
 import { RemoteChannelsPanel } from "@rightkit/agent-ui-settings/components/settings/tabs/remote/RemoteChannelsPanel";
-import { TelegramSetupPanel } from "./remote/TelegramSetupPanel";
+import { TelegramSetupPanel } from "./remote/TelegramSetupPanel.js";
 import { TelegramStatusPanel } from "@rightkit/agent-ui-settings/components/settings/tabs/remote/TelegramStatusPanel";
-import { TelegramUsersPanel } from "./remote/TelegramUsersPanel";
+import { TelegramUsersPanel } from "./remote/TelegramUsersPanel.js";
 import RemoteDevicesPanel from "@rightkit/agent-ui-settings/components/remote/RemoteDevicesPanel";
 import RemoteHostsPanel from "@rightkit/agent-ui-settings/components/remote/RemoteHostsPanel";
 

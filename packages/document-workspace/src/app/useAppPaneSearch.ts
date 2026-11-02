@@ -1,13 +1,13 @@
 import { useCallback, useRef } from "react";
-import { usePaneLiveness } from "./usePaneLiveness";
-import { useSearchController } from "./useSearchController";
-import { useHtmlSessionProps } from "./useHtmlSessionProps";
-import { useClosedTabEviction } from "./useClosedTabEviction";
+import { usePaneLiveness } from "./usePaneLiveness.js";
+import { useSearchController } from "./useSearchController.js";
+import { useHtmlSessionProps } from "./useHtmlSessionProps.js";
+import { useClosedTabEviction } from "./useClosedTabEviction.js";
 import type { LoadedDocument, SearchProvider } from "@rightkit/document-core/documents/types";
 import type { createBlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
-import type { useDocuments } from "./useDocuments";
-import type { useDocumentTabs } from "./useDocumentTabs";
-import type { useAppShellSetup } from "./useAppShellSetup";
+import type { useDocuments } from "./useDocuments.js";
+import type { useDocumentTabs } from "./useDocumentTabs.js";
+import type { useAppShellSetup } from "./useAppShellSetup.js";
 
 type Docs = ReturnType<typeof useDocuments>;
 type Tabs = ReturnType<typeof useDocumentTabs>;

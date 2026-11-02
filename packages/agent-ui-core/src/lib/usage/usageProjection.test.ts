@@ -8,7 +8,7 @@ import {
   sortUsageRuns,
   type DailyAggregate,
   type UsageRunSummary,
-} from "./usageProjection";
+} from "./usageProjection.js";
 
 const day = (date: string, inputTokens: number, outputTokens = 0): DailyAggregate => ({
   date,

@@ -1,4 +1,4 @@
-import { FileAssociationsBlock } from "./MacFileAssociationsBlock";
+import { FileAssociationsBlock } from "./MacFileAssociationsBlock.js";
 
 export function FileAssociationsSection() {
   return <FileAssociationsBlock />;

@@ -5,7 +5,7 @@ import type {
   PersistentPermissionRuleRow,
   SessionRow,
 } from "@rightkit/agent-ui-core/lib/types";
-import type { PermissionRuleDraft, PersistentPermissionRuleDraft } from "../types";
+import type { PermissionRuleDraft, PersistentPermissionRuleDraft } from "../types.js";
 
 export interface PermissionsTabProps {
   selectedSession: SessionRow | null;

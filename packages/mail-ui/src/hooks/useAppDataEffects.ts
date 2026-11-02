@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { useAppStore } from "../store";
+import { useAppStore } from "../store/index.js";
 import {
   archiveProgress,
   folderCount,
@@ -10,21 +10,21 @@ import {
   listForwardingAddresses,
   listLabels,
   writerBusy,
-} from "../lib/ipc";
-import { hasInboxCategories } from "../lib/mail";
-import { createTrailingDebounce } from "../lib/debounce";
-import { decideDeferredRefresh } from "../lib/deferredRefresh";
+} from "../lib/ipc.js";
+import { hasInboxCategories } from "../lib/mail.js";
+import { createTrailingDebounce } from "../lib/debounce.js";
+import { decideDeferredRefresh } from "../lib/deferredRefresh.js";
 import {
   consumeSyncReload,
   createSyncReloadGate,
   noteSyncAccount,
   shouldReplayHiddenSync,
-} from "../lib/syncReloadGate";
-import { claimThreadLoad, type ThreadLoadGate } from "../lib/threadLoadGate";
+} from "../lib/syncReloadGate.js";
+import { claimThreadLoad, type ThreadLoadGate } from "../lib/threadLoadGate.js";
 import {
   isInitialRefreshSettled,
   subscribeInitialRefreshSettled,
-} from "../lib/initialRefresh";
+} from "../lib/initialRefresh.js";
 
 export function useAppDataEffects() {
   const view = useAppStore((s) => s.view);

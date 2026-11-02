@@ -3,7 +3,7 @@ import type {
   PluginInstallDraft,
   PluginMarketplaceInstallDraft,
   PluginMarketplaceSyncDraft,
-} from "../components/settings/types";
+} from "../components/settings/types.js";
 import {
   installMarketplacePlugin,
   installPlugin,

@@ -1,4 +1,4 @@
-import { requestDaemonApi } from "../generated/daemon-openapi";
+import { requestDaemonApi } from "../generated/daemon-openapi.js";
 import type {
   CreateWebhookTriggerRequest,
   DaemonConfig,
@@ -7,7 +7,7 @@ import type {
   WebhookTrigger,
   WebhookTriggerAuditResponse,
   WebhookTriggerListResponse,
-} from "../types";
+} from "../types.js";
 
 export async function listWebhookTriggers(
   config: DaemonConfig,

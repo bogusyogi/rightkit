@@ -7,10 +7,10 @@ import {
   recipeCharacterBatch,
   recipeDraftHash,
   type RecipeBatchItem
-} from '../lib/api';
+} from '../lib/api.js';
 import { Card, Badge, Button, Input, Notice, Select } from '@rightkit/react-shell/react';
-import { Kv, usd } from '../components/ui';
-import { characters, type CharacterSummary } from './panels/character-lock';
+import { Kv, usd } from '../components/ui.js';
+import { characters, type CharacterSummary } from './panels/character-lock.js';
 import {
   approvalFailureText,
   batchRefusalText,
@@ -21,10 +21,10 @@ import {
   reviewReducer,
   scenarioLines,
   scenarioProblem
-} from './recipe-templates-logic';
+} from './recipe-templates-logic.js';
 
-import { logs } from '../lib/logs';
-import { readUiSetting, writeUiSetting } from '../lib/settings-backend';
+import { logs } from '../lib/logs.js';
+import { readUiSetting, writeUiSetting } from '../lib/settings-backend.js';
 
 const BATCH_KEY = 'genright.recipes.characterBatch';
 

@@ -1,5 +1,5 @@
 import type { StoreApi } from "zustand";
-import type { AppState } from "./types";
+import type { AppState } from "./types.js";
 
 // Store set/get types shared by the field builder and the action slices.
 export type StoreSet = StoreApi<AppState>["setState"];

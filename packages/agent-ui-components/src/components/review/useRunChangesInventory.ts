@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { DaemonConfig } from "@rightkit/agent-ui-core/lib/types/settings-plugins";
-import { getRunChangesInventory, getRunChangesSummary } from "./runChangesClient";
-import { dispatch, resetStore } from "./useRunChangesState";
+import { getRunChangesInventory, getRunChangesSummary } from "./runChangesClient.js";
+import { dispatch, resetStore } from "./useRunChangesState.js";
 
 /** Hydrate the one run-scoped review store from the daemon source of truth. */
 export function useRunChangesInventory(

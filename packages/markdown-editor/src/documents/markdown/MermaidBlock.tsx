@@ -1,13 +1,12 @@
 import { useContext, useEffect, useRef, useState } from "react";
-import { sanitizeMermaidSvg } from "./mermaidSvgSanitize";
-import { MarkdownRenderTrackerContext } from "./export/MarkdownRenderTracker";
-import "./ProtectedBlock.css";
-import { acquireMarkdownResource, createMarkdownWork } from "./markdownResourceLifecycle";
+import { sanitizeMermaidSvg } from "./mermaidSvgSanitize.js";
+import { MarkdownRenderTrackerContext } from "./export/MarkdownRenderTracker.js";
+import { acquireMarkdownResource, createMarkdownWork } from "./markdownResourceLifecycle.js";
 import {
   isMarkdownDocumentActive,
   subscribeMarkdownDocumentActivity,
-} from "./markdownDocumentActivity";
-import { hostAppName } from "../../appName";
+} from "./markdownDocumentActivity.js";
+import { hostAppName } from "../../appName.js";
 
 // Lazy-load mermaid; render with strict security (no script/HTML injection from diagram source).
 let mermaidPromise: Promise<typeof import("mermaid").default> | null = null;

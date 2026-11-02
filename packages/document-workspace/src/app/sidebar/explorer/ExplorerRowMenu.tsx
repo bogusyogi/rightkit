@@ -4,10 +4,10 @@
 // glass panel and compact rows.
 import { useMemo, useRef } from "react";
 import { ContextMenu, type MenuItem } from "@rightkit/react-shell/react";
-import { explorerReveal } from "../../../state/explorer";
+import { explorerReveal } from "../../../state/explorer.js";
 import { isMac } from "@rightkit/document-core/platform";
-import { compactMenuItemClass, menuPanelClass } from "../SidebarPrimitives";
-import { copyText } from "../SidebarPathUtils";
+import { compactMenuItemClass, menuPanelClass } from "../SidebarPrimitives.js";
+import { copyText } from "../SidebarPathUtils.js";
 
 export interface ExplorerRowMenuState {
   x: number;

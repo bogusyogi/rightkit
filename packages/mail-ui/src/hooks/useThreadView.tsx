@@ -1,9 +1,9 @@
 // Reader thread-action handlers (mute/snooze/star/label/download/translate/etc).
 // Extracted from App (M5) — reads its state + store actions via the store so
 // ReaderView drops the prop bag. Handlers are verbatim from App.
-import { useAppStore } from "../store";
-import { showDialog } from "./dialog";
-import { htmlToText, sanitizeHtml } from "../lib/html";
+import { useAppStore } from "../store/index.js";
+import { showDialog } from "./dialog.js";
+import { htmlToText, sanitizeHtml } from "../lib/html.js";
 import {
   muteThread,
   unmuteThread,
@@ -25,7 +25,7 @@ import {
   unsnoozeThread,
   type ThreadMessage,
   type AttachmentMeta,
-} from "../lib/ipc";
+} from "../lib/ipc.js";
 
 export function useThreadView() {
   const activeAccount = useAppStore((s) => s.activeAccount);

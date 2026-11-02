@@ -1,6 +1,6 @@
 import { LegalDocumentBody } from '@rightkit/legal-ui';
 import { Button, ModalShell } from '@rightkit/react-shell/react';
-import { legalDocument, type LegalDocumentId } from '../legal/documents';
+import { legalDocument, type LegalDocumentId } from '../legal/documents.js';
 
 /**
  * Reads one bundled legal document in the shell's modal surface. Opened from the onboarding gate's

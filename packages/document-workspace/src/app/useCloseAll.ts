@@ -1,11 +1,11 @@
 import { useCallback, useRef, useState, type MutableRefObject } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isUntitled, type LoadedDocument } from "@rightkit/document-core/documents/types";
-import type { DocumentTabs } from "./useDocumentTabs";
+import type { DocumentTabs } from "./useDocumentTabs.js";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
-import type { useHtmlSession } from "./useHtmlSession";
+import type { useHtmlSession } from "./useHtmlSession.js";
 import { toast } from "@rightkit/platform-ui/headless";
-import { resolveDocumentDrafts } from "./draftResolution";
+import { resolveDocumentDrafts } from "./draftResolution.js";
 
 interface CloseAllDeps {
   openDocsRef: MutableRefObject<LoadedDocument[]>;

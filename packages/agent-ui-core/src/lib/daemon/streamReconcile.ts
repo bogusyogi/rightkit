@@ -1,5 +1,5 @@
-import type { ProtocolEvent, TranscriptMessage } from "../types";
-import { isInternalTranscriptMessage } from "../transcriptMessages";
+import type { ProtocolEvent, TranscriptMessage } from "../types.js";
+import { isInternalTranscriptMessage } from "../transcriptMessages.js";
 
 /**
  * Append a transcript row without allowing replay to duplicate it.

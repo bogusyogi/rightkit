@@ -1,4 +1,4 @@
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 export const ENABLE_PROVIDER_PRESET_SETUP = true;
 
 export type ProviderPresetModel = {

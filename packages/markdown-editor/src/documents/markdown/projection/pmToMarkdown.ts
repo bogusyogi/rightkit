@@ -1,6 +1,6 @@
 import type { Mark, Node as ProseMirrorNode } from "prosemirror-model";
-import { serializeGfmTable } from "../tables/markdownTableSerializer";
-import { parseCodeFenceSource, serializeCodeFence } from "../codeFenceModel";
+import { serializeGfmTable } from "../tables/markdownTableSerializer.js";
+import { parseCodeFenceSource, serializeCodeFence } from "../codeFenceModel.js";
 
 /** Serialize a `code_fence` PM node back to fenced Markdown. */
 export function pmCodeFenceToMarkdown(node: ProseMirrorNode): string {

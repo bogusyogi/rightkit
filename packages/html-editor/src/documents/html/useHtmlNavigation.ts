@@ -1,9 +1,9 @@
 ﻿import { useCallback, useRef, useState, type MutableRefObject } from "react";
 import { grantRelativeFile, openExternal, openFileDialog } from "@rightkit/document-core/state/tauriBridge";
 import { formatFromPath } from "@rightkit/document-core/documents/types";
-import { isLocalRelative, joinRel } from "./htmlInline";
+import { isLocalRelative, joinRel } from "./htmlInline.js";
 import { writeClipboardText } from "@rightkit/document-core/state/tauriBridge";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 interface HtmlNavigationDeps {
   /** The originally-opened file — the trusted site root; never changes as you navigate. */

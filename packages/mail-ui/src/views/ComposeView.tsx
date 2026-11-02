@@ -2,12 +2,12 @@
 // `useCompose` hook; the send-dispatch/undo lifecycle (which outlives the
 // drawer) stays in App and is passed in as a few lifecycle-trigger props.
 import { useRef } from "react";
-import Icon from "../components/Icons";
-import { ComposeEditor } from "../components/ComposeEditor";
-import { RecipientField } from "../components/RecipientField";
-import { useAppStore, composeEditorRef } from "../store";
-import { useCompose } from "../hooks/useCompose";
-import { plainToHtml } from "../lib/html";
+import Icon from "../components/Icons.js";
+import { ComposeEditor } from "../components/ComposeEditor.js";
+import { RecipientField } from "../components/RecipientField.js";
+import { useAppStore, composeEditorRef } from "../store/index.js";
+import { useCompose } from "../hooks/useCompose.js";
+import { plainToHtml } from "../lib/html.js";
 
 import { Button, ContextMenu, IconButton, Input, SearchIcon, Select } from "@rightkit/react-shell/react";
 interface Props {

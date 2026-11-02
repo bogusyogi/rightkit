@@ -8,17 +8,17 @@
 
 import { useMemo } from "react";
 import { QA_BUILD } from "@rightkit/agent-ui-core/qaBuild";
-import { buildShellSurfaces } from "./surfaces/shellSurfaces";
-import { buildSettingsSurface } from "./surfaces/settingsSurface";
-import { buildSessionSurfaces } from "./surfaces/sessionSurfaces";
-import type { AppSurfaceInputs } from "./surfaces/types";
-import type { ShellSurfaces } from "./surfaces/shellSurfaces";
-import type { SessionSurfaces } from "./surfaces/sessionSurfaces";
+import { buildShellSurfaces } from "./surfaces/shellSurfaces.js";
+import { buildSettingsSurface } from "./surfaces/settingsSurface.js";
+import { buildSessionSurfaces } from "./surfaces/sessionSurfaces.js";
+import type { AppSurfaceInputs } from "./surfaces/types.js";
+import type { ShellSurfaces } from "./surfaces/shellSurfaces.js";
+import type { SessionSurfaces } from "./surfaces/sessionSurfaces.js";
 import type { SubAgentState } from "@rightkit/agent-ui-core/hooks/useSubAgents";
 import type { GoalSnapshotV1, SessionRow, TranscriptMessage } from "@rightkit/agent-ui-core/lib/types";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
-export type { AppSurfaceInputs } from "./surfaces/types";
+export type { AppSurfaceInputs } from "./surfaces/types.js";
 
 export interface UseAppSurfaces extends ShellSurfaces, SessionSurfaces {
   settingsPaneProps: ReturnType<typeof buildSettingsSurface>;
@@ -153,7 +153,7 @@ export function useAppSurfaces(args: AppSurfaceInputs): UseAppSurfaces {
 
 function getQaScenario(): string | null {
   if (typeof window === "undefined") return null;
-  if (!import.meta.env.DEV && !QA_BUILD) return null;
+  if (!import.meta.env?.DEV && !QA_BUILD) return null;
   const params = new URLSearchParams(window.location.search);
   return params.get("qa") === "1" ? params.get("scenario") : null;
 }

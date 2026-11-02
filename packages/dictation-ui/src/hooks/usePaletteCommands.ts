@@ -1,15 +1,15 @@
 import { useMemo } from "react";
 
-import { invoke } from "../lib/tauri";
+import { invoke } from "../lib/tauri.js";
 import {
   revealSetting,
   settingsForPlatform,
-} from "../lib/settingsRegistry";
-import type { Command } from "../components/CommandPalette";
-import type { TabKey } from "../components/Sidebar";
-import { getLicenseLifecycle } from "../lib/licenseLifecycle";
-import { useSettings } from "./useSettings";
-import { getPlatform } from "./usePlatform";
+} from "../lib/settingsRegistry.js";
+import type { Command } from "../components/CommandPalette.js";
+import type { TabKey } from "../components/Sidebar.js";
+import { getLicenseLifecycle } from "../lib/licenseLifecycle.js";
+import { useSettings } from "./useSettings.js";
+import { getPlatform } from "./usePlatform.js";
 
 const PAGE_LABELS: Partial<Record<TabKey, string>> = {
   home: "Home",

@@ -7,7 +7,7 @@ async function loadStore(stored?: string) {
   vi.resetModules();
   localStorage.clear();
   if (stored !== undefined) localStorage.setItem("cr.palette.v1", stored);
-  return import("./themeStore");
+  return import("./themeStore.js");
 }
 
 describe("palette switch (themeStore)", () => {
@@ -70,7 +70,7 @@ describe("palette switch (themeStore)", () => {
       localStorage.clear();
       localStorage.setItem("cr.theme.v1", "system");
       localStorage.setItem("cr.palette.v1", "mailright");
-      const mod = await import("./themeStore");
+      const mod = await import("./themeStore.js");
       expect(document.documentElement.getAttribute("data-theme")).toBeNull();
       expect(mod.shellThemeStore.resolved()).toBe("dark");
       expect(document.documentElement.style.cssText).toContain("--");
@@ -82,7 +82,7 @@ describe("palette switch (themeStore)", () => {
       localStorage.clear();
       localStorage.setItem("cr.theme.v1", "system");
       localStorage.setItem("cr.palette.v1", "mailright");
-      const mod = await import("./themeStore");
+      const mod = await import("./themeStore.js");
       const lightStyle = document.documentElement.style.cssText;
       expect(document.documentElement.getAttribute("data-theme")).toBe("light");
       expect(mod.shellThemeStore.resolved()).toBe("light");

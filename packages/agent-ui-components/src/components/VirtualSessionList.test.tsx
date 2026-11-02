@@ -1,8 +1,8 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionRow } from "@rightkit/agent-ui-core/lib/types";
-import { VirtualSessionList } from "./VirtualSessionList";
-import type { VirtualSessionListRow } from "./VirtualSessionList";
+import { VirtualSessionList } from "./VirtualSessionList.js";
+import type { VirtualSessionListRow } from "./VirtualSessionList.js";
 
 afterEach(cleanup);
 

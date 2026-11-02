@@ -1,10 +1,10 @@
 import { useCallback } from "react";
 import { useSchedulesRuntime, type ScheduleDraft } from "@rightkit/agent-ui-core/hooks/runtime/useSchedulesRuntime";
-import { useLearningRuntime } from "./runtime/useLearningRuntime";
-import { useHarnessRadarRuntime } from "./runtime/useHarnessRadarRuntime";
-import { useSpecsRuntime } from "./runtime/useSpecsRuntime";
-import { useRecipesRuntime } from "./runtime/useRecipesRuntime";
-import { useMiddlewareObservationsRuntime } from "./runtime/useMiddlewareObservationsRuntime";
+import { useLearningRuntime } from "./runtime/useLearningRuntime.js";
+import { useHarnessRadarRuntime } from "./runtime/useHarnessRadarRuntime.js";
+import { useSpecsRuntime } from "./runtime/useSpecsRuntime.js";
+import { useRecipesRuntime } from "./runtime/useRecipesRuntime.js";
+import { useMiddlewareObservationsRuntime } from "./runtime/useMiddlewareObservationsRuntime.js";
 import {
   useWebhookTriggersRuntime,
   type WebhookTriggerDraft,

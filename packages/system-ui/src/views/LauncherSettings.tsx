@@ -3,8 +3,8 @@ import { Button, Checkbox, Select, Toggle, Input } from "@rightkit/react-shell/r
 import { formatChord } from "@rightkit/platform-ui";
 import { SettingRow, SettingsItem } from "@rightkit/settings-ui/core";
 import { useSettingsSearch } from "@rightkit/settings-ui/headless";
-import { windowShortcutFrom } from "./settingsKit";
-import { isWindows } from "../api";
+import { windowShortcutFrom } from "./settingsKit.js";
+import { isWindows } from "../api.js";
 
 /** The launcher's user-made items. Stored by the notch as one JSON string. */
 export interface LauncherConfig {

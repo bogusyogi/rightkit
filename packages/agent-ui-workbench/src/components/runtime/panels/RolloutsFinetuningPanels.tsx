@@ -1,5 +1,5 @@
 import type { FinetuningRow, RolloutView } from "@rightkit/agent-ui-core/lib/types";
-import { RuntimeEmpty, ScoreBar, panelWrap } from "./shared";
+import { RuntimeEmpty, ScoreBar, panelWrap } from "./shared.js";
 
 const STAGE_STYLE: Record<string, string> = {
   canary: "text-warning border-warning/40 bg-warning/10",

@@ -1,5 +1,5 @@
 import type { Mark as PmMark, Node as PmNode } from "prosemirror-model";
-import { htmlTextStyleCss } from "./htmlTextStyle";
+import { htmlTextStyleCss } from "./htmlTextStyle.js";
 
 /**
  * Serialize a ProseMirror Visual doc back to HTML fragment (body inner).

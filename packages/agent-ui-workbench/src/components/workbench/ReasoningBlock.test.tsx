@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import ReasoningBlock from "./ReasoningBlock";
+import ReasoningBlock from "./ReasoningBlock.js";
 
 describe("ReasoningBlock", () => {
   it("is collapsed by default", () => {

@@ -1,0 +1,4 @@
+/* Every stylesheet this package's components use. Hosts import "<package>/styles.css" once (Node cannot import CSS from JS). */
+@import "@rightkit/system-ui/views/membrane.css";
+@import "@rightkit/system-ui/views/monitor.css";
+@import "@rightkit/system-ui/views/settings.css";

@@ -6,7 +6,7 @@
 // win · enter · esc · record · send · cancel · plain letters. The exported chord
 // constants keep copy, onboarding, and Settings in sync across platforms.
 import { formatChord as formatPlatformChord } from "@rightkit/platform-ui";
-import { getPlatform, type OS } from "../hooks/usePlatform";
+import { getPlatform, type OS } from "../hooks/usePlatform.js";
 
 // the host app shows the macOS Escape key in lower case, as on the keycap.
 const MAC_LABELS: Record<string, string> = { esc: "esc" };

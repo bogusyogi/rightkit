@@ -1,8 +1,8 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import SessionMinimap from "./SessionMinimap";
-import type { SessionMinimapMessage } from "./SessionMinimap";
+import SessionMinimap from "./SessionMinimap.js";
+import type { SessionMinimapMessage } from "./SessionMinimap.js";
 import type { TranscriptMessage } from "@rightkit/agent-ui-core/lib/types";
 
 describe("SessionMinimap", () => {

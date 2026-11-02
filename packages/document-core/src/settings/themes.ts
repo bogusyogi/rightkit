@@ -1,5 +1,5 @@
 import type { TokenPreset } from "@rightkit/theme";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 export type ThemeMode = "light" | "dark";
 

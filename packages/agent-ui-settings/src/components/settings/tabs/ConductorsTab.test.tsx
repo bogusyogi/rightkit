@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import ConductorsTab from "./ConductorsTab";
+import ConductorsTab from "./ConductorsTab.js";
 import type { SessionRow } from "@rightkit/agent-ui-core/lib/types";
 
 function baseSession(overrides: Partial<SessionRow> = {}): SessionRow {

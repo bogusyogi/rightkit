@@ -21,11 +21,11 @@ import {
   snoozeAttentionItem,
   unsnoozeAttentionItem,
   updateAttentionState,
-} from "../lib/daemon/delivery-environments-attention";
+} from "../lib/daemon/delivery-environments-attention.js";
 import {
   groupAttentionByState,
   hasUrgentAttention,
-} from "../lib/daemon/delivery-environments-attention";
+} from "../lib/daemon/delivery-environments-attention.js";
 import type {
   AttentionBanner,
   AttentionCounts,
@@ -37,8 +37,8 @@ import type {
   ProjectNotificationPolicy,
   QuietHoursResponse,
   TranscriptDensity,
-} from "../lib/types";
-import { messageOf } from "../lib/utils";
+} from "../lib/types.js";
+import { messageOf } from "../lib/utils.js";
 
 export type AttentionStoreState = {
   list: AttentionListResponse | null;
@@ -50,49 +50,49 @@ export type AttentionStoreState = {
   error: string | null;
   reset: () => void;
   loadItems: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
   ) => Promise<void>;
   setItemState: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     id: string,
     state: AttentionState,
   ) => Promise<boolean>;
   snoozeItem: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     id: string,
     snoozeUntil: string,
   ) => Promise<boolean>;
   unsnoozeItem: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     id: string,
   ) => Promise<boolean>;
   loadDensity: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
   ) => Promise<void>;
   setDensityMode: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     density: TranscriptDensity,
   ) => Promise<boolean>;
   loadPolicy: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
   ) => Promise<void>;
   savePolicy: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     policy: ProjectNotificationPolicy,
   ) => Promise<boolean>;
   loadQuietHours: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
   ) => Promise<void>;
   saveQuietHours: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     args: {
       workspaceRoot: string;
       enabled: boolean;
@@ -100,13 +100,13 @@ export type AttentionStoreState = {
     },
   ) => Promise<boolean>;
   resolveDeeplinkTarget: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     target: string,
     params?: Record<string, unknown>,
   ) => Promise<DeeplinkResolution | null>;
   loadBanner: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
   ) => Promise<void>;
   grouped: () => Record<AttentionState, AttentionItem[]>;

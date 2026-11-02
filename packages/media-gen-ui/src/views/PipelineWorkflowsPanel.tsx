@@ -1,18 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   assetUrl, cancelJob, errorMessage, fetchJobResult, fetchJobStatus, isTerminalJob, isSuccessJob, submitGeneration
-} from '../lib/api';
+} from '../lib/api.js';
 import {
   pipelinesApi, blockedReason, dubMaxTempoOf, dubReviewOf,
   type DubReview, type DubReviewChoice, type PipelineRun, type PipelineTemplate, type PipelineWorkflow, type RunAsset, type RunStep, type SegmentRequest
-} from '../lib/pipeline-workflows';
+} from '../lib/pipeline-workflows.js';
 
 import { Badge, Button, Card, Checkbox, EmptyState, Input, Notice, SegmentedControl, Table, TableBody, TableCell, TableHeaderCell, TableHead, TableRow } from '@rightkit/react-shell/react';
-import { usd, relativeTime, baseName } from '../components/ui';
+import { usd, relativeTime, baseName } from '../components/ui.js';
 import { MediaPlayer } from '@rightkit/media-ui';
-import './workspace.css';
-import './pipeline-workflows.css';
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 type Mode = 'templates' | 'workflows' | 'runs';
 const MODES: Array<{ id: Mode; label: string }> = [

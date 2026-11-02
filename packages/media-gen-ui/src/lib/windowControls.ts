@@ -1,6 +1,6 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { createWindowControls } from '@rightkit/platform-ui';
-import { windowControl } from './shell';
+import { windowControl } from './shell.js';
 
 // Window actions for the custom title bar run through `@rightkit/tauri-shell` (`window.*`, the shell's
 // `rk_shell_window` command), so the webview needs no core:window permissions. Outside Tauri

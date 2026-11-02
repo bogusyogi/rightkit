@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ExtensionRegistry, type ExtensionComponent } from "./extensionRegistry";
+import { ExtensionRegistry, type ExtensionComponent } from "./extensionRegistry.js";
 
 describe("ExtensionRegistry", () => {
   const component = (label: string): ExtensionComponent => {

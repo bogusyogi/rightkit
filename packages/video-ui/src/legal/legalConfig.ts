@@ -1,24 +1,26 @@
 import type { LegalStepConfig } from "@rightkit/onboarding";
 import { assertLegalManifest, type LegalManifest } from "@rightkit/legal/browser";
 import { exit } from "@tauri-apps/plugin-process";
-import { logs } from "../lib/services";
-import { quitNow } from "../lib/shell";
-import legalManifest from "@rightkit-host/legal/legal-manifest.json";
-import legalContract from "@rightkit-host/src/generated/legal-contract.json";
-import { hostAppName } from "../appName";
-
-const manifest = assertLegalManifest(legalManifest as unknown as LegalManifest);
+import { logs } from "../lib/services.js";
+import { quitNow } from "../lib/shell.js";
+import { hostAppName } from "../appName.js";
 
 /**
- * the host app facts for the suite legal gate, sourced from legal/legal-manifest.json
- * (written by @rightkit/legal's legal-snapshot bin from RightKit's legal source), never
- * hardcoded, so a title, URL or document change cannot drift from the gate.
+ * the host app facts for the suite legal gate, sourced from its legal/legal-manifest.json and generated
+ * src/generated/legal-contract.json, never hardcoded, so a title, URL or document change cannot drift from the gate.
+ * A published package cannot import files of the app that installs it: the host calls configureLegal() once at
+ * startup. ES module exports are live bindings, so every importer sees the configured values.
  */
+export interface LegalContract {
+  acceptanceVersion: string;
+  materialSha256: string;
+  [key: string]: unknown;
+}
 
 /** Version the stored acceptance must match; a document change re-prompts. */
-export const REQUIRED_LEGAL_ACCEPTANCE_VERSION = legalContract.acceptanceVersion;
+export let REQUIRED_LEGAL_ACCEPTANCE_VERSION: string;
 /** Hash of the agreed (material) documents, recorded with the acceptance. */
-export const LEGAL_MATERIAL_SHA256 = legalContract.materialSha256;
+export let LEGAL_MATERIAL_SHA256: string;
 
 // Suite-wide master titles are long; the gate list shows short ones.
 const SHORT_TITLES: Partial<Record<string, string>> = {
@@ -27,10 +29,7 @@ const SHORT_TITLES: Partial<Record<string, string>> = {
   acceptable_use: "Acceptable Use Policy",
 };
 
-const TEXTS = import.meta.glob("/legal/*.md", { query: "?raw", import: "default", eager: true }) as Record<
-  string,
-  string
->;
+let TEXTS: Record<string, string> = {};
 
 export interface LegalDocumentText {
   title: string;
@@ -39,13 +38,28 @@ export interface LegalDocumentText {
 
 /** The bundled copy of a shipped legal document (offline, exactly what was hashed). */
 export function legalDocumentText(file: string): string {
-  return TEXTS[`../../legal/${file}`] ?? "";
+  return TEXTS[file.split("/").pop() ?? file] ?? "";
 }
 
 /** Every document the user agrees to or acknowledges (not the build-provenance notices). */
-export const LEGAL_GATE_DOCUMENTS = manifest.documents
-  .filter((d) => d.role !== "third_party_notices")
-  .map((d) => ({ title: SHORT_TITLES[d.role] ?? d.title, url: d.publicUrl, path: d.path }));
+export let LEGAL_GATE_DOCUMENTS: { title: string; url: string; path: string }[] = [];
+
+/**
+ * Called once by the host at startup with its manifest, contract and the bundled legal texts keyed by file name
+ * (a Vite host: `import.meta.glob("/legal/*.md", { query: "?raw", import: "default", eager: true })`).
+ */
+export function configureLegal({ manifest, contract, texts = {} }: { manifest: unknown; contract: LegalContract; texts?: Record<string, string> }): void {
+  const m = assertLegalManifest(manifest as LegalManifest);
+  if (typeof contract?.acceptanceVersion !== "string" || typeof contract?.materialSha256 !== "string") {
+    throw new TypeError("configureLegal: the contract needs acceptanceVersion and materialSha256 strings");
+  }
+  REQUIRED_LEGAL_ACCEPTANCE_VERSION = contract.acceptanceVersion;
+  LEGAL_MATERIAL_SHA256 = contract.materialSha256;
+  TEXTS = Object.fromEntries(Object.entries(texts).map(([k, v]) => [k.split("/").pop() ?? k, v]));
+  LEGAL_GATE_DOCUMENTS = m.documents
+    .filter((d) => d.role !== "third_party_notices")
+    .map((d) => ({ title: SHORT_TITLES[d.role] ?? d.title, url: d.publicUrl, path: String((d as { path?: string }).path ?? "") }));
+}
 
 export function legalStepConfig(): LegalStepConfig {
   return {

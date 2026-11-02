@@ -3,7 +3,7 @@
 // The Aa popover is document-only: it steps the same per-surface zoom setting the Ctrl/Cmd+wheel
 // handler in useDocumentZoom drives. App-wide look (theme, interface font) lives in the sidebar
 // footer's Appearance menu and Settings → Theme — not here.
-import { isMarkdownFormat } from "../../documents/capabilities";
+import { isMarkdownFormat } from "../../documents/capabilities.js";
 import { memo, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { SidebarSimple } from "@phosphor-icons/react/dist/icons/SidebarSimple";
 import { TextAa } from "@phosphor-icons/react/dist/icons/TextAa";

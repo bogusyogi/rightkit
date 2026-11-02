@@ -8,8 +8,8 @@ import {
   probeInferenceConnection,
   setDirectConnectionSecret,
   updateDirectConnection,
-} from "../lib/daemon/inference";
-import type { DaemonConfig } from "../lib/types";
+} from "../lib/daemon/inference.js";
+import type { DaemonConfig } from "../lib/types.js";
 import type {
   CatalogGroup,
   CatalogModel,
@@ -18,7 +18,7 @@ import type {
   InferenceAuthority,
   InferenceProtocol,
   InferenceSelection,
-} from "../lib/types/inference";
+} from "../lib/types/inference.js";
 
 export type ConnectionProfileKind = "local" | "remote";
 export type DirectConnectionInput = Parameters<typeof createDirectConnection>[1];

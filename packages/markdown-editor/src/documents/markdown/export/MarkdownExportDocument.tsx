@@ -1,7 +1,7 @@
 import { useLayoutEffect } from "react";
-import { MarkdownDocumentBody } from "../MarkdownDocumentBody";
-import type { MarkdownCoreSnapshot } from "../core/MarkdownDocumentTypes";
-import { type MarkdownRenderTracker, MarkdownRenderTrackerContext } from "./MarkdownRenderTracker";
+import { MarkdownDocumentBody } from "../MarkdownDocumentBody.js";
+import type { MarkdownCoreSnapshot } from "../core/MarkdownDocumentTypes.js";
+import { type MarkdownRenderTracker, MarkdownRenderTrackerContext } from "./MarkdownRenderTracker.js";
 
 export function MarkdownExportDocument({
   snapshot,

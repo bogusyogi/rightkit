@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { OcrLine } from "./pdfOcr";
+import type { OcrLine } from "./pdfOcr.js";
 
 export function PdfOcrLayer({ lines }: { lines: OcrLine[] }) {
   return (

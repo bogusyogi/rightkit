@@ -1,9 +1,9 @@
 import { useCallback, useRef, type ComponentProps, type MutableRefObject } from "react";
-import type { DocumentRouter } from "../documents/DocumentRouter";
+import type { DocumentRouter } from "../documents/DocumentRouter.js";
 import type { HtmlSessionPages } from "@rightkit/html-editor/documents/html/sessionTypes";
-import type { DocumentTabs } from "./useDocumentTabs";
-import type { useHtmlSession } from "./useHtmlSession";
-import type { useDocumentWatcher } from "./useDocumentWatcher";
+import type { DocumentTabs } from "./useDocumentTabs.js";
+import type { useHtmlSession } from "./useHtmlSession.js";
+import type { useDocumentWatcher } from "./useDocumentWatcher.js";
 
 // Shared stable "no sub-pages yet" reference for htmlPropsFor's per-path cache below — a fresh `{}`
 // literal on every miss would defeat the cache's identity check for a session with no sub-pages.

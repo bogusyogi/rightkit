@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { onboardingStateKey, type PersistedOnboardingState } from "@rightkit/onboarding";
-import { legalReceipt } from "../lib/legal";
-import { onboardingSettings } from "../lib/onboardingSettings";
-import { FLOW_KEY, freshFlow, writeSetting } from "./flow";
+import { legalReceipt } from "../lib/legal.js";
+import { onboardingSettings } from "../lib/onboardingSettings.js";
+import { FLOW_KEY, freshFlow, writeSetting } from "./flow.js";
 
 /** Settings > General > "Show onboarding again" fires this on `window` (Settings.tsx). */
 export const SHOW_ONBOARDING = "pulse-show-onboarding";

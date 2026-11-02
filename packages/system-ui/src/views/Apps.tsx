@@ -20,10 +20,9 @@ import {
   type UninstallResult,
   type UpdateJob,
   type UpdateReport,
-} from "../api";
-import { readKept, writeKept } from "../kept";
-import { upTo } from "./storageEstimate";
-import "./apps.css";
+} from "../api.js";
+import { readKept, writeKept } from "../kept.js";
+import { upTo } from "./storageEstimate.js";
 
 const DAY = 86_400;
 const UNUSED_DAYS = 90;

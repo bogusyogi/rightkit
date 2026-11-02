@@ -1,4 +1,4 @@
-import type { TranscriptMessage } from "./types";
+import type { TranscriptMessage } from "./types.js";
 
 /** Keep find-in-transcript work bounded even for a very large session. */
 export const MAX_TRANSCRIPT_SEARCH_MATCHES = 20_000;

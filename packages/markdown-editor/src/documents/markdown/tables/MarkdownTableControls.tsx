@@ -2,7 +2,7 @@ import type { EditorView } from "prosemirror-view";
 import type { Command } from "prosemirror-state";
 import { NodeSelection, TextSelection } from "prosemirror-state";
 import { Dropdown, Item, Sep } from "@rightkit/document-core/documents/toolbarPrimitives";
-import { setMarkdownTransactionIntent } from "../projection/markdownTransactionIntent";
+import { setMarkdownTransactionIntent } from "../projection/markdownTransactionIntent.js";
 import {
   getMarkdownTableSourceRange,
   markdownTableAddColumnAfter,
@@ -14,7 +14,7 @@ import {
   markdownTableDeleteRow,
   setMarkdownTableAlignment,
   type MarkdownTableContext,
-} from "./markdownTableCommands";
+} from "./markdownTableCommands.js";
 
 export interface MarkdownTableToolbarGroupProps {
   readonly context: MarkdownTableContext;

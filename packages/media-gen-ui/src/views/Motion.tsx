@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { assetUrl, engineCommand, errorCode, errorMessage, isTauri, studio } from '../lib/api';
+import { assetUrl, engineCommand, errorCode, errorMessage, isTauri, studio } from '../lib/api.js';
 import { Badge, Button, Checkbox, EmptyState, Input, Notice, ProgressBar, Select } from '@rightkit/react-shell/react';
-import { Kv } from '../components/ui';
-import { isH264Encoder } from '../lib/motion-encoder';
+import { Kv } from '../components/ui.js';
+import { isH264Encoder } from '../lib/motion-encoder.js';
 import { MediaPlayer } from '@rightkit/media-ui';
-import './motion.css';
 
 interface Template { id: string; name: string; description: string; width: number; height: number; duration_s: number; fps: number }
 interface Plan {

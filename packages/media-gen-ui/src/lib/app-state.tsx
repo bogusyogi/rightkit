@@ -25,8 +25,8 @@ import {
   type MediaKind,
   type ModelEntry,
   type SpendStatus
-} from './api';
-import type { LocalImageProfile } from './types';
+} from './api.js';
+import type { LocalImageProfile } from './types.js';
 
 export interface SessionJob {
   key: string;

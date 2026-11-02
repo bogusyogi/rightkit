@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldShowOnboardingPanel } from "./sessionSurfaces";
+import { shouldShowOnboardingPanel } from "./sessionSurfaces.js";
 
 describe("shouldShowOnboardingPanel", () => {
   it("stays hidden during a normal engine boot with a known workspace", () => {

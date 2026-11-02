@@ -16,8 +16,8 @@ import {
   setCliDelegationPolicy,
   type CliProviderMutation,
 } from "@rightkit/agent-ui-core/lib/daemon/cli-providers";
-import ChildProviderPolicy from "./ChildProviderPolicy";
-import ApiKeyAccounts from "./ApiKeyAccounts";
+import ChildProviderPolicy from "./ChildProviderPolicy.js";
+import ApiKeyAccounts from "./ApiKeyAccounts.js";
 import type { CatalogGroup, DirectConnection, LoadSnapshot } from "@rightkit/agent-ui-core/lib/types/inference";
 import {
   createDirectConnection,
@@ -27,7 +27,7 @@ import {
   listInferenceConnections,
   probeInferenceConnection,
 } from "@rightkit/agent-ui-core/lib/daemon/inference";
-import { hostAppName } from "../../../appName";
+import { hostAppName } from "../../../appName.js";
 
 function Disclosure({ label, children }: { label: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);

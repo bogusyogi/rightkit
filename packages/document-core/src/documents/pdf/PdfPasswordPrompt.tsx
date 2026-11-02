@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { ActionDialog } from "@rightkit/react-shell/react";
-import { DIALOG_SLOTS, cancelAction, primaryAction } from "../../app/chrome";
+import { DIALOG_SLOTS, cancelAction, primaryAction } from "../../app/chrome.js";
 
 // App-native PDF password modal (replaces window.prompt). Keyboard-accessible: autofocus, Enter to
 // submit, Esc to cancel; the shared modal shell provides role="dialog", focus trap, and Escape.

@@ -2,7 +2,7 @@ import { EmptyState } from "@rightkit/react-shell/react";
 import { useMemo, useState } from "react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import type { SkillItem } from "@rightkit/agent-ui-core/lib/types";
-import type { SkillListPanelProps } from "./types";
+import type { SkillListPanelProps } from "./types.js";
 
 export function SkillEffectsText(skill: SkillItem): string {
   const effects = skill.effects;

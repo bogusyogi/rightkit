@@ -1,5 +1,5 @@
 import type { ExecutionBackendConfig, ExecutionNetworkProfile } from "@rightkit/agent-ui-core/lib/types";
-import { ExecutionBackendCard } from "./ExecutionBackendCard";
+import { ExecutionBackendCard } from "./ExecutionBackendCard.js";
 
 interface ExecutionBackendListProps {
   backends: ExecutionBackendConfig[];

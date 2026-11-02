@@ -5,7 +5,7 @@ import {
   encodeSessionShareCode,
   SessionShareCodeError,
   type SessionShareGraph,
-} from "./sessionShareCode";
+} from "./sessionShareCode.js";
 
 function sampleGraph(): SessionShareGraph {
   return {

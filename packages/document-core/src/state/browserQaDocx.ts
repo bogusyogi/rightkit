@@ -1,4 +1,4 @@
-import type { LoadedDocument } from "../documents/types";
+import type { LoadedDocument } from "../documents/types.js";
 
 // IPC-boundary DOCX disk, confined to disposable QA profile. Readback exposes only saved bytes.
 const PREFIX = "viewright.qa.docx-disk:";

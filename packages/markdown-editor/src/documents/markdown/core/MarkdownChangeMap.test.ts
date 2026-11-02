@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ChangeSet } from "@codemirror/state";
-import { MarkdownChangeMap } from "./MarkdownChangeMap";
+import { MarkdownChangeMap } from "./MarkdownChangeMap.js";
 
 describe("MarkdownChangeMap — position mapping", () => {
   it("agrees with CodeMirror ChangeSet on LF-only randomized cases", () => {

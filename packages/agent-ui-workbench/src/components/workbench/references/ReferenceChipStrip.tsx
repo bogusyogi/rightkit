@@ -1,6 +1,6 @@
 import { memo } from "react";
 
-import ReferenceChip from "./ReferenceChip";
+import ReferenceChip from "./ReferenceChip.js";
 import type { ReferenceObject } from "@rightkit/agent-ui-core/lib/types/references";
 
 // Renders the typed-reference chip strip in two modes:

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { SubAgentState } from "@rightkit/agent-ui-core/hooks/useSubAgents";
 import type { TaskRow } from "@rightkit/agent-ui-core/lib/types";
-import { ExecutionGraphPane } from "./ExecutionGraphPane";
+import { ExecutionGraphPane } from "./ExecutionGraphPane.js";
 
 describe("ExecutionGraphPane", () => {
   it("joins daemon task & agent projections with dependency, route, & activity state", () => {

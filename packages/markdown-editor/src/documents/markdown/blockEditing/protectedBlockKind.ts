@@ -6,7 +6,7 @@
  * dispatches editing commands to registered kinds.
  */
 
-import type { BlockKind } from "./types";
+import type { BlockKind } from "./types.js";
 
 /**
  * One registration.

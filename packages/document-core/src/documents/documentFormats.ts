@@ -1,5 +1,5 @@
-import documentFormatsTsv from "../shared/document_formats.tsv?raw";
-import type { DocFormat } from "./types";
+import documentFormatsTsv from "../shared/documentFormatsTsv.js";
+import type { DocFormat } from "./types.js";
 
 export interface DocumentFormatEntry {
   extension: string;

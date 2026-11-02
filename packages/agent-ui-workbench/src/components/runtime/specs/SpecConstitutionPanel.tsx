@@ -1,6 +1,6 @@
 import { Select } from "@rightkit/react-shell/react";
 import type { ConstitutionSource } from "@rightkit/agent-ui-core/lib/types";
-import type { SpecConstitutionPanelProps, SpecConstitutionVerdictProps } from "./types";
+import type { SpecConstitutionPanelProps, SpecConstitutionVerdictProps } from "./types.js";
 
 function SpecConstitutionVerdict({ verdict }: SpecConstitutionVerdictProps) {
   const className =

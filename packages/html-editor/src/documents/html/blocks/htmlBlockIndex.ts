@@ -12,7 +12,7 @@ import {
   sourceChecksum,
   type HtmlParseNode,
   type SourceRange,
-} from "../sourceMap";
+} from "../sourceMap.js";
 
 export type BlockKind =
   | "paragraph"

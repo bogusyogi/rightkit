@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createGitIndexMutationQueue,
   type GitIndexMutationDirection,
-} from "./gitIndexMutationQueue";
+} from "./gitIndexMutationQueue.js";
 
 type Deferred<T> = {
   promise: Promise<T>;

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import type { MicRecording } from "./useMicRecorder";
-import { useVoiceConversation } from "./useVoiceConversation";
+import type { MicRecording } from "./useMicRecorder.js";
+import { useVoiceConversation } from "./useVoiceConversation.js";
 
 const micHandle = {
   cancel: vi.fn(),
@@ -13,8 +13,8 @@ const micHandle = {
   })),
 };
 
-vi.mock("./useMicRecorder", async () => {
-  const actual = await vi.importActual<typeof import("./useMicRecorder")>("./useMicRecorder");
+vi.mock("./useMicRecorder.js", async () => {
+  const actual = await vi.importActual<typeof import("./useMicRecorder")>("./useMicRecorder.js");
   return {
     ...actual,
     useMicRecorder: () => ({ handle: micHandle, level: 0.25, recording: true }),

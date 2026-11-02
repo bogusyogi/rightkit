@@ -6,9 +6,9 @@ import {
   clearFileDraft,
   writeDraftDebounced,
   writeFileDraftDebounced,
-} from "./documentDrafts";
+} from "./documentDrafts.js";
 import { toast } from "@rightkit/platform-ui/headless";
-import type { DocumentTabs } from "./useDocumentTabs";
+import type { DocumentTabs } from "./useDocumentTabs.js";
 
 /** New-untitled / duplicate-as-draft creation and the txt keystroke path (edits + draft persistence). */
 export function useDocumentCreation(deps: {

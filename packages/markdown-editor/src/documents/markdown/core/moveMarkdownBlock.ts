@@ -20,8 +20,8 @@
  * would type by hand, and it round-trips a `preserve` insert exactly.
  */
 
-import type { MarkdownCoreSnapshot } from "./MarkdownDocumentTypes";
-import type { MarkdownTextEdit } from "./types";
+import type { MarkdownCoreSnapshot } from "./MarkdownDocumentTypes.js";
+import type { MarkdownTextEdit } from "./types.js";
 
 export type MoveMarkdownBlockDirection = "up" | "down";
 

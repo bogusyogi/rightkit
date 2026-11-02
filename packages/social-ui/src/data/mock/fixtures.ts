@@ -11,7 +11,7 @@
 //   two accounts on one platform for one venture  acc-pp-ig-main and acc-pp-ig-shorts
 //   rejected with reason                           job-1011
 //   published with readback                        job-1010
-import type { Account, PublishJob } from "../types";
+import type { Account, PublishJob } from "../types.js";
 
 /** The daemon clock for the mock. Fixed so the fixtures always read the same. */
 export const MOCK_NOW_UTC = "2026-10-12T18:30:00Z";

@@ -1,25 +1,25 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { formatInvokeError } from "../lib/errorMessage";
-import type { DisplayJob, HistoryRow, JobEvent, JobInfo, MediaSpec } from "../contract";
-import { getShell, invoke, listen } from "../lib/ipc";
-import { applyJobEvent, isTerminalStage } from "../lib/jobState";
+import { formatInvokeError } from "../lib/errorMessage.js";
+import type { DisplayJob, HistoryRow, JobEvent, JobInfo, MediaSpec } from "../contract.js";
+import { getShell, invoke, listen } from "../lib/ipc/index.js";
+import { applyJobEvent, isTerminalStage } from "../lib/jobState.js";
 import {
   buildDesktopSourceGroups,
   type DesktopSource,
   type DesktopSourceFilter,
-} from "../lib/desktopSources";
+} from "../lib/desktopSources.js";
 import {
   HISTORY_PAGE_SIZE,
   mergeHistoryRows,
   nearBottom,
   type HistoryPage,
-} from "../lib/historyPage";
-import { isActiveStage, labelForSource, categoryForKind, statusText } from "../lib/jobDisplay";
-import { parseTimestamp } from "../lib/format";
-import { IMAGE_KIND_LABEL } from "../lib/mediaSelection";
-import { selectWorkbenchJobId } from "../lib/workbench";
-import { isMac } from "../lib/platform";
-import { applyTheme, loadThemeChoice, saveThemeChoice, themeStore } from "../lib/theme";
+} from "../lib/historyPage.js";
+import { isActiveStage, labelForSource, categoryForKind, statusText } from "../lib/jobDisplay.js";
+import { parseTimestamp } from "../lib/format.js";
+import { IMAGE_KIND_LABEL } from "../lib/mediaSelection.js";
+import { selectWorkbenchJobId } from "../lib/workbench.js";
+import { isMac } from "../lib/platform.js";
+import { applyTheme, loadThemeChoice, saveThemeChoice, themeStore } from "../lib/theme.js";
 import {
   ChevronDown,
   Columns2,
@@ -37,12 +37,11 @@ import {
 import { AppShell, CaptionControls } from "@rightkit/react-shell/react";
 import type { NavGroup } from "@rightkit/react-shell";
 import { moveIndex, type ListMove } from "@rightkit/platform-ui/headless";
-import { PasteBar } from "./PasteBar";
-import { CAPTION_LABELS } from "./TitleBar";
-import { JobStatePreview } from "./JobStatePreview";
-import { Detail } from "../views/Detail";
-import { SourcePlatformIcon, sourcePlatform } from "./SourcePlatformIcon";
-import "./ClaudeDesktop.css";
+import { PasteBar } from "./PasteBar.js";
+import { CAPTION_LABELS } from "./TitleBar.js";
+import { JobStatePreview } from "./JobStatePreview.js";
+import { Detail } from "../views/Detail.js";
+import { SourcePlatformIcon, sourcePlatform } from "./SourcePlatformIcon.js";
 
 // The workspace has no navigation list of its own (the title bar tabs are app chrome), so the shell
 // frame gets an empty destination set.

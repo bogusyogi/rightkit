@@ -1,15 +1,15 @@
 // I1 — public surface for the authoritative review module.
 
-export { default as ReviewPane } from "./ReviewPane";
-export type { ReviewPaneProps } from "./ReviewPane";
+export { default as ReviewPane } from "./ReviewPane.js";
+export type { ReviewPaneProps } from "./ReviewPane.js";
 
-export { default as ChangedFilesCard } from "./ChangedFilesCard";
-export type { ChangedFilesCardProps } from "./ChangedFilesCard";
+export { default as ChangedFilesCard } from "./ChangedFilesCard.js";
+export type { ChangedFilesCardProps } from "./ChangedFilesCard.js";
 
-export * from "./runChangesClient";
-export * from "./runChangesStore";
+export * from "./runChangesClient.js";
+export * from "./runChangesStore.js";
 export {
   dispatch,
   resetStore,
   useRunChangesState,
-} from "./useRunChangesState";
+} from "./useRunChangesState.js";

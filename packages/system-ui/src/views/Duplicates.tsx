@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { Badge, Button, ConfirmDialog, EmptyState, Input, Notice } from "@rightkit/react-shell/react";
 import { Copy } from "lucide-react";
-import { api, bytes, isWindows, type DuplicateReport } from "../api";
-import "./health.css";
+import { api, bytes, isWindows, type DuplicateReport } from "../api.js";
 
 // Windows moves extra copies to the Recycle Bin; the Mac moves them to the Trash.
 const TRASH = isWindows ? "Recycle Bin" : "Trash";

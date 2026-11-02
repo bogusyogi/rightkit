@@ -1,5 +1,5 @@
 import type { BudgetConfig } from "@rightkit/agent-ui-core/lib/types";
-import type { SettingsDraft } from "../types";
+import type { SettingsDraft } from "../types.js";
 import { OfflinePanel } from "@rightkit/agent-ui-settings/components/settings/tabs/shared";
 
 export default function BudgetsTab({

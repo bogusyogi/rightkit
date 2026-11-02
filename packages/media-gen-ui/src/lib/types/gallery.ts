@@ -1,4 +1,4 @@
-import type { AssetFacts, AssetScope } from './library';
+import type { AssetFacts, AssetScope } from './library.js';
 
 export type ArtifactType = 'image' | 'video' | 'audio' | 'unknown';
 export type Brand = 'DD' | 'RH' | 'TS' | 'HR' | 'DV' | 'KDP' | 'NA';

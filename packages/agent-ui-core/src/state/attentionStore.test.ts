@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../lib/daemon/delivery-environments-attention", () => ({
+vi.mock("../lib/daemon/delivery-environments-attention.js", () => ({
   listAttentionItems: () => undefined,
   updateAttentionState: () => undefined,
   snoozeAttentionItem: () => undefined,
@@ -46,13 +46,13 @@ vi.mock("../lib/daemon/delivery-environments-attention", () => ({
   environmentKindLabel: (kind: string) => kind,
 }));
 
-import { useAttentionStore } from "./attentionStore";
-import * as client from "../lib/daemon/delivery-environments-attention";
+import { useAttentionStore } from "./attentionStore.js";
+import * as client from "../lib/daemon/delivery-environments-attention.js";
 import type {
   AttentionListResponse,
   AttentionState,
   ProjectNotificationPolicy,
-} from "../lib/types";
+} from "../lib/types.js";
 
 const baseConfig = { url: "http://127.0.0.1:1", token: "x" };
 const workspaceRoot = "/Users/me/code";

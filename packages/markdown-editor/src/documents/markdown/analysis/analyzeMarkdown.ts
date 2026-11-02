@@ -6,18 +6,18 @@
  * never touches the filesystem.
  */
 
-import { topLevelNodes } from "../core/markdownSourceMapIndexes";
+import { topLevelNodes } from "../core/markdownSourceMapIndexes.js";
 import type {
   MarkdownAnalysis,
   MarkdownFootnoteEntry,
   MarkdownIssue,
   MarkdownReferenceEntry,
-} from "./types";
-import { makeIssueId } from "./types";
-import { isLocalMarkdownReference, splitMarkdownUrl } from "./markdownUrls";
-import type { MarkdownCoreSnapshot } from "../core/MarkdownDocumentTypes";
-import type { MarkdownSourceNode } from "../core/MarkdownSourceMap";
-import { parseToTree } from "../parseMarkdown";
+} from "./types.js";
+import { makeIssueId } from "./types.js";
+import { isLocalMarkdownReference, splitMarkdownUrl } from "./markdownUrls.js";
+import type { MarkdownCoreSnapshot } from "../core/MarkdownDocumentTypes.js";
+import type { MarkdownSourceNode } from "../core/MarkdownSourceMap.js";
+import { parseToTree } from "../parseMarkdown.js";
 
 const SEVERITY_RANK: Record<MarkdownIssue["severity"], number> = {
   error: 0,

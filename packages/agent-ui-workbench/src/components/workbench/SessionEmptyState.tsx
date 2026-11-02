@@ -1,5 +1,5 @@
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 export default function SessionEmptyState({
   workspaceRoot,

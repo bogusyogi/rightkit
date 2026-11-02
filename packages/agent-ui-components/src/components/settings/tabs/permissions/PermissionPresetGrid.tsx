@@ -1,4 +1,4 @@
-import { permissionRulePresets } from "../../types";
+import { permissionRulePresets } from "../../types.js";
 import type { PermissionRuleEffect } from "@rightkit/agent-ui-core/lib/types";
 
 export default function PermissionPresetGrid({

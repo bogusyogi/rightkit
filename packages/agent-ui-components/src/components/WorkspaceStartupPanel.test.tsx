@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { WorkspaceStartupPanel } from "./WorkspaceStartupPanel";
+import { WorkspaceStartupPanel } from "./WorkspaceStartupPanel.js";
 
 const startup = {
   output: "install failed",

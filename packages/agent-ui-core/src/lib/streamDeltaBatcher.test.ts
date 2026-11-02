@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { STREAM_DELTA_FLUSH_MS, StreamDeltaBatcher } from "./streamDeltaBatcher";
+import { STREAM_DELTA_FLUSH_MS, StreamDeltaBatcher } from "./streamDeltaBatcher.js";
 
 const flushNow = async () => {
   await vi.advanceTimersByTimeAsync(STREAM_DELTA_FLUSH_MS);

@@ -1,10 +1,10 @@
 // All store data fields live in one place; setters are generated from these
 // keys so the store does not maintain a second hand-written setter matrix.
-import { loadThemeChoice, loadFontChoice } from "../lib/theme";
-import { getPref } from "../lib/preferences";
-import { loadKeymap } from "../lib/shortcuts";
-import type { AppFields, AppState, StoreActionKey } from "./types";
-import { makeMk, type StoreSet } from "./mk";
+import { loadThemeChoice, loadFontChoice } from "../lib/theme.js";
+import { getPref } from "../lib/preferences.js";
+import { loadKeymap } from "../lib/shortcuts.js";
+import type { AppFields, AppState, StoreActionKey } from "./types.js";
+import { makeMk, type StoreSet } from "./mk.js";
 
 const CUSTOM_SETTER_NAMES: Partial<Record<keyof AppFields, string>> = {
   imagePolicy: "setImagePolicyState",

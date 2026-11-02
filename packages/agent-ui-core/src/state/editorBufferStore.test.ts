@@ -7,7 +7,7 @@ import {
   getEditorBuffer,
   registerEditorBuffer,
   useEditorBufferStore,
-} from "./editorBufferStore";
+} from "./editorBufferStore.js";
 
 afterEach(() => {
   __resetEditorBuffers();

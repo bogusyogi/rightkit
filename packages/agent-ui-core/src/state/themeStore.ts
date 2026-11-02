@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { applyStoredThemeSync, createThemeStore } from "@rightkit/react-shell";
 import { applyTokens, presetTokens, type TokenPreset } from "@rightkit/theme";
-import paletteData from "./palettes.json";
+import paletteData from "./palettes.json" with { type: "json" };
 
 export type Theme = "dark" | "light";
 export type Palette = "coderight" | "heardright" | "viewright" | "scraperight" | "mailright";

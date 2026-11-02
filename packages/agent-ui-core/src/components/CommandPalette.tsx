@@ -2,17 +2,17 @@ import { useEffect, useMemo } from "react";
 import type { Command as ShellCommand } from "@rightkit/react-shell";
 import { CommandPalette as ShellCommandPalette } from "@rightkit/react-shell/react";
 
-import Icon from "./Icon";
-import type { IconName } from "./Icon";
-import type { CommandInfo } from "../lib/daemon";
-import type { RightPanelTab } from "../state/rightPanelStore";
+import Icon from "./Icon.js";
+import type { IconName } from "./Icon.js";
+import type { CommandInfo } from "../lib/daemon.js";
+import type { RightPanelTab } from "../state/rightPanelStore.js";
 import {
   SCOPE_LABELS,
   usePaletteStore,
   type PaletteGroup,
   type PaletteItem,
   type PaletteScope,
-} from "../state/paletteStore";
+} from "../state/paletteStore.js";
 
 type Pane = "session" | "tasks" | "runtime" | "terminal" | "memory";
 export type UtilityTarget =

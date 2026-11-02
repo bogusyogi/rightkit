@@ -11,13 +11,13 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { RuntimeTab } from "@rightkit/agent-ui-workbench/components/RuntimePane";
 import type { ExternalDriverKind } from "@rightkit/agent-ui-core/lib/types";
-import type { SettingsTab, ToolsetDraft } from "../../../components/settings/types";
-import type { useShellUiState } from "../../useShellUiState";
+import type { SettingsTab, ToolsetDraft } from "../../../components/settings/types.js";
+import type { useShellUiState } from "../../useShellUiState.js";
 import type { useDaemonConnection } from "@rightkit/agent-ui-hooks/hooks/useDaemonConnection";
 import type { useLicenseState } from "@rightkit/agent-ui-core/hooks/useLicenseState";
 import type { useSessionList } from "@rightkit/agent-ui-hooks/hooks/useSessionList";
-import type { useSessionLifecycle } from "../../useSessionLifecycle";
-import type { useOrchestrationSettings } from "../../useOrchestrationSettings";
+import type { useSessionLifecycle } from "../../useSessionLifecycle.js";
+import type { useOrchestrationSettings } from "../../useOrchestrationSettings.js";
 import type { useSubAgents } from "@rightkit/agent-ui-core/hooks/useSubAgents";
 import type { useSessionEvents } from "@rightkit/agent-ui-hooks/hooks/useSessionEvents";
 import type { useQueuedMessages } from "@rightkit/agent-ui-hooks/hooks/useQueuedMessages";
@@ -26,19 +26,19 @@ import type { useGoalManagement } from "@rightkit/agent-ui-core/hooks/useGoalMan
 import type { useRuntimePanels } from "@rightkit/agent-ui-hooks/hooks/useRuntimePanels";
 import type { useTeamsRuntime } from "@rightkit/agent-ui-hooks/hooks/useTeamsRuntime";
 import type { useRuntimeAggregates } from "@rightkit/agent-ui-hooks/hooks/useRuntimeAggregates";
-import type { useSkillsRuntime } from "../../useSkillsRuntime";
-import type { usePluginsRuntime } from "../../usePluginsRuntime";
+import type { useSkillsRuntime } from "../../useSkillsRuntime.js";
+import type { usePluginsRuntime } from "../../usePluginsRuntime.js";
 import type { useLspSettings } from "@rightkit/agent-ui-core/hooks/useLspSettings";
 import type { useAppShellActions } from "@rightkit/agent-ui-hooks/hooks/app/useAppShellActions";
 import type { useAppInteractionActions } from "@rightkit/agent-ui-hooks/hooks/app/useAppInteractionActions";
-import type { useAppAdminActions } from "../useAppAdminActions";
+import type { useAppAdminActions } from "../useAppAdminActions.js";
 import type { useAppSessionActions } from "@rightkit/agent-ui-hooks/hooks/app/useAppSessionActions";
 import type { useDiagnosticsStore } from "@rightkit/agent-ui-core/state/diagnosticsStore";
 import type { useTelegramStore } from "@rightkit/agent-ui-core/state/telegramStore";
 import type { useLocalModelStore } from "@rightkit/agent-ui-core/state/localModelStore";
 import type { useExecutionStore } from "@rightkit/agent-ui-core/state/executionStore";
-import type { useMcpStore } from "../../../state/mcpStore";
-import type { usePermissionsStore } from "../../../state/permissionsStore";
+import type { useMcpStore } from "../../../state/mcpStore.js";
+import type { usePermissionsStore } from "../../../state/permissionsStore.js";
 import type { CommandInfo, PermissionMode } from "@rightkit/agent-ui-core/lib/daemon";
 import type {
   AwaySummary,
@@ -75,7 +75,7 @@ type InteractionActions = ReturnType<typeof useAppInteractionActions>;
 // (diagnostics/localModel/execution/telegram/permissions/mcp) feed
 // buildSettingsPaneProps which reads most fields, so we keep the full
 // store shape forwarded for them and let the surface helpers stay stable.
-import type { useComposerState } from "../../../state/storeSelectors";
+import type { useComposerState } from "../../../state/storeSelectors.js";
 type ComposerSel = ReturnType<typeof useComposerState>;
 
 export interface AppSurfaceInputs {

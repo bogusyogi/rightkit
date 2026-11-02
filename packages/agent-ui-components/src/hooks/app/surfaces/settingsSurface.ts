@@ -1,10 +1,10 @@
 // Settings surface — the settings pane prop assembly.
 // Pure forwarding into buildSettingsPaneProps; no effects.
 
-import { buildSettingsPaneProps } from "../../../lib/appSurfaceProps";
+import { buildSettingsPaneProps } from "../../../lib/appSurfaceProps/index.js";
 import { downloadSupportBundle } from "@rightkit/agent-ui-hooks/hooks/app/useAppSessionActions";
 import type { PermissionMode } from "@rightkit/agent-ui-core/lib/daemon";
-import type { AppSurfaceInputs } from "./types";
+import type { AppSurfaceInputs } from "./types.js";
 
 export function buildSettingsSurface(
   a: AppSurfaceInputs,

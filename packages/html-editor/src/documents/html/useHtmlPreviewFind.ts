@@ -10,7 +10,7 @@ import {
   postInteractiveFindClear,
   postInteractiveFindQuery,
   postInteractiveFindStep,
-} from "./htmlInteractiveProtocol";
+} from "./htmlInteractiveProtocol.js";
 
 const HTML_FIND_PROTOCOL = {
   clear: postInteractiveFindClear,

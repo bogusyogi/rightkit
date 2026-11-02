@@ -1,5 +1,5 @@
 // Search "load more": keyset paging over the backend's newest-first pages.
-import { searchThreads, type SearchCursor, type Thread } from "./ipc";
+import { searchThreads, type SearchCursor, type Thread } from "./ipc.js";
 
 /** Threads per backend search page (db::SEARCH_PAGE_SIZE). */
 export const SEARCH_PAGE_SIZE = 200;

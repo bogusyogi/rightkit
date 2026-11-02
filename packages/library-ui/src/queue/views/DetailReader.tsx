@@ -1,6 +1,5 @@
 import { cx } from "@rightkit/react-shell/react";
 import { MarkdownRenderer } from "@rightkit/doc-render";
-import "@rightkit/doc-render/styles.css";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { MediaPlayer as SharedMediaPlayer, type MediaPlayerProps } from "@rightkit/media-ui";
 import {
@@ -17,16 +16,16 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
-import type { TranscriptDetail } from "../contract";
-import { imageCountLabel } from "../lib/mediaSelection";
-import { buttonClass, inputClass, mutedTextClass, panelClass } from "../lib/ui";
+import type { TranscriptDetail } from "../contract.js";
+import { imageCountLabel } from "../lib/mediaSelection.js";
+import { buttonClass, inputClass, mutedTextClass, panelClass } from "../lib/ui.js";
 import {
   parseSrt,
   findSegments,
   findTextForMarkdown,
   normalizeFindQuery,
   type SrtCue,
-} from "./detailFind";
+} from "./detailFind.js";
 
 export {
   countEntryMatches,
@@ -34,7 +33,7 @@ export {
   stampToSeconds,
   transcriptEntries,
   normalizeFindQuery,
-} from "./detailFind";
+} from "./detailFind.js";
 
 export type DetailTab = "txt" | "txtTime" | "md" | "mdTime" | "srt";
 

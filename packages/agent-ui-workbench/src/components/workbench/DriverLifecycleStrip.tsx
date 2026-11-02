@@ -15,7 +15,7 @@ import type {
   DriverLifecycle,
   ExternalDriverKind,
 } from "@rightkit/agent-ui-core/lib/types";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 const POLL_MS = 2_000;
 

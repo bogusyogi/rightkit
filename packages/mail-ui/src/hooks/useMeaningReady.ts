@@ -1,7 +1,7 @@
 import { useEffect } from "react";
-import { semanticIndexStatus } from "../lib/ipc";
-import { meaningAvailable } from "../lib/semanticStatus";
-import { useAppStore } from "../store";
+import { semanticIndexStatus } from "../lib/ipc.js";
+import { meaningAvailable } from "../lib/semanticStatus.js";
+import { useAppStore } from "../store/index.js";
 
 const POLL_MS = 60_000;
 

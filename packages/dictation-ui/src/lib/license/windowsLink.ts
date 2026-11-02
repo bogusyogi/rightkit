@@ -7,9 +7,9 @@
 
 import type { LicenseView } from "@rightkit/license";
 
-import { invoke } from "../tauri";
-import { licenseCommandError } from "./errors";
-import { notifyLicenseUpdated, refreshEntitlements } from "./core";
+import { invoke } from "../tauri.js";
+import { licenseCommandError } from "./errors.js";
+import { notifyLicenseUpdated, refreshEntitlements } from "./core.js";
 
 type LinkRequestAnswer =
   | { outcome: "issued"; code: string; expiresAt: number }

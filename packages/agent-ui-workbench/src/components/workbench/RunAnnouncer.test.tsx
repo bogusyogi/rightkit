@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import RunAnnouncer from "./RunAnnouncer";
+import RunAnnouncer from "./RunAnnouncer.js";
 
 // The transcript renders new messages with no live region, so a screen-reader
 // user got silence — no signal the agent started, none when the answer landed.

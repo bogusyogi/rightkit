@@ -7,8 +7,8 @@ import type {
   SkillItem,
   SkillListResponse,
   SkillSaveResponse,
-} from "../types";
-import { requestDaemonApi } from "../generated/daemon-openapi";
+} from "../types.js";
+import { requestDaemonApi } from "../generated/daemon-openapi.js";
 
 /** The daemon-owned inputs for a marketplace catalog refresh. */
 export interface MarketplaceCatalogSyncRequest {

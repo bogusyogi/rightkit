@@ -2,8 +2,8 @@ import {
   createWorktree as createDaemonWorktree,
   listWorktrees as listDaemonWorktrees,
   removeWorktree as removeDaemonWorktree,
-} from "../daemon/delivery-environments-attention";
-import type { DaemonConfig } from "../types/settings-plugins";
+} from "../daemon/delivery-environments-attention.js";
+import type { DaemonConfig } from "../types/settings-plugins.js";
 
 /** The renderer's read-only projection of a daemon-owned Git worktree. */
 export interface WorktreeMetadata {

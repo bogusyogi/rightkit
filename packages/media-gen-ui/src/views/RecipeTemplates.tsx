@@ -10,11 +10,11 @@ import {
   type RecipePreflightResult,
   type RecipeTemplate,
   type RecipeTemplatesResult
-} from '../lib/api';
+} from '../lib/api.js';
 import { Card, Badge, Button, EmptyState, Input, Notice, Select, Toggle } from '@rightkit/react-shell/react';
-import { Kv, usd } from '../components/ui';
-import { EngineError, toError } from '../lib/engine-error';
-import { RecipeCharacterBatch } from './RecipeCharacterBatch';
+import { Kv, usd } from '../components/ui.js';
+import { EngineError, toError } from '../lib/engine-error.js';
+import { RecipeCharacterBatch } from './RecipeCharacterBatch.js';
 import {
   approvalFailureText,
   buildComposeInput,
@@ -27,8 +27,8 @@ import {
   unservedRouteNames,
   violationsBySlot,
   withStaged
-} from './recipe-templates-logic';
-import { hostAppName } from "../appName";
+} from './recipe-templates-logic.js';
+import { hostAppName } from "../appName.js";
 
 const APPROVE_LABEL: Record<string, string> = { single: 'Approve request', draft: 'Approve draft', final: 'Approve final' };
 

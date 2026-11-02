@@ -1,15 +1,15 @@
 import { Button, IconButton, Select, Checkbox } from "@rightkit/react-shell/react";
-import Icon from "../components/Icons";
-import { setPref } from "../lib/preferences";
-import { syncAll, deleteDrafts, unsnoozeThread } from "../lib/ipc";
+import Icon from "../components/Icons.js";
+import { setPref } from "../lib/preferences.js";
+import { syncAll, deleteDrafts, unsnoozeThread } from "../lib/ipc.js";
 import {
   type ThreadAction,
   getListToolbarActions,
   invokeAction,
-} from "../lib/folderActions";
-import type { Folder } from "../lib/mail";
-import type { BulkAction } from "../store/types";
-import { clickTrace } from "../lib/telemetry";
+} from "../lib/folderActions.js";
+import type { Folder } from "../lib/mail.js";
+import type { BulkAction } from "../store/types.js";
+import { clickTrace } from "../lib/telemetry.js";
 
 type SelectedRef = { account_id: string; thread_id: string };
 

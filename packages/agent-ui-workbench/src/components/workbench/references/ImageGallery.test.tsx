@@ -1,7 +1,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import ImageGallery from "./ImageGallery";
+import ImageGallery from "./ImageGallery.js";
 import type { ReferenceObject } from "@rightkit/agent-ui-core/lib/types/references";
 
 function makeImage(

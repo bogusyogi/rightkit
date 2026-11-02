@@ -10,13 +10,13 @@ import {
   isPro,
   licenseUpdateHeaders,
   licenseUpdateInstallHeaders,
-} from "./license";
-import { invoke, listen } from "./tauri";
-import { logs } from "./logs";
-import { getPlatform } from "../hooks/usePlatform";
-import { createHostAutoUpdateClient } from "./heardRightAutoUpdateClient";
-import { relaunchForUpdate } from "./relaunchForUpdate";
-import type { SettingsBlob } from "../types/settings";
+} from "./license.js";
+import { invoke, listen } from "./tauri.js";
+import { logs } from "./logs.js";
+import { getPlatform } from "../hooks/usePlatform.js";
+import { createHostAutoUpdateClient } from "./heardRightAutoUpdateClient.js";
+import { relaunchForUpdate } from "./relaunchForUpdate.js";
+import type { SettingsBlob } from "../types/settings.js";
 
 type AppStatePayload = { state?: string };
 
@@ -27,7 +27,7 @@ let started = false;
 let manualCheckInProgress = false;
 let interactiveInstall: Promise<AutoUpdateStatus> | null = null;
 function initialStatus(): AutoUpdateStatus {
-  if (!import.meta.env.DEV || typeof window === "undefined") return { kind: "idle" };
+  if (!import.meta.env?.DEV || typeof window === "undefined") return { kind: "idle" };
   const params = new URLSearchParams(window.location.search);
   if (params.get("qa") !== "1") return { kind: "idle" };
   switch (params.get("qa-update")) {

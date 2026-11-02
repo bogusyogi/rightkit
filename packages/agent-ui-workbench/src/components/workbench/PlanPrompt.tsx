@@ -6,7 +6,7 @@ import {
   parseEditablePlan,
   updatePlanStep,
   type EditablePlanDraft,
-} from "./planEditing";
+} from "./planEditing.js";
 
 export default function PlanPrompt({
   plan,

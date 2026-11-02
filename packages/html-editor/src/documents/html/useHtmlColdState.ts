@@ -5,8 +5,8 @@ import {
   type MutableRefObject,
   type SetStateAction,
 } from "react";
-import { sourceChecksum } from "./sourceMap";
-import { htmlColdStateCache } from "./htmlResourceLifecycle";
+import { sourceChecksum } from "./sourceMap.js";
+import { htmlColdStateCache } from "./htmlResourceLifecycle.js";
 
 interface HtmlColdStateDeps {
   entryPath: string;

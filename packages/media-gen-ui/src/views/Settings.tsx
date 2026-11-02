@@ -1,33 +1,30 @@
 import { useEffect, useMemo, useState } from 'react';
 import { SettingsPanel, mergeSections, sectionIcons, standardSections, type SettingsSection } from '@rightkit/settings-ui';
-import '@rightkit/settings-ui/settings.css';
-import pkg from '@rightkit-host/package.json';
-import { errorMessage, fetchApps, fetchCredentialStatus, setMonthlySpendCap, setSpendCap, type CredentialProvider, type InstalledApp, type SpendPeriodAmounts } from '../lib/api';
-import { SpendReconcile } from './SpendReconcile';
-import { DeviceAllowance } from './DeviceAllowance';
-import { estimatedText, formatUsd, invoiceReconciledText, providerReportedText } from './spend-reconcile-logic';
-import { useApp } from '../lib/app-state';
-import { doctorHealthy, scalarRows } from '../lib/doctor';
-import { platformOS } from '../lib/platform';
-import type { SettingsSectionId } from '../lib/nav';
-import { settingsBackend } from '../lib/settings-backend';
-import { LEGAL_DOCUMENT_SOURCES, THIRD_PARTY_NOTICES, type LegalDocumentId } from '../legal/documents';
-import { themeStore } from '../lib/theme';
-import { KeyRow } from '../components/KeyRow';
-import { VastKeyRow } from '../components/VastKeyRow';
-import { Balances } from '../components/Balances';
-import { ModelsPanel } from './ModelsPanel';
-import { ImportEnvButton } from '../components/ImportEnvButton';
-import { LegalDocumentView } from './LegalDocument';
+import { errorMessage, fetchApps, fetchCredentialStatus, setMonthlySpendCap, setSpendCap, type CredentialProvider, type InstalledApp, type SpendPeriodAmounts } from '../lib/api.js';
+import { SpendReconcile } from './SpendReconcile.js';
+import { DeviceAllowance } from './DeviceAllowance.js';
+import { estimatedText, formatUsd, invoiceReconciledText, providerReportedText } from './spend-reconcile-logic.js';
+import { useApp } from '../lib/app-state.js';
+import { doctorHealthy, scalarRows } from '../lib/doctor.js';
+import { platformOS } from '../lib/platform.js';
+import type { SettingsSectionId } from '../lib/nav.js';
+import { settingsBackend } from '../lib/settings-backend.js';
+import { LEGAL_DOCUMENT_SOURCES, THIRD_PARTY_NOTICES, type LegalDocumentId } from '../legal/documents.js';
+import { themeStore } from '../lib/theme.js';
+import { KeyRow } from '../components/KeyRow.js';
+import { VastKeyRow } from '../components/VastKeyRow.js';
+import { Balances } from '../components/Balances.js';
+import { ModelsPanel } from './ModelsPanel.js';
+import { ImportEnvButton } from '../components/ImportEnvButton.js';
+import { LegalDocumentView } from './LegalDocument.js';
 import { Card, Badge, Button, Input, Notice, ProgressBar } from '@rightkit/react-shell/react';
-import { usd } from '../components/ui';
-import { createAppUpdateClient } from '../lib/app-update';
-import { tauriCheckForUpdate } from '../lib/app-update-tauri';
+import { usd } from '../components/ui.js';
+import { createAppUpdateClient } from '../lib/app-update.js';
+import { tauriCheckForUpdate } from '../lib/app-update-tauri.js';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { licenseClient } from '../lib/license';
-import { LicensePlan } from './LicensePlan';
-import './workspace.css';
-import { hostAppName } from "../appName";
+import { licenseClient } from '../lib/license.js';
+import { LicensePlan } from './LicensePlan.js';
+import { hostAppName, hostAppVersion } from "../appName.js";
 
 // One client per app run; the Tauri check is the only place that touches the updater plugin.
 const updateClient = createAppUpdateClient(tauriCheckForUpdate);
@@ -231,8 +228,8 @@ export function Settings({ onOpenSetup, initialSection }: { onOpenSetup: () => v
     standardSections({
       appearance: { themeStore },
       license: { client: licenseClient, tierLabels: { pro: 'Pro' }, planSlot: <LicensePlan /> },
-      updates: { client: updateClient, currentVersion: pkg.version, onRestart: () => relaunch() },
-      about: { appName: hostAppName(), version: pkg.version, platform: platformOS, panels: <AppsPanel /> },
+      updates: { client: updateClient, currentVersion: hostAppVersion(), onRestart: () => relaunch() },
+      about: { appName: hostAppName(), version: hostAppVersion(), platform: platformOS, panels: <AppsPanel /> },
     }),
     [
       { id: 'setup', label: 'Setup', group: 'General', order: 200, keywords: ['first-run', 'onboarding', 'wizard'], render: () => <SetupSection onOpenSetup={onOpenSetup} /> },

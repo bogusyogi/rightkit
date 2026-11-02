@@ -12,17 +12,17 @@ import {
   PencilSimple,
   Sparkle,
 } from "@phosphor-icons/react";
-import ErrorBanner from "../components/ErrorBanner";
-import Kbd, { DICTATION_CHORD, pushToTalkChord } from "../components/Kbd";
-import PageShell from "../components/PageShell";
-import { useHomeDashboard } from "../hooks/useHomeDashboard";
-import { usePlatform } from "../hooks/usePlatform";
-import { useSettings } from "../hooks/useSettings";
-import type { HistoryItem } from "../lib/homeMetrics";
-import { invoke, listen } from "../lib/tauri";
-import { cx, ui } from "../lib/ui";
-import { AppIcon } from "./history/AppIcon";
-import { historyActionChip, historyDevice, isLocallyDeletable, targetDisplay } from "./history/historyUtils";
+import ErrorBanner from "../components/ErrorBanner.js";
+import Kbd, { DICTATION_CHORD, pushToTalkChord } from "../components/Kbd.js";
+import PageShell from "../components/PageShell.js";
+import { useHomeDashboard } from "../hooks/useHomeDashboard.js";
+import { usePlatform } from "../hooks/usePlatform.js";
+import { useSettings } from "../hooks/useSettings.js";
+import type { HistoryItem } from "../lib/homeMetrics.js";
+import { invoke, listen } from "../lib/tauri.js";
+import { cx, ui } from "../lib/ui.js";
+import { AppIcon } from "./history/AppIcon.js";
+import { historyActionChip, historyDevice, isLocallyDeletable, targetDisplay } from "./history/historyUtils.js";
 
 // Same payload shape TranscribeSurface consumes - the backend emits
 // `native-drag-drop` for every file drag over the hub window, with the

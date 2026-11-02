@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { LoadedDocument, ViewMode } from "@rightkit/document-core/documents/types";
 import type { ImageSaveFunction } from "@rightkit/media-ui";
 import type { PdfSavePlan } from "@rightkit/document-core/documents/pdf/pdfEditModel";
-import { useDocumentSaver } from "./useDocumentSaver";
+import { useDocumentSaver } from "./useDocumentSaver.js";
 import {
   copyDocument,
   fileFingerprint,
@@ -39,7 +39,7 @@ vi.mock("@rightkit/document-core/state/tauriBridge", () => ({
       : { code: "unknown", message: String(error) },
 }));
 
-vi.mock("../state/library", () => ({
+vi.mock("../state/library.js", () => ({
   recordRecent: vi.fn(async () => {}),
 }));
 

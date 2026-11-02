@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { Attachment } from "../lib/daemon";
-import { useComposerStore } from "./composerStore";
-import { useReferenceStore } from "./referenceStore";
+import type { Attachment } from "../lib/daemon.js";
+import { useComposerStore } from "./composerStore.js";
+import { useReferenceStore } from "./referenceStore.js";
 
 function resetComposerStore() {
   useComposerStore.setState({

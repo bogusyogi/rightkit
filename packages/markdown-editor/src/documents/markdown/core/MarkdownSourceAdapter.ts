@@ -9,7 +9,7 @@
  * offset→node-id lookup used to build selection hints.
  */
 
-import type { MarkdownNodeId } from "./MarkdownNodeIdFactory";
+import type { MarkdownNodeId } from "./MarkdownNodeIdFactory.js";
 
 /**
  * Diff budget in milliseconds. Computing the LCS above this cost

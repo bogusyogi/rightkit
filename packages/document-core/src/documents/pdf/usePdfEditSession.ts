@@ -29,7 +29,7 @@ import {
   type PdfSourceEdit,
   type PdfTextAppearance,
   type PdfTextDraft,
-} from "./pdfEditModel";
+} from "./pdfEditModel.js";
 
 export type PdfEditSessionTool = PdfEditSession["tool"];
 

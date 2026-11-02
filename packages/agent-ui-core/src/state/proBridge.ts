@@ -11,7 +11,7 @@
 // exchange reaches the app through the owner's change event (`licenseClient.onChange`).
 
 import { invoke } from "@tauri-apps/api/core";
-import type { LicenseView } from "./license";
+import type { LicenseView } from "./license.js";
 
 export type ProResolutionStatus = "off" | "blocked_no_keychain" | "ok";
 

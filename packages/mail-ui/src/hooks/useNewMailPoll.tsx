@@ -3,10 +3,10 @@
 // list when the user isn't reading/composing. Extracted from App. Owns the
 // per-account + total "previous count" refs.
 import { useEffect, useRef } from "react";
-import { useAppStore } from "../store";
-import { unreadCounts, notify } from "../lib/ipc";
-import { playChime } from "../lib/sound";
-import { hostAppName } from "../appName";
+import { useAppStore } from "../store/index.js";
+import { unreadCounts, notify } from "../lib/ipc.js";
+import { playChime } from "../lib/sound.js";
+import { hostAppName } from "../appName.js";
 
 export function useNewMailPoll() {
   const openThread = useAppStore((s) => s.openThread);

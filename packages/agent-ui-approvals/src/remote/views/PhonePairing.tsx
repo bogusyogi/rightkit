@@ -16,7 +16,7 @@ import {
 import { qrMatrix, qrSvgPath } from "@rightkit/system-ui/lib/qr";
 import { clearVisibleInterval, visibleInterval } from "@rightkit/system-ui/visible";
 import { SettingRow, SettingsGroup } from "@rightkit/settings-ui/core";
-import { OwnerPinCard, onMac, ownerProblem, touchIdProof } from "./OwnerPin";
+import { OwnerPinCard, onMac, ownerProblem, touchIdProof } from "./OwnerPin.js";
 
 /** Devices > Pair a phone: the QR a phone scans, per-phone read and send modes, and held sends.
  *  The QR holds only public data (`docs/mesh-phone.md`); trust comes from the code and the Approve card. */

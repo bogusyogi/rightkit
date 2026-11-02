@@ -13,10 +13,9 @@ import {
   demoPrepare,
   demoSetEnabled,
   phaseLabel,
-} from "./bindings";
-import { useDemo } from "./useDemo";
-import "./demo.css";
-import { hostAppName } from "../appName";
+} from "./bindings.js";
+import { useDemo } from "./useDemo.js";
+import { hostAppName } from "../appName.js";
 
 export function DemoSettings() {
   const { status, state, refresh } = useDemo();

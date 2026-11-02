@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   comparePluginVersions,
   hasPluginUpdate,
-} from "./usePluginsRuntime";
+} from "./usePluginsRuntime.js";
 
 describe("plugin lifecycle version decisions", () => {
   // Hermes IDE's plugin update tests compare numeric X.Y.Z components rather

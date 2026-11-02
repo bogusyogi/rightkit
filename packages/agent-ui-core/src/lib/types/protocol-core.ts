@@ -1,5 +1,5 @@
-import type { OutputRef, ToolCall } from "./benchmarks-artifacts";
-import type { ReferenceMeta } from "./references";
+import type { OutputRef, ToolCall } from "./benchmarks-artifacts.js";
+import type { ReferenceMeta } from "./references.js";
 
 export type ContentTrust =
   | "system"

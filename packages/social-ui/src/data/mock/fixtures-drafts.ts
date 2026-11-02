@@ -1,7 +1,7 @@
 // RIGHTKIT-PENDING #383: ported version saved in /Volumes/D/scratch/postright/port-wip/full-port.patch
 // Invented manual drafts for the mock. Every URL uses a real allowed host with an obviously fake path.
 // bodyChars is filled in by MockDataSource from the body text, so it cannot drift from the body.
-import type { ManualDraft } from "../types";
+import type { ManualDraft } from "../types.js";
 
 export const FIXTURE_DRAFTS: ManualDraft[] = [
   {

@@ -1,6 +1,6 @@
 import type { SessionRow, TranscriptMessage } from "@rightkit/agent-ui-core/lib/types";
 import { projectName } from "@rightkit/agent-ui-core/lib/utils";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 export interface SessionExportOptions {
   exportedAt?: string;

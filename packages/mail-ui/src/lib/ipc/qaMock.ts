@@ -5,14 +5,14 @@ import {
   QA_LABELS,
   QA_REMOTE_IMAGE_DATA_URL,
   QA_THREADS,
-} from "./qaMockData";
-import { getThread, labelCount, listAttachments, listThreads, searchThreads } from "./qaMockMail";
-import type { InvokeArgs } from "./qaMockTypes";
-import { qaApprovalsInvoke } from "./qaMockApprovals";
-import { qaWorkspaceInvoke } from "./qaMockWorkspace";
-import { qaSemanticInvoke } from "./qaMockSemantic";
-import { qaLicenseInvoke } from "./qaMockLicense";
-import { qaSettingsInvoke } from "./qaMockSettings";
+} from "./qaMockData.js";
+import { getThread, labelCount, listAttachments, listThreads, searchThreads } from "./qaMockMail.js";
+import type { InvokeArgs } from "./qaMockTypes.js";
+import { qaApprovalsInvoke } from "./qaMockApprovals.js";
+import { qaWorkspaceInvoke } from "./qaMockWorkspace.js";
+import { qaSemanticInvoke } from "./qaMockSemantic.js";
+import { qaLicenseInvoke } from "./qaMockLicense.js";
+import { qaSettingsInvoke } from "./qaMockSettings.js";
 
 let qaAppLock = {
   enabled: false,

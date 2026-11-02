@@ -36,7 +36,7 @@ import {
 import type { MutableRefObject } from "react";
 import type { MarkdownDocumentCore } from "@rightkit/markdown-editor/documents/markdown/core/MarkdownDocumentCore";
 import type { TextMatch } from "@rightkit/document-core/documents/searchUtils";
-import { buildImageEmbed, sourceDiagnostics, type SourceLanguage } from "./sourceFormatting";
+import { buildImageEmbed, sourceDiagnostics, type SourceLanguage } from "./sourceFormatting.js";
 
 export const setSearchHighlights = StateEffect.define<{
   matches: TextMatch[];

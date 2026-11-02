@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { ExecutionBadge, ForkBadge, SafeModeBadge, SpecBadge, ToolsetBadge } from "./ContextBadges";
+import { ExecutionBadge, ForkBadge, SafeModeBadge, SpecBadge, ToolsetBadge } from "./ContextBadges.js";
 
 describe("ToolsetBadge", () => {
   it("renders nothing when there is no active toolset", () => {

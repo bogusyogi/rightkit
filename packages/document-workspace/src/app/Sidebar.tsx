@@ -10,10 +10,10 @@ import {
   type ReactNode,
 } from "react";
 import { useMediaQuery } from "@rightkit/react-shell/react";
-import type { FileEntry, PinEntry } from "../state/library";
-import { loadExplorerPersisted, saveExplorerPersisted } from "./sidebar/explorer/explorerState";
-import { SidebarExpandedPanel } from "./sidebar/SidebarExpandedPanel";
-import { SidebarRail } from "./sidebar/SidebarRail";
+import type { FileEntry, PinEntry } from "../state/library.js";
+import { loadExplorerPersisted, saveExplorerPersisted } from "./sidebar/explorer/explorerState.js";
+import { SidebarExpandedPanel } from "./sidebar/SidebarExpandedPanel.js";
+import { SidebarRail } from "./sidebar/SidebarRail.js";
 
 export interface SidebarProps {
   activePath: string | null;

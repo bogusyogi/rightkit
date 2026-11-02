@@ -7,14 +7,14 @@ import {
   TableHeaderCell,
   TableRow,
 } from "@rightkit/react-shell/react";
-import RuntimeStat from "../RuntimeStat";
+import RuntimeStat from "../RuntimeStat.js";
 import type {
   SpecAnalysisBadgeProps,
   SpecArtifactSummaryProps,
   SpecCoverageMatrixProps,
   SpecCoverageRow,
   SpecCoverageStatusProps,
-} from "./types";
+} from "./types.js";
 import type {
   FeatureSpec,
   FeatureTask,

@@ -1,7 +1,7 @@
 // The in-frame MDX runtime lives in mdxRuntimeScript.txt and is injected into the sandboxed iframe.
 // This module owns only the protocol-token substitution that must stay in sync with mdxProtocol.ts.
 
-import runtimeScript from "@rightkit/document-core/documents/mdx/mdxRuntimeScript.txt?raw";
+import runtimeScript from "@rightkit/document-core/documents/mdx/mdxRuntimeScript";
 import {
   MDX_COMPILED,
   MDX_FIND,
@@ -15,7 +15,7 @@ import {
   MDX_LINK,
   MDX_RUNTIME_ERROR,
   MDX_THEME,
-} from "./mdxProtocol";
+} from "./mdxProtocol.js";
 
 const PROTOCOL_TOKENS: Array<[string, string]> = [
   ['"__VR_MDX_COMPILED__"', MDX_COMPILED],

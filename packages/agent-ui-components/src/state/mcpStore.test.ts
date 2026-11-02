@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mcpConfigFromDraft, parseMcpChannels } from "./mcpStore";
+import { mcpConfigFromDraft, parseMcpChannels } from "./mcpStore.js";
 
 describe("mcp store helpers", () => {
   it("normalizes channel allowlists into unique lowercase channel names", () => {

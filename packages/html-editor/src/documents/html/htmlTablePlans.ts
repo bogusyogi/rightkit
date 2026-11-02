@@ -10,13 +10,13 @@ import {
   ownedDescendants,
   patch,
   type HtmlElementLocation,
-} from "./htmlPlanLocations";
+} from "./htmlPlanLocations.js";
 import type {
   HtmlMutationPlan,
   HtmlSourcePatch,
   HtmlSourceRange,
   HtmlRevision,
-} from "./htmlMutationEngine";
+} from "./htmlMutationEngine.js";
 
 // ── Tables ───────────────────────────────────────────────────────────────────
 

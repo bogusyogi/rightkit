@@ -2,7 +2,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import EditedFilesSummary, { type EditedFileEntry } from "./EditedFilesSummary";
+import EditedFilesSummary, { type EditedFileEntry } from "./EditedFilesSummary.js";
 
 const files: EditedFileEntry[] = [
   { filePath: "src/a.ts", additions: 4, deletions: 1, diff: "@@ -1,1 +1,4 @@\n+a" },

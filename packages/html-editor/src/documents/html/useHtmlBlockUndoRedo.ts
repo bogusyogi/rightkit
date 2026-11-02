@@ -8,11 +8,11 @@ import {
 import { createShortcutRegistry } from "@rightkit/react-shell";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
 import { ctrlMetaChords } from "@rightkit/document-core/app/shortcutChords";
-import type { HtmlSafeBlockTarget } from "./sourceMap";
-import { sourceChecksum } from "./sourceMap";
+import type { HtmlSafeBlockTarget } from "./sourceMap.js";
+import { sourceChecksum } from "./sourceMap.js";
 import { incIframeLoads, incPreviewGenerations, incSourceWrites } from "@rightkit/document-core/documents/perfEventCounters";
-import type { HtmlMutationPlan } from "./htmlMutationEngine";
-import type { HtmlBlockHistoryEntry } from "./useHtmlPreviewLifecycle";
+import type { HtmlMutationPlan } from "./htmlMutationEngine.js";
+import type { HtmlBlockHistoryEntry } from "./useHtmlPreviewLifecycle.js";
 
 interface HtmlBlockUndoRedoDeps {
   /** Inactive keep-alive panes stay mounted but must not own global shortcut events. */

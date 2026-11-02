@@ -34,9 +34,9 @@ import {
   type HarnessAttestationRow,
   type HarnessIsolationMode,
   type CliDelegationPolicy,
-} from "./types/cliProviders";
-import type { CliAccountProfileView } from "./daemon/config-host";
-import type { DaemonCliProvider } from "./daemon/cli-providers";
+} from "./types/cliProviders.js";
+import type { CliAccountProfileView } from "./daemon/config-host.js";
+import type { DaemonCliProvider } from "./daemon/cli-providers.js";
 
 export {
   CLI_PROVIDER_IDS,

@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useRef } from "react";
 import type { LegalGateTheme } from "@rightkit/legal-ui";
 import { Onboarding, type LegalReceiptPort, type LegalStepConfig } from "@rightkit/onboarding";
-import "@rightkit/onboarding/onboarding.css";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { isTauri } from "@rightkit/platform-ui";
 import { useSettings } from "@rightkit/document-core/settings/settings";
@@ -14,12 +13,12 @@ import {
   legalReceiptFields,
   legalReceiptRecord,
   legalRecordCurrent,
-} from "../state/legal";
-import { App } from "./App";
-import { useReadyShow } from "./useReadyShow";
+} from "../state/legal.js";
+import { App } from "./App.js";
+import { useReadyShow } from "./useReadyShow.js";
 import { logError, type DiagnosticEvent } from "@rightkit/document-core/state/diagnostics";
 import { getShell, isBrowserQaMode } from "@rightkit/document-core/state/tauriBridge";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 // Locked (Adrian, 2026-07-17): the gate is its own fixed 960x560 window, independent of whatever
 // size the user last left the main 1100x750 workspace at. See memory

@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import './App.css'
-import { DaemonProvider, daemonHeaders, useDaemon } from './contexts/DaemonContext'
-import { type SessionEffort, SessionProvider, useSession } from './contexts/SessionContext'
-import { TranscriptPanel } from './components/TranscriptPanel'
-import { InputBar } from './components/InputBar'
-import { ModelSelector } from './components/ModelSelector'
-import { UsagePanel } from './components/UsagePanel'
-import { hostAppName } from "./appName";
+import { DaemonProvider, daemonHeaders, useDaemon } from './contexts/DaemonContext.js'
+import { type SessionEffort, SessionProvider, useSession } from './contexts/SessionContext.js'
+import { TranscriptPanel } from './components/TranscriptPanel.js'
+import { InputBar } from './components/InputBar.js'
+import { ModelSelector } from './components/ModelSelector.js'
+import { UsagePanel } from './components/UsagePanel.js'
+import { hostAppName } from "./appName.js";
 
 // ── Search bar ────────────────────────────────────────────────────────────────
 

@@ -5,8 +5,8 @@
  */
 
 import { useCallback, type ReactNode } from "react";
-import type { MarkdownAnalysis, MarkdownQuickFix } from "./types";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
+import type { MarkdownAnalysis, MarkdownQuickFix } from "./types.js";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
 
 export interface MarkdownIssuesPanelProps {
   readonly analysis: MarkdownAnalysis | null;

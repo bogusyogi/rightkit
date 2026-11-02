@@ -12,8 +12,8 @@ import {
   HistoryActionsLine,
   HistoryToolbar,
   type HistoryRetention,
-} from "./HistoryChrome";
-import { HistoryList } from "./HistoryList";
+} from "./HistoryChrome.js";
+import { HistoryList } from "./HistoryList.js";
 import {
   SKIP_DELETE_CONFIRM,
   type DateFilter,
@@ -31,9 +31,9 @@ import {
   type HistoryQueryArgs,
   type NativeHistoryFilter,
   useHistoryQuery,
-} from "./useHistoryQuery";
-import HistoryRecoveryBanner from "../../components/HistoryRecoveryBanner";
-import { useHistorySelection } from "./useHistorySelection";
+} from "./useHistoryQuery.js";
+import HistoryRecoveryBanner from "../../components/HistoryRecoveryBanner.js";
+import { useHistorySelection } from "./useHistorySelection.js";
 
 export default function HistoryPage() {
   // The search field lives in the title bar; this page consumes the shared

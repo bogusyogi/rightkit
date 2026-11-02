@@ -1,5 +1,5 @@
-import type { HistoryItem } from "../../lib/homeMetrics";
-import { hostAppName } from "../../appName";
+import type { HistoryItem } from "../../lib/homeMetrics.js";
+import { hostAppName } from "../../appName.js";
 
 export const SKIP_DELETE_CONFIRM = "heardright.skipDeleteHistoryConfirm";
 export const historyActionChip =

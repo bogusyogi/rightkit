@@ -7,7 +7,7 @@ import {
 } from "@rightkit/document-core/documents/types";
 import { isWebDocument } from "@rightkit/document-core/documents/web/webUrl";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
-import type { DocumentTabs } from "./useDocumentTabs";
+import type { DocumentTabs } from "./useDocumentTabs.js";
 
 /** Dirty/title/draft read helpers (pure reads over tab refs + the block-draft registry). */
 export function useDocumentDirty(deps: {

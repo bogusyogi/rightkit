@@ -1,7 +1,7 @@
 import { Select } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import type { BenchmarkGateKind, SkillItem } from "@rightkit/agent-ui-core/lib/types";
-import type { SkillTrainingPanelProps } from "./types";
+import type { SkillTrainingPanelProps } from "./types.js";
 
 export default function SkillTrainingRunForm({
   runDraft,

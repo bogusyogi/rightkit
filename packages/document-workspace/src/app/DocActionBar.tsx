@@ -2,7 +2,7 @@ import { memo } from "react";
 import { MARKDOWN_FORMAT_EVENT } from "@rightkit/document-core/app/shell/nativeMenu";
 import { useSettings } from "@rightkit/document-core/settings/settings";
 import type { LoadedDocument, ViewMode } from "@rightkit/document-core/documents/types";
-import { capabilitiesFor } from "../documents/capabilities";
+import { capabilitiesFor } from "../documents/capabilities.js";
 import type { DocxMenuApi } from "@rightkit/docx-editor/documents/docx/menuApi";
 import { Dropdown, Item } from "@rightkit/document-core/documents/toolbarPrimitives";
 import { shortcutLabel, isMac } from "@rightkit/document-core/platform";
@@ -11,7 +11,7 @@ import {
   nativeMenuActive,
   useNativeDocumentMenu,
 } from "@rightkit/document-core/app/shell/nativeMenu";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 interface Props {
   doc: LoadedDocument;

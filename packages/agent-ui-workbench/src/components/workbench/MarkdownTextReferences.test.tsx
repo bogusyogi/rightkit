@@ -2,11 +2,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ReferenceObject } from "@rightkit/agent-ui-core/lib/types/references";
-import MarkdownText from "./MarkdownText";
+import MarkdownText from "./MarkdownText.js";
 import {
   buildInlineReferenceResolver,
   setInlineReferenceResolver,
-} from "./references/referenceRegistry";
+} from "./references/referenceRegistry.js";
 
 const fileRef: ReferenceObject = {
   id: "ref-file-1",

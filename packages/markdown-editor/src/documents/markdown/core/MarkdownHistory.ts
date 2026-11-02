@@ -23,7 +23,7 @@ import {
   type MarkdownHistoryGroup,
   type MarkdownHistoryLabel,
   type MarkdownHistoryLimits,
-} from "./types";
+} from "./types.js";
 
 /**
  * Default per-group size guard for coalescing. Commands containing

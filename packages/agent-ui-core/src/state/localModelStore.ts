@@ -5,15 +5,15 @@ import {
   probeLocalModelEndpoint,
   smokeLocalModelChat,
   suggestLocalModelProvider,
-} from "../lib/daemon";
+} from "../lib/daemon.js";
 import type {
   DaemonConfig,
   LocalModelCatalog,
   LocalModelChatSmokeResult,
   LocalModelProbeResult,
   LocalProviderRouteSuggestion,
-} from "../lib/types";
-import { messageOf, type SetStatus } from "../lib/utils";
+} from "../lib/types.js";
+import { messageOf, type SetStatus } from "../lib/utils.js";
 
 /** Local-model cookbook: hardware catalog, endpoint probe, chat smoke, route suggest. */
 export type LocalModelStoreState = {

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { useTauriEvent } from "../hooks/useTauriEvent";
-import { invoke } from "../lib/tauri";
-import { cx, ui } from "../lib/ui";
-import { hostAppName } from "../appName";
+import { useTauriEvent } from "../hooks/useTauriEvent.js";
+import { invoke } from "../lib/tauri.js";
+import { cx, ui } from "../lib/ui.js";
+import { hostAppName } from "../appName.js";
 
 type HotkeyConflict = {
   shortcuts: string[];

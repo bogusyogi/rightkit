@@ -8,7 +8,7 @@ import {
 } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { createShortcutRegistry } from "@rightkit/react-shell";
-import { clampScale, ZOOM_MAX, ZOOM_MIN } from "./pdfShared";
+import { clampScale, ZOOM_MAX, ZOOM_MIN } from "./pdfShared.js";
 
 interface UsePdfViewControlsArgs {
   active: boolean;

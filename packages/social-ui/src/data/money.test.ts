@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatMicro, formatMilli, groupDigits, monthOfInstant } from "./money";
+import { formatMicro, formatMilli, groupDigits, monthOfInstant } from "./money.js";
 
 describe("money text", () => {
   it("groups digits and keeps the sign", () => {

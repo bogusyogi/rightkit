@@ -2,8 +2,8 @@
 // file grid). Reads/writes Drive state through the store so both surfaces stay
 // in sync (shelf selection in the nav re-lists the grid, etc.). Transient modal
 // state (move/share pickers) stays local to DriveView since only it renders them.
-import { useAppStore, composeEditorRef } from "../store";
-import { showDialog } from "./dialog";
+import { useAppStore, composeEditorRef } from "../store/index.js";
+import { showDialog } from "./dialog.js";
 import {
   listDriveFiles,
   driveDownload,
@@ -12,7 +12,7 @@ import {
   driveRename,
   driveTrash,
   type DriveFile,
-} from "../lib/ipc";
+} from "../lib/ipc.js";
 
 export const FOLDER_MIME = "application/vnd.google-apps.folder";
 export type DriveShelf = "my" | "recent" | "shared" | "starred" | "trash";

@@ -1,20 +1,20 @@
 /**
  * React hook that drives the analysis layer.
  *
- * Subscribes to a {@link import("../core/MarkdownDocumentCore").MarkdownDocumentCore}
+ * Subscribes to a {@link import("../core/MarkdownDocumentCore.js").MarkdownDocumentCore}
  * and re-runs {@link analyzeMarkdown} on every commit. The hook is
  * the canonical way for React consumers to read the issue list.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { analyzeMarkdown } from "./analyzeMarkdown";
-import { makeIssueId, type MarkdownAnalysis, type MarkdownIssue } from "./types";
-import { isLocalMarkdownReference } from "./markdownUrls";
-import { inspectMarkdownResources } from "./markdownResourceClient";
-import { MarkdownValidationOrchestrator } from "./markdownAnalysisOrchestrator";
-import { validateKatex, validateMermaid } from "./validateMarkdown";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import type { MarkdownCoreSnapshot } from "../core/MarkdownDocumentTypes";
+import { analyzeMarkdown } from "./analyzeMarkdown.js";
+import { makeIssueId, type MarkdownAnalysis, type MarkdownIssue } from "./types.js";
+import { isLocalMarkdownReference } from "./markdownUrls.js";
+import { inspectMarkdownResources } from "./markdownResourceClient.js";
+import { MarkdownValidationOrchestrator } from "./markdownAnalysisOrchestrator.js";
+import { validateKatex, validateMermaid } from "./validateMarkdown.js";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import type { MarkdownCoreSnapshot } from "../core/MarkdownDocumentTypes.js";
 
 /**
  * Options for {@link useMarkdownAnalysis}.

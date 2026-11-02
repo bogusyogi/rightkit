@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import PluginsTab from "./PluginsTab";
-import { hasPluginUpdate } from "../../../hooks/usePluginsRuntime";
+import PluginsTab from "./PluginsTab.js";
+import { hasPluginUpdate } from "../../../hooks/usePluginsRuntime.js";
 import type { PluginManifest, PluginMarketplaceEntry } from "@rightkit/agent-ui-core/lib/types";
 
 const source = readFileSync(

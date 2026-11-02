@@ -1,4 +1,4 @@
-import type { RuntimeTab } from "./runtimePaneTypes";
+import type { RuntimeTab } from "./runtimePaneTypes.js";
 
 export const RUNTIME_TABS: RuntimeTab[] = [
   "context",

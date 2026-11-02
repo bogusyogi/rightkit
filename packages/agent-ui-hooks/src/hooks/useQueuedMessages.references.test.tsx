@@ -10,7 +10,7 @@ vi.mock("@rightkit/agent-ui-core/lib/daemon", () => ({
 }));
 
 import { sendMessage } from "@rightkit/agent-ui-core/lib/daemon";
-import { useQueuedMessages } from "./useQueuedMessages";
+import { useQueuedMessages } from "./useQueuedMessages.js";
 
 const reference: ReferenceMeta = {
   id: "skill:audit",

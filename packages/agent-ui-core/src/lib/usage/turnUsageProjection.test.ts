@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { ProtocolEvent } from "../types";
+import type { ProtocolEvent } from "../types.js";
 import {
   projectLastTurnUsage,
   projectTurnUsage,
   usageUpdatedEvents,
   type UsageUpdatedEvent,
-} from "./turnUsageProjection";
+} from "./turnUsageProjection.js";
 
 function usage(seq: number, values: Partial<UsageUpdatedEvent> = {}): UsageUpdatedEvent {
   return {

@@ -3,7 +3,7 @@ import {
   managedToolErrorMessage,
   managedToolStatusLabel,
   projectManagedToolHealth,
-} from "./managedToolHealth";
+} from "./managedToolHealth.js";
 
 describe("managedToolHealth", () => {
   it("preserves the real installed version probe", () => {

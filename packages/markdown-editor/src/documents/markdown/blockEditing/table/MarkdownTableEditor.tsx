@@ -18,10 +18,10 @@ import {
   type MarkdownTableModel,
   type TableCell,
   type TableRow,
-} from "../../editors/tableModel";
-import type { MarkdownDocumentCore } from "../../core/MarkdownDocumentCore";
-import { useMarkdownBlockDraft } from "../useMarkdownBlockDraft";
-import { MarkdownBlockDraftStatus } from "../MarkdownBlockDraftStatus";
+} from "../../editors/tableModel.js";
+import type { MarkdownDocumentCore } from "../../core/MarkdownDocumentCore.js";
+import { useMarkdownBlockDraft } from "../useMarkdownBlockDraft.js";
+import { MarkdownBlockDraftStatus } from "../MarkdownBlockDraftStatus.js";
 
 export interface MarkdownTableEditorProps {
   readonly core: MarkdownDocumentCore;

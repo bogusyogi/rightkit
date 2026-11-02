@@ -7,9 +7,9 @@ import type {
   PluginSessionActionContribution,
   PluginSettingsSchema,
   PluginStatusBarItem,
-} from "./pluginContributionTypes";
-import { isPluginPermission } from "./pluginContributionTypes";
-import type { PluginManifest as DaemonPluginManifest } from "./types";
+} from "./pluginContributionTypes.js";
+import { isPluginPermission } from "./pluginContributionTypes.js";
+import type { PluginManifest as DaemonPluginManifest } from "./types.js";
 
 export interface ProjectedCommand extends PluginCommandContribution {
   pluginId: string;

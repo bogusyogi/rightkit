@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useWorkspaceContextSwitch } from "./useWorkspaceContextSwitch";
+import { useWorkspaceContextSwitch } from "./useWorkspaceContextSwitch.js";
 import { useProjectRecentsStore } from "@rightkit/agent-ui-core/state/projectRecentsStore";
 import { useWorkspaceStore } from "@rightkit/agent-ui-core/state/workspaceStore";
 

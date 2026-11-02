@@ -4,11 +4,11 @@ import { type EditorState, Plugin, PluginKey, TextSelection } from "prosemirror-
 import { toggleMark } from "prosemirror-commands";
 import type { EditorView } from "prosemirror-view";
 import type { BlockDraftSnapshot } from "@rightkit/document-core/app/blockDrafts";
-import { htmlVisualSchema, parseHtmlToPm } from "./htmlPmParse";
-import { serializePmToHtmlFragment } from "./htmlPmSerialize";
-import { sanitizeHtmlForVisual } from "./htmlVisualSanitize";
-import type { HtmlInlineStyle } from "./sourceMap";
-import type { HtmlTextStyleProperty } from "./htmlTextStyle";
+import { htmlVisualSchema, parseHtmlToPm } from "./htmlPmParse.js";
+import { serializePmToHtmlFragment } from "./htmlPmSerialize.js";
+import { sanitizeHtmlForVisual } from "./htmlVisualSanitize.js";
+import type { HtmlInlineStyle } from "./sourceMap.js";
+import type { HtmlTextStyleProperty } from "./htmlTextStyle.js";
 
 // Inline targets already provide their authored outer element. Give their EditorView an inline
 // top document so PM does not add a nested same-tag block node. Container targets retain block doc.

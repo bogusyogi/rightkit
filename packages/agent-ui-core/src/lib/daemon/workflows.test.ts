@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { listWorkflowInbox, listWorkflowRuns, listWorkflows, startWorkflowRun } from "./workflows";
+import { listWorkflowInbox, listWorkflowRuns, listWorkflows, startWorkflowRun } from "./workflows.js";
 
 const config = { url: "http://127.0.0.1:7101", token: "test" };
 

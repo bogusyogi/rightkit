@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import ReadinessCard from "../../ReadinessCard";
+import ReadinessCard from "../../ReadinessCard.js";
 
 import type {
   DaemonConfig,
@@ -9,7 +9,7 @@ import type {
   SupportBundle,
 } from "@rightkit/agent-ui-core/lib/types";
 import { ENABLE_READINESS_PANEL, getReadiness, type ReadinessSnapshot } from "@rightkit/agent-ui-core/lib/daemon";
-import { DiagnosticsStat, diagnosticsLabel, diagnosticsStatusClass, OfflinePanel } from "./shared";
+import { DiagnosticsStat, diagnosticsLabel, diagnosticsStatusClass, OfflinePanel } from "./shared.js";
 
 export default function DiagnosticsTab({
   config,

@@ -1,7 +1,7 @@
 import type { SettingsBackend, SettingsSnapshot, SettingsValues } from "@rightkit/settings-ui";
-import { errorCode, errorMessage } from "./engine";
-import { settingsGet, settingsSet } from "./media";
-import { themeStore } from "./shell";
+import { errorCode, errorMessage } from "./engine.js";
+import { settingsGet, settingsSet } from "./media.js";
+import { themeStore } from "./shell.js";
 
 /**
  * RightKit settings port over the engine's app-level settings file (the same

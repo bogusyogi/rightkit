@@ -2,8 +2,8 @@
 // Invented typed briefs, platform variants and platform rules for the mock. Every brief, hook, caption, link and
 // rule value is fictional. The rule values are fixtures: their sources are fixture paths and an example host, and
 // they claim no published platform limit. Only the first channel has briefs. The second channel has none.
-import type { BriefVariant, TypedBrief } from "../types";
-import { SCOPE_ALPHA } from "./fixtures-optimise";
+import type { BriefVariant, TypedBrief } from "../types.js";
+import { SCOPE_ALPHA } from "./fixtures-optimise.js";
 
 /** Two typed briefs in the first channel: one explainer and one product demo. */
 export const FIXTURE_TYPED_BRIEFS: TypedBrief[] = [

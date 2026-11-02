@@ -2,7 +2,7 @@
 // existing `studio.models.worker.action` `set_vast_key` (OS credential store, read back before it
 // reports success); the key is never kept in component state after a save or echoed anywhere.
 
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 export interface VastKeyStatus {
   vast_key_stored: boolean;
 }

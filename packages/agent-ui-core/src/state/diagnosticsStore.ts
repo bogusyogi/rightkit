@@ -6,15 +6,15 @@ import {
   getCoreSandboxSettings,
   getDiagnostics,
   getInstructions,
-} from "../lib/daemon";
+} from "../lib/daemon.js";
 import type {
   DaemonConfig,
   DiagnosticsReport,
   InstructionStatus,
   SupportBundle,
   SupportBundleDownload,
-} from "../lib/types";
-import { messageOf, type SetCoreSandboxSettings, type SetStatus } from "../lib/utils";
+} from "../lib/types.js";
+import { messageOf, type SetCoreSandboxSettings, type SetStatus } from "../lib/utils.js";
 
 /** Diagnostics settings: the diagnostics report, support-bundle lifecycle, and
  * instruction status. `coreSandboxSettings` lives in the shell (shared with the

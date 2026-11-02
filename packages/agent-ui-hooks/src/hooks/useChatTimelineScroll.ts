@@ -8,7 +8,7 @@ import {
     TIMELINE_FOLLOW_REARM_THRESHOLD_PX,
     type TimelineListMeasurementState,
     type TimelineScrollMode,
-} from "../components/chat/timelineScrollAnchoring";
+} from "../components/chat/timelineScrollAnchoring.js";
 
 interface ScrollSpy {
     setContainer: (container: HTMLElement) => void;

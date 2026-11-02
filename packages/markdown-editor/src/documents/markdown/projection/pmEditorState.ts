@@ -24,30 +24,30 @@ import type { EditorView } from "prosemirror-view";
 import type { TextMatch, TextNodeMapping } from "@rightkit/document-core/documents/searchUtils";
 import { mapOffsetToDOM } from "@rightkit/document-core/documents/searchUtils";
 import { bytesToBase64 } from "@rightkit/document-core/documents/base64";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import type { MarkdownLogicalBookmark } from "../assets/markdownImage";
-import { normalizeSoftWraps } from "./pmToMarkdown";
-import { markdownHybridSchema } from "../markdownHybridSchema";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import type { MarkdownLogicalBookmark } from "../assets/markdownImage.js";
+import { normalizeSoftWraps } from "./pmToMarkdown.js";
+import { markdownHybridSchema } from "../markdownHybridSchema.js";
 import {
   getMarkdownTableContext,
   markdownTablePlugins,
   type MarkdownTableContext,
-} from "../tables/markdownTableCommands";
-import { codeFenceHighlightPlugin } from "../codeFence/codeFenceHighlight";
+} from "../tables/markdownTableCommands.js";
+import { codeFenceHighlightPlugin } from "../codeFence/codeFenceHighlight.js";
 import {
   canMoveMarkdownBlock,
   computeMoveMarkdownBlock,
   topLevelMarkdownBlockIndexAt,
   type MoveMarkdownBlockDirection,
-} from "../core/moveMarkdownBlock";
-import { projectMarkdownToPm } from "./MarkdownProjection";
+} from "../core/moveMarkdownBlock.js";
+import { projectMarkdownToPm } from "./MarkdownProjection.js";
 import {
   blockStart,
   logicalSourceToPmPosition,
   pmSelectionToLogicalRange,
   postPmSelectionToCore,
   positionedRawTextLeaves,
-} from "./pmSelectionBridge";
+} from "./pmSelectionBridge.js";
 
 export function editablePmRangeForMatch(
   view: EditorView,

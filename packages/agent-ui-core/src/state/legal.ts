@@ -13,10 +13,28 @@ import type { LegalEligibilityBasis, LegalManifest } from "@rightkit/legal";
 import { createNativeLegalReceiptPort, type LegalAcceptanceRecord } from "@rightkit/onboarding";
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
-import rawManifest from "@rightkit-host/legal/legal-manifest.json";
+let hostManifest: LegalManifest | null = null;
 
-export const legalManifest = rawManifest as unknown as LegalManifest;
-export const REQUIRED_LEGAL_ACCEPTANCE_VERSION = legalManifest.acceptanceVersion;
+/**
+ * The host app's bundled legal/legal-manifest.json. A published package cannot import a file of the app that installs it,
+ * so the host hands its manifest over once at startup, before the legal gate renders.
+ */
+export function configureLegalManifest(manifest: unknown): void {
+  const m = manifest as LegalManifest | null;
+  if (!m || typeof m.acceptanceVersion !== "string" || !Array.isArray(m.documents)) {
+    throw new TypeError("configureLegalManifest: a legal manifest with acceptanceVersion and documents is required");
+  }
+  hostManifest = m;
+}
+
+/** The host's legal manifest; throws until configureLegalManifest() has run. */
+export function getLegalManifest(): LegalManifest {
+  if (!hostManifest) throw new Error("@rightkit/agent-ui-core: the host must call configureLegalManifest(manifest) at startup");
+  return hostManifest;
+}
+
+/** The manifest's own acceptanceVersion: a material change re-prompts. */
+export const requiredLegalAcceptanceVersion = (): string => getLegalManifest().acceptanceVersion;
 
 export type { LegalAcceptanceRecord, LegalEligibilityBasis };
 
@@ -46,9 +64,9 @@ export const useLegalStore = create<LegalStoreState>((set) => ({
   async accept(basis) {
     // A refusal throws: `LegalGate` shows it and the gate stays closed.
     const receipt = await receiptPort.create?.({
-      version: legalManifest.acceptanceVersion,
-      documentsHash: await materialAcceptanceDigestAsync(legalManifest),
-      documents: acceptanceDeclaration(legalManifest).documents,
+      version: getLegalManifest().acceptanceVersion,
+      documentsHash: await materialAcceptanceDigestAsync(getLegalManifest()),
+      documents: acceptanceDeclaration(getLegalManifest()).documents,
       eligibilityBasis: basis,
       surface: "first_run",
     });

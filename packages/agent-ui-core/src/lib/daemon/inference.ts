@@ -1,11 +1,11 @@
-import type { DaemonConfig } from "../types";
+import type { DaemonConfig } from "../types.js";
 import type {
   CatalogGroup,
   DirectConnection,
   InferenceAuthority,
   LoadSnapshot,
-} from "../types/inference";
-import { requestDaemonApi } from "../generated/daemon-openapi";
+} from "../types/inference.js";
+import { requestDaemonApi } from "../generated/daemon-openapi.js";
 
 export async function listInferenceConnections(config: DaemonConfig): Promise<DirectConnection[]> {
   const body = await requestDaemonApi<{ connections: DirectConnection[] }>(config, "getInferenceConnections");

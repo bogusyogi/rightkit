@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { usePermissionsStore } from "./permissionsStore";
+import { usePermissionsStore } from "./permissionsStore.js";
 
 const daemon = vi.hoisted(() => ({
   getWorkspaceTrust: vi.fn(),

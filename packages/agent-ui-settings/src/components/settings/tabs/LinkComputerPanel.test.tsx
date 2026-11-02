@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import LinkComputerPanel from "./LinkComputerPanel";
+import LinkComputerPanel from "./LinkComputerPanel.js";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));

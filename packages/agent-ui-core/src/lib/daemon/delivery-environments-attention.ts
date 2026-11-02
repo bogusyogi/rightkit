@@ -31,8 +31,8 @@ import type {
   SetupScriptListResponse,
   SetupScriptRun,
   TranscriptDensity,
-} from "../types";
-import type { DaemonConfig } from "../types";
+} from "../types.js";
+import type { DaemonConfig } from "../types.js";
 
 interface DaemonRequestOptions {
   method: "GET" | "POST" | "PATCH" | "DELETE";

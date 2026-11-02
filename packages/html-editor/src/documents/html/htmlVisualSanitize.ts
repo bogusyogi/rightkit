@@ -1,6 +1,6 @@
 import DOMPurify from "dompurify";
 import * as parse5 from "parse5";
-import type { FragmentSourceMap, HtmlParseNode } from "./sourceMap";
+import type { FragmentSourceMap, HtmlParseNode } from "./sourceMap.js";
 
 /**
  * Strict sanitization for Safe block editing.

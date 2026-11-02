@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import TranscriptSearchBar from "./TranscriptSearchBar";
+import TranscriptSearchBar from "./TranscriptSearchBar.js";
 
 describe("TranscriptSearchBar", () => {
   it("carries the donor find controls and capped-result indicator", () => {

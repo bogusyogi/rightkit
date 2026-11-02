@@ -6,7 +6,7 @@ import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { transform as sucraseTransform } from "sucrase";
-import { resolveImport } from "./mdxResolver";
+import { resolveImport } from "./mdxResolver.js";
 
 type Compile = (source: string, options?: Record<string, unknown>) => Promise<unknown>;
 

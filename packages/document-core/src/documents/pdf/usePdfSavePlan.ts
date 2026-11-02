@@ -2,14 +2,14 @@ import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { pdfDocumentInit, pdfWasmUrl } from "@rightkit/pdf-ui";
-import { prepareAndVerifyPdfSave } from "./pdfSave";
-import type { PdfCommitResult, PdfEditCommand, PdfPageGraph, PdfSavePlan } from "./pdfEditModel";
+import { prepareAndVerifyPdfSave } from "./pdfSave.js";
+import type { PdfCommitResult, PdfEditCommand, PdfPageGraph, PdfSavePlan } from "./pdfEditModel.js";
 // New PDF-edit backend commands (docs/PDF-EDITOR-NOW.md §10.1-§10.3), imported by name from
 // tauriBridge.ts against the frozen type contract in pdfEditModel.ts.
-import { preparePdfSave, commitPdfSave, qaReloadPdfBytes } from "../../state/tauriBridge";
-import { logError, logEvent } from "../../state/diagnostics";
-import type { usePdfEditSession } from "./usePdfEditSession";
-import type { usePdfEditor } from "./usePdfEditor";
+import { preparePdfSave, commitPdfSave, qaReloadPdfBytes } from "../../state/tauriBridge.js";
+import { logError, logEvent } from "../../state/diagnostics.js";
+import type { usePdfEditSession } from "./usePdfEditSession.js";
+import type { usePdfEditor } from "./usePdfEditor.js";
 
 /**
  * Forces a fresh native stream fetch after a successful same-path commit. Tauri's stream URL can

@@ -1,4 +1,4 @@
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 const enc = new TextEncoder();
 
 function crc32(bytes: Uint8Array): number {

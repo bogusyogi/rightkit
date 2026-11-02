@@ -3,12 +3,12 @@
 // the reader. Rendered by ReaderMessage while its more-menu is open; the
 // published ContextMenu owns dismissal, keyboard navigation and focus restore.
 import { ContextMenu, type MenuItem } from "@rightkit/react-shell/react";
-import Icon from "../components/Icons";
-import { emailDomain } from "../lib/imageTrust";
-import { useThreadView } from "../hooks/useThreadView";
-import { useImageTrust } from "../hooks/useImageTrust";
-import { useAppStore } from "../store";
-import type { ThreadMessage } from "../lib/ipc";
+import Icon from "../components/Icons.js";
+import { emailDomain } from "../lib/imageTrust.js";
+import { useThreadView } from "../hooks/useThreadView.js";
+import { useImageTrust } from "../hooks/useImageTrust.js";
+import { useAppStore } from "../store/index.js";
+import type { ThreadMessage } from "../lib/ipc.js";
 
 // Snooze presets (epoch-ms factories evaluated at click time). Module-scope so
 // the array isn't reallocated on every render.

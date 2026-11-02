@@ -5,7 +5,7 @@
 // `[data-vr-content-plane]` marker so a right-click on the sidebar/toolbar still gets nothing.
 import { useCallback, useEffect, useState } from "react";
 import { ContextMenu, type MenuItem } from "@rightkit/react-shell/react";
-import { compactMenuItemClass } from "./sidebar/SidebarPrimitives";
+import { compactMenuItemClass } from "./sidebar/SidebarPrimitives.js";
 
 const EDITABLE_SELECTOR =
   '.cm-content, .ProseMirror, [contenteditable="true"], textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="button"])';

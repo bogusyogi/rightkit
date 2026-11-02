@@ -1,5 +1,5 @@
 import { createThemeStore, type ThemeChoice, type ThemeStorage } from '@rightkit/react-shell/react';
-import { settingsBackend } from './settings-backend';
+import { settingsBackend } from './settings-backend.js';
 
 export type { ThemeChoice };
 
@@ -7,7 +7,7 @@ const THEME_KEY = 'appearance.theme';
 
 /** `?qaTheme=light|dark`: browser QA only, compiled out of release builds. */
 function qaTheme(): ThemeChoice | undefined {
-  if (!import.meta.env.DEV) return undefined;
+  if (!import.meta.env?.DEV) return undefined;
   try {
     const qa = new URLSearchParams(window.location.search).get('qaTheme');
     return qa === 'light' || qa === 'dark' ? qa : undefined;

@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import MarkdownArtifactView, { sanitizeHref } from "./MarkdownArtifactView";
+import MarkdownArtifactView, { sanitizeHref } from "./MarkdownArtifactView.js";
 import { rightKitShortcuts } from "@rightkit/agent-ui-core/lib/shortcuts/dispatcher";
 import type { WorkspaceArtifact } from "@rightkit/agent-ui-core/lib/types/workspace-files";
 

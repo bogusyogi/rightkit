@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from "react";
-import { extractInlineStyleCss } from "./htmlInteractive";
-import { postLiveCss, postInteractiveThemeCss } from "./htmlInteractiveProtocol";
-import { htmlThemeStyleCss } from "./htmlTheme";
+import { extractInlineStyleCss } from "./htmlInteractive.js";
+import { postLiveCss, postInteractiveThemeCss } from "./htmlInteractiveProtocol.js";
+import { htmlThemeStyleCss } from "./htmlTheme.js";
 
 interface HtmlLiveCssBridgeDeps {
   mode: "interactive" | "preview";

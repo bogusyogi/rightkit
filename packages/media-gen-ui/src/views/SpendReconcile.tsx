@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { fetchCredentialStatus, reconcileSpend, type CredentialProvider, type SpendReconcileInput, type SpendReconcileResult } from '../lib/api';
-import { useApp } from '../lib/app-state';
-import { EngineError, errorCode, toError } from '../lib/engine-error';
+import { fetchCredentialStatus, reconcileSpend, type CredentialProvider, type SpendReconcileInput, type SpendReconcileResult } from '../lib/api.js';
+import { useApp } from '../lib/app-state.js';
+import { EngineError, errorCode, toError } from '../lib/engine-error.js';
 import { Card, Badge, Button, Input, Notice, Select } from '@rightkit/react-shell/react';
 import {
   alreadyRecordedNote,
@@ -16,8 +16,8 @@ import {
   type LineProblem,
   type PeriodChoice,
   type ReconcileForm
-} from './spend-reconcile-logic';
-import { hostAppName } from "../appName";
+} from './spend-reconcile-logic.js';
+import { hostAppName } from "../appName.js";
 
 const NEVER_CHANGES = 'Matching never changes your spending limits, reserved budget, or what was counted against them. Nothing here spends money or contacts a provider.';
 

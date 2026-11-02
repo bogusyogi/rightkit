@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Badge, Button, ConfirmDialog, Field, ModalShell, Notice, PageShell, SegmentedControl, SkeletonRows } from "@rightkit/react-shell/react";
-import { AccountChip, LoadError, MockBanner, PublishProgressView } from "../components/Shared";
-import { useAsync } from "../hooks/useAsync";
+import { AccountChip, LoadError, MockBanner, PublishProgressView } from "../components/Shared.js";
+import { useAsync } from "../hooks/useAsync.js";
 import {
   accountOrdinals,
   awaitingDecision,
@@ -15,8 +15,8 @@ import {
   type DataSource,
   type PublishJob,
   type RejectReason,
-} from "../data";
-import { FORMAT_LABEL, MEDIA_STATUS_LABEL, PLATFORM_LABEL, REJECT_LABEL, STATE_LABEL, approvalText } from "./labels";
+} from "../data/index.js";
+import { FORMAT_LABEL, MEDIA_STATUS_LABEL, PLATFORM_LABEL, REJECT_LABEL, STATE_LABEL, approvalText } from "./labels.js";
 
 type Filter = "decision" | "approved" | "all";
 

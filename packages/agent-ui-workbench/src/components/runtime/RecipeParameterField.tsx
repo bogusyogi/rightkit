@@ -1,5 +1,5 @@
 import type { RecipeParameter } from "@rightkit/agent-ui-core/lib/types";
-import { isRecipeBooleanChecked } from "./runtimeUtils";
+import { isRecipeBooleanChecked } from "./runtimeUtils.js";
 
 export default function RecipeParameterField({
   parameter,

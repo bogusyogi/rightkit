@@ -1,7 +1,7 @@
-import SkillTrainingRunDetail from "./SkillTrainingRunDetail";
-import SkillTrainingRunForm from "./SkillTrainingRunForm";
+import SkillTrainingRunDetail from "./SkillTrainingRunDetail.js";
+import SkillTrainingRunForm from "./SkillTrainingRunForm.js";
 import SkillTrainingRunList from "@rightkit/agent-ui-settings/components/settings/tabs/skills/SkillTrainingRunList";
-import type { SkillTrainingPanelProps } from "./types";
+import type { SkillTrainingPanelProps } from "./types.js";
 
 export function SkillTrainingPanel({
   runs,

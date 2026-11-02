@@ -1,8 +1,8 @@
 import { useState } from "react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import type { QueuedMessage } from "@rightkit/agent-ui-hooks/hooks/useQueuedMessages";
-import ReferenceChipStrip from "./references/ReferenceChipStrip";
-import { performReferenceAction } from "./references/referenceActions";
+import ReferenceChipStrip from "./references/ReferenceChipStrip.js";
+import { performReferenceAction } from "./references/referenceActions.js";
 
 export default function QueuedMessageRow({
   msg,

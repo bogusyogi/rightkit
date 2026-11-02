@@ -2,7 +2,7 @@ import { useMemo, useRef } from "react";
 import { ContextMenu, type AnchorRect, type MenuItem } from "@rightkit/react-shell/react";
 import { useSettings } from "@rightkit/document-core/settings/settings";
 import { BASE_THEME_IDS, themeById } from "@rightkit/document-core/settings/themes";
-import { menuPanelClass, menuItemClass } from "../app/sidebar/SidebarPrimitives";
+import { menuPanelClass, menuItemClass } from "../app/sidebar/SidebarPrimitives.js";
 
 // Auto is a two-tone light/dark pie; every theme is a pie of its ink / primary / paper.
 const AUTO_SWATCH = ["#F7F4EE", "#121417"];

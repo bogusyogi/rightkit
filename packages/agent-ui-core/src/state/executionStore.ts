@@ -11,16 +11,16 @@ import {
   saveExecutionNetworkProfile,
   setDefaultExecutionBackend,
   updateExecutionBackend,
-} from "../lib/daemon";
-import type { SaveExecutionNetworkProfileRequest } from "../lib/daemon";
+} from "../lib/daemon.js";
+import type { SaveExecutionNetworkProfileRequest } from "../lib/daemon.js";
 import type {
   BackendDoctorReport,
   CoreSandboxTier,
   DaemonConfig,
   ExecutionBackendRegistry,
   ExecutionWorkspaceRecord,
-} from "../lib/types";
-import { messageOf, type SetCoreSandboxSettings, type SetStatus } from "../lib/utils";
+} from "../lib/types.js";
+import { messageOf, type SetCoreSandboxSettings, type SetStatus } from "../lib/utils.js";
 
 /** Execution-backend settings: backend registry, workspaces, doctor reports.
  * `coreSandboxSettings` (shared with diagnostics) is threaded into actions via

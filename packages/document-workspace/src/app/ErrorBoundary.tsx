@@ -1,7 +1,7 @@
 import type { ErrorInfo, ReactNode } from "react";
 import { ErrorBoundary as ShellErrorBoundary } from "@rightkit/react-shell/react";
 import { logError } from "@rightkit/document-core/state/diagnostics";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 interface Props {
   children: ReactNode;

@@ -1,9 +1,9 @@
 import { Titlebar, cx } from "@rightkit/react-shell/react";
 import { createWindowControlLabels } from "@rightkit/platform-ui";
 import { Settings as SettingsIcon } from "lucide-react";
-import { getShell } from "../lib/ipc";
-import { isMac } from "../lib/platform";
-import { NavTabs, type Tab } from "./NavTabs";
+import { getShell } from "../lib/ipc/index.js";
+import { isMac } from "../lib/platform.js";
+import { NavTabs, type Tab } from "./NavTabs.js";
 
 type QueueCounts = { total: number; active: number; ready: number };
 

@@ -6,7 +6,7 @@ import {
   useState,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import { isMarkdownFormat } from "../documents/capabilities";
+import { isMarkdownFormat } from "../documents/capabilities.js";
 import type { LoadedDocument, ViewMode } from "@rightkit/document-core/documents/types";
 import type { Settings } from "@rightkit/document-core/settings/settings";
 

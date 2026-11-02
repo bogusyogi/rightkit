@@ -7,7 +7,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../lib/daemon/delivery-environments-attention", () => {
+vi.mock("../lib/daemon/delivery-environments-attention.js", () => {
   const calls: Array<{ name: string; args: unknown }> = [];
   const enqueue =
     (name: string) =>
@@ -49,8 +49,8 @@ vi.mock("../lib/daemon/delivery-environments-attention", () => {
   };
 });
 
-import { useDeliveryStore } from "./deliveryStore";
-import * as client from "../lib/daemon/delivery-environments-attention";
+import { useDeliveryStore } from "./deliveryStore.js";
+import * as client from "../lib/daemon/delivery-environments-attention.js";
 
 const calls = (client as unknown as { __calls: Array<{ name: string; args: unknown }> }).__calls;
 

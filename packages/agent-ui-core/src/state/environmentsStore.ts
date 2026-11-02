@@ -17,15 +17,15 @@ import {
   runSetupScript,
   selectEnvironment,
   testEnvironment,
-} from "../lib/daemon/delivery-environments-attention";
+} from "../lib/daemon/delivery-environments-attention.js";
 import type {
   EnvironmentListResponse,
   EnvironmentRecord,
   EnvironmentTestResult,
   SetupScript,
   SetupScriptRun,
-} from "../lib/types";
-import { messageOf } from "../lib/utils";
+} from "../lib/types.js";
+import { messageOf } from "../lib/utils.js";
 
 export type EnvironmentsStoreState = {
   list: EnvironmentListResponse | null;
@@ -41,42 +41,42 @@ export type EnvironmentsStoreState = {
   error: string | null;
   reset: () => void;
   loadList: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
   ) => Promise<void>;
   select: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     environmentId: string,
   ) => Promise<boolean>;
   test: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     environmentId: string,
   ) => Promise<EnvironmentTestResult | null>;
   loadScripts: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
   ) => Promise<void>;
   runScript: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     scriptId: string,
   ) => Promise<SetupScriptRun | null>;
   cancelRun: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     runId: string,
     scriptId: string,
   ) => Promise<boolean>;
   rerunRun: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     runId: string,
     scriptId: string,
   ) => Promise<SetupScriptRun | null>;
   loadRunLogs: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     runId: string,
   ) => Promise<SetupScriptRun | null>;

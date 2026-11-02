@@ -3,7 +3,7 @@
 // Settings banner both read this store and both start the download through it,
 // so progress is identical everywhere and a second download can never start.
 import { useSyncExternalStore } from "react";
-import { invoke, listen } from "./tauri";
+import { invoke, listen } from "./tauri.js";
 
 type ModelUpdateStatus = "closed" | "prompt" | "downloading" | "done" | "error";
 

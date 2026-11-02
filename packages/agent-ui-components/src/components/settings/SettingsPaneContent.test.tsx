@@ -3,8 +3,8 @@ import { render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import SettingsPaneContent from "./SettingsPaneContent";
-import type { SettingsPaneProps } from "./types";
+import SettingsPaneContent from "./SettingsPaneContent.js";
+import type { SettingsPaneProps } from "./types.js";
 
 const stubModel = {
   id: "gpt-test",

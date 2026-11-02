@@ -7,7 +7,7 @@ import {
   probeMcpServer,
   saveMcpServer,
 } from "@rightkit/agent-ui-core/lib/daemon";
-import type { McpDraft } from "../components/settings/types";
+import type { McpDraft } from "../components/settings/types.js";
 import type {
   DaemonConfig,
   McpProbeResult,

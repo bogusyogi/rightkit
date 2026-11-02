@@ -7,11 +7,11 @@ export type OS = 'macos' | 'windows' | 'linux';
 
 // The QA entry (browser QA's `?qa=1&qaPlatform=mac|win|linux` override) is loaded only in dev builds,
 // so a release bundle carries no QA code.
-const platform: typeof platformUi = import.meta.env.DEV ? await import('@rightkit/platform-ui/qa') : platformUi;
+const platform: typeof platformUi = import.meta.env?.DEV ? await import('@rightkit/platform-ui/qa') : platformUi;
 platform.configurePlatform({ fallbackPlatform: 'linux' });
 
 function detect(): OS {
-  if (import.meta.env.DEV && 'bootstrapQaPlatform' in platform) {
+  if (import.meta.env?.DEV && 'bootstrapQaPlatform' in platform) {
     (platform as unknown as { bootstrapQaPlatform(input: { query?: string }): void }).bootstrapQaPlatform({
       query: typeof window !== 'undefined' ? window.location.search : '',
     });

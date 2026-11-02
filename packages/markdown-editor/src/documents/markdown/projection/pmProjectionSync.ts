@@ -13,17 +13,17 @@
 
 import type { Node as ProseMirrorNode, Schema } from "prosemirror-model";
 import type { Transaction } from "prosemirror-state";
-import { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import type { MarkdownCommitSummary, MarkdownCommand } from "../core/MarkdownDocumentTypes";
-import { projectMarkdownToPm } from "./MarkdownProjection";
+import { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import type { MarkdownCommitSummary, MarkdownCommand } from "../core/MarkdownDocumentTypes.js";
+import { projectMarkdownToPm } from "./MarkdownProjection.js";
 import {
   computePmSourcePatch,
   computeCodeFenceTransactionPatches,
   readPmBlockRangeAttrs,
   serializeBlockToMarkdown,
-} from "./pmSourcePatch";
-import { MARKDOWN_INTENT_META } from "./markdownTransactionIntent";
-import type { MarkdownTextEdit } from "../core/types";
+} from "./pmSourcePatch.js";
+import { MARKDOWN_INTENT_META } from "./markdownTransactionIntent.js";
+import type { MarkdownTextEdit } from "../core/types.js";
 
 /**
  * Replace a PM document's blocks with the core's current logical

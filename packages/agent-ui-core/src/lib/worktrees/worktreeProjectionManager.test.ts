@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CommandRecord } from "../types/delivery-environments-attention";
+import type { CommandRecord } from "../types/delivery-environments-attention.js";
 
 const { listWorktrees, createWorktree, removeWorktree } = vi.hoisted(() => ({
   listWorktrees: vi.fn(),
@@ -7,7 +7,7 @@ const { listWorktrees, createWorktree, removeWorktree } = vi.hoisted(() => ({
   removeWorktree: vi.fn(),
 }));
 
-vi.mock("../daemon/delivery-environments-attention", () => ({
+vi.mock("../daemon/delivery-environments-attention.js", () => ({
   listWorktrees,
   createWorktree,
   removeWorktree,
@@ -21,8 +21,8 @@ import {
   parseWorktreeList,
   partitionWorktreesByRegisteredProject,
   worktreeMapsEqual,
-} from "./worktreeProjectionManager";
-import type { WorktreeMetadata } from "./worktreeProjectionManager";
+} from "./worktreeProjectionManager.js";
+import type { WorktreeMetadata } from "./worktreeProjectionManager.js";
 
 const config = { url: "http://127.0.0.1:5057", token: "token" };
 const project = { id: "project-1", path: "/repo" };

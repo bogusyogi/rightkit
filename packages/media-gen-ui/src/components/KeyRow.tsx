@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { errorMessage, setCredential, testCredential, type CredentialRuntime } from '../lib/api';
+import { errorMessage, setCredential, testCredential, type CredentialRuntime } from '../lib/api.js';
 import { Badge, Button, Input } from '@rightkit/react-shell/react';
-import { PROVIDER_META } from './ui';
+import { PROVIDER_META } from './ui.js';
 
 type ChipTone = 'ok' | 'bad' | 'warn' | 'run' | 'local';
 const badgeTone = (t?: ChipTone): 'neutral' | 'accent' | 'ok' | 'warn' | 'bad' => (t === 'run' ? 'accent' : t === 'local' ? 'ok' : t ?? 'neutral');

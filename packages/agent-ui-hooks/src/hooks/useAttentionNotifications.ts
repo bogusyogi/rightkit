@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { buildSessionDeepLink, notifyOs, setBadgeCount } from "@rightkit/agent-ui-core/lib/notifications";
 import { useAttentionStore } from "@rightkit/agent-ui-core/state/attentionStore";
-import type { PendingApproval } from "./useApprovals";
+import type { PendingApproval } from "./useApprovals.js";
 import type { GoalSnapshotV1 } from "@rightkit/agent-ui-core/lib/types";
 
 interface UseAttentionNotificationsOptions {

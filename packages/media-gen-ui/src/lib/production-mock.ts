@@ -5,7 +5,7 @@
  * mirrors its response shapes and reuses the baseline TS builders for the
  * campaign, canvas, director and post plans. It never writes to disk.
  */
-import templates from '../studio-data/production/templates.json';
+import templates from '../studio-data/production/templates.json' with { type: "json" };
 import {
   buildCampaignFactoryPlan,
   buildDirectorShotPlan,
@@ -13,9 +13,9 @@ import {
   buildProductionCanvas,
   summarizeBrandKit,
   type CampaignChannel
-} from './production-stack-builders';
-import type { Brand } from './types';
-import type { ProductionValues } from './production-api';
+} from './production-stack-builders.js';
+import type { Brand } from './types.js';
+import type { ProductionValues } from './production-api.js';
 
 type Obj = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 

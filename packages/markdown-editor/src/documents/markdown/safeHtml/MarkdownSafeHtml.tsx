@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { readRelativeAsset } from "@rightkit/document-core/state/tauriBridge";
-import { MarkdownRenderTrackerContext } from "../export/MarkdownRenderTracker";
-import { sanitizeMarkdownHtml } from "../security/sanitizeMarkdownHtml";
+import { MarkdownRenderTrackerContext } from "../export/MarkdownRenderTracker.js";
+import { sanitizeMarkdownHtml } from "../security/sanitizeMarkdownHtml.js";
 
 export const MarkdownSafeHtmlContext = createContext({
   enabled: false,

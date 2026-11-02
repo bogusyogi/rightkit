@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { onboardingSettings } from "../lib/onboardingSettings";
+import { onboardingSettings } from "../lib/onboardingSettings.js";
 
 // The window's own progress, kept in the hub's `hub-onboarding.json` document beside the shared component's record
 // (`onboarding.state`: step, completed, a copy of the legal receipt). One versioned object holds the draft choices, the access

@@ -7,7 +7,7 @@ import {
   readAnalyticsConsent,
   writeAnalyticsConsent,
   type ProjectedAnalyticsEvent,
-} from "./analyticsProjection";
+} from "./analyticsProjection.js";
 
 const context = { version: "0.1.79", platform: "windows", arch: "x64", build: "debug" as const };
 

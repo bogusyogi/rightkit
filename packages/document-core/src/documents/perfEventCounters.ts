@@ -110,7 +110,7 @@ const qaFamilies = new Map<string, PerfQaFamily>();
 function qaReadoutEnabled(): boolean {
   return (
     typeof window !== "undefined" &&
-    (import.meta.env.DEV || import.meta.env.VITE_RIGHTKIT_BROWSER_QA === "1")
+    (import.meta.env?.DEV || import.meta.env?.VITE_RIGHTKIT_BROWSER_QA === "1")
   );
 }
 

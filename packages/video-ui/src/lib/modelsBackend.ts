@@ -1,6 +1,6 @@
 import type { ModelEntry, ModelsBackend } from "@rightkit/settings-ui";
-import { errorMessage } from "./engine";
-import { type ModelRow, modelsInstall, modelsStatus } from "./media";
+import { errorMessage } from "./engine.js";
+import { type ModelRow, modelsInstall, modelsStatus } from "./media.js";
 
 const LABELS = {
   speech: { label: "Speech model", description: "Transcribes talking-head footage for cuts and captions." },

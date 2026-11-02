@@ -1,7 +1,7 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import DocumentPreview from "./DocumentPreview";
+import DocumentPreview from "./DocumentPreview.js";
 import type { ReferenceObject } from "@rightkit/agent-ui-core/lib/types/references";
 
 const docRef: ReferenceObject = {

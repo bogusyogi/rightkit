@@ -6,7 +6,7 @@ import { PreviewMessage } from "@rightkit/document-core/documents/PreviewMessage
 import { viewportWidthPx, type Viewport } from "@rightkit/document-core/documents/previewViewport";
 import { PreviewChrome } from "@rightkit/document-core/documents/PreviewChrome";
 import { acquireResource } from "@rightkit/document-core/app/resourceCensus";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 interface Props {
   doc: LoadedDocument;

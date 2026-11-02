@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import GoalsPanel, { type GoalsPanelGoal } from "./GoalsPanel";
+import GoalsPanel, { type GoalsPanelGoal } from "./GoalsPanel.js";
 
 function goal(overrides: Partial<GoalsPanelGoal> = {}): GoalsPanelGoal {
   return {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertDocxWithinBudget, DocxBudgetError, DOCX_MAX_ENTRIES } from "./docxBudget";
+import { assertDocxWithinBudget, DocxBudgetError, DOCX_MAX_ENTRIES } from "./docxBudget.js";
 
 describe("docx budget", () => {
   it("leaves non-ZIP input to the editor", () => {

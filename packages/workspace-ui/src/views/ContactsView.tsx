@@ -8,7 +8,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import Icon from "@rightkit/mail-ui/components/Icons";
 import { AccountSwitcher } from "@rightkit/mail-ui/components/AccountSwitcher";
 import { colorFor, initialOf } from "@rightkit/mail-ui/lib/mail";
-import { buildVcf, parseVcf, parseContactsCsv, type VCardContact } from "../lib/vcard";
+import { buildVcf, parseVcf, parseContactsCsv, type VCardContact } from "../lib/vcard.js";
 import { useAppStore } from "@rightkit/mail-ui/store/index";
 import { showDialog } from "@rightkit/mail-ui/hooks/dialog";
 import {
@@ -21,7 +21,7 @@ import {
   type ContactFull,
   type Recipient,
 } from "@rightkit/mail-ui/lib/ipc";
-import { EMPTY_EDITOR, type Editor } from "./ContactsView.types";
+import { EMPTY_EDITOR, type Editor } from "./ContactsView.types.js";
 function ContactsViewInner() {
   const openComposeTo = useAppStore((s) => s.openComposeTo);
   const activeAccount = useAppStore((s) => s.activeAccount);

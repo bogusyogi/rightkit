@@ -1,1 +1,1 @@
-export { default } from "./history/HistoryImpl";
+export { default } from "./history/HistoryImpl.js";

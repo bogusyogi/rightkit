@@ -6,8 +6,8 @@ import type {
   DiagnosticsReport,
 } from "@rightkit/agent-ui-core/lib/types";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import { diagnosticsLabel, diagnosticsStatusClass } from "../shared";
-import { RemoteStatusCard } from "./RemoteStatusCard";
+import { diagnosticsLabel, diagnosticsStatusClass } from "../shared.js";
+import { RemoteStatusCard } from "./RemoteStatusCard.js";
 
 interface CoreSandboxTierPanelProps {
   report: DiagnosticsReport | null;

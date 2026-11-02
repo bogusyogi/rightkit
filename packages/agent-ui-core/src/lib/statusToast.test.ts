@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyStatusForToast } from "./statusToast";
+import { classifyStatusForToast } from "./statusToast.js";
 
 describe("classifyStatusForToast", () => {
   it("classifies failure-shaped messages as error toasts", () => {

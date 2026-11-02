@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Badge, Button, EmptyState, Field, Input, Notice, PageShell, SkeletonRows } from "@rightkit/react-shell/react";
-import { LoadError, MockBanner } from "../components/Shared";
-import { useAsync } from "../hooks/useAsync";
-import { shell } from "../lib/shell";
-import { disclosureFound, type DataSource, type DraftKind, type DraftState, type ManualDraft } from "../data";
-import { platformName } from "./labels";
-import { hostAppName } from "../appName";
+import { LoadError, MockBanner } from "../components/Shared.js";
+import { useAsync } from "../hooks/useAsync.js";
+import { shell } from "../lib/shell.js";
+import { disclosureFound, type DataSource, type DraftKind, type DraftState, type ManualDraft } from "../data/index.js";
+import { platformName } from "./labels.js";
+import { hostAppName } from "../appName.js";
 
 interface Props {
   source: DataSource;

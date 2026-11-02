@@ -10,16 +10,16 @@ import {
   type PermissionMode,
 } from "@rightkit/agent-ui-core/lib/daemon";
 import type { PendingApproval } from "@rightkit/agent-ui-hooks/hooks/useApprovals";
-import type { SettingsTab } from "../../components/settings/types";
+import type { SettingsTab } from "../../components/settings/types.js";
 import type { RuntimeTab } from "@rightkit/agent-ui-workbench/components/RuntimePane";
-import type { Pane } from "../../components/WorkbenchContent";
+import type { Pane } from "../../components/WorkbenchContent.js";
 import type {
   AwaySummary,
   DaemonConfig,
   ExecutionProcessLogs,
   HealthResponse,
 } from "@rightkit/agent-ui-core/lib/types";
-import { usePermissionsStore } from "../../state/permissionsStore";
+import { usePermissionsStore } from "../../state/permissionsStore.js";
 
 export function useAppEffects(params: {
   config: DaemonConfig | null;

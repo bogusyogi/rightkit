@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Badge, EmptyState, Field, PageShell, SkeletonRows, Table, TableBody, TableCaption, TableCell, TableHead, TableHeaderCell, TableRow } from "@rightkit/react-shell/react";
-import { ScopeSelect } from "../components/ScopeSelect";
-import { LoadError, MockBanner } from "../components/Shared";
-import { useAsync } from "../hooks/useAsync";
+import { ScopeSelect } from "../components/ScopeSelect.js";
+import { LoadError, MockBanner } from "../components/Shared.js";
+import { useAsync } from "../hooks/useAsync.js";
 import {
   groupDigits,
   instantLabel,
@@ -12,8 +12,8 @@ import {
   type OperatorScope,
   type OutgoingBrief,
   type OutgoingBriefDetail,
-} from "../data";
-import { BRIEF_STATE_LABEL, DISPATCH_OUTCOME_LABEL } from "./labels";
+} from "../data/index.js";
+import { BRIEF_STATE_LABEL, DISPATCH_OUTCOME_LABEL } from "./labels.js";
 
 interface Props {
   source: DataSource;

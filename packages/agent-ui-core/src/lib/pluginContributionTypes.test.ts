@@ -3,7 +3,7 @@ import {
   PLUGIN_PERMISSIONS,
   isPluginPermission,
   type PluginManifest,
-} from "./pluginContributionTypes";
+} from "./pluginContributionTypes.js";
 
 describe("plugin contribution types", () => {
   it("keeps the Hermes permission vocabulary closed", () => {

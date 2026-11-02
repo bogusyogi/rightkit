@@ -2,8 +2,8 @@
 // Invented campaigns, tracked links and visit counts for the mock. Ids, names, destinations and the
 // calendar entry ids are fictional. The final URLs follow the engine's UTM policy (docs/LINKS.md): the
 // UTM parts are appended in order, and a fragment stays last. Visit counts are invented integers.
-import type { Campaign, TrackedLink } from "../types";
-import { SCOPE_ALPHA, SCOPE_BETA } from "./fixtures-optimise";
+import type { Campaign, TrackedLink } from "../types.js";
+import { SCOPE_ALPHA, SCOPE_BETA } from "./fixtures-optimise.js";
 
 export const FIXTURE_CAMPAIGNS: Campaign[] = [
   {

@@ -1,7 +1,7 @@
 import type * as React from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useDismiss } from "@rightkit/platform-ui/headless";
-import { useSlashMenuEscape } from "./useSlashMenuEscape";
+import { useSlashMenuEscape } from "./useSlashMenuEscape.js";
 import { createPortal } from "react-dom";
 import { baseKeymap } from "prosemirror-commands";
 import { history, redo, undo } from "prosemirror-history";
@@ -13,31 +13,28 @@ import type { SearchProvider } from "@rightkit/document-core/documents/types";
 import { clearHighlights } from "@rightkit/document-core/documents/searchUtils";
 import { logEvent, logPerf } from "@rightkit/document-core/state/diagnostics";
 import { scheduleAfterPaint } from "@rightkit/document-core/app/deferredMount";
-import "./markdownLiveEditor.css";
-import "./markdownCodeFence.css";
-import "./markdownMotion.css";
-import { markdownToPmDoc } from "./projection/pmFromMarkdown";
-import { pmDocToMarkdown } from "./projection/pmToMarkdown";
+import { markdownToPmDoc } from "./projection/pmFromMarkdown.js";
+import { pmDocToMarkdown } from "./projection/pmToMarkdown.js";
 import {
   collectSourceMapHeadings,
   outlineHeadingsFor,
   shouldParseMarkdownPaste,
   type MappedMarkdownHeading,
-} from "./markdownTools";
+} from "./markdownTools.js";
 import {
   RenderedRawBlockView,
   type MarkdownSourceRange,
   type ProtectedRenderContext,
-} from "./MarkdownProtectedBlock";
-import type { MarkdownDocumentCore } from "./core/MarkdownDocumentCore";
-import { MarkdownSurfaceId, type MarkdownCommitSummary } from "./core/MarkdownDocumentTypes";
-import { commitPmTransactionToCore } from "./projection/pmProjectionSync";
+} from "./MarkdownProtectedBlock.js";
+import type { MarkdownDocumentCore } from "./core/MarkdownDocumentCore.js";
+import { MarkdownSurfaceId, type MarkdownCommitSummary } from "./core/MarkdownDocumentTypes.js";
+import { commitPmTransactionToCore } from "./projection/pmProjectionSync.js";
 import {
   classifyMarkdownTransaction,
   commitOptionsForIntent,
-} from "./projection/markdownTransactionIntent";
-import { pmSelectionToLogicalRange } from "./projection/pmSelectionBridge";
-import { projectMarkdownToPm } from "./projection/MarkdownProjection";
+} from "./projection/markdownTransactionIntent.js";
+import { pmSelectionToLogicalRange } from "./projection/pmSelectionBridge.js";
+import { projectMarkdownToPm } from "./projection/MarkdownProjection.js";
 import {
   captureTopLevelSelection,
   createStateFromCore,
@@ -49,27 +46,27 @@ import {
   mergeDocsPreservingIdentities,
   sameTableContext,
   selectAllMarkdown,
-} from "./projection/pmEditorState";
-import { markdownHybridSchema } from "./markdownHybridSchema";
-import { markdownTablePlugins } from "./tables/markdownTableCommands";
-import type { MarkdownTableContext } from "./tables/markdownTableCommands";
-import { MarkdownImageNodeView } from "./inlineEditing/MarkdownImageNodeView";
-import { CodeFenceNodeView } from "./codeFence/CodeFenceNodeView";
-import { codeFenceHighlightPlugin } from "./codeFence/codeFenceHighlight";
-import { isImageMime, mimeFromFileName } from "./assets/markdownImage";
-import { MarkdownImageDialog } from "./commands/MarkdownImageDialog";
-import { MarkdownInsertMenu } from "./insert/MarkdownInsertMenu";
+} from "./projection/pmEditorState.js";
+import { markdownHybridSchema } from "./markdownHybridSchema.js";
+import { markdownTablePlugins } from "./tables/markdownTableCommands.js";
+import type { MarkdownTableContext } from "./tables/markdownTableCommands.js";
+import { MarkdownImageNodeView } from "./inlineEditing/MarkdownImageNodeView.js";
+import { CodeFenceNodeView } from "./codeFence/CodeFenceNodeView.js";
+import { codeFenceHighlightPlugin } from "./codeFence/codeFenceHighlight.js";
+import { isImageMime, mimeFromFileName } from "./assets/markdownImage.js";
+import { MarkdownImageDialog } from "./commands/MarkdownImageDialog.js";
+import { MarkdownInsertMenu } from "./insert/MarkdownInsertMenu.js";
 import { useOptionalBlockDrafts } from "@rightkit/document-core/app/BlockDraftContext";
-import { replaceWholeDocumentWithMarkdown, selectBlockFromLeftEdge } from "./markdownHybridDom";
+import { replaceWholeDocumentWithMarkdown, selectBlockFromLeftEdge } from "./markdownHybridDom.js";
 import {
   acquireMarkdownResource,
   createMarkdownWork,
   getMarkdownColdTabState,
   persistMarkdownTabState,
   rememberMarkdownColdTabState,
-} from "./markdownResourceLifecycle";
-import { FIND_REPLACE_META, useMarkdownSearchProvider } from "./useMarkdownSearchProvider";
-import { useMarkdownImageIngest } from "./assets/useMarkdownImageIngest";
+} from "./markdownResourceLifecycle.js";
+import { FIND_REPLACE_META, useMarkdownSearchProvider } from "./useMarkdownSearchProvider.js";
+import { useMarkdownImageIngest } from "./assets/useMarkdownImageIngest.js";
 
 interface Props {
   text: string;
@@ -714,7 +711,7 @@ export function MarkdownEditor({
             const mapped = pmSelectionToLogicalRange(nextState.doc, nextState.selection);
             core.postSelectionHint({
               surface: "prosemirror",
-              nodeId: mapped.nodeId as import("./core/MarkdownNodeIdFactory").MarkdownNodeId | null,
+              nodeId: mapped.nodeId as import("./core/MarkdownNodeIdFactory.js").MarkdownNodeId | null,
               anchor: mapped.anchor,
               head: mapped.head,
               assoc: mapped.assoc,
@@ -759,11 +756,11 @@ export function MarkdownEditor({
     let stopQaView: (() => void) | undefined;
     let qaViewCancelled = false;
     if (
-      import.meta.env.VITE_RIGHTKIT_BROWSER_QA === "1" &&
+      import.meta.env?.VITE_RIGHTKIT_BROWSER_QA === "1" &&
       resourceKey &&
       new URLSearchParams(window.location.search).get("qa") === "1"
     ) {
-      void import("./qaCoreObservation").then(({ observeQaMarkdownView }) => {
+      void import("./qaCoreObservation.js").then(({ observeQaMarkdownView }) => {
         if (!qaViewCancelled) stopQaView = observeQaMarkdownView(resourceKey, view);
       });
     }

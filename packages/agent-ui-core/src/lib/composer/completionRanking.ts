@@ -1,5 +1,5 @@
-import type { CommandInfo, WorkspaceMention } from "../daemon";
-import type { SkillItem } from "../types";
+import type { CommandInfo, WorkspaceMention } from "../daemon.js";
+import type { SkillItem } from "../types.js";
 
 export type ComposerCompletionKind = "command" | "skill" | "mention";
 

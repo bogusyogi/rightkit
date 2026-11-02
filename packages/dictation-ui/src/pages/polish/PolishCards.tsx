@@ -1,4 +1,4 @@
-import { cx, ui } from "../../lib/ui";
+import { cx, ui } from "../../lib/ui.js";
 
 // One smart-polish trigger. Same surface as every grouped list (ui.surface) so
 // it contrasts with the page instead of nesting a darker box; equal height in

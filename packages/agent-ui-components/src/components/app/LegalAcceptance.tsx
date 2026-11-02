@@ -1,11 +1,10 @@
 import { LegalGate, type LegalGateDocument } from "@rightkit/legal-ui";
-import "@rightkit/legal-ui/legal-ui.css";
 import {
-  legalManifest,
-  REQUIRED_LEGAL_ACCEPTANCE_VERSION,
+  getLegalManifest,
+  requiredLegalAcceptanceVersion,
   useLegalStore,
 } from "@rightkit/agent-ui-core/state/legal";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 /**
  * First-run gate for the Right Suite Desktop License v1.1 (individual/enterprise model, no Worker
@@ -22,10 +21,12 @@ import { hostAppName } from "../../appName";
 
 const LICENSE_TITLE = "Right Suite Desktop License v1.1";
 
-const documents: LegalGateDocument[] = legalManifest.documents.map((document) => ({
-  title: document.title,
-  url: document.publicUrl,
-}));
+// Read when the gate renders: the host configures its manifest at startup (configureLegalManifest).
+const gateDocuments = (): LegalGateDocument[] =>
+  getLegalManifest().documents.map((document) => ({
+    title: document.title,
+    url: document.publicUrl,
+  }));
 
 const trustLine =
   `${hostAppName()} is free for an individual on devices they own or personally control, including their own freelance work. Any use by or for an Organization — on its devices, or that it pays for or directs — is Enterprise use and needs an Enterprise Order with a Seat for each Worker before that use continues.`;
@@ -63,10 +64,10 @@ export default function LegalAcceptance() {
         theme={theme}
         appName={hostAppName()}
         trustLine={trustLine}
-        documents={documents}
+        documents={gateDocuments()}
         agreementStatement={agreementStatement}
         variant="first-run"
-        version={REQUIRED_LEGAL_ACCEPTANCE_VERSION}
+        version={requiredLegalAcceptanceVersion()}
         onAgree={({ eligibilityBasis }) => accept(eligibilityBasis)}
         onQuit={quitHost}
         eligibilityLabels={{
@@ -103,7 +104,7 @@ export default function LegalAcceptance() {
 
       {/* Silent audit anchor: keeps the acceptance version visibly wired to what this screen
           actually renders. */}
-      <p className="sr-only">acceptance version {REQUIRED_LEGAL_ACCEPTANCE_VERSION}</p>
+      <p className="sr-only">acceptance version {requiredLegalAcceptanceVersion()}</p>
     </main>
   );
 }

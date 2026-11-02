@@ -11,16 +11,16 @@ import { toast, type ToastAction } from "@rightkit/platform-ui/headless";
 import type { EditorView } from "@codemirror/view";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
 import type { ViewMode } from "@rightkit/document-core/documents/types";
-import { HtmlMutationError, type HtmlMutationPlan } from "./htmlMutationEngine";
-import { resolveMutationPlan } from "./htmlMutationResolver";
+import { HtmlMutationError, type HtmlMutationPlan } from "./htmlMutationEngine.js";
+import { resolveMutationPlan } from "./htmlMutationResolver.js";
 import {
   findSourceRange,
   parseAndMapSource,
   resolveSafeBlockTarget,
   type HtmlSafeBlockTarget,
   type SourceRange,
-} from "./sourceMap";
-import type { HtmlSafeBlockEditorHandle } from "./HtmlSafeBlockEditor";
+} from "./sourceMap.js";
+import type { HtmlSafeBlockEditorHandle } from "./HtmlSafeBlockEditor.js";
 
 /** Matches the error toast lifetime: a refusal repeated while its toast is still visible is not re-shown. */
 const BLOCK_TOAST_REPEAT_MS = 6_000;

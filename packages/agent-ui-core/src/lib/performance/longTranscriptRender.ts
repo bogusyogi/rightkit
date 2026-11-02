@@ -1,6 +1,6 @@
-import type { TranscriptDensity, TranscriptMessage, UserQuestion } from "../types";
-import { groupTranscriptMessages } from "../transcriptGroups";
-import type { TranscriptGroup } from "../transcriptGroups";
+import type { TranscriptDensity, TranscriptMessage, UserQuestion } from "../types.js";
+import { groupTranscriptMessages } from "../transcriptGroups.js";
+import type { TranscriptGroup } from "../transcriptGroups.js";
 
 /**
  * Waku's transcript list is virtualized, but its row projection is also

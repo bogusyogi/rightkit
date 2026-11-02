@@ -5,7 +5,7 @@ import {
   sessionRowsForSearch,
   sessionSearchSnippetsBySession,
   visibleSidebarSessions,
-} from "./useSessionList";
+} from "./useSessionList.js";
 
 const sessions: SessionRow[] = [
   {

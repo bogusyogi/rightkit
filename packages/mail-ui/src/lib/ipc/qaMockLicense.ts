@@ -4,8 +4,8 @@
 // activated, accepted, downloaded or installed; state lives for the page session.
 
 import type { LicenseView } from "@rightkit/license";
-import { LEGAL_MANIFEST_SHA256, REQUIRED_LEGAL_ACCEPTANCE_VERSION } from "../legal";
-import type { InvokeArgs } from "./qaMockTypes";
+import { LEGAL_MANIFEST_SHA256, REQUIRED_LEGAL_ACCEPTANCE_VERSION } from "../legal.js";
+import type { InvokeArgs } from "./qaMockTypes.js";
 
 interface QaReceipt {
   version: string;
@@ -17,11 +17,18 @@ interface QaReceipt {
 // QA defaults carry an already-current receipt so ordinary browser QA flows land straight in the
 // mail workspace, not the first-run acceptance screen. A test that wants the legal screen resets
 // it with the "qa_reset_legal_acceptance" command.
-let receipt: QaReceipt | null = {
-  version: REQUIRED_LEGAL_ACCEPTANCE_VERSION,
-  documentsHash: LEGAL_MANIFEST_SHA256,
-  acceptedAt: "2026-07-16T00:00:00.000Z",
-  eligibilityBasis: "individual",
+// Built on first use: the legal values are configured by the host at startup, after this module loads.
+let receipt: QaReceipt | null | undefined;
+const currentReceipt = (): QaReceipt | null => {
+  if (receipt === undefined) {
+    receipt = {
+      version: REQUIRED_LEGAL_ACCEPTANCE_VERSION,
+      documentsHash: LEGAL_MANIFEST_SHA256,
+      acceptedAt: "2026-07-16T00:00:00.000Z",
+      eligibilityBasis: "individual",
+    };
+  }
+  return receipt;
 };
 
 const FREE: LicenseView = {
@@ -67,7 +74,7 @@ export function qaLicenseInvoke(
 ): { handled: boolean; value: unknown } {
   switch (command) {
     case "rightkit_legal_receipt_read":
-      return { handled: true, value: receipt };
+      return { handled: true, value: currentReceipt() };
     case "rightkit_legal_receipt_create": {
       const request = declared(args);
       receipt = {

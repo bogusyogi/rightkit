@@ -2,8 +2,8 @@
 // Invented content records, variants and experiment summaries for the mock. Titles, captions, hashes and
 // ids are fictional. Counts are invented whole numbers. Each summary's reason follows the engine's wording
 // (docs/CONTENT-RECORDS.md): one line per failed check, joined with "; ".
-import type { ContentExperimentSummary, ContentRecord, ContentVariant } from "../types";
-import { SCOPE_ALPHA } from "./fixtures-optimise";
+import type { ContentExperimentSummary, ContentRecord, ContentVariant } from "../types.js";
+import { SCOPE_ALPHA } from "./fixtures-optimise.js";
 
 export const FIXTURE_CONTENT: ContentRecord[] = [
   {

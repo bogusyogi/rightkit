@@ -11,8 +11,8 @@ import {
   licenseErrorMessage,
   viewMessage,
   type LicenseView,
-} from "./license";
-import { releasePlatform } from "./platform";
+} from "./license.js";
+import { releasePlatform } from "./platform.js";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));

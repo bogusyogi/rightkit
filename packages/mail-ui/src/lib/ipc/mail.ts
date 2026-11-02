@@ -1,5 +1,5 @@
-import { invoke } from "./invoke";
-import { hostAppName } from "../../appName";
+import { invoke } from "./invoke.js";
+import { hostAppName } from "../../appName.js";
 
 export interface Thread {
   account_id: string;

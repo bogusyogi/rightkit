@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { AudioLines, Check, Images, Link2, Plus, Text, Video } from "lucide-react";
 import { useSegmentedControl } from "@rightkit/react-shell/headless";
-import type { AudioQuality, MediaSpec, VideoQuality } from "../contract";
-import type { ProfileImagesResponse } from "../contract";
-import { formatInvokeError } from "../lib/errorMessage";
-import { invoke } from "../lib/ipc";
-import { isPlaylistUrl, playlistQueuedNotice, type PlaylistResponse } from "../lib/playlistUrl";
+import type { AudioQuality, MediaSpec, VideoQuality } from "../contract.js";
+import type { ProfileImagesResponse } from "../contract.js";
+import { formatInvokeError } from "../lib/errorMessage.js";
+import { invoke } from "../lib/ipc/index.js";
+import { isPlaylistUrl, playlistQueuedNotice, type PlaylistResponse } from "../lib/playlistUrl.js";
 import {
   imageSpecForInputs,
   isProfileUrl,
@@ -14,10 +14,10 @@ import {
   needsAuthPlatform,
   splitImageLines,
   type MediaMode,
-} from "../lib/mediaSelection";
-import { loadPrefs } from "../views/settings/prefs";
-import { useLicense } from "../views/settings/useLicense";
-import { hostAppName } from "../../appName";
+} from "../lib/mediaSelection.js";
+import { loadPrefs } from "../views/settings/prefs.js";
+import { useLicense } from "../views/settings/useLicense.js";
+import { hostAppName } from "../../appName.js";
 
 type PasteBarProps = {
   onAdd: (inputs: string[], media?: MediaSpec) => Promise<boolean> | boolean;

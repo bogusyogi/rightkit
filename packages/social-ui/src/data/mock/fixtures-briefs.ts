@@ -1,8 +1,8 @@
 // RIGHTKIT-PENDING #383: ported version saved in /Volumes/D/scratch/postright/port-wip/full-port.patch
 // Invented outgoing briefs, deliveries and dispatch attempts for the mock. Ids, hashes, paths and messages
 // are fictional. The envelope body is illustrative: the desktop shows whatever the engine stored.
-import type { DeliveryEnvelope, DispatchAttempt, JsonValue, OutgoingBriefDetail } from "../types";
-import { SCOPE_ALPHA } from "./fixtures-optimise";
+import type { DeliveryEnvelope, DispatchAttempt, JsonValue, OutgoingBriefDetail } from "../types.js";
+import { SCOPE_ALPHA } from "./fixtures-optimise.js";
 
 const CHANNEL: JsonValue = { venture: "fixture-alpha", channel: "alpha-shorts", account: "alpha-main" };
 const INPUT_HASH = `blake3:${"5".repeat(64)}`;

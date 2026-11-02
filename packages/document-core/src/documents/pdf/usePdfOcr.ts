@@ -8,9 +8,9 @@ import {
   ocrPage,
   renderPageToPng,
   type OcrLine,
-} from "./pdfOcr";
-import { viewportRotation } from "./pdfShared";
-import { logError, logPerf } from "../../state/diagnostics";
+} from "./pdfOcr.js";
+import { viewportRotation } from "./pdfShared.js";
+import { logError, logPerf } from "../../state/diagnostics.js";
 
 export type PdfOcrStatus = "idle" | "running" | "done" | "error";
 

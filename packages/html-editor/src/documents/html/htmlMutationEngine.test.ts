@@ -4,8 +4,8 @@ import {
   type HtmlMutationPlan,
   type HtmlSourcePatch,
   commitHtmlMutation,
-} from "./htmlMutationEngine";
-import { sourceChecksum } from "./sourceMap";
+} from "./htmlMutationEngine.js";
+import { sourceChecksum } from "./sourceMap.js";
 
 function findRange(source: string, needle: string): { start: number; end: number } {
   const start = source.indexOf(needle);

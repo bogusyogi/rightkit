@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ConfirmDialog, Select } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import PersistentPermissionRuleList from "@rightkit/agent-ui-settings/components/settings/tabs/permissions/PersistentPermissionRuleList";
-import PermissionPresetGrid from "./permissions/PermissionPresetGrid";
+import PermissionPresetGrid from "./permissions/PermissionPresetGrid.js";
 import { permissionLabel } from "@rightkit/agent-ui-core/lib/utils";
 import { OfflinePanel } from "@rightkit/agent-ui-settings/components/settings/tabs/shared";
 import { formatIsoTime } from "@rightkit/agent-ui-settings/components/settings/helpers";
@@ -13,7 +13,7 @@ import type {
   PermissionRuleRow,
   PersistentPermissionRuleScope,
 } from "@rightkit/agent-ui-core/lib/types";
-import type { PermissionsTabProps } from "./PermissionsTabProps";
+import type { PermissionsTabProps } from "./PermissionsTabProps.js";
 
 const PERMISSION_MODE_DESCRIPTIONS: Record<PermissionMode, string> = {
   plan: "Read and plan only; all mutations are denied.",

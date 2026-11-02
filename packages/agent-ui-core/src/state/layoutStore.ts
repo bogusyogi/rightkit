@@ -7,8 +7,8 @@
 
 import { create } from "zustand";
 
-import { useSidePanelStore } from "./sidePanelStore";
-import { useRightPanelStore, type RightPanelTab } from "./rightPanelStore";
+import { useSidePanelStore } from "./sidePanelStore.js";
+import { useRightPanelStore, type RightPanelTab } from "./rightPanelStore.js";
 
 const LEGACY_OPEN_KEY = "cr.sidePanel.open.v1";
 const LEGACY_TAB_KEY = "cr.rightPanel.tab.v1";

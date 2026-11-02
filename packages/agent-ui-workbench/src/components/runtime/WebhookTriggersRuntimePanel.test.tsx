@@ -5,7 +5,7 @@ import type { WebhookTrigger } from "@rightkit/agent-ui-core/lib/types";
 import type { WebhookTriggerDraft } from "@rightkit/agent-ui-hooks/hooks/useRuntimeAggregates";
 import WebhookTriggersRuntimePanel, {
   type WebhookTriggersRuntimePanelProps,
-} from "./WebhookTriggersRuntimePanel";
+} from "./WebhookTriggersRuntimePanel.js";
 
 const trigger: WebhookTrigger = {
   id: "repo-review",

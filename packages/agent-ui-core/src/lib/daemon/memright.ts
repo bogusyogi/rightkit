@@ -1,5 +1,5 @@
-import type { DaemonConfig } from "../types";
-import { requestDaemonApi } from "../generated/daemon-openapi";
+import type { DaemonConfig } from "../types.js";
+import { requestDaemonApi } from "../generated/daemon-openapi.js";
 
 export interface MemrightListRow {
   id: string;

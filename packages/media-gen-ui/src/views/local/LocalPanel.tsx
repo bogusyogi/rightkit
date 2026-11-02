@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react';
-import { errorMessage, installLocalImageProfile } from '../../lib/api';
-import type { LocalImageInstallProgress, LocalImageProfile } from '../../lib/types';
+import { errorMessage, installLocalImageProfile } from '../../lib/api.js';
+import type { LocalImageInstallProgress, LocalImageProfile } from '../../lib/types.js';
 import { Card, Badge, Button, Notice, ProgressBar } from '@rightkit/react-shell/react';
-import { Kv, formatBytes } from '../../components/ui';
-import type { LocalImageLive } from './useLocalImageLive';
-import { installView, jobStatusLabel, queueEntries, runtimeLabel } from './logic';
-import './local.css';
+import { Kv, formatBytes } from '../../components/ui.js';
+import type { LocalImageLive } from './useLocalImageLive.js';
+import { installView, jobStatusLabel, queueEntries, runtimeLabel } from './logic.js';
 
 /** Right-hand panel for a local profile: install, runtime, queue, details. */
 export function LocalPanel({ profile, live, onInstalled }: { profile: LocalImageProfile; live: LocalImageLive; onInstalled: () => Promise<void> | void }) {

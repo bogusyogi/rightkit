@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { getDoctor, subscribeDoctor } from "./useEngine";
+import { getDoctor, subscribeDoctor } from "./useEngine.js";
 
 /**
  * Whether this computer can finish HDR (PQ or HLG) footage to SDR, from the engine's

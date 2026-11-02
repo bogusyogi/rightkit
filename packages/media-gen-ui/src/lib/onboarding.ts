@@ -1,16 +1,17 @@
 import { onboardingStateKey, type LegalReceiptPort, type LegalStepConfig, type PersistedOnboardingState } from '@rightkit/onboarding';
 import { createAcceptanceReceipt, needsLegalAcceptance } from '@rightkit/legal/browser';
-import { LEGAL_AGREEMENT_STATEMENT, LEGAL_DOCUMENTS_HASH, LEGAL_DOCUMENT_SOURCES, LEGAL_MANIFEST, type LegalDocumentId } from '../legal/documents';
-import { closeWindow } from './windowControls';
-import { settingsBackend } from './settings-backend';
-import { hostAppName } from "../appName";
+import { LEGAL_AGREEMENT_STATEMENT, LEGAL_DOCUMENTS_HASH, LEGAL_DOCUMENT_SOURCES, LEGAL_MANIFEST, type LegalDocumentId } from '../legal/documents.js';
+import { closeWindow } from './windowControls.js';
+import { settingsBackend } from './settings-backend.js';
+import { hostAppName } from "../appName.js";
 
 /**
  * Version of the legal documents a user must have accepted: the @rightkit/legal manifest's
  * acceptance version. Text changes to an agreed document re-prompt through LEGAL_DOCUMENTS_HASH
  * (the material digest), which the gate passes as `requiredDocumentsHash`.
  */
-export const LEGAL_VERSION = LEGAL_MANIFEST.acceptanceVersion;
+/** Read after the host configured its legal manifest (configureLegal). */
+export const legalVersion = (): string => LEGAL_MANIFEST.acceptanceVersion;
 
 /** Settings key holding the full @rightkit/legal acceptance receipt. */
 const LEGAL_RECEIPT_KEY = 'genright.legal.receipt';
@@ -32,7 +33,7 @@ export const legalReceiptPort: LegalReceiptPort = {
     const receipt = await readReceipt();
     if (needsLegalAcceptance(LEGAL_MANIFEST, receipt)) return null;
     const stored = receipt as { acceptedAt: string; eligibilityBasis: 'individual' | 'enterprise' };
-    return { version: LEGAL_VERSION, documentsHash: LEGAL_DOCUMENTS_HASH, acceptedAt: stored.acceptedAt, eligibilityBasis: stored.eligibilityBasis };
+    return { version: legalVersion(), documentsHash: LEGAL_DOCUMENTS_HASH, acceptedAt: stored.acceptedAt, eligibilityBasis: stored.eligibilityBasis };
   },
   async write(record) {
     const receipt = createAcceptanceReceipt(LEGAL_MANIFEST, { acceptedAt: record.acceptedAt, surface: 'first_run', eligibilityBasis: record.eligibilityBasis });
@@ -91,7 +92,7 @@ async function readState(): Promise<Partial<PersistedOnboardingState> | undefine
  * QA (dev builds only): `?qaState=app` skips everything, `?qaState=onboarding` forces setup.
  */
 export async function resolveStartup(): Promise<Startup> {
-  if (import.meta.env.DEV) {
+  if (import.meta.env?.DEV) {
     const qa = new URLSearchParams(window.location.search).get('qaState');
     if (qa === 'app') return 'app';
     if (qa === 'onboarding') return 'setup';

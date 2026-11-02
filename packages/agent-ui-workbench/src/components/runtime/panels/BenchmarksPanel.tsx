@@ -6,8 +6,8 @@ import type {
   TerminalBenchRunResult,
   TerminalBenchTask,
 } from "@rightkit/agent-ui-core/lib/types";
-import { RuntimeEmpty, ScoreBar, formatPanelTime, panelWrap, scoreColor } from "./shared";
-import { hostAppName } from "../../../appName";
+import { RuntimeEmpty, ScoreBar, formatPanelTime, panelWrap, scoreColor } from "./shared.js";
+import { hostAppName } from "../../../appName.js";
 
 export function BenchmarksPanel({
   rows,

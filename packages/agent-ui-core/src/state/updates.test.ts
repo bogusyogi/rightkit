@@ -15,11 +15,11 @@ import {
   releaseStatusUrl,
   type UpdateControllerDependencies,
   type UpdateState,
-} from "./updates";
+} from "./updates.js";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
-vi.mock("../lib/bootProbation", () => ({
+vi.mock("../lib/bootProbation.js", () => ({
   beginBootProbation: vi.fn(async () => undefined),
   bootProbation: { acknowledgeHealthy: vi.fn(async () => undefined) },
 }));

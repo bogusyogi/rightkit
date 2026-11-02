@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import ThinkingIndicator, { THINKING_INDICATOR_FORMATTERS } from "./ThinkingIndicator";
+import ThinkingIndicator, { THINKING_INDICATOR_FORMATTERS } from "./ThinkingIndicator.js";
 
 function lastIndicator(): HTMLElement {
   const nodes = screen.getAllByTestId("thinking-indicator");

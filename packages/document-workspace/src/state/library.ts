@@ -7,7 +7,7 @@
   type ViewMeta,
 } from "@rightkit/document-core/documents/types";
 import { inTauri, isBrowserQaMode } from "@rightkit/document-core/state/tauriBridge";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 export interface FileEntry {
   /** Opaque backend token for a known file. This is not a filesystem path. */

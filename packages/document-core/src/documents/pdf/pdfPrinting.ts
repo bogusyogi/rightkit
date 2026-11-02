@@ -1,20 +1,17 @@
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-// Vite resolves the worker to a bundled URL — no CDN, fully offline.
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { configurePdfJs, pdfDocumentInit } from "@rightkit/pdf-ui";
-import { mountPrintImage, printHost } from "../../app/printPipelineShared";
-import { withTimeout } from "./pdfShared";
+import { pdfDocumentInit } from "@rightkit/pdf-ui";
+import { mountPrintImage, printHost } from "../../app/printPipelineShared.js";
+import { withTimeout } from "./pdfShared.js";
 
 // pdf.js's getDocument() spins up a Web Worker to parse the PDF off the main thread, and if that
 // worker never starts (silently, e.g. resolving `?url` through a fresh dynamic import chunk rather
 // than the already-loaded static module), `getDocument().promise` just hangs forever — no error, no
 // rejection, nothing to catch. That hang was indistinguishable from a printer dialog never opening.
-// The worker URL is therefore resolved exactly ONCE here, in the module both PdfViewer.tsx (the
-// on-screen viewer) and this print path reach through dynamic imports — never twice through
-// different chunks. A hard timeout below converts any future hang into a visible failure instead of
-// silence.
-configurePdfJs({ workerSrc: workerUrl });
+// The worker URL must therefore be resolved exactly ONCE, by the host app at startup, through
+// @rightkit/pdf-ui's configurePdfJs({ workerSrc }) (a Vite host: `import workerUrl from
+// "pdfjs-dist/build/pdf.worker.min.mjs?url"`): a published package cannot resolve a bundler URL. A hard
+// timeout below converts any hang into a visible failure instead of silence.
 
 /** Rasterize PDF bytes into the print host as flat images, then trigger native print.
  *

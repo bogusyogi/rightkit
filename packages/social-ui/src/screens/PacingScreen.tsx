@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Badge, EmptyState, PageShell, SkeletonRows, Table, TableBody, TableCaption, TableCell, TableHead, TableHeaderCell, TableRow } from "@rightkit/react-shell/react";
-import { ScopeSelect } from "../components/ScopeSelect";
-import { LoadError, MockBanner } from "../components/Shared";
-import { useAsync } from "../hooks/useAsync";
+import { ScopeSelect } from "../components/ScopeSelect.js";
+import { LoadError, MockBanner } from "../components/Shared.js";
+import { useAsync } from "../hooks/useAsync.js";
 import {
   groupDigits,
   instantLabel,
@@ -13,9 +13,9 @@ import {
   type PublishNextView,
   type PublishQuota,
   type UnreadableRow,
-} from "../data";
-import { PACING_REASON_LABEL, PUBLISH_STATE_LABEL, platformName } from "./labels";
-import { hostAppName } from "../appName";
+} from "../data/index.js";
+import { PACING_REASON_LABEL, PUBLISH_STATE_LABEL, platformName } from "./labels.js";
+import { hostAppName } from "../appName.js";
 
 interface Props {
   source: DataSource;

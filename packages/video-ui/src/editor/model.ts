@@ -11,7 +11,7 @@ import {
   fpsValue,
   ticksToSeconds,
   titleLabel,
-} from "../lib/project";
+} from "../lib/project.js";
 
 export type LaneKind = "video" | "audio" | "overlay";
 

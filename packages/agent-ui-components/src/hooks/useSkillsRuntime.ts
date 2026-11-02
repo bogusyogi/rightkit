@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import type { SkillInstallDraft } from "../components/settings/types";
+import type { SkillInstallDraft } from "../components/settings/types.js";
 import {
   createSkillOptimizationRun,
   deleteSkill,

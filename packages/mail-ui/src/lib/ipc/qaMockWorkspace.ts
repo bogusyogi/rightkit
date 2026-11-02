@@ -1,5 +1,5 @@
-import { NOW, QA_ACCOUNT, QA_PDF_B64, QA_PNG_B64, QA_XLSX_B64 } from "./qaMockData";
-import type { InvokeArgs } from "./qaMockTypes";
+import { NOW, QA_ACCOUNT, QA_PDF_B64, QA_PNG_B64, QA_XLSX_B64 } from "./qaMockData.js";
+import type { InvokeArgs } from "./qaMockTypes.js";
 
 export function qaWorkspaceInvoke(command: string, args?: InvokeArgs): { handled: boolean; value: unknown } {
   let value: unknown;

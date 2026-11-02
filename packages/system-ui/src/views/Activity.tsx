@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Select } from "@rightkit/react-shell/react";
-import { api, bytes, isWindows, type ActivityRow, type ActivityTimeline } from "../api";
-import "./activity.css";
-import { clearVisibleInterval, visibleInterval } from "../visible";
-import { useActivityLease } from "../activityLease";
+import { api, bytes, isWindows, type ActivityRow, type ActivityTimeline } from "../api.js";
+import { clearVisibleInterval, visibleInterval } from "../visible.js";
+import { useActivityLease } from "../activityLease.js";
 
 /** Rows per page, both for the newest page and for each "Load older". */
 const PAGE = 50;

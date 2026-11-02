@@ -1,4 +1,4 @@
-import { mountPrintImage, printHost } from "./printPipelineShared";
+import { mountPrintImage, printHost } from "./printPipelineShared.js";
 
 const DOCUMENT_PRINT_CSS = `
   @page { margin: 0; }
@@ -172,14 +172,14 @@ export async function printIsolatedHtmlMarkup(markup: string): Promise<boolean> 
  *  only the non-PDF printing helpers. The dynamic import resolves the SAME module the on-screen PDF
  *  viewer already loaded (it shares the one worker-src setup), so the worker URL is never resolved
  *  through a fresh chunk. See pdfPrinting.ts for the silent-hang trap this shape exists to avoid. */
-async function lazyPdfPrinting(): Promise<typeof import("../documents/pdf/pdfPrinting")> {
-  return import("../documents/pdf/pdfPrinting");
+async function lazyPdfPrinting(): Promise<typeof import("../documents/pdf/pdfPrinting.js")> {
+  return import("../documents/pdf/pdfPrinting.js");
 }
 
 /** Print the PDF a viewer pane already has open, WITHOUT re-fetching it. See
  *  src/documents/pdf/pdfPrinting.ts. */
 export async function printPdfDocument(
-  doc: Parameters<typeof import("../documents/pdf/pdfPrinting").printPdfDocument>[0],
+  doc: Parameters<typeof import("../documents/pdf/pdfPrinting.js").printPdfDocument>[0],
 ): Promise<boolean> {
   return lazyPdfPrinting().then((m) => m.printPdfDocument(doc));
 }

@@ -1,21 +1,21 @@
 import { Checkbox } from "@rightkit/react-shell/react";
 import AppearanceTab from "@rightkit/agent-ui-settings/components/settings/tabs/AppearanceTab";
-import BudgetsTab from "./tabs/BudgetsTab";
+import BudgetsTab from "./tabs/BudgetsTab.js";
 import ConductorsTab from "@rightkit/agent-ui-settings/components/settings/tabs/ConductorsTab";
 import DiagnosticsTab from "@rightkit/agent-ui-settings/components/settings/tabs/DiagnosticsTab";
 import ExecutionBackendsTab from "@rightkit/agent-ui-settings/components/settings/tabs/ExecutionBackendsTab";
 import LicenseTab from "@rightkit/agent-ui-settings/components/settings/tabs/LicenseTab";
 import LspTab from "@rightkit/agent-ui-settings/components/settings/tabs/LspTab";
-import McpTab from "./tabs/McpTab";
-import ModelsTab from "./tabs/ModelsTab";
-import PermissionsTab from "./tabs/PermissionsTab";
-import PluginsTab from "./tabs/PluginsTab";
+import McpTab from "./tabs/McpTab.js";
+import ModelsTab from "./tabs/ModelsTab.js";
+import PermissionsTab from "./tabs/PermissionsTab.js";
+import PluginsTab from "./tabs/PluginsTab.js";
 import ProvidersTab from "@rightkit/agent-ui-settings/components/settings/tabs/ProvidersTab";
 import RepairTab from "@rightkit/agent-ui-settings/components/settings/tabs/RepairTab";
-import RemoteTab from "./tabs/RemoteTab";
+import RemoteTab from "./tabs/RemoteTab.js";
 import RuntimeMiddlewareTab from "@rightkit/agent-ui-settings/components/settings/tabs/RuntimeMiddlewareTab";
-import SkillsTab from "./tabs/SkillsTab";
-import ToolsTab from "./tabs/ToolsTab";
+import SkillsTab from "./tabs/SkillsTab.js";
+import ToolsTab from "./tabs/ToolsTab.js";
 import WorkspaceTab from "@rightkit/agent-ui-settings/components/settings/tabs/WorkspaceTab";
 import MemoryTab from "@rightkit/agent-ui-settings/components/settings/tabs/MemoryTab";
 import McpDiscoverPanel from "@rightkit/agent-ui-settings/components/settings/marketplace/McpDiscoverPanel";
@@ -23,7 +23,7 @@ import SkillMarketplace from "@rightkit/agent-ui-settings/components/settings/ma
 import RuntimePane from "@rightkit/agent-ui-workbench/components/RuntimePane";
 import TerminalPane from "@rightkit/terminal-ui/components/TerminalPane";
 import TasksPane from "@rightkit/agent-ui-workbench/components/workbench/TasksPane";
-import type { SettingsPaneProps } from "./types";
+import type { SettingsPaneProps } from "./types.js";
 
 function UnavailableRuntimeSurface({ title }: { title: string }) {
   return (

@@ -15,7 +15,7 @@ import {
   parseSessionAuthMethod,
   putSessionAccount,
   removeApiKeyAccount,
-} from "./accounts";
+} from "./accounts.js";
 
 const models = [
   { id: "opus", label: "Opus" },

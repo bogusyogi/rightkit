@@ -1,9 +1,8 @@
 import { Onboarding, isLegalAccepted, onboardingStateKey, type PersistedOnboardingState } from "@rightkit/onboarding";
-import "@rightkit/onboarding/onboarding.css";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { LEGAL_MATERIAL_SHA256, REQUIRED_LEGAL_ACCEPTANCE_VERSION, legalStepConfig } from "../legal/legalConfig";
-import { createModelsBackend } from "../lib/modelsBackend";
-import { createHostSettingsBackend } from "../lib/settingsBackend";
+import { LEGAL_MATERIAL_SHA256, REQUIRED_LEGAL_ACCEPTANCE_VERSION, legalStepConfig } from "../legal/legalConfig.js";
+import { createModelsBackend } from "../lib/modelsBackend.js";
+import { createHostSettingsBackend } from "../lib/settingsBackend.js";
 
 type Phase = "loading" | "setup" | "done";
 

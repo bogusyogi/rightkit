@@ -1,7 +1,7 @@
 // Pure pieces of the composer's "Why this route" panel (RoutePanel.tsx). No runtime imports: the
 // node tests load this file directly. Types come from the engine contract in lib/api.ts.
-import type { MediaKind, RouteAlternative, RouteInput, RouteOutcome, RoutePreferences, RouteResult, RoutePrivacy, RouteSpend } from '../lib/api';
-import type { SettingsSectionId } from '../lib/nav';
+import type { MediaKind, RouteAlternative, RouteInput, RouteOutcome, RoutePreferences, RouteResult, RoutePrivacy, RouteSpend } from '../lib/api.js';
+import type { SettingsSectionId } from '../lib/nav.js';
 
 // ---------------------------------------------------------------- the four states
 

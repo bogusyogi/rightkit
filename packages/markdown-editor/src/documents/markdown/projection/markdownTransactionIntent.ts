@@ -12,7 +12,7 @@
 
 import type { Transaction } from "prosemirror-state";
 import { ReplaceStep } from "prosemirror-transform";
-import type { MarkdownHistoryLabel } from "../core/types";
+import type { MarkdownHistoryLabel } from "../core/types.js";
 
 export type MarkdownTransactionIntent =
   | "typing"

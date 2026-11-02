@@ -1,0 +1,6 @@
+/* Every stylesheet this package's components use. Hosts import "<package>/styles.css" once (Node cannot import CSS from JS). */
+@import "@rightkit/onboarding/onboarding.css";
+@import "./styles/explorer.css";
+@import "./styles/tabs.css";
+@import "@rightkit/media-ui/styles.css";
+@import "@rightkit/document-core/settings/rk-settings.css";

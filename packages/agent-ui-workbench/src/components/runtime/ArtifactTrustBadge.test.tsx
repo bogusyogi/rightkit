@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import ArtifactTrustBadge from "./ArtifactTrustBadge";
+import ArtifactTrustBadge from "./ArtifactTrustBadge.js";
 import type { ArtifactRow } from "@rightkit/agent-ui-core/lib/types";
 
 function baseArtifact(overrides: Partial<ArtifactRow> = {}): ArtifactRow {

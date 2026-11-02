@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import ApprovalKeyHandler from "./ApprovalKeyHandler";
+import ApprovalKeyHandler from "./ApprovalKeyHandler.js";
 import { rightKitShortcuts } from "@rightkit/agent-ui-core/lib/shortcuts/dispatcher";
 import type { PendingApproval } from "@rightkit/agent-ui-hooks/hooks/useApprovals";
 

@@ -1,7 +1,7 @@
 import { Select } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import { ExecutionBadge, ForkBadge, SafeModeBadge, ToolsetBadge, SpecBadge } from "./ContextBadges";
-import { DispatchBadge } from "./DispatchBadge";
+import { ExecutionBadge, ForkBadge, SafeModeBadge, ToolsetBadge, SpecBadge } from "./ContextBadges.js";
+import { DispatchBadge } from "./DispatchBadge.js";
 import type { DispatchDecision, SessionRow } from "@rightkit/agent-ui-core/lib/types";
 
 export default function SessionActionBar({

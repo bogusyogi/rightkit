@@ -1,5 +1,5 @@
-import type { Brand } from './gallery';
-import type { EyesGateBlock, ProcessInfo } from './runtime';
+import type { Brand } from './gallery.js';
+import type { EyesGateBlock, ProcessInfo } from './runtime.js';
 
 export type VideoRefKind = 'flf' | 'ingredient' | 'lipsync' | 'motion_control' | 'avatar_video' | 'video_lipsync' | 'none';
 export type VideoReferenceKind = 'image' | 'audio' | 'video';

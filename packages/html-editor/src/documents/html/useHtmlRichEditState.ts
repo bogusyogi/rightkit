@@ -7,8 +7,8 @@ import {
   type SetStateAction,
 } from "react";
 import type { ViewMode } from "@rightkit/document-core/documents/types";
-import type { HtmlSafeBlockTarget } from "./sourceMap";
-import type { HtmlEditorToolbarState, HtmlSafeBlockEditorHandle } from "./HtmlSafeBlockEditor";
+import type { HtmlSafeBlockTarget } from "./sourceMap.js";
+import type { HtmlEditorToolbarState, HtmlSafeBlockEditorHandle } from "./HtmlSafeBlockEditor.js";
 
 interface Args {
   onChangeView?: (view: ViewMode) => void;

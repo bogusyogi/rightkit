@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { TranscriptBubble } from "@rightkit/agent-ui-workbench/components/workbench/TranscriptBubble";
-import { detectComposerMention } from "../app/composerBarHelpers";
+import { detectComposerMention } from "../app/composerBarHelpers.js";
 import type { TranscriptMessage } from "@rightkit/agent-ui-core/lib/types";
 import type { ReferenceObject } from "@rightkit/agent-ui-core/lib/types/references";
 

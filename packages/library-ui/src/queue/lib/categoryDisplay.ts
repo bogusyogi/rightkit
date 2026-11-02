@@ -1,4 +1,4 @@
-import type { JobCategory } from "./jobDisplay";
+import type { JobCategory } from "./jobDisplay.js";
 
 // Social uses the #a993d8 purple as the canonical tone; the older
 // #a78bfa was a second, unrelated purple.

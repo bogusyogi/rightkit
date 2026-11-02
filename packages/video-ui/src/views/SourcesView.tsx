@@ -1,12 +1,11 @@
 import { Badge, Button, Card, EmptyState, PageShell } from "@rightkit/react-shell/react";
-import "./Media.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { pickFile, pickMedia } from "../lib/dialog";
-import { engineCall, onEngineRaw, errorMessage, onEngineEvent, revealPath } from "../lib/engine";
+import { pickFile, pickMedia } from "../lib/dialog.js";
+import { engineCall, onEngineRaw, errorMessage, onEngineEvent, revealPath } from "../lib/engine.js";
 import { MediaPlayer } from "@rightkit/media-ui";
-import { mediaKind, useMediaPlaybackId } from "../lib/mediaAdapters";
-import { type MicAlignResult, micAlign } from "../lib/mic";
-import { TICKS_PER_SECOND, baseName, projectShow, type ProjectShow } from "../lib/project";
+import { mediaKind, useMediaPlaybackId } from "../lib/mediaAdapters.js";
+import { type MicAlignResult, micAlign } from "../lib/mic.js";
+import { TICKS_PER_SECOND, baseName, projectShow, type ProjectShow } from "../lib/project.js";
 import {
   type SourceProbe,
   modelsStatus,
@@ -19,9 +18,9 @@ import {
   thumbnails,
   transcribe,
   transcriptShow,
-} from "../lib/media";
-import { assetUrl } from "../lib/asset";
-import { Drawer, Icon, ProgressRow, Thumbnail, fileSize, timecode } from "../ui";
+} from "../lib/media.js";
+import { assetUrl } from "../lib/asset.js";
+import { Drawer, Icon, ProgressRow, Thumbnail, fileSize, timecode } from "../ui/index.js";
 
 type Row = {
   id: string;

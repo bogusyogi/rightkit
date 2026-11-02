@@ -7,7 +7,7 @@ import {
   parseToTree as parseTree,
   type ParseOptions,
 } from "@rightkit/doc-render";
-import { buildBlocks, type Block } from "./semanticBlocks";
+import { buildBlocks, type Block } from "./semanticBlocks.js";
 
 export const TREE_CACHE_MAX_BYTES = 8 * 1024 * 1024;
 

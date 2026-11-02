@@ -1,6 +1,6 @@
-import SpecExecutionActions from "./SpecExecutionActions";
-import { SpecStatusBadge } from "./SpecListPane";
-import SpecConstitutionPanel from "./SpecConstitutionPanel";
+import SpecExecutionActions from "./SpecExecutionActions.js";
+import { SpecStatusBadge } from "./SpecListPane.js";
+import SpecConstitutionPanel from "./SpecConstitutionPanel.js";
 import type {
   SpecCompletionGateProps,
   SpecConstitutionDraft,
@@ -8,7 +8,7 @@ import type {
   SpecMetricStripProps,
   SpecWorkflowPanelProps,
   WorkflowSectionProps,
-} from "./types";
+} from "./types.js";
 import type {
   FeatureTask,
   SpecChecklistItem,

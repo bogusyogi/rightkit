@@ -5,7 +5,7 @@
 import { IconButton, Input } from "@rightkit/react-shell/react";
 import { useDismiss } from "@rightkit/platform-ui/headless";
 import { useEffect, useRef, useState } from "react";
-import type { SearchOptions, SearchProvider, SearchResult } from "../lib/searchUtils";
+import type { SearchOptions, SearchProvider, SearchResult } from "../lib/searchUtils.js";
 
 const EMPTY: SearchResult = { count: 0, activeIndex: -1 };
 

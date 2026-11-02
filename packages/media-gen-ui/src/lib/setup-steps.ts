@@ -1,4 +1,4 @@
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 /**
  * Setup step definitions (pure data, no imports) so the node test can check them. The view in
  * src/views/Onboarding.tsx attaches each step's body and renders its facts. Every step must carry

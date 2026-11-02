@@ -9,14 +9,14 @@ import {
   type TextMatch,
   type TextNodeMapping,
 } from "@rightkit/document-core/documents/searchUtils";
-import type { SiteRootGrant } from "./htmlInline";
-import { appColorScheme, buildPreviewHtml, isLocalRelative, previewBootHtml } from "./htmlInline";
+import type { SiteRootGrant } from "./htmlInline.js";
+import { appColorScheme, buildPreviewHtml, isLocalRelative, previewBootHtml } from "./htmlInline.js";
 import {
   htmlSrcDocCache,
   trackCancelledHtmlBuild,
   trackHtmlIframe,
   trackHtmlObserver,
-} from "./htmlResourceLifecycle";
+} from "./htmlResourceLifecycle.js";
 import {
   grantRelativeFile,
   openDevtools,
@@ -30,17 +30,17 @@ import {
   type HtmlInspectTarget,
   type HtmlSafeBlockTarget,
   type HtmlTextSelection,
-} from "./sourceMap";
-import { HTML_INLINE_EDITABLE_SELECTOR, htmlElementPathFromBody, sourceChecksum } from "./sourceMap";
+} from "./sourceMap.js";
+import { HTML_INLINE_EDITABLE_SELECTOR, htmlElementPathFromBody, sourceChecksum } from "./sourceMap.js";
 import { scrollBehaviorForMotion } from "@rightkit/document-core/state/motion";
-import { applyHtmlThemeStyle, htmlThemeStyleHtml } from "./htmlTheme";
+import { applyHtmlThemeStyle, htmlThemeStyleHtml } from "./htmlTheme.js";
 import {
   clampPreviewZoom,
   inspectTargetFromClick,
   isInsideBlockEditor,
   webKitSelectedWordTarget,
-} from "./htmlViewerUtils";
-import { publishHtmlSurface } from "./htmlBridgeScript";
+} from "./htmlViewerUtils.js";
+import { publishHtmlSurface } from "./htmlBridgeScript.js";
 
 function stripSafeResourceHints(html: string): string {
   const doc = new DOMParser().parseFromString(html, "text/html");

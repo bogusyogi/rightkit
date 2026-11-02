@@ -1,5 +1,5 @@
-import { getShell } from "./ipc";
-import { hostAppName } from "../../appName";
+import { getShell } from "./ipc/index.js";
+import { hostAppName } from "../../appName.js";
 
 /**
  * Ready notification through the RightKit shell. The shell requests OS permission on post, and it

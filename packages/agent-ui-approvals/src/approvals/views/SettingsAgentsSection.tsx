@@ -21,9 +21,9 @@ import {
   type AgentRow,
 } from "@rightkit/mail-ui/lib/ipc";
 import { showDialog } from "@rightkit/mail-ui/hooks/dialog";
-import { AGENT_FILE_MAX, fileToBase64 } from "../lib/agentFile";
-import { SettingsAgentsAudit } from "./SettingsAgentsAudit";
-import { hostAppName } from "../../appName";
+import { AGENT_FILE_MAX, fileToBase64 } from "../lib/agentFile.js";
+import { SettingsAgentsAudit } from "./SettingsAgentsAudit.js";
+import { hostAppName } from "../../appName.js";
 
 const PAGE = 50;
 

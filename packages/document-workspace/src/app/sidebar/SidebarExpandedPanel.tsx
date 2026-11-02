@@ -16,11 +16,11 @@ import { Palette } from "@phosphor-icons/react/dist/icons/Palette";
 import { FolderOpen } from "@phosphor-icons/react/dist/icons/FolderOpen";
 import { IconButton } from "@rightkit/react-shell/react";
 import { useDismiss } from "@rightkit/platform-ui/headless";
-import { AppearanceMenu } from "../../settings/AppearanceMenu";
-import type { SidebarProps } from "../Sidebar";
-import { PanelIcon, PlusIcon } from "./SidebarIcons";
-import { NewOpenMenu } from "./SidebarMenus";
-import { ExplorerSections } from "./explorer/ExplorerSections";
+import { AppearanceMenu } from "../../settings/AppearanceMenu.js";
+import type { SidebarProps } from "../Sidebar.js";
+import { PanelIcon, PlusIcon } from "./SidebarIcons.js";
+import { NewOpenMenu } from "./SidebarMenus.js";
+import { ExplorerSections } from "./explorer/ExplorerSections.js";
 
 const HEADER_BTN =
   "vr-press vr-focus flex h-7 min-w-7 items-center justify-center rounded px-1 font-sans text-xs text-muted hover:bg-ink/40 hover:text-paper";

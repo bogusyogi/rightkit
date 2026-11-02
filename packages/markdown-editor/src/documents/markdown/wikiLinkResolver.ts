@@ -1,4 +1,4 @@
-import type { MarkdownIndexedFile } from "./references/folderIndex";
+import type { MarkdownIndexedFile } from "./references/folderIndex.js";
 
 export interface WikiLinkResolutionOptions {
   documentPath?: string;

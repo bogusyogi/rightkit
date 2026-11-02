@@ -3,9 +3,9 @@
 // identity). The hub re-checks on mount and focus. It polls only while access is
 // absent, so a healthy app does not make synchronous AX IPC every two seconds.
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "../lib/tauri";
-import { usePlatform } from "../hooks/usePlatform";
-import { hostAppName } from "../appName";
+import { invoke } from "../lib/tauri.js";
+import { usePlatform } from "../hooks/usePlatform.js";
+import { hostAppName } from "../appName.js";
 
 export default function AccessibilityBanner() {
   const platform = usePlatform();

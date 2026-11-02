@@ -1,5 +1,5 @@
 import type { SkillItem } from "@rightkit/agent-ui-core/lib/types";
-import type { RunTarget } from "../../hooks/useShellUiState";
+import type { RunTarget } from "../../hooks/useShellUiState.js";
 import type { WorkspaceMention } from "@rightkit/agent-ui-core/lib/daemon";
 
 export function runLabel(target: RunTarget) {

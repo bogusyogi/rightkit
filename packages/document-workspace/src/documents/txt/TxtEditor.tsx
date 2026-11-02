@@ -2,8 +2,8 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } 
 import type { EditorView } from "@codemirror/view";
 import type { SearchProvider } from "@rightkit/document-core/documents/types";
 import { useSettings } from "@rightkit/document-core/settings/settings";
-import { LinkDialog } from "./LinkDialog";
-import type { SourceLanguage } from "./sourceFormatting";
+import { LinkDialog } from "./LinkDialog.js";
+import type { SourceLanguage } from "./sourceFormatting.js";
 export {
   applyInlineWrap,
   buildImageEmbed,
@@ -11,22 +11,22 @@ export {
   formatHtmlSource,
   formatSource,
   sourceDiagnostics,
-} from "./sourceFormatting";
-import { viewRightTheme } from "./sourceTheme";
-import { SourceEditorToolbar } from "./SourceEditorToolbar";
+} from "./sourceFormatting.js";
+import { viewRightTheme } from "./sourceTheme.js";
+import { SourceEditorToolbar } from "./SourceEditorToolbar.js";
 import { DocumentToolbarSearch, type DocumentSearchMode } from "@rightkit/document-core/documents/DocumentToolbarFind";
-import { useSourceSearch } from "./useSourceSearch";
-import { useTextEditorCommands } from "./useTextEditorCommands";
-import { useCodeMirrorSourceEditor } from "./useCodeMirrorSourceEditor";
+import { useSourceSearch } from "./useSourceSearch.js";
+import { useTextEditorCommands } from "./useTextEditorCommands.js";
+import { useCodeMirrorSourceEditor } from "./useCodeMirrorSourceEditor.js";
 import { printDocumentContent } from "@rightkit/document-core/app/documentPrinting";
 import { logError } from "@rightkit/document-core/state/diagnostics";
 import { toast } from "@rightkit/platform-ui/headless";
-import type { SourceEditorViewState, SourceLinkState, TextEditorProps } from "./sourceEditorTypes";
+import type { SourceEditorViewState, SourceLinkState, TextEditorProps } from "./sourceEditorTypes.js";
 import { DocBar } from "@rightkit/document-core/app/shell/docBar";
-export type { SourceEditorViewState } from "./sourceEditorTypes";
+export type { SourceEditorViewState } from "./sourceEditorTypes.js";
 
 const MarkdownSourceToolbar = lazy(() =>
-  import("./MarkdownSourceToolbar").then((m) => ({ default: m.MarkdownSourceToolbar })),
+  import("./MarkdownSourceToolbar.js").then((m) => ({ default: m.MarkdownSourceToolbar })),
 );
 
 interface Props extends TextEditorProps {

@@ -8,19 +8,19 @@
  */
 
 import type { ReactNode } from "react";
-import { MarkdownTableEditor } from "./table/MarkdownTableEditor";
-import { MarkdownRawFenceEditor } from "./code/MarkdownRawFenceEditor";
-import { MarkdownMathBlockEditor } from "./math/MarkdownMathBlockEditor";
-import { MarkdownMermaidEditor } from "./mermaid/MarkdownMermaidEditor";
-import { MarkdownRawBlockEditor } from "./raw/MarkdownRawBlockEditor";
+import { MarkdownTableEditor } from "./table/MarkdownTableEditor.js";
+import { MarkdownRawFenceEditor } from "./code/MarkdownRawFenceEditor.js";
+import { MarkdownMathBlockEditor } from "./math/MarkdownMathBlockEditor.js";
+import { MarkdownMermaidEditor } from "./mermaid/MarkdownMermaidEditor.js";
+import { MarkdownRawBlockEditor } from "./raw/MarkdownRawBlockEditor.js";
 import {
   MarkdownFaqEditor,
   MarkdownStepperEditor,
   MarkdownComparisonEditor,
   MarkdownRichTableEditor,
-} from "./semantic/MarkdownSemanticEditors";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import type { BlockKind } from "./types";
+} from "./semantic/MarkdownSemanticEditors.js";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import type { BlockKind } from "./types.js";
 
 export interface ProtectedBlockHostProps {
   readonly core: MarkdownDocumentCore;

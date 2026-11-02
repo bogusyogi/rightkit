@@ -9,7 +9,7 @@
 // folder-specific IPC (drafts.delete instead of bulk_action trash), the
 // `handler` field on the action object points at the right call.
 
-import type { Folder } from "./mail";
+import type { Folder } from "./mail.js";
 
 /** The verbs the host app UI exposes for thread manipulation. Each maps to
  *  exactly one BE handler. `kind: "bulk"` runs through `bulk_action`;

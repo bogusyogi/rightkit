@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { cx, ui } from "../../lib/ui";
+import { cx, ui } from "../../lib/ui.js";
 
 // Shared grammar for the Dictation page tabs (Vocabulary | Snippets | Text
 // replacements): the add row, one quiet note, then ONE surface of hairline rows.

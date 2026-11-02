@@ -17,14 +17,14 @@ import { FloppyDisk } from "@phosphor-icons/react/dist/icons/FloppyDisk";
 import { Printer } from "@phosphor-icons/react/dist/icons/Printer";
 import { Eye } from "@phosphor-icons/react/dist/icons/Eye";
 import { Code } from "@phosphor-icons/react/dist/icons/Code";
-import { capabilitiesFor } from "../documents/capabilities";
+import { capabilitiesFor } from "../documents/capabilities.js";
 import { displayTitle, type LoadedDocument, type ViewMode } from "@rightkit/document-core/documents/types";
 import { BASE_THEME_IDS, themeById } from "@rightkit/document-core/settings/themes";
-import type { FileEntry } from "../state/library";
+import type { FileEntry } from "../state/library.js";
 import type { Settings } from "@rightkit/document-core/settings/settings";
 import type { DocxMenuApi } from "@rightkit/docx-editor/documents/docx/menuApi";
 import { shortcutLabel } from "@rightkit/document-core/platform";
-import type { PaletteItem } from "./CommandPalette";
+import type { PaletteItem } from "./CommandPalette.js";
 
 // Decorative leading glyph for a palette row. Kept tiny + weight-regular to match the compact list.
 // biome-ignore lint/suspicious/noExplicitAny: Phosphor's icon props are structurally identical here.

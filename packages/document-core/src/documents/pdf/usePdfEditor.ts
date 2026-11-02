@@ -1,16 +1,28 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-// Must precede the "pdfjs-dist/web/pdf_viewer.mjs" import below — see its comment.
-import "./pdfjsLibGlobal";
+import { logError, logEvent } from "../../state/diagnostics.js";
+import { modeToAnnotationEditorType, type PdfEditorMode } from "./pdfEditor.js";
+
 // pdf.js does not expose AnnotationEditorUIManager's dependencies (EventBus, GenericL10n) from the
-// main `pdfjs-dist` entry — only from its bundled "web" viewer components. This is exactly the
-// coupling ENGINEERING-FINDINGS-2026-08.md §4 flagged: "Mozilla declined a generic third-party
-// embedding API." We take only the two viewer-component classes the UIManager constructor requires
-// and build everything else (container/viewer elements, per-page layers) ourselves.
-import { EventBus, GenericL10n } from "pdfjs-dist/web/pdf_viewer.mjs";
-import { logError, logEvent } from "../../state/diagnostics";
-import { modeToAnnotationEditorType, type PdfEditorMode } from "./pdfEditor";
+// main entry; they live in "pdfjs-dist/web/pdf_viewer.mjs", whose top-level code reads `document` and
+// `globalThis.pdfjsLib`. It is therefore loaded lazily, after "./pdfjsLibGlobal.js" sets the global,
+// on the first editor mount: importing this package never touches the DOM (plain Node can import it).
+type ViewerModule = typeof import("pdfjs-dist/web/pdf_viewer.mjs");
+let viewerModule: ViewerModule | null = null;
+let viewerLoad: Promise<void> | null = null;
+function loadViewerModule(): Promise<void> {
+  viewerLoad ??= import("./pdfjsLibGlobal.js")
+    .then(() => import("pdfjs-dist/web/pdf_viewer.mjs"))
+    .then((m) => {
+      viewerModule = m;
+    })
+    .catch(() => {
+      viewerLoad = null;
+      logError("pdf-editor:viewer-load");
+    });
+  return viewerLoad;
+}
 
 // pdfjs-dist's own type defs mark AnnotationEditorUIManager's constructor args as `any` (it's
 // treated as viewer-internal, not a public API) — so we keep this hook's construction call and the
@@ -79,7 +91,7 @@ export function usePdfEditor({
   const [freeTextSize, setFreeTextSizeState] = useState(10);
   const [ready, setReady] = useState(false);
   const uiManagerRef = useRef<AnyUIManager | null>(null);
-  const eventBusRef = useRef<InstanceType<typeof EventBus> | null>(null);
+  const eventBusRef = useRef<InstanceType<ViewerModule["EventBus"]> | null>(null);
   const storageRef = useRef<{
     onSetModified: (() => void) | null;
     onResetModified: (() => void) | null;
@@ -144,11 +156,17 @@ export function usePdfEditor({
     const container = containerRef.current;
     if (!doc || !container) return false;
 
-    let eventBus: InstanceType<typeof EventBus> | null = null;
+    // The viewer module loads on the first mount; until it has, editing controls stay disabled.
+    const viewer = viewerModule;
+    if (!viewer) {
+      void loadViewerModule();
+      return false;
+    }
+    let eventBus: InstanceType<ViewerModule["EventBus"]> | null = null;
     let uiManager: AnyUIManager | null = null;
     try {
-      eventBus = new EventBus();
-      const l10n = new GenericL10n(navigator.language || "en-US");
+      eventBus = new viewer.EventBus();
+      const l10n = new viewer.GenericL10n(navigator.language || "en-US");
       uiManager = new (
         pdfjs as unknown as { AnnotationEditorUIManager: new (...a: unknown[]) => AnyUIManager }
       ).AnnotationEditorUIManager(
@@ -220,6 +238,11 @@ export function usePdfEditor({
   // merely being viewed, then survives mode="none" so pdf.js's unified undo history remains intact.
   // A document identity change always destroys it and resets mode/dirty state.
   // biome-ignore lint/correctness/useExhaustiveDependencies: pdfDoc identity defines the manager lifetime.
+  // Start loading the viewer module (EventBus, GenericL10n) as soon as an editor mounts.
+  useEffect(() => {
+    void loadViewerModule();
+  }, []);
+
   useEffect(() => {
     setModeState("none");
     setDirty(false);

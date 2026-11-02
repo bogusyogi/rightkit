@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createRuntimeGuards, RuntimeGuards } from "./runtimeGuards";
+import { createRuntimeGuards, RuntimeGuards } from "./runtimeGuards.js";
 
 describe("RuntimeGuards", () => {
   it("admits only the newest request for the active session", () => {

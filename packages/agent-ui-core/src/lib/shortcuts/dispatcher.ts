@@ -1,6 +1,6 @@
 import { createShortcutRegistry, type ShortcutDef, type ShortcutRegistry } from "@rightkit/react-shell";
-import { toRightKitChord } from "./bindings";
-import { getEffectiveShortcutCombo, getShortcutAction, SHORTCUT_SCHEMA } from "./schema";
+import { toRightKitChord } from "./bindings.js";
+import { getEffectiveShortcutCombo, getShortcutAction, SHORTCUT_SCHEMA } from "./schema.js";
 
 /** Matching, sequences, suspend/resume, unassigned bindings and conflicts are RightKit's. */
 export const rightKitShortcuts: ShortcutRegistry = createShortcutRegistry({ sequenceTimeout: 3000 });

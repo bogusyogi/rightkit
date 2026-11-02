@@ -6,10 +6,10 @@ import {
   UNASSIGNED_SHORTCUT,
   type ShortcutCombo,
   type ShortcutConflict,
-} from "./bindings";
-import { SHORTCUT_SCHEMA } from "./config";
+} from "./bindings.js";
+import { SHORTCUT_SCHEMA } from "./config.js";
 
-export { SHORTCUT_SCHEMA } from "./config";
+export { SHORTCUT_SCHEMA } from "./config.js";
 
 export type ShortcutAction = (typeof SHORTCUT_SCHEMA)[number];
 export type ShortcutActionId = ShortcutAction["id"];

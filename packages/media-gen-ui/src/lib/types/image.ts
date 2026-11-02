@@ -1,4 +1,4 @@
-import type { Brand } from './gallery';
+import type { Brand } from './gallery.js';
 
 export interface ImageIntent {
   model: string;

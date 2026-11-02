@@ -1,4 +1,4 @@
-import { invoke } from "./invoke";
+import { invoke } from "./invoke.js";
 
 export interface TranslateResult {
   translated_text: string;

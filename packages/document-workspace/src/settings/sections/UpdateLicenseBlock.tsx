@@ -8,8 +8,8 @@ import {
 } from "@rightkit/settings-ui";
 import { LicenseClientError, isLicensed, isPro, licenseMessage, type LicenseView } from "@rightkit/license";
 import { openExternal } from "@rightkit/document-core/state/tauriBridge";
-import { UPDATE_LICENSE_URL, getLicenseClient } from "../../state/updateLicense";
-import { PublishedLicense } from "../publishedSections";
+import { UPDATE_LICENSE_URL, getLicenseClient } from "../../state/updateLicense.js";
+import { PublishedLicense } from "../publishedSections.js";
 
 /** Fields the published section displays; a native change that alters none of them needs no re-read. */
 const signature = (v: LicenseView) =>

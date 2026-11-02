@@ -5,8 +5,8 @@
  * window onto output seconds. Word-edge evidence stays in the engine's
  * validated `transcript.show` payload — this module only maps numbers.
  */
-import type { ProjectShow } from "../lib/project";
-import { fpsValue, ticksToSeconds } from "../lib/project";
+import type { ProjectShow } from "../lib/project.js";
+import { fpsValue, ticksToSeconds } from "../lib/project.js";
 
 /** One placed source range: source [inS,outS) lands at outOffS + (t - inS). */
 export type ClipRange = { inS: number; outS: number; outOffS: number };

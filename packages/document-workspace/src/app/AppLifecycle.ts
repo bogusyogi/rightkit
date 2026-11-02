@@ -2,9 +2,9 @@ import { useEffect } from "react";
 import { toast } from "@rightkit/platform-ui/headless";
 import { addRecentUrl } from "@rightkit/document-core/state/recentUrls";
 import { watchFiles, onAppEvent } from "@rightkit/document-core/state/tauriBridge";
-import { checkForBackgroundUpdate } from "../state/updateLicense";
+import { checkForBackgroundUpdate } from "../state/updateLicense.js";
 import type { Unlisten } from "@rightkit/document-core/state/bridgeEvents";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 /** Tauri's unlisten callback is asynchronous. During window teardown its backend listener may
  * already be gone, so contain either sync or async cleanup failures instead of leaking an

@@ -1,6 +1,6 @@
 import { Select, useTheme } from "@rightkit/react-shell/react";
 import { PALETTES, type Palette, useThemeStore } from "@rightkit/agent-ui-core/state/themeStore";
-import AnalyticsConsentCard from "../analytics/AnalyticsConsentCard";
+import AnalyticsConsentCard from "../analytics/AnalyticsConsentCard.js";
 
 // Dark base names per Right Suite brand.md ("Dark bases (shared): slate
 // (View/Code) · charcoal (Mail) · coffee (Heard/Voice) · espresso (Scrape)").

@@ -1,12 +1,12 @@
 import type { ComponentProps } from "react";
-import { AppDialogs } from "./AppDialogs";
+import { AppDialogs } from "./AppDialogs.js";
 import { BlockDraftViewConfirm } from "@rightkit/document-core/app/chrome";
 import { baseName, isUntitled } from "@rightkit/document-core/documents/types";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
 import { addRecentUrl } from "@rightkit/document-core/state/recentUrls";
 import { openLinkedDocument } from "@rightkit/document-core/state/tauriBridge";
-import { localPathFromClipboardText } from "./clipboardPaths";
-import type { useDocuments } from "./useDocuments";
+import { localPathFromClipboardText } from "./clipboardPaths.js";
+import type { useDocuments } from "./useDocuments.js";
 
 type DialogProps = ComponentProps<typeof AppDialogs>;
 type ConfirmProps = ComponentProps<typeof BlockDraftViewConfirm>;

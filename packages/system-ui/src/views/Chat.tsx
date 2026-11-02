@@ -2,9 +2,8 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "re
 import { invoke } from "@tauri-apps/api/core";
 import { Button, ConfirmDialog, Input } from "@rightkit/react-shell/react";
 import { ChevronDown, ChevronRight, Search } from "lucide-react";
-import "./chat.css";
-import { clearVisibleInterval, visibleInterval } from "../visible";
-import { chatKindName } from "../lib/chatKind";
+import { clearVisibleInterval, visibleInterval } from "../visible.js";
+import { chatKindName } from "../lib/chatKind.js";
 
 /** Chat: messages between agent chats on this computer and linked computers (the `pulse chat` engine). */
 

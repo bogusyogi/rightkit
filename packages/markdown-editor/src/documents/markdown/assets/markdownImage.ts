@@ -15,8 +15,8 @@
 
 import type { EditorView } from "prosemirror-view";
 import { bytesToBase64 } from "@rightkit/document-core/documents/base64";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import type { MarkdownCommitSummary } from "../core/MarkdownDocumentTypes";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import type { MarkdownCommitSummary } from "../core/MarkdownDocumentTypes.js";
 import {
   MAX_MARKDOWN_ASSET_BYTES,
   decodeBase64Bytes,
@@ -25,8 +25,8 @@ import {
   NativeMarkdownAssetClient,
   validateBase64AssetSize,
   validateMarkdownAsset,
-} from "./markdownAsset";
-import { pmSelectionToLogicalRange } from "../projection/pmSelectionBridge";
+} from "./markdownAsset.js";
+import { pmSelectionToLogicalRange } from "../projection/pmSelectionBridge.js";
 import { saveFileDialog, regrantSavedTarget, writeDocument } from "@rightkit/document-core/state/tauriBridge";
 import { formatFromPath, isUntitled } from "@rightkit/document-core/documents/types";
 

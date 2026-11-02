@@ -21,9 +21,9 @@ import type {
   ScheduleRecipeRequest,
   ScheduleRecipeResponse,
   WriteExecutionProcessStdinRequest,
-} from "../types";
-import { requestDaemonApi } from "../generated/daemon-openapi";
-import type { SaveExecutionNetworkProfileRequest } from "./config-host";
+} from "../types.js";
+import { requestDaemonApi } from "../generated/daemon-openapi.js";
+import type { SaveExecutionNetworkProfileRequest } from "./config-host.js";
 
 export async function listExecutionBackends(
   config: DaemonConfig,

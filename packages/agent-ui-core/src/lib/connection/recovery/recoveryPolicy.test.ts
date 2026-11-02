@@ -6,7 +6,7 @@ import {
   type RecoveryNextStep,
   type RecoveryPrimaryAction,
   type RecoveryVariant,
-} from "./recoveryPolicy";
+} from "./recoveryPolicy.js";
 
 const EXPECTED_ROUTING: Record<RecoveryVariant, Record<RecoveryPrimaryAction, RecoveryNextStep["kind"]>> = {
   "local-unavailable": { "use-local": "local-setup", "use-remote": "remote-form" },

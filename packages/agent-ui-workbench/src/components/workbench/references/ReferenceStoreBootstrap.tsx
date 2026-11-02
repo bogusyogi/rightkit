@@ -4,9 +4,9 @@ import {
   buildInlineReferenceResolver,
   setInlineReferenceHostAction,
   setInlineReferenceResolver,
-} from "./referenceRegistry";
+} from "./referenceRegistry.js";
 import { useReferenceStore } from "@rightkit/agent-ui-core/state/referenceStore";
-import { performReferenceAction } from "./referenceActions";
+import { performReferenceAction } from "./referenceActions.js";
 
 // D2 — startup-only bridge component.
 //

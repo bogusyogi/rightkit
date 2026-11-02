@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { IframeFind, SearchProvider } from "../lib/searchUtils";
+import type { IframeFind, SearchProvider } from "../lib/searchUtils.js";
 
 export function useReaderFindProvider(findOpen: boolean) {
   const findRegistry = useRef<Map<string, IframeFind>>(new Map());

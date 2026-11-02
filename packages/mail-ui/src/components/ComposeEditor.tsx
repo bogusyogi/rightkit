@@ -7,8 +7,8 @@ import { Color } from "@tiptap/extension-color";
 import { FontFamily } from "@tiptap/extension-font-family";
 import { Extension } from "@tiptap/core";
 import { IconButton, Input } from "@rightkit/react-shell/react";
-import { sanitizeHtml } from "../lib/html";
-import { showDialog } from "../hooks/dialog";
+import { sanitizeHtml } from "../lib/html.js";
+import { showDialog } from "../hooks/dialog.js";
 
 /** Minimal inline extension: stores fontSize as a textStyle attribute. */
 const FontSize = Extension.create({

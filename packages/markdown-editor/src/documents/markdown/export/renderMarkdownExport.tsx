@@ -1,11 +1,11 @@
 import { createRoot } from "react-dom/client";
-import { MarkdownExportDocument } from "./MarkdownExportDocument";
-import { MarkdownRenderTracker, waitForStableMarkdownRender } from "./MarkdownRenderTracker";
-import { snapshotMarkdownDom } from "./exportSnapshotDom";
-import { buildMarkdownStandaloneHtml } from "./markdownStandaloneHtml";
-import type { MarkdownExportRequest, MarkdownExportSnapshot } from "./markdownExportTypes";
-import { markdownToPlainText } from "../exportMarkdown";
-import { readFrontmatterDocument } from "../properties/frontmatterDocument";
+import { MarkdownExportDocument } from "./MarkdownExportDocument.js";
+import { MarkdownRenderTracker, waitForStableMarkdownRender } from "./MarkdownRenderTracker.js";
+import { snapshotMarkdownDom } from "./exportSnapshotDom.js";
+import { buildMarkdownStandaloneHtml } from "./markdownStandaloneHtml.js";
+import type { MarkdownExportRequest, MarkdownExportSnapshot } from "./markdownExportTypes.js";
+import { markdownToPlainText } from "../exportMarkdown.js";
+import { readFrontmatterDocument } from "../properties/frontmatterDocument.js";
 
 let exportQueue: Promise<void> = Promise.resolve();
 

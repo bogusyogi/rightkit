@@ -3,7 +3,7 @@ import { toast } from "@rightkit/platform-ui/headless";
 import { errorMessage } from "@rightkit/document-core/state/errors";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
 import { incHistoryEntries, incIframeLoads, incPreviewGenerations, incSourceWrites } from "@rightkit/document-core/documents/perfEventCounters";
-import type { HtmlMutationPlan } from "./htmlMutationEngine";
+import type { HtmlMutationPlan } from "./htmlMutationEngine.js";
 import {
   HtmlOperationError,
   deleteNodePlan,
@@ -23,9 +23,9 @@ import {
   type RichBlockOp,
   type StructuralAction,
   type StructuralSurface,
-} from "./htmlOperationPlanner";
-import { decodeHtmlEntities, resolveSafeBlockTarget, sourceChecksum, type HtmlSafeBlockTarget } from "./sourceMap";
-import type { HtmlBlockHistoryEntry } from "./useHtmlPreviewLifecycle";
+} from "./htmlOperationPlanner.js";
+import { decodeHtmlEntities, resolveSafeBlockTarget, sourceChecksum, type HtmlSafeBlockTarget } from "./sourceMap.js";
+import type { HtmlBlockHistoryEntry } from "./useHtmlPreviewLifecycle.js";
 
 interface Committed {
   source: string;

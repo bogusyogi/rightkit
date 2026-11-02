@@ -1,4 +1,4 @@
-import type { MediaKind, ModelEntry } from './api';
+import type { MediaKind, ModelEntry } from './api.js';
 
 /** What a caller needs from the engine's model list: a kind, and optionally a preferred provider and model id. */
 export interface ModelRequest {

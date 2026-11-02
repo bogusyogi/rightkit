@@ -1,4 +1,4 @@
-import { hostAppName } from "../../../appName";
+import { hostAppName } from "../../../appName.js";
 export type RecoveryVariant =
   | "local-unavailable"
   | "remote-unreachable"

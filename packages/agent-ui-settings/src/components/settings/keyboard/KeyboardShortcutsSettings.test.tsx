@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import KeyboardShortcutsSettings, {
   SHORTCUT_OVERRIDES_STORAGE_KEY,
   readShortcutOverrides,
-} from "./KeyboardShortcutsSettings";
+} from "./KeyboardShortcutsSettings.js";
 
 beforeEach(() => localStorage.clear());
 

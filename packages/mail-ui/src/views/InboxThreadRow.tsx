@@ -1,12 +1,12 @@
 import { Button, IconButton, Checkbox } from "@rightkit/react-shell/react";
 import { memo, type ReactNode } from "react";
-import AttachmentTypeIcon from "../components/AttachmentTypeIcon";
-import Icon from "../components/Icons";
-import { useAppStore } from "../store";
+import AttachmentTypeIcon from "../components/AttachmentTypeIcon.js";
+import Icon from "../components/Icons.js";
+import { useAppStore } from "../store/index.js";
 import { relativeTimeFrom } from "@rightkit/platform-ui";
-import { colorFor, initialOf, threadSenders } from "../lib/mail";
-import { splitHighlightSentinels } from "../lib/highlightSnippet";
-import type { Thread } from "../lib/ipc";
+import { colorFor, initialOf, threadSenders } from "../lib/mail.js";
+import { splitHighlightSentinels } from "../lib/highlightSnippet.js";
+import type { Thread } from "../lib/ipc.js";
 
 function searchTerms(query: string): string[] {
   return query

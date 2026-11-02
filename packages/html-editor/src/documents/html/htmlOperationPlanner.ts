@@ -1,24 +1,24 @@
-import { buildHtmlEditableBody } from "./htmlMutationEngine";
+import { buildHtmlEditableBody } from "./htmlMutationEngine.js";
 import type {
   HtmlMutationPlan,
   HtmlSourcePatch,
   HtmlSourceRange,
   HtmlRevision,
-} from "./htmlMutationEngine";
+} from "./htmlMutationEngine.js";
 import {
   HtmlOperationError,
   allLocations,
   locateElement,
   patch,
   rangeKey,
-} from "./htmlPlanLocations";
-import type { HtmlElementLocation, LocatedNode } from "./htmlPlanLocations";
+} from "./htmlPlanLocations.js";
+import type { HtmlElementLocation, LocatedNode } from "./htmlPlanLocations.js";
 import {
   tableDeleteColumnPlan,
   tableDeleteRowPlan,
   tableInsertColumnPlan,
   tableInsertRowPlan,
-} from "./htmlTablePlans";
+} from "./htmlTablePlans.js";
 
 /**
  * Operation-aware source-surgery planners (HTML-EDITING-ARCHITECTURE-FINAL.md §14).
@@ -802,12 +802,12 @@ export {
   descendantElements,
   locateElement,
   resolveInlineAnchor,
-} from "./htmlPlanLocations";
-export type { HtmlElementLocation } from "./htmlPlanLocations";
-export { planInlineTextReplace } from "./htmlInlineTextPlan";
+} from "./htmlPlanLocations.js";
+export type { HtmlElementLocation } from "./htmlPlanLocations.js";
+export { planInlineTextReplace } from "./htmlInlineTextPlan.js";
 export {
   tableDeleteColumnPlan,
   tableDeleteRowPlan,
   tableInsertColumnPlan,
   tableInsertRowPlan,
-} from "./htmlTablePlans";
+} from "./htmlTablePlans.js";

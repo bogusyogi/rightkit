@@ -6,7 +6,7 @@ import {
   listExecutionProcesses,
 } from "@rightkit/agent-ui-core/lib/daemon";
 import type { DaemonConfig, ExecutionProcessRow } from "@rightkit/agent-ui-core/lib/types";
-import { usePersistentTerminal } from "./usePersistentTerminal";
+import { usePersistentTerminal } from "./usePersistentTerminal.js";
 
 vi.mock("@rightkit/agent-ui-core/lib/daemon", () => ({
   createExecutionProcess: vi.fn(),

@@ -36,7 +36,7 @@ import {
   resumeDriver,
   startDriver,
 } from "@rightkit/agent-ui-core/lib/daemon";
-import { useDriverConductor } from "./useDriverConductor";
+import { useDriverConductor } from "./useDriverConductor.js";
 
 const config: DaemonConfig = { url: "http://127.0.0.1:9171", token: "t" };
 

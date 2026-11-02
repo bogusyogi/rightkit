@@ -1,9 +1,9 @@
 import { cx } from "@rightkit/react-shell/react";
 import { useCallback, useState } from "react";
-import type { JobInfo } from "../contract";
-import { invoke } from "../lib/ipc";
-import { statusText } from "../lib/jobDisplay";
-import { buttonClass, errorTextClass, panelClass, primaryButtonClass, subtlePanelClass } from "../lib/ui";
+import type { JobInfo } from "../contract.js";
+import { invoke } from "../lib/ipc/index.js";
+import { statusText } from "../lib/jobDisplay.js";
+import { buttonClass, errorTextClass, panelClass, primaryButtonClass, subtlePanelClass } from "../lib/ui.js";
 import { Clipboard, LogIn, PanelRightOpen, RotateCcw } from "lucide-react";
 
 type JobStatePreviewProps = {

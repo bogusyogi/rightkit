@@ -9,22 +9,22 @@ import {
 } from "react";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import type { ViewMeta } from "../types";
-import type { OutlineNode, Size } from "./pdfShared";
-import { acquireResource } from "../../app/resourceCensus";
+import type { ViewMeta } from "../types.js";
+import type { OutlineNode, Size } from "./pdfShared.js";
+import { acquireResource } from "../../app/resourceCensus.js";
 import {
   beginPdfBench,
   getPdfBenchLoadMode,
   markPdfBenchDocumentReady,
   markPdfBenchError,
-} from "./pdfBench";
-import { preparePdfLoading, type PreparedPdfLoading } from "./pdfBenchTransport";
+} from "./pdfBench.js";
+import { preparePdfLoading, type PreparedPdfLoading } from "./pdfBenchTransport.js";
 import { pdfWasmUrl } from "@rightkit/pdf-ui";
 
 /** Benchmark-only password injection; production & manual unlocks always use the prompt. */
 export function getPdfBenchPassword(): string | null {
-  if (!import.meta.env.DEV || import.meta.env.VITE_PDF_BENCH_AUTOPILOT !== "1") return null;
-  const password = import.meta.env.VITE_PDF_BENCH_PASSWORD as string | undefined;
+  if (!import.meta.env?.DEV || import.meta.env?.VITE_PDF_BENCH_AUTOPILOT !== "1") return null;
+  const password = import.meta.env?.VITE_PDF_BENCH_PASSWORD as string | undefined;
   return password ? password : null;
 }
 

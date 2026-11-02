@@ -10,7 +10,7 @@ import {
 } from "@rightkit/agent-ui-core/lib/daemon/inference";
 import type { DirectConnection } from "@rightkit/agent-ui-core/lib/types/inference";
 import { useConnectionProfilesStore } from "@rightkit/agent-ui-core/state/connectionProfiles";
-import ConnectionSwitcher from "./ConnectionSwitcher";
+import ConnectionSwitcher from "./ConnectionSwitcher.js";
 
 vi.mock("@rightkit/agent-ui-core/lib/daemon/inference", () => ({
   createDirectConnection: vi.fn(),

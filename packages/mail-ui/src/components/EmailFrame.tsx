@@ -8,9 +8,9 @@
 // mutation) and intercepts Ctrl/Cmd+F inside the iframe to open the app FindBar
 // instead of WebView2's native find.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { EMPTY_IMG_SRC, isSafeDataImageSrc, isLocalCachedImg } from "../lib/imageTrust";
-import { sanitizeHtml } from "../lib/html";
-import { getEmailFrameShortcuts } from "../lib/emailFrameShortcuts";
+import { EMPTY_IMG_SRC, isSafeDataImageSrc, isLocalCachedImg } from "../lib/imageTrust.js";
+import { sanitizeHtml } from "../lib/html.js";
+import { getEmailFrameShortcuts } from "../lib/emailFrameShortcuts.js";
 import {
   applyHighlights,
   clearHighlights,
@@ -20,7 +20,7 @@ import {
   type IframeFind,
   type SearchOptions,
   type TextMatch,
-} from "../lib/searchUtils";
+} from "../lib/searchUtils.js";
 
 function cssVar(name: string, fallback: string): string {
   if (typeof window === "undefined") return fallback;

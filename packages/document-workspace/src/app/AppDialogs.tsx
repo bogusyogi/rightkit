@@ -7,12 +7,12 @@ import {
   OpenUrlDialog,
   AppErrorNotice,
 } from "@rightkit/document-core/app/chrome";
-import { CommandPalette, type PaletteItem } from "./CommandPalette";
-import { ShortcutHelp } from "./ShortcutHelp";
-import { SettingsPanel } from "../settings/SettingsPanel";
+import { CommandPalette, type PaletteItem } from "./CommandPalette.js";
+import { ShortcutHelp } from "./ShortcutHelp.js";
+import { SettingsPanel } from "../settings/SettingsPanel.js";
 import { baseName } from "@rightkit/document-core/documents/types";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
-import type { HtmlConfirmState, HtmlConflictState } from "./useHtmlSession";
+import type { HtmlConfirmState, HtmlConflictState } from "./useHtmlSession.js";
 
 // The modal/overlay cluster that used to live inline at the bottom of App.tsx: settings, command
 // palette, shortcut help, the open-url dialog, the error notice, and every confirm/reload dialog.

@@ -4,7 +4,7 @@ import {
   checkKeyFormat,
   HOSTED_PROVIDER_PRESETS,
   SETTINGS_PROVIDER_PRESETS,
-} from "./providerPresets";
+} from "./providerPresets.js";
 
 const openrouter = HOSTED_PROVIDER_PRESETS.find((preset) => preset.id === "openrouter");
 if (!openrouter) throw new Error("openrouter preset missing from HOSTED_PROVIDER_PRESETS");

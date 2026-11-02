@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
-import type { BlockDraftRegistry } from "./blockDrafts";
+import type { BlockDraftRegistry } from "./blockDrafts.js";
 
 const BlockDraftContext = createContext<BlockDraftRegistry | null>(null);
 

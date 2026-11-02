@@ -14,8 +14,8 @@
  * retargeted at the design tokens. The clip menu is the shell's ContextMenu.
  */
 import { Button, ContextMenu, IconButton, Slider, cx, type MenuItem } from "@rightkit/react-shell/react";
-import { Icon } from "../ui";
-import { errorText } from "./adapter";
+import { Icon } from "../ui/index.js";
+import { errorText } from "./adapter.js";
 import {
   useCallback,
   useEffect,
@@ -25,21 +25,21 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { formatSeconds, newClipId } from "../lib/project";
-import { assetUrl } from "../lib/asset";
-import { PLAYBACK_REFRESHED, thumbnails, type CaptionCue } from "../lib/media";
-import { engineCall } from "../lib/engine";
-import { slipAudioClip, slipClip, splitAudioClip, splitClip, type EditAction } from "./actions";
+import { formatSeconds, newClipId } from "../lib/project.js";
+import { assetUrl } from "../lib/asset.js";
+import { PLAYBACK_REFRESHED, thumbnails, type CaptionCue } from "../lib/media.js";
+import { engineCall } from "../lib/engine.js";
+import { slipAudioClip, slipClip, splitAudioClip, splitClip, type EditAction } from "./actions.js";
 import {
   formatTimelineTickLabel,
   generateTicks,
   getTimelineGridStep,
-} from "./vendor/hyperframes/rulerGeometry";
-import { clipEdges, planMove, planMoveMany, planTrim, snapTime, videoDropIndex } from "./gesture";
-import type { EditorClip, EditorModel } from "./model";
-import { supports, unsupported, type CapabilityReport } from "./capabilities";
-import { useEditorKeys } from "./keys";
-import type { EditSession } from "./adapter";
+} from "./vendor/hyperframes/rulerGeometry.js";
+import { clipEdges, planMove, planMoveMany, planTrim, snapTime, videoDropIndex } from "./gesture.js";
+import type { EditorClip, EditorModel } from "./model.js";
+import { supports, unsupported, type CapabilityReport } from "./capabilities.js";
+import { useEditorKeys } from "./keys.js";
+import type { EditSession } from "./adapter.js";
 
 const LABEL_W = 72;
 const RULER_H = 24;

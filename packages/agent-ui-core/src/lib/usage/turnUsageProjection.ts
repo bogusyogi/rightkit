@@ -1,4 +1,4 @@
-import type { ProtocolEvent } from "../types";
+import type { ProtocolEvent } from "../types.js";
 
 /** The wire shape emitted by the host app after a provider call. Totals are cumulative per session. */
 export type UsageUpdatedEvent = Extract<ProtocolEvent, { $kind: "usageUpdated" }>;

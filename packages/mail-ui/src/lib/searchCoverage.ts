@@ -1,4 +1,4 @@
-import type { ArchiveProgress } from "./ipc";
+import type { ArchiveProgress } from "./ipc.js";
 
 /**
  * Search-coverage honesty indicator (Lane C2).

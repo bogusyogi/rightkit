@@ -9,38 +9,47 @@
 
 import { sha256HexAsync, type LegalManifest } from "@rightkit/legal/browser";
 import { isLegalAccepted, type LegalAcceptanceRecord } from "@rightkit/onboarding";
-import manifestRaw from "@rightkit-host/legal/legal-manifest.json?raw";
+export type LegalReceiptDocument = {
+  id: string; role: string; title: string; url: string; version?: string; sha256?: string; treatment?: string; material?: boolean;
+};
 
-// Vite delivers the file's exact bytes. The tsx unit tests resolve the same specifier to the
-// parsed JSON, so they get a stand-in text (the hash is only meaningful in the Vite build).
-const manifestSource: unknown = manifestRaw;
-const manifestText =
-  typeof manifestSource === "string" ? manifestSource : JSON.stringify(manifestSource, null, 2);
-
-export const LEGAL_MANIFEST = JSON.parse(manifestText) as LegalManifest;
-export const REQUIRED_LEGAL_ACCEPTANCE_VERSION = LEGAL_MANIFEST.acceptanceVersion;
+// Set once by the host at startup (configureLegalManifest): a published package cannot import a file of the app that installs
+// it. ES module exports are live bindings, so every importer sees the configured values.
+export let LEGAL_MANIFEST: LegalManifest;
+export let REQUIRED_LEGAL_ACCEPTANCE_VERSION: string;
 /** SHA-256 of the manifest file's bytes — the documents hash the native receipt service binds. */
-export const LEGAL_MANIFEST_SHA256 = await sha256HexAsync(manifestText);
-
+export let LEGAL_MANIFEST_SHA256: string;
 /** The acceptance-gate/Settings legal documents, in display order: [title, url]. */
-export const LEGAL_DOCUMENT_LINKS: ReadonlyArray<readonly [string, string]> =
-  LEGAL_MANIFEST.documents.map((document) => [document.title, document.publicUrl] as const);
-
+export let LEGAL_DOCUMENT_LINKS: ReadonlyArray<readonly [string, string]> = [];
 /**
  * The document set the gate declares to `legalReceipt.create`, in manifest order. The native
  * service compares it with its own manifest field for field, so this is every document with
  * `publicUrl` declared as `url` and nothing else.
  */
-export const LEGAL_RECEIPT_DOCUMENTS = LEGAL_MANIFEST.documents.map((document) => ({
-  id: document.id,
-  role: document.role,
-  title: document.title,
-  url: document.publicUrl,
-  version: document.version,
-  sha256: document.sha256,
-  treatment: document.treatment,
-  material: document.material,
-}));
+export let LEGAL_RECEIPT_DOCUMENTS: LegalReceiptDocument[] = [];
+
+/**
+ * The host passes the exact bytes of its legal/legal-manifest.json (a Vite host: `import text from ".../legal-manifest.json?raw"`);
+ * the documents hash is the SHA-256 of those bytes, as the native receipt service computes it.
+ */
+export async function configureLegalManifest(manifestText: string): Promise<void> {
+  if (typeof manifestText !== "string") throw new TypeError("configureLegalManifest: pass the manifest file's exact text");
+  const manifest = JSON.parse(manifestText) as LegalManifest;
+  LEGAL_MANIFEST = manifest;
+  REQUIRED_LEGAL_ACCEPTANCE_VERSION = manifest.acceptanceVersion;
+  LEGAL_MANIFEST_SHA256 = await sha256HexAsync(manifestText);
+  LEGAL_DOCUMENT_LINKS = manifest.documents.map((document) => [document.title, document.publicUrl] as const);
+  LEGAL_RECEIPT_DOCUMENTS = manifest.documents.map((document) => ({
+    id: document.id,
+    role: document.role,
+    title: document.title,
+    url: document.publicUrl,
+    version: document.version,
+    sha256: document.sha256,
+    treatment: document.treatment,
+    material: document.material,
+  }));
+}
 
 /** True when the stored receipt is for the version and documents hash this build requires. */
 export function legalAcceptanceCurrent(record: LegalAcceptanceRecord | null): boolean {

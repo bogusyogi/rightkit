@@ -4,8 +4,8 @@
 // cancel, incl. the zephyr triggers) lives in Controls; standalone action
 // commands live in Commands.
 
-import PageShell from "../components/PageShell";
-import VocabularyPage from "./Vocabulary";
+import PageShell from "../components/PageShell.js";
+import VocabularyPage from "./Vocabulary.js";
 
 export default function DictationPage() {
   return (

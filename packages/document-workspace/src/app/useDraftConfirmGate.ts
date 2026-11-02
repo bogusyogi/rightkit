@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import type { BlockDraftIntent, BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
-import { resolveDocumentDrafts } from "./draftResolution";
+import { resolveDocumentDrafts } from "./draftResolution.js";
 
 interface DraftConfirmGateDeps {
   blockDrafts: BlockDraftRegistry;

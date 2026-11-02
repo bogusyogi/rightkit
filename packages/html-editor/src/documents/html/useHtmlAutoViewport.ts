@@ -1,6 +1,6 @@
 import { useEffect, useState, type RefObject } from "react";
 import { viewportForPreviewWidth, type Viewport } from "@rightkit/document-core/documents/previewViewport";
-import { trackHtmlObserver } from "./htmlResourceLifecycle";
+import { trackHtmlObserver } from "./htmlResourceLifecycle.js";
 
 /** Tracks the preview split's width and reports the matching auto viewport (desktop/tablet/mobile). */
 export function useHtmlAutoViewport(splitRef: RefObject<HTMLDivElement | null>): Viewport {

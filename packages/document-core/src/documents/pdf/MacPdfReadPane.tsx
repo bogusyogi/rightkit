@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { logError } from "../../state/diagnostics";
-import { PdfPasswordPrompt } from "./PdfPasswordPrompt";
-import { PdfToolbar } from "./PdfToolbar";
-import { ZOOM_MAX, ZOOM_MIN } from "./pdfShared";
-import type { SearchOptions, SearchProvider, ViewMeta } from "../types";
+import { logError } from "../../state/diagnostics.js";
+import { PdfPasswordPrompt } from "./PdfPasswordPrompt.js";
+import { PdfToolbar } from "./PdfToolbar.js";
+import { ZOOM_MAX, ZOOM_MIN } from "./pdfShared.js";
+import type { SearchOptions, SearchProvider, ViewMeta } from "../types.js";
 import {
   listenNativePdfKey,
   listenNativePdfState,
@@ -19,8 +19,8 @@ import {
   type NativePdfKeyEvent,
   type NativePdfOutlineNode,
   type NativePdfState,
-} from "./macPdfNativeBridge";
-export type { NativePdfEditingAction } from "./macPdfNativeBridge";
+} from "./macPdfNativeBridge.js";
+export type { NativePdfEditingAction } from "./macPdfNativeBridge.js";
 
 export interface MacPdfReadPaneProps {
   documentPath: string;

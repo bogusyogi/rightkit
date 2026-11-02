@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import type { NewSessionControls } from "../components/Sidebar";
+import type { NewSessionControls } from "../components/Sidebar.js";
 import {
   createSession,
   deleteSession,

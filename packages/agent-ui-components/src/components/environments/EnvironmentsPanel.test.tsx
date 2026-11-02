@@ -100,7 +100,7 @@ vi.mock("@rightkit/agent-ui-core/state/environmentsStore", () => {
   return { useEnvironmentsStore };
 });
 
-import EnvironmentsPanel from "./EnvironmentsPanel";
+import EnvironmentsPanel from "./EnvironmentsPanel.js";
 
 const baseConfig = { url: "http://127.0.0.1:1", token: "x" };
 

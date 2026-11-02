@@ -1,9 +1,9 @@
 import { MagnifyingGlass } from "@phosphor-icons/react";
-import { usePlatform } from "../hooks/usePlatform";
-import { useSettings } from "../hooks/useSettings";
-import { commandsSearch, useField } from "../lib/fieldStore";
-import type { SettingsBlob } from "../types/settings";
-import SegmentedControl from "./settings/SegmentedControl";
+import { usePlatform } from "../hooks/usePlatform.js";
+import { useSettings } from "../hooks/useSettings.js";
+import { commandsSearch, useField } from "../lib/fieldStore.js";
+import type { SettingsBlob } from "../types/settings.js";
+import SegmentedControl from "./settings/SegmentedControl.js";
 
 const screenshotDestinations = [
   { value: "clipboard", label: "Clipboard", title: "Copy screenshots to the clipboard" },

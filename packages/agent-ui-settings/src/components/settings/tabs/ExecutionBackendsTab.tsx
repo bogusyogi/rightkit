@@ -7,11 +7,11 @@ import type {
   ExecutionBackendRegistry,
   ExecutionNetworkDefault,
 } from "@rightkit/agent-ui-core/lib/types";
-import { OfflinePanel } from "./shared";
-import { CoreSandboxTierPanel } from "./execution/CoreSandboxTierPanel";
-import { ExecutionBackendList } from "./execution/ExecutionBackendList";
-import { ExecutionNetworkProfilesPanel } from "./execution/ExecutionNetworkProfilesPanel";
-import { RemoteStatusCard } from "./execution/RemoteStatusCard";
+import { OfflinePanel } from "./shared.js";
+import { CoreSandboxTierPanel } from "./execution/CoreSandboxTierPanel.js";
+import { ExecutionBackendList } from "./execution/ExecutionBackendList.js";
+import { ExecutionNetworkProfilesPanel } from "./execution/ExecutionNetworkProfilesPanel.js";
+import { RemoteStatusCard } from "./execution/RemoteStatusCard.js";
 
 export default function ExecutionBackendsTab({
   registry,

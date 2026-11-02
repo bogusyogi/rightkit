@@ -1,6 +1,6 @@
 import * as pdfjs from "pdfjs-dist";
 import type { PDFPageProxy } from "pdfjs-dist";
-import { readPdfPageText } from "./usePdfSearch";
+import { readPdfPageText } from "./usePdfSearch.js";
 
 export type OcrRect = {
   x: number;
@@ -104,7 +104,7 @@ export async function renderPageToPng(
   }
 }
 
-export { ocrPage, ocrAvailable, ocrBackendMissing } from "../../state/tauriBridge";
+export { ocrPage, ocrAvailable, ocrBackendMissing } from "../../state/tauriBridge.js";
 
 export function isBackendUnavailable(message: string): boolean {
   return (

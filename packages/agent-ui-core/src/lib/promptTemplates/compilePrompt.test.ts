@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { BUILT_IN_ROLES } from "./roles";
-import { BUILT_IN_STYLES } from "./styles";
-import { BUILT_IN_TEMPLATES } from "./templates";
-import { compilePrompt, EMPTY_FIELDS, type ComposerFields } from "./compilePrompt";
+import { BUILT_IN_ROLES } from "./roles.js";
+import { BUILT_IN_STYLES } from "./styles.js";
+import { BUILT_IN_TEMPLATES } from "./templates.js";
+import { compilePrompt, EMPTY_FIELDS, type ComposerFields } from "./compilePrompt.js";
 
 describe("compilePrompt", () => {
   it("compiles v2 sections in deterministic order and omits blank fields", () => {

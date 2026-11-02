@@ -1,7 +1,7 @@
 import { cx } from "@rightkit/react-shell/react";
 import { useEffect, useState } from "react";
-import { getCurrentWebview } from "../lib/ipc";
-import { nextDropOverlayVisible } from "../lib/dropOverlay";
+import { getCurrentWebview } from "../lib/ipc/index.js";
+import { nextDropOverlayVisible } from "../lib/dropOverlay.js";
 
 /**
  * Full-window drop hint. Driven by Tauri's native drag-drop events, not HTML5

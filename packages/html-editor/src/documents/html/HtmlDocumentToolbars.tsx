@@ -4,11 +4,11 @@ import { PreviewChrome } from "@rightkit/document-core/documents/PreviewChrome";
 import type { Viewport } from "@rightkit/document-core/documents/previewViewport";
 import { Sep } from "@rightkit/document-core/documents/toolbarPrimitives";
 import type { BlockDraftSnapshot } from "@rightkit/document-core/app/blockDrafts";
-import type { RichBlockOp, StructuralAction, StructuralSurface } from "./htmlOperationPlanner";
-import type { HtmlEditorToolbarState, HtmlSafeBlockEditorHandle } from "./HtmlSafeBlockEditor";
-import { HtmlBlockEditToolbar } from "./HtmlBlockEditToolbar";
-import { HtmlRichEditToolbar } from "./HtmlRichEditToolbar";
-import { HtmlSubpageStaleMarker } from "./HtmlSubpageStaleMarker";
+import type { RichBlockOp, StructuralAction, StructuralSurface } from "./htmlOperationPlanner.js";
+import type { HtmlEditorToolbarState, HtmlSafeBlockEditorHandle } from "./HtmlSafeBlockEditor.js";
+import { HtmlBlockEditToolbar } from "./HtmlBlockEditToolbar.js";
+import { HtmlRichEditToolbar } from "./HtmlRichEditToolbar.js";
+import { HtmlSubpageStaleMarker } from "./HtmlSubpageStaleMarker.js";
 
 interface AddressRowProps {
   address: string;

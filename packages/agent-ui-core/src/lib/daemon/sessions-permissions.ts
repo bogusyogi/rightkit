@@ -17,9 +17,9 @@ import type {
   UntrustedContentAudit,
   WorkspaceTrustLevel,
   WorkspaceTrustStatus,
-} from "../types";
-import { requestDaemonApi } from "../generated/daemon-openapi";
-import { tokenHeaders, trimUrl } from "./messages-stream-readiness";
+} from "../types.js";
+import { requestDaemonApi } from "../generated/daemon-openapi.js";
+import { tokenHeaders, trimUrl } from "./messages-stream-readiness.js";
 
 export async function deleteSession(config: DaemonConfig, sessionId: string): Promise<void> {
   await requestDaemonApi(config, "deleteSessionsById", {

@@ -6,8 +6,8 @@
  */
 
 import { useEffect, useState } from "react";
-import type { MarkdownDocumentCore } from "./MarkdownDocumentCore";
-import type { MarkdownCoreSnapshot } from "./MarkdownDocumentTypes";
+import type { MarkdownDocumentCore } from "./MarkdownDocumentCore.js";
+import type { MarkdownCoreSnapshot } from "./MarkdownDocumentTypes.js";
 
 /**
  * Returns the latest snapshot from `core`, or `null` when no core is

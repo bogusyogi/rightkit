@@ -4,7 +4,7 @@ import {
   useMicRecorder,
   type MicRecording,
   type MicrophoneAccessRequester,
-} from "./useMicRecorder";
+} from "./useMicRecorder.js";
 
 export type ConversationStatus = "idle" | "listening" | "transcribing" | "thinking" | "speaking";
 

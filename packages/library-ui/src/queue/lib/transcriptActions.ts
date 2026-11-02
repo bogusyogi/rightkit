@@ -1,5 +1,5 @@
-import { formatInvokeError } from "./errorMessage";
-import type { InvokeFn } from "./transcriptLoad";
+import { formatInvokeError } from "./errorMessage.js";
+import type { InvokeFn } from "./transcriptLoad.js";
 
 export type TranscriptFileAction =
   | "openSource"

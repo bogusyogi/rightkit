@@ -7,8 +7,8 @@ import {
   parseShortcut,
   toRightKitChord,
   UNASSIGNED_SHORTCUT,
-} from "./bindings";
-import { eventMatchesShortcutPrefix, isShortcutPrefixHeld } from "./prefixChords";
+} from "./bindings.js";
+import { eventMatchesShortcutPrefix, isShortcutPrefixHeld } from "./prefixChords.js";
 
 const keydown = (key: string, mods: { meta?: boolean; ctrl?: boolean; shift?: boolean; alt?: boolean } = {}) => ({
   key,

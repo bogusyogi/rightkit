@@ -11,7 +11,7 @@ import type {
   LocalImageReference,
   LocalImageRuntimeStatus,
   LocalImageSubmitRequest
-} from './types';
+} from './types.js';
 // The mock reports the host as Windows or macOS only, matching the two shipped targets.
 const mockIsWindows = (): boolean => getPlatform() === 'windows';
 
@@ -1796,7 +1796,7 @@ const MOCK_NO_LORA_INPUT = 'wavespeed/recraft-v4';
  * route. Refusals carry only a code and a message, as the engine's do.
  */
 async function mockCharacterLockRoute(input: Record<string, unknown>): Promise<unknown> {
-  const { mockCharacters } = await import('../views/panels/character-mock');
+  const { mockCharacters } = await import('../views/panels/character-mock.js');
   const base = (await mockCharacters('lock', input)) as Record<string, unknown> & { character?: { id: string; has_lora: boolean; refs: string[] } | null; diagnostics: Array<{ severity: string; message: string }> };
   const requested = `${String(input.provider ?? '')}/${String(input.model ?? '')}`;
   const character = base.character ?? null;
@@ -1914,7 +1914,7 @@ export async function mockEngine<T>(method: string, params: Record<string, unkno
  * engine's boolean query: OR joins clauses and groups read as their terms. Browser QA only.
  */
 
-import type { AssetFacts, AssetScope } from './types/library';
+import type { AssetFacts, AssetScope } from './types/library.js';
 
 const LIBRARY_ORIGIN_VALUES = ['unknown', 'generated', 'captured', 'acquired', 'supplied'];
 const LIBRARY_EVIDENCE_VALUES = ['unknown', 'authentic', 'illustrative'];

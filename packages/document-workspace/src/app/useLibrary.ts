@@ -9,7 +9,7 @@ import {
   type FileEntry,
   type OpenFileEntry,
   type PinEntry,
-} from "../state/library";
+} from "../state/library.js";
 import { baseName, formatFromPath, isUntitled, type LoadedDocument } from "@rightkit/document-core/documents/types";
 import { isWebTabKey } from "@rightkit/document-core/documents/web/webUrl";
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BUILT_IN_ROLES, mergeRoles, validateCustomRole, type RoleDefinition } from "./roles";
+import { BUILT_IN_ROLES, mergeRoles, validateCustomRole, type RoleDefinition } from "./roles.js";
 
 describe("prompt template roles", () => {
   it("merges one role verbatim and multiple roles with an Oxford-comma opening", () => {

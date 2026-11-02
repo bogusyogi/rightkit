@@ -3,7 +3,7 @@
 // ember is reserved for primary actions, switches, active tabs, and recording.
 
 import { useSegmentedControl } from "@rightkit/react-shell/headless";
-import { cx } from "../../lib/ui";
+import { cx } from "../../lib/ui.js";
 
 export interface SegmentedOption<T extends string> {
   value: T;

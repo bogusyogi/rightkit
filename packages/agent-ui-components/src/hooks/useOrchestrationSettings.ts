@@ -6,7 +6,7 @@ import {
   saveOrchestrationSettings,
 } from "@rightkit/agent-ui-core/lib/daemon";
 import type { DaemonConfig, OrchestrationSettings, SettingsConfigStatus } from "@rightkit/agent-ui-core/lib/types";
-import type { SettingsDraft } from "../components/settings/types";
+import type { SettingsDraft } from "../components/settings/types.js";
 import type { InferenceSelection } from "@rightkit/agent-ui-core/lib/types/inference";
 
 interface UseOrchestrationSettingsOptions {

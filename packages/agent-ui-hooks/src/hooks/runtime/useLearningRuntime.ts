@@ -27,7 +27,7 @@ import type {
   TerminalBenchRunResult,
   TerminalBenchTask,
 } from "@rightkit/agent-ui-core/lib/types";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 const EMPTY_AUDIT: AuditLogView = {
   verified: true,

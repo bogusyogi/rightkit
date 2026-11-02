@@ -26,10 +26,10 @@ import {
   runBackgroundCommand,
   stagePaths,
   unstagePaths,
-} from "../lib/daemon/delivery-environments-attention";
-import type { DeliveryCommandResult } from "../lib/daemon/delivery-environments-attention";
-import type { CommandRecord, DeliveryHostKind, DeliverySnapshot } from "../lib/types";
-import { messageOf } from "../lib/utils";
+} from "../lib/daemon/delivery-environments-attention.js";
+import type { DeliveryCommandResult } from "../lib/daemon/delivery-environments-attention.js";
+import type { CommandRecord, DeliveryHostKind, DeliverySnapshot } from "../lib/types.js";
+import { messageOf } from "../lib/utils.js";
 
 export interface DeliveryCommandHistory {
   commandId: string;
@@ -54,20 +54,20 @@ export type DeliveryStoreState = {
   error: string | null;
   reset: () => void;
   loadSnapshot: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     host: DeliveryHostKind,
   ) => Promise<void>;
   loadBranches: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
   ) => Promise<CommandRecord | null>;
   loadWorktrees: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
   ) => Promise<CommandRecord | null>;
   createWorktree: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     args: {
       workspaceRoot: string;
       branch: string;
@@ -77,21 +77,21 @@ export type DeliveryStoreState = {
     },
   ) => Promise<boolean>;
   removeWorktree: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     args: { workspaceRoot: string; path: string; force?: boolean },
   ) => Promise<boolean>;
   stagePaths: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     paths: string[],
   ) => Promise<boolean>;
   unstagePaths: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     paths: string[],
   ) => Promise<boolean>;
   commitChanges: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     args: {
       workspaceRoot: string;
       message: string;
@@ -100,7 +100,7 @@ export type DeliveryStoreState = {
     },
   ) => Promise<boolean>;
   pushBranch: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     args: {
       workspaceRoot: string;
       remote?: string;
@@ -110,11 +110,11 @@ export type DeliveryStoreState = {
     },
   ) => Promise<boolean>;
   pullBranch: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
   ) => Promise<boolean>;
   createPullRequest: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     args: {
       workspaceRoot: string;
       title?: string;
@@ -125,34 +125,34 @@ export type DeliveryStoreState = {
     },
   ) => Promise<boolean>;
   loadPullRequest: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     id: string,
   ) => Promise<DeliveryCommandResult | null>;
   listPullRequestChecks: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     id: string,
   ) => Promise<DeliveryCommandResult | null>;
   rerunCheck: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     id: string,
     checkId: string,
   ) => Promise<boolean>;
   loadCheckLogs: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     id: string,
     checkId: string,
   ) => Promise<DeliveryCommandResult | null>;
   listPullRequestThreads: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     id: string,
   ) => Promise<DeliveryCommandResult | null>;
   runBackgroundCommand: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     args: {
       workspaceRoot: string;
       command: string;
@@ -161,7 +161,7 @@ export type DeliveryStoreState = {
     },
   ) => Promise<CommandRecord | null>;
   cancelBackgroundCommand: (
-    config: import("../lib/types").DaemonConfig | null,
+    config: import("../lib/types.js").DaemonConfig | null,
     workspaceRoot: string,
     commandId: string,
   ) => Promise<boolean>;

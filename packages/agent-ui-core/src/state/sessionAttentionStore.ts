@@ -8,7 +8,7 @@
 
 import { create } from "zustand";
 
-import type { AwaySummary, SessionRow } from "../lib/types";
+import type { AwaySummary, SessionRow } from "../lib/types.js";
 
 export type SessionAttentionState =
   | "background"

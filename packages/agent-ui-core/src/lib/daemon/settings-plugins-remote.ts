@@ -24,9 +24,9 @@ import type {
   TelegramRemoteStatus,
   TelegramRemoteTest,
   TelegramRemoteUsers,
-} from "../types";
-import type { InferenceSelection } from "../types/inference";
-import { requestDaemonApi } from "../generated/daemon-openapi";
+} from "../types.js";
+import type { InferenceSelection } from "../types/inference.js";
+import { requestDaemonApi } from "../generated/daemon-openapi.js";
 
 export async function getOrchestrationSettings(
   config: DaemonConfig,

@@ -1,7 +1,7 @@
 import type { VirtualItem } from "@tanstack/react-virtual";
-import type { Thread } from "../lib/ipc";
-import { keyOf } from "../lib/mail";
-import { ThreadRow } from "./InboxThreadRow";
+import type { Thread } from "../lib/ipc.js";
+import { keyOf } from "../lib/mail.js";
+import { ThreadRow } from "./InboxThreadRow.js";
 
 type ListItem =
   | { kind: "header"; label: string }

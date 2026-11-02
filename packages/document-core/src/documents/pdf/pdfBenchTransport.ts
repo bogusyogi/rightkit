@@ -1,7 +1,7 @@
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { pdfDocumentInit } from "@rightkit/pdf-ui";
-import { isPdfBenchEnabled, type PdfBenchLoadMode } from "./pdfBench";
+import { isPdfBenchEnabled, type PdfBenchLoadMode } from "./pdfBench.js";
 
 const RANGE_CHUNK_SIZE = 64 * 1024;
 /** Above this size the whole-file buffer fallback is skipped in favour of range loading. */

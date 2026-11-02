@@ -5,7 +5,7 @@ import {
   type MutableRefObject,
   type SetStateAction,
 } from "react";
-import { clampScale, type Size } from "./pdfShared";
+import { clampScale, type Size } from "./pdfShared.js";
 
 interface PdfFitDeps {
   scrollRef: MutableRefObject<HTMLDivElement | null>;

@@ -1,8 +1,8 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { ExtensionSlot } from "./ExtensionSlot";
-import { ExtensionRegistry } from "./extensionRegistry";
-import { ExtensionRegistryProvider } from "./ExtensionRegistryProvider";
+import { ExtensionSlot } from "./ExtensionSlot.js";
+import { ExtensionRegistry } from "./extensionRegistry.js";
+import { ExtensionRegistryProvider } from "./ExtensionRegistryProvider.js";
 
 afterEach(cleanup);
 

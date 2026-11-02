@@ -5,7 +5,7 @@
 // htmlInteractiveProtocol.ts so reviewers can map them at a glance.
 
 import type { SearchOptions } from "@rightkit/document-core/documents/types";
-import type { CompiledMdxModule } from "./mdxCompiler";
+import type { CompiledMdxModule } from "./mdxCompiler.js";
 
 export const MDX_LINK = "viewright:mdx-link"; // iframe → parent
 export const MDX_COMPILED = "viewright:mdx-compiled"; // parent → iframe

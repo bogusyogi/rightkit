@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useWorkspaceFile } from "./useWorkspaceFile";
+import { useWorkspaceFile } from "./useWorkspaceFile.js";
 import type { DaemonConfig } from "@rightkit/agent-ui-core/lib/types/settings-plugins";
 
 const MEMORY_PATH = "CLAUDE.md";

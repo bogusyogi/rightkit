@@ -5,8 +5,8 @@
 // find. The app registry is deliberately NOT attached to email content: its bare
 // keys (e, #, !, ...) would act on mail while the user reads or selects text.
 import { createShortcutRegistry, type ShortcutRegistry } from "@rightkit/react-shell";
-import { useAppStore } from "../store";
-import { shortcutDef } from "./shortcuts";
+import { useAppStore } from "../store/index.js";
+import { shortcutDef } from "./shortcuts.js";
 
 /** A registry holding only `findInPage`, with the app's chords for it. */
 export function createEmailFrameShortcuts(openFind: () => void, canFind: () => boolean): ShortcutRegistry {

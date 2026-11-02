@@ -1,6 +1,6 @@
 // The account platforms the desktop shows. Ids are the engine's exact lowercase ids. Nothing here names a
 // platform rule, limit or capability: those come from engine data at run time (see docs/design p9 section 22).
-import type { SocialPlatform } from "./types";
+import type { SocialPlatform } from "./types.js";
 
 /**
  * Every account platform the engine knows, in the engine's order: PLATFORMS in

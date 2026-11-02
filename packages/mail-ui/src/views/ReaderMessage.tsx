@@ -5,21 +5,21 @@
 // callbacks (those are owned by ReaderView, which hosts the FindBar).
 import { type ComponentProps, type CSSProperties, useRef, useState } from "react";
 import { Button, IconButton, Popover } from "@rightkit/react-shell/react";
-import Icon from "../components/Icons";
-import { EmailFrame } from "../components/EmailFrame";
+import Icon from "../components/Icons.js";
+import { EmailFrame } from "../components/EmailFrame.js";
 import {
   AttachmentPreviewModal,
   type AttachmentPreviewPayload,
-} from "../components/AttachmentPreviewModal";
-import { authBadge } from "../lib/auth";
-import { emailDomain, trackerNoteFor } from "../lib/imageTrust";
+} from "../components/AttachmentPreviewModal.js";
+import { authBadge } from "../lib/auth.js";
+import { emailDomain, trackerNoteFor } from "../lib/imageTrust.js";
 import { relativeTimeFrom } from "@rightkit/platform-ui";
-import { colorFor, initialOf, findMeetLink } from "../lib/mail";
-import { htmlToText, rewriteCids, rewriteRemoteImgs } from "../lib/html";
-import { useThreadView } from "../hooks/useThreadView";
-import { openExternal, previewAttachment, type AttachmentMeta, type ThreadMessage } from "../lib/ipc";
-import { useAppStore } from "../store";
-import { ReaderMoreMenu } from "./ReaderMoreMenu";
+import { colorFor, initialOf, findMeetLink } from "../lib/mail.js";
+import { htmlToText, rewriteCids, rewriteRemoteImgs } from "../lib/html.js";
+import { useThreadView } from "../hooks/useThreadView.js";
+import { openExternal, previewAttachment, type AttachmentMeta, type ThreadMessage } from "../lib/ipc.js";
+import { useAppStore } from "../store/index.js";
+import { ReaderMoreMenu } from "./ReaderMoreMenu.js";
 
 type EmailFrameProps = ComponentProps<typeof EmailFrame>;
 

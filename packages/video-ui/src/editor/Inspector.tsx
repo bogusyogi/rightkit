@@ -5,14 +5,14 @@
  * rendered disabled with the capability reason.
  */
 import { Checkbox, Field, Input } from "@rightkit/react-shell/react";
-import { errorText } from "./adapter";
+import { errorText } from "./adapter.js";
 import { useEffect, useMemo, useState } from "react";
 
-import { engineCall } from "../lib/engine";
-import { decimatePeaks, loudnessToOpacity } from "./vendor/hyperframes/audioWaveformPeaks";
-import { ticksToSeconds, type TitleTemplate } from "../lib/project";
-import { useInspectorGestureDraft } from "./vendor/hyperframes/useInspectorGestureTransaction";
-import type { EditAction } from "./actions";
+import { engineCall } from "../lib/engine.js";
+import { decimatePeaks, loudnessToOpacity } from "./vendor/hyperframes/audioWaveformPeaks.js";
+import { ticksToSeconds, type TitleTemplate } from "../lib/project.js";
+import { useInspectorGestureDraft } from "./vendor/hyperframes/useInspectorGestureTransaction.js";
+import type { EditAction } from "./actions.js";
 import {
   editTitle,
   linkNarration,
@@ -26,11 +26,11 @@ import {
   trimTitle,
   unlinkNarration,
   type UnderMode,
-} from "./actions";
-import type { EditorClip, EditorModel } from "./model";
-import { supports, unsupported, type CapabilityReport } from "./capabilities";
-import type { EditSession } from "./adapter";
-import { ColourInspector } from "./ColourInspector";
+} from "./actions.js";
+import type { EditorClip, EditorModel } from "./model.js";
+import { supports, unsupported, type CapabilityReport } from "./capabilities.js";
+import type { EditSession } from "./adapter.js";
+import { ColourInspector } from "./ColourInspector.js";
 
 export function Inspector({
   model,

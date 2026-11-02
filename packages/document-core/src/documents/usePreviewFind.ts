@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, type RefObject } from "react";
-import type { SearchOptions, SearchProvider, SearchResult } from "./types";
+import type { SearchOptions, SearchProvider, SearchResult } from "./types.js";
 
 /** The in-frame find protocol (one set of postMessage senders per preview kind). */
 export interface PreviewFindProtocol {

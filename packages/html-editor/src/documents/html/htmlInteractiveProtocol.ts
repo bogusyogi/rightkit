@@ -1,5 +1,5 @@
 import type { SearchOptions } from "@rightkit/document-core/documents/types";
-import type { HtmlSafeBlockTarget } from "./sourceMap";
+import type { HtmlSafeBlockTarget } from "./sourceMap.js";
 
 // The postMessage wire protocol between the app (parent) and the sandboxed interactive HTML preview
 // (an opaque-origin iframe). The parent can't read the frame's DOM, so link clicks, scroll position,

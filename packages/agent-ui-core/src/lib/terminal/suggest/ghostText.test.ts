@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
-import { clearGhostOverlay, renderGhostText, type GhostTextEntry } from "./ghostText";
+import { clearGhostOverlay, renderGhostText, type GhostTextEntry } from "./ghostText.js";
 
 const entries: GhostTextEntry[] = [];
 afterEach(() => {

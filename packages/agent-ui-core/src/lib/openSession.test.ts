@@ -5,7 +5,7 @@ import {
   openSession,
   openSessionIntentFromModifiers,
   type SessionOpenAdapter,
-} from "./openSession";
+} from "./openSession.js";
 
 function adapter(overrides: Partial<SessionOpenAdapter> = {}): SessionOpenAdapter {
   return {

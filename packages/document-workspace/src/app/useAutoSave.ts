@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 import { isUntitled, type LoadedDocument } from "@rightkit/document-core/documents/types";
 import { editableImageOutputForPath } from "@rightkit/media-ui";
-import { flushDrafts } from "./documentDrafts";
+import { flushDrafts } from "./documentDrafts.js";
 
 const AUTO_SAVE_DELAY_MS = 1000;
 

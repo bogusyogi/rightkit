@@ -1,4 +1,4 @@
-import { IS_WINDOWS } from "./platform";
+import { IS_WINDOWS } from "./platform.js";
 
 export const EMPTY_IMG_SRC =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";

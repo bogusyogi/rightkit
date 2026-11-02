@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import type { ViewMode } from "@rightkit/document-core/documents/types";
-import type { SourceEditorViewState } from "../txt/TxtEditor";
+import type { SourceEditorViewState } from "../txt/TxtEditor.js";
 import { scrollPosIntoView } from "@rightkit/document-core/documents/txt/cmScroll";
 import { previewBootHtml } from "@rightkit/html-editor/documents/html/htmlInline";
 import { useSiteRootGrant } from "@rightkit/html-editor/documents/html/useSiteRootGrant";
@@ -20,7 +20,7 @@ import { useHtmlReload } from "@rightkit/html-editor/documents/html/useHtmlReloa
 import { useHtmlInframeTarget } from "@rightkit/html-editor/documents/html/useHtmlInframeTarget";
 import { resolveSafeBlockTarget, type HtmlInspectTarget, type SourceRange } from "@rightkit/html-editor/documents/html/sourceMap";
 import { useHtmlDocumentBridge } from "@rightkit/html-editor/documents/html/HtmlDocumentBridge";
-import { HtmlDocumentLayout } from "./HtmlDocumentLayout";
+import { HtmlDocumentLayout } from "./HtmlDocumentLayout.js";
 import { useCloseFindOnSurfaceChange } from "@rightkit/document-core/app/useCloseFindOnSurfaceChange";
 import { trackHtmlDocumentMount, trackHtmlUnmount } from "@rightkit/html-editor/documents/html/htmlResourceLifecycle";
 import { useOptionalBlockDrafts } from "@rightkit/document-core/app/BlockDraftContext";
@@ -36,9 +36,9 @@ import { useHtmlBlockDrafts } from "@rightkit/html-editor/documents/html/useHtml
 import { useHtmlRichEditState } from "@rightkit/html-editor/documents/html/useHtmlRichEditState";
 import { useHtmlSrcDocLifecycle } from "@rightkit/html-editor/documents/html/useHtmlSrcDocLifecycle";
 import { initialSourceDrawerOpen, type ViewportMode } from "@rightkit/html-editor/documents/html/htmlDocumentShared";
-import type { HtmlDocumentProps } from "./HtmlDocumentProps";
+import type { HtmlDocumentProps } from "./HtmlDocumentProps.js";
 
-export type { HtmlDocumentProps } from "./HtmlDocumentProps";
+export type { HtmlDocumentProps } from "./HtmlDocumentProps.js";
 
 /**
  * One tab = one local-site session. The tab is identified by `entryPath`; `activePath` is the page

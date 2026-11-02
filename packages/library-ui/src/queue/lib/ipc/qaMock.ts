@@ -8,16 +8,16 @@ import type {
   Settings,
   TranscriptDetail,
   WhisperRuntimeStatus,
-} from "../../contract";
-import type { Tab } from "../../components/NavTabs";
-import { qaModeEnabled } from "./qaGate";
+} from "../../contract.js";
+import type { Tab } from "../../components/NavTabs.js";
+import { qaModeEnabled } from "./qaGate.js";
 
 type Unlisten = () => void;
 
 const locationLike = typeof window === "undefined" ? { search: "", hash: "" } : window.location;
 
 // Loaded only by initIpc in a QA build, so this gate is always open here; kept static to match ipc/index.ts.
-export const isQaMode = qaModeEnabled(import.meta.env.VITE_RIGHTKIT_QA, locationLike.search);
+export const isQaMode = qaModeEnabled(import.meta.env?.VITE_RIGHTKIT_QA, locationLike.search);
 
 function qaMediaPath(name: string): string {
   const root = new URLSearchParams(locationLike.search).get("qaMediaRoot");

@@ -1,15 +1,15 @@
 import { useMemo, useState } from "react";
 import type { RootContent } from "mdast";
-import type { Block } from "../semanticBlocks";
-import { renderNodes } from "../renderNodes";
-import { parseToTree } from "../parseMarkdown";
-import type { CalloutData } from "../semanticBlocks";
-import type { FrontmatterData } from "../semanticBlocks";
-import type { StepperData } from "../semanticBlocks";
-import type { ComparisonData } from "../semanticBlocks";
-import type { FaqData } from "../semanticBlocks";
-import type { RichTableData } from "../semanticBlocks";
-import type { DescriptionListData } from "../semanticBlocks";
+import type { Block } from "../semanticBlocks.js";
+import { renderNodes } from "../renderNodes.js";
+import { parseToTree } from "../parseMarkdown.js";
+import type { CalloutData } from "../semanticBlocks.js";
+import type { FrontmatterData } from "../semanticBlocks.js";
+import type { StepperData } from "../semanticBlocks.js";
+import type { ComparisonData } from "../semanticBlocks.js";
+import type { FaqData } from "../semanticBlocks.js";
+import type { RichTableData } from "../semanticBlocks.js";
+import type { DescriptionListData } from "../semanticBlocks.js";
 
 const CALLOUT_TINT: Record<string, string> = {
   NOTE: "border-muted-2",

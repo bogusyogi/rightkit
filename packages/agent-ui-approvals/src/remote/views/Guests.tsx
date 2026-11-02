@@ -3,7 +3,7 @@ import { Badge, Button, ConfirmDialog, Select } from "@rightkit/react-shell/reac
 import { SettingRow, SettingsGroup } from "@rightkit/settings-ui/core";
 import { devicesApi, type GuestRecord, type JoinCreated, type OwnerProof } from "@rightkit/system-ui/api";
 import { clearVisibleInterval, visibleInterval } from "@rightkit/system-ui/visible";
-import { OwnerPinCard, onMac, ownerProblem, touchIdProof } from "./OwnerPin";
+import { OwnerPinCard, onMac, ownerProblem, touchIdProof } from "./OwnerPin.js";
 
 /** Settings > Devices > Guests (#492): one-time links for cloud boxes, the owner's approval of each
  *  box that joined with one, and revoke. An approved cloud agent works like the owner's other machines

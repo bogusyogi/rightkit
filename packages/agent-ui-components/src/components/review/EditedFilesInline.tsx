@@ -1,5 +1,5 @@
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import { useRunChangesState } from "./useRunChangesState";
+import { useRunChangesState } from "./useRunChangesState.js";
 
 /**
  * One quiet line in the transcript noting what the run edited.

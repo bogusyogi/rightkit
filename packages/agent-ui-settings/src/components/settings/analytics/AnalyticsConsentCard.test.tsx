@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import AnalyticsConsentCard from "./AnalyticsConsentCard";
+import AnalyticsConsentCard from "./AnalyticsConsentCard.js";
 import { AnalyticsProjection, ANALYTICS_STORAGE_KEY } from "@rightkit/agent-ui-core/lib/analytics/analyticsProjection";
 
 describe("AnalyticsConsentCard", () => {

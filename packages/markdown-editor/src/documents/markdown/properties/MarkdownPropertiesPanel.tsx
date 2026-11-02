@@ -11,9 +11,9 @@ import {
   readFrontmatterDocument,
   stringifyFrontmatterDocument,
   writeFrontmatterDocument,
-} from "./frontmatterDocument";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import type { MarkdownCommand } from "../core/MarkdownDocumentTypes";
+} from "./frontmatterDocument.js";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import type { MarkdownCommand } from "../core/MarkdownDocumentTypes.js";
 
 export interface MarkdownPropertiesPanelProps {
   readonly core: MarkdownDocumentCore | undefined;

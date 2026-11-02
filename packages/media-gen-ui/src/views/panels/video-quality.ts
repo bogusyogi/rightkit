@@ -1,4 +1,4 @@
-import { errorMessage } from '../../lib/engine-error';
+import { errorMessage } from '../../lib/engine-error.js';
 
 // Logic for the video shot-quality panel: engine calls (studio.video_templates.*),
 // prompt helpers, the preflight request builder and the approval guard.
@@ -199,11 +199,11 @@ export function usd(n: number | null | undefined): string {
 
 async function call<T>(verb: string, input: Record<string, unknown> = {}): Promise<T> {
   try {
-    const { studio } = await import('../../lib/api');
+    const { studio } = await import('../../lib/api.js');
     return await studio<T>(`video_templates.${verb}`, input);
   } catch (error) {
-    if (import.meta.env.DEV && /Unsupported browser QA mock/i.test(errorMessage(error))) {
-      const { mockVideoQuality } = await import('./video-quality-mock');
+    if (import.meta.env?.DEV && /Unsupported browser QA mock/i.test(errorMessage(error))) {
+      const { mockVideoQuality } = await import('./video-quality-mock.js');
       return (await mockVideoQuality(verb, input)) as T;
     }
     throw error;
@@ -222,11 +222,11 @@ export const videoQuality = {
    */
   approve: async (draftId: string, displayedHash: string): Promise<Draft> => {
     try {
-      const { approveDraft } = await import('../../lib/api');
+      const { approveDraft } = await import('../../lib/api.js');
       return await approveDraft<Draft>('video_templates', draftId, displayedHash);
     } catch (error) {
-      if (import.meta.env.DEV && /Unsupported browser QA mock/i.test(errorMessage(error))) {
-        const { mockVideoQuality } = await import('./video-quality-mock');
+      if (import.meta.env?.DEV && /Unsupported browser QA mock/i.test(errorMessage(error))) {
+        const { mockVideoQuality } = await import('./video-quality-mock.js');
         return (await mockVideoQuality('approve_draft', { draft_id: draftId, displayed_hash: displayedHash })) as Draft;
       }
       throw error;

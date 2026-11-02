@@ -1,10 +1,10 @@
-import type ComposerIsland from "../../components/app/ComposerIsland";
+import type ComposerIsland from "../../components/app/ComposerIsland.js";
 import type { CommandInfo, PermissionMode } from "@rightkit/agent-ui-core/lib/daemon";
 import type { SkillItem } from "@rightkit/agent-ui-core/lib/types";
 import type { ConductorRuntimeModel } from "@rightkit/agent-ui-core/lib/conductorModels";
 import type { ConductorOption } from "@rightkit/agent-ui-core/lib/conductorOptions";
 import type { DriverKind, ExternalDriverKind } from "@rightkit/agent-ui-core/lib/types";
-import type { RunTarget } from "../../hooks/useShellUiState";
+import type { RunTarget } from "../../hooks/useShellUiState.js";
 import type { UseGoalManagementReturn } from "@rightkit/agent-ui-core/hooks/useGoalManagement";
 import type { CatalogGroup, InferenceSelection } from "@rightkit/agent-ui-core/lib/types/inference";
 

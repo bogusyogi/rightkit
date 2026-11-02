@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { approveRecipeTemplateDraft, assetUrl, engineCommand, errorMessage, submitGeneration, type GenerateRequest, type RecipeApproveResult } from '../lib/api';
+import { approveRecipeTemplateDraft, assetUrl, engineCommand, errorMessage, submitGeneration, type GenerateRequest, type RecipeApproveResult } from '../lib/api.js';
 import { Card, Badge, Button, Checkbox, EmptyState, Input, Notice, Select } from '@rightkit/react-shell/react';
-import { Kv, usd } from '../components/ui';
-import { useFalUploadConfirm } from '../components/FalUploadConfirm';
-import type { ViewId } from '../lib/nav';
+import { Kv, usd } from '../components/ui.js';
+import { useFalUploadConfirm } from '../components/FalUploadConfirm.js';
+import type { ViewId } from '../lib/nav.js';
 import {
   alternatives,
   baseMedia,
@@ -21,8 +21,8 @@ import {
   usableRoutes,
   type SwapPreflight,
   type SwapTemplate
-} from './template-swap-logic';
-import { hostAppName } from "../appName";
+} from './template-swap-logic.js';
+import { hostAppName } from "../appName.js";
 
 /** Template gallery and swap runner (#269). Estimate, route and consent are shown before anything is approved or sent. */
 export function TemplateSwap({ onNavigate }: { onNavigate: (view: ViewId) => void }) {

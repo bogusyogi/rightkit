@@ -7,7 +7,7 @@ import {
 } from "@rightkit/document-core/state/tauriBridge";
 import { errorMessage } from "@rightkit/document-core/state/errors";
 import { baseName, type LoadedDocument } from "@rightkit/document-core/documents/types";
-import type { DocumentTabs } from "./useDocumentTabs";
+import type { DocumentTabs } from "./useDocumentTabs.js";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
 import { incDiskWrites } from "@rightkit/document-core/documents/perfEventCounters";
 

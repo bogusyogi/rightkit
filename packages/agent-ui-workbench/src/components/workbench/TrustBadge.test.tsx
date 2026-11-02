@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import TrustBadge from "./TrustBadge";
+import TrustBadge from "./TrustBadge.js";
 import type { TrustEnvelope } from "@rightkit/agent-ui-core/lib/types";
 
 describe("TrustBadge", () => {

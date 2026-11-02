@@ -1,8 +1,8 @@
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import { EmptyState } from "@rightkit/react-shell/react";
 import type { MiddlewareRegistrySnapshot, RuntimeObservation, RuntimeSpan } from "@rightkit/agent-ui-core/lib/types";
-import RuntimeStat from "./RuntimeStat";
-import { phaseLabel } from "./runtimeUtils";
+import RuntimeStat from "./RuntimeStat.js";
+import { phaseLabel } from "./runtimeUtils.js";
 export default function ObservabilityRuntimePanel({
   middleware,
   spans,

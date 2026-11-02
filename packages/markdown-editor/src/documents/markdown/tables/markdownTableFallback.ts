@@ -1,5 +1,5 @@
 import type { Table } from "mdast";
-import { MARKDOWN_TABLE_MAX_COLUMNS, MARKDOWN_TABLE_MAX_ROWS } from "./markdownTableSchema";
+import { MARKDOWN_TABLE_MAX_COLUMNS, MARKDOWN_TABLE_MAX_ROWS } from "./markdownTableSchema.js";
 
 export interface ProtectedMarkdownTableFallback {
   readonly kind: "protected-table";

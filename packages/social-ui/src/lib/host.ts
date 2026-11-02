@@ -3,7 +3,7 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { isTauri } from "@rightkit/platform-ui";
 import { asShellError, type EngineCallError } from "@rightkit/tauri-shell";
-import { shell } from "./shell";
+import { shell } from "./shell.js";
 
 export { isTauri };
 

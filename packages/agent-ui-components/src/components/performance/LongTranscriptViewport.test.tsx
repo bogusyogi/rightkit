@@ -2,7 +2,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { TranscriptMessage } from "@rightkit/agent-ui-core/lib/types";
-import { LongTranscriptViewport } from "./LongTranscriptViewport";
+import { LongTranscriptViewport } from "./LongTranscriptViewport.js";
 import source from "./LongTranscriptViewport.tsx?raw";
 
 const message = (index: number, kind: "user" | "assistant"): TranscriptMessage =>

@@ -28,9 +28,9 @@ import type {
   RejectReason,
   SocialPlatform,
   TokenHealth,
-} from "../data";
-import { daysUntil, formatCount, isSocialPlatform, remaining } from "../data";
-import { hostAppName } from "../appName";
+} from "../data/index.js";
+import { daysUntil, formatCount, isSocialPlatform, remaining } from "../data/index.js";
+import { hostAppName } from "../appName.js";
 
 /** The ordinary name of each account platform. Exhaustive over SocialPlatform: a new id fails to compile until it is named. */
 export const PLATFORM_LABEL: Record<SocialPlatform, string> = {

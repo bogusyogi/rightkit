@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { daemonHeaders, useDaemon } from '../contexts/DaemonContext'
-import { useSession, type Attachment } from '../contexts/SessionContext'
-import { hostAppName } from "../appName";
+import { daemonHeaders, useDaemon } from '../contexts/DaemonContext.js'
+import { useSession, type Attachment } from '../contexts/SessionContext.js'
+import { hostAppName } from "../appName.js";
 
 // ── Slash commands ────────────────────────────────────────────────────────────
 

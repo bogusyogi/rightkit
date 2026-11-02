@@ -1,3 +1,4 @@
+import { hostAppVersion } from "../../appName.js";
 import { createLicenseClient, isPro, type LicenseView } from "@rightkit/license";
 import {
   createAutoUpdateClient,
@@ -12,16 +13,14 @@ import { getPlatform } from "@rightkit/platform-ui";
 import type { LicenseClientLike } from "@rightkit/settings-ui";
 import { Channel } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { version } from "@rightkit-host/package.json";
-import { invoke, isQaMode, listen } from "./ipc";
-import { osFromPlatform } from "./platform";
+import { invoke, isQaMode, listen } from "./ipc/index.js";
+import { osFromPlatform } from "./platform.js";
 import {
   releaseStatusUrl,
   runtimeUpdateFromNative,
   type NativeUpdateInfo,
-} from "./updateAuth";
+} from "./updateAuth.js";
 
-const APP_VERSION = version;
 const RELEASE_STATUS_URL = "https://scraperight.cc/v1/apps/scraperight/releases/status.json";
 
 let pendingUpdateClient: AutoUpdateClient | null = null;
@@ -97,7 +96,7 @@ async function proUpdateVersion(): Promise<string | null> {
       releaseStatusUrl(RELEASE_STATUS_URL, osFromPlatform(getPlatform())),
       scrapeRightFetch,
     );
-    return status.updateVersion && isNewerVersion(status.updateVersion, APP_VERSION)
+    return status.updateVersion && isNewerVersion(status.updateVersion, hostAppVersion())
       ? status.updateVersion
       : null;
   } catch {

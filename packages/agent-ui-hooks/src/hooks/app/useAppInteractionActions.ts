@@ -12,7 +12,7 @@ import {
   writeExecutionProcessStdin,
   type Attachment,
 } from "@rightkit/agent-ui-core/lib/daemon";
-import { sanitizeError } from "../../components/sanitizeError";
+import { sanitizeError } from "../../components/sanitizeError.js";
 import { useStreamingStore } from "@rightkit/agent-ui-core/state/streamingStore";
 import { useReferenceStore } from "@rightkit/agent-ui-core/state/referenceStore";
 import { useComposerStore } from "@rightkit/agent-ui-core/state/composerStore";

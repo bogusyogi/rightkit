@@ -17,10 +17,10 @@ import {
   type CalEvent,
   type EventInput,
 } from "@rightkit/mail-ui/lib/ipc";
-import { MonthGrid, TimeGrid } from "./CalendarGrids";
+import { MonthGrid, TimeGrid } from "./CalendarGrids.js";
 import { DAY, rangeFor, startOfDay, startOfWeek } from "@rightkit/mail-ui/lib/calendarUtils";
-import { CalendarEventFormModal } from "./CalendarEventFormModal";
-import { CalendarEventPopover } from "./CalendarEventPopover";
+import { CalendarEventFormModal } from "./CalendarEventFormModal.js";
+import { CalendarEventPopover } from "./CalendarEventPopover.js";
 const CALENDAR_VIEWS = ["month", "week", "day"] as const;
 function CalendarViewInner() {
   const [recurScope, setRecurScope] = useState<{ ev: CalEvent; mode: "edit" | "delete" } | null>(null);

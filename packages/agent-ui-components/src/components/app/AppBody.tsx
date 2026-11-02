@@ -8,24 +8,24 @@ import {
   useState,
 } from "react";
 import type { BackgroundTasksSurfaceProps as AgentRailProps } from "@rightkit/agent-ui-core/lib/appSurfaceProps/backgroundTasksTypes";
-import BackgroundTasksPanel from "../BackgroundTasksPanel";
-import ConnectionSwitcher from "../ConnectionSwitcher";
-import ProjectPicker from "../ProjectPicker";
+import BackgroundTasksPanel from "../BackgroundTasksPanel.js";
+import ConnectionSwitcher from "../ConnectionSwitcher.js";
+import ProjectPicker from "../ProjectPicker.js";
 import PersistentTerminal, { TerminalSlot } from "@rightkit/terminal-ui/components/PersistentTerminal";
-import FilesPanel from "../panels/FilesPanel";
-import KebabMenu, { type KebabAction } from "../panels/KebabMenu";
+import FilesPanel from "../panels/FilesPanel.js";
+import KebabMenu, { type KebabAction } from "../panels/KebabMenu.js";
 import ArtifactRowsPanel from "@rightkit/agent-ui-workbench/components/runtime/ArtifactRowsPanel";
 import WorkspaceFileViewer from "@rightkit/agent-ui-workbench/components/runtime/WorkspaceFileViewer";
-import ReviewPane from "../review/ReviewPane";
-import { BrowserPane } from "../browser/BrowserPane";
-import { BotsPane } from "../bots/BotsPane";
-import DeliveryPanel from "../delivery/DeliveryPanel";
-import EnvironmentsPanel from "../environments/EnvironmentsPanel";
-import { ExecutionGraphPane } from "../execution/ExecutionGraphPane";
-import AttentionPanel from "../attention/AttentionPanel";
+import ReviewPane from "../review/ReviewPane.js";
+import { BrowserPane } from "../browser/BrowserPane.js";
+import { BotsPane } from "../bots/BotsPane.js";
+import DeliveryPanel from "../delivery/DeliveryPanel.js";
+import EnvironmentsPanel from "../environments/EnvironmentsPanel.js";
+import { ExecutionGraphPane } from "../execution/ExecutionGraphPane.js";
+import AttentionPanel from "../attention/AttentionPanel.js";
 import Icon, { type IconName } from "@rightkit/agent-ui-core/components/Icon";
 import PaneErrorBoundary from "@rightkit/agent-ui-core/components/PaneErrorBoundary";
-import Sidebar from "../Sidebar";
+import Sidebar from "../Sidebar.js";
 import {
   ConfirmDialog,
   ContextMenu,
@@ -33,16 +33,16 @@ import {
   PromptDialog,
   ShortcutHelp,
 } from "@rightkit/react-shell/react";
-import WorkbenchContent from "../WorkbenchContent";
+import WorkbenchContent from "../WorkbenchContent.js";
 import DriverLifecycleStrip from "@rightkit/agent-ui-workbench/components/workbench/DriverLifecycleStrip";
-import ComposerIsland from "./ComposerIsland";
-import { WorkspaceToolRail } from "./WorkspaceToolRail";
-import TitleBarSlotPortal from "./TitleBarSlotPortal";
-import OnboardingPanel from "./OnboardingPanel";
+import ComposerIsland from "./ComposerIsland.js";
+import { WorkspaceToolRail } from "./WorkspaceToolRail.js";
+import TitleBarSlotPortal from "./TitleBarSlotPortal.js";
+import OnboardingPanel from "./OnboardingPanel.js";
 import WorkspaceTrustGate from "@rightkit/agent-ui-core/components/app/WorkspaceTrustGate";
 import AppShellHeader from "@rightkit/agent-ui-core/components/app/AppShellHeader";
 import ExtensionSlot from "@rightkit/agent-ui-core/extensions/ExtensionSlot";
-import SearchPanel from "../panels/SearchPanel";
+import SearchPanel from "../panels/SearchPanel.js";
 import type { AppShellHeaderProps } from "@rightkit/agent-ui-core/components/app/types";
 import type { ProviderKeyStatus } from "@rightkit/agent-ui-core/lib/daemon";
 import type { HealthResponse } from "@rightkit/agent-ui-core/lib/types";
@@ -64,13 +64,13 @@ import {
 } from "@rightkit/agent-ui-settings/components/settings/keyboard/KeyboardShortcutsSettings";
 import { useAccounts } from "@rightkit/agent-ui-hooks/hooks/useAccounts";
 import { useRateLimitStore } from "@rightkit/agent-ui-core/state/rateLimitStore";
-import RateLimitBanner from "./RateLimitBanner";
+import RateLimitBanner from "./RateLimitBanner.js";
 import {
   AccountSwitchNotice,
   SessionAuthMethodLine,
   SubscriptionUsageNotice,
-} from "./AccountNotices";
-import { hostAppName } from "../../appName";
+} from "./AccountNotices.js";
+import { hostAppName } from "../../appName.js";
 
 const SIDEBAR_DEFAULT_WIDTH = 280;
 const SIDEBAR_MIN_WIDTH = 220;

@@ -23,8 +23,8 @@ import { useOptionalBlockDrafts } from "@rightkit/document-core/app/BlockDraftCo
 import { Dropdown, Group, Item, Sep, TBtn } from "@rightkit/document-core/documents/toolbarPrimitives";
 import { DocumentToolbarShell } from "@rightkit/document-core/documents/DocumentToolbarShell";
 import { MARKDOWN_FORMAT_EVENT } from "@rightkit/document-core/app/shell/nativeMenu";
-import { MarkdownSelectionBubble } from "./MarkdownSelectionBubble";
-import { insertTableTemplate } from "../markdownTools";
+import { MarkdownSelectionBubble } from "./MarkdownSelectionBubble.js";
+import { insertTableTemplate } from "../markdownTools.js";
 import { ListNumbers } from "@phosphor-icons/react/dist/icons/ListNumbers";
 import { CheckSquare } from "@phosphor-icons/react/dist/icons/CheckSquare";
 import { Quotes } from "@phosphor-icons/react/dist/icons/Quotes";
@@ -44,24 +44,24 @@ import { Highlighter } from "@phosphor-icons/react/dist/icons/Highlighter";
 import { ImageSquare } from "@phosphor-icons/react/dist/icons/ImageSquare";
 import { Plus } from "@phosphor-icons/react/dist/icons/Plus";
 import type { Icon } from "@phosphor-icons/react";
-import { MarkdownIssuesPanel } from "../analysis/MarkdownIssuesPanel";
-import { useMarkdownAnalysis } from "../analysis/useMarkdownAnalysis";
-import { MarkdownInsertMenu } from "../insert/MarkdownInsertMenu";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
+import { MarkdownIssuesPanel } from "../analysis/MarkdownIssuesPanel.js";
+import { useMarkdownAnalysis } from "../analysis/useMarkdownAnalysis.js";
+import { MarkdownInsertMenu } from "../insert/MarkdownInsertMenu.js";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
 import {
   canMoveMarkdownBlock,
   computeMoveMarkdownBlock,
   topLevelMarkdownBlockIndexAt,
   type MoveMarkdownBlockDirection,
-} from "../core/moveMarkdownBlock";
-import { MarkdownPropertiesPanel } from "./MarkdownPropertiesPanel";
-import { useMarkdownOutline } from "./useMarkdownOutline";
-import type { OutlineNode } from "./markdownOutline";
-import { MarkdownLinkPanel } from "../references/MarkdownLinkPanel";
-import { acquireMarkdownResource } from "../markdownResourceLifecycle";
-import { MarkdownTableToolbarGroup } from "../tables/MarkdownTableControls";
-import type { MarkdownTableContext } from "../tables/markdownTableCommands";
-import type { MarkdownToolbarState } from "../MarkdownEditor";
+} from "../core/moveMarkdownBlock.js";
+import { MarkdownPropertiesPanel } from "./MarkdownPropertiesPanel.js";
+import { useMarkdownOutline } from "./useMarkdownOutline.js";
+import type { OutlineNode } from "./markdownOutline.js";
+import { MarkdownLinkPanel } from "../references/MarkdownLinkPanel.js";
+import { acquireMarkdownResource } from "../markdownResourceLifecycle.js";
+import { MarkdownTableToolbarGroup } from "../tables/MarkdownTableControls.js";
+import type { MarkdownTableContext } from "../tables/markdownTableCommands.js";
+import type { MarkdownToolbarState } from "../MarkdownEditor.js";
 import { DocumentToolbarSearch, type DocumentSearchMode } from "@rightkit/document-core/documents/DocumentToolbarFind";
 import { BackToTopButton } from "@rightkit/document-core/documents/BackToTopButton";
 import { scrollBehaviorForMotion } from "@rightkit/document-core/state/motion";

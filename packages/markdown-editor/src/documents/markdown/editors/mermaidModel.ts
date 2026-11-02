@@ -7,7 +7,7 @@
  * calls the validator directly.
  */
 
-import { parseMarkdownCodeBlock } from "./codeBlockModel";
+import { parseMarkdownCodeBlock } from "./codeBlockModel.js";
 
 export interface MarkdownMermaidModel {
   readonly content: string;

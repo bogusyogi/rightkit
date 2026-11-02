@@ -2,7 +2,7 @@ import { useState } from "react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import type { AnalyticsProjection } from "@rightkit/agent-ui-core/lib/analytics/analyticsProjection";
 import { readAnalyticsConsent, writeAnalyticsConsent } from "@rightkit/agent-ui-core/lib/analytics/analyticsProjection";
-import { hostAppName } from "../../../appName";
+import { hostAppName } from "../../../appName.js";
 
 export interface AnalyticsConsentCardProps {
   /** Optional native/background analytics handle. The UI remains usable when absent. */

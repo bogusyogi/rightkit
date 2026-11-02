@@ -1,10 +1,10 @@
 import { useCallback, useMemo } from "react";
-import { DocumentMenus, DocumentModeControls } from "./DocActionBar";
+import { DocumentMenus, DocumentModeControls } from "./DocActionBar.js";
 import type { LoadedDocument, ReadEditMode } from "@rightkit/document-core/documents/types";
-import { capabilitiesFor } from "../documents/capabilities";
-import type { useDocuments } from "./useDocuments";
-import type { useFormatApis } from "./useFormatApis";
-import type { useViewState } from "./useViewState";
+import { capabilitiesFor } from "../documents/capabilities.js";
+import type { useDocuments } from "./useDocuments.js";
+import type { useFormatApis } from "./useFormatApis.js";
+import type { useViewState } from "./useViewState.js";
 
 type Docs = ReturnType<typeof useDocuments>;
 type Formats = ReturnType<typeof useFormatApis>;

@@ -2,9 +2,9 @@
 // Reads the latest maps via the store at call time, so the callbacks are stable
 // (no deps) and the view that uses them stays prop-light.
 import { useCallback } from "react";
-import { useAppStore } from "../store";
-import { setPref } from "../lib/preferences";
-import { resolveImageRule, emailDomain, type ImageRule } from "../lib/imageTrust";
+import { useAppStore } from "../store/index.js";
+import { setPref } from "../lib/preferences.js";
+import { resolveImageRule, emailDomain, type ImageRule } from "../lib/imageTrust.js";
 
 function applyRule(rule: ImageRule | null) {
   const s = useAppStore.getState();

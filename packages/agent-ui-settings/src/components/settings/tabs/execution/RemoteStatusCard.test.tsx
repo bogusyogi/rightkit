@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { RemoteStatusCard } from "./RemoteStatusCard";
+import { RemoteStatusCard } from "./RemoteStatusCard.js";
 
 describe("execution RemoteStatusCard warn tone (PA-06a)", () => {
   it("renders a warn status in amber, not the command-accent red", () => {

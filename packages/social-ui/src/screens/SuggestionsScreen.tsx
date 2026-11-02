@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Badge, Button, EmptyState, Notice, PageShell, SkeletonRows } from "@rightkit/react-shell/react";
-import { ScopeSelect } from "../components/ScopeSelect";
-import { LoadError, MockBanner } from "../components/Shared";
-import { useAsync } from "../hooks/useAsync";
+import { ScopeSelect } from "../components/ScopeSelect.js";
+import { LoadError, MockBanner } from "../components/Shared.js";
+import { useAsync } from "../hooks/useAsync.js";
 import {
   groupDigits,
   instantLabel,
@@ -10,8 +10,8 @@ import {
   type OperatorScope,
   type OptimiseProposal,
   type OptimiseState,
-} from "../data";
-import { OPTIMISE_STATE_LABEL, platformName } from "./labels";
+} from "../data/index.js";
+import { OPTIMISE_STATE_LABEL, platformName } from "./labels.js";
 
 interface Props {
   source: DataSource;

@@ -1,5 +1,5 @@
 import type { ArtifactRow } from "@rightkit/agent-ui-core/lib/types";
-import { artifactTrustState } from "./runtimeUtils";
+import { artifactTrustState } from "./runtimeUtils.js";
 
 export default function ArtifactTrustBadge({ artifact }: { artifact: ArtifactRow }) {
   const state = artifactTrustState(artifact);

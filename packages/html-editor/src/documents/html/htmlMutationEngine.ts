@@ -1,12 +1,12 @@
 import * as parse5 from "parse5";
-import { findLockedRangeViolation } from "./blocks/htmlLockedRanges";
+import { findLockedRangeViolation } from "./blocks/htmlLockedRanges.js";
 import {
   buildHtmlShellInfo,
   getCachedParseEntry,
   setCachedParseEntry,
   sourceChecksum,
   type HtmlParseNode,
-} from "./sourceMap";
+} from "./sourceMap.js";
 
 /**
  * HTML source-range transaction engine (architecture: HTML-EDITING-ARCHITECTURE-FINAL.md).

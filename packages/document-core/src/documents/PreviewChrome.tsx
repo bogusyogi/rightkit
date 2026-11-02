@@ -2,10 +2,10 @@ import { useState, type ReactNode } from "react";
 import { CaretLeft } from "@phosphor-icons/react/dist/icons/CaretLeft";
 import { CaretRight } from "@phosphor-icons/react/dist/icons/CaretRight";
 import { ArrowClockwise } from "@phosphor-icons/react/dist/icons/ArrowClockwise";
-import { ViewportSwitch, type Viewport } from "./previewViewport";
-import { ChromeButton } from "./ChromeButton";
-import { DocumentToolbarSearch, type DocumentSearchMode } from "./DocumentToolbarFind";
-import { writeClipboardText } from "../state/tauriBridge";
+import { ViewportSwitch, type Viewport } from "./previewViewport.js";
+import { ChromeButton } from "./ChromeButton.js";
+import { DocumentToolbarSearch, type DocumentSearchMode } from "./DocumentToolbarFind.js";
+import { writeClipboardText } from "../state/tauriBridge.js";
 
 export type { Viewport };
 

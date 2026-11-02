@@ -2,7 +2,7 @@
 // Invented suggestions, allowances, reports and prices for the mock. Channel names, job ids, hosts and
 // providers are fictional. Amounts are invented integers in micro-units of the fictional currency EUR.
 // Qualification is set as the engine would compute it at the mock clock (MOCK_NOW_UTC, 2026-10-12).
-import type { OperatorScope, OptimiseProposal, SpendAllowance, SpendPrice, SpendReport } from "../types";
+import type { OperatorScope, OptimiseProposal, SpendAllowance, SpendPrice, SpendReport } from "../types.js";
 
 export const SCOPE_ALPHA = "fixture-alpha/alpha-shorts/alpha-main";
 export const SCOPE_BETA = "fixture-beta/beta-studio/beta-main";

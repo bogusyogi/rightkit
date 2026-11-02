@@ -3,8 +3,8 @@ import type { EditorView, NodeView } from "prosemirror-view";
 import { NodeSelection } from "prosemirror-state";
 import * as React from "react";
 import { createRoot } from "react-dom/client";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import { imageNodeToMarkdown } from "../projection/pmToMarkdown";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import { imageNodeToMarkdown } from "../projection/pmToMarkdown.js";
 
 export interface MarkdownImageNodeViewContext {
   core: MarkdownDocumentCore | null;

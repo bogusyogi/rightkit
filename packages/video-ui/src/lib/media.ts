@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { engineCall } from "./engine";
+import { engineCall } from "./engine.js";
 
 // Typed client for the media workflow methods served by cutright-engine
 // (crates/cutright-engine/src/media_cmd.rs).

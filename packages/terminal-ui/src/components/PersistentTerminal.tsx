@@ -3,7 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActionDialog } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import usePersistentTerminal from "../hooks/usePersistentTerminal";
+import usePersistentTerminal from "../hooks/usePersistentTerminal.js";
 import type { DaemonConfig, ExecutionProcessRow } from "@rightkit/agent-ui-core/lib/types";
 import {
   createHistoryProvider,

@@ -1,7 +1,7 @@
 import { useDismiss } from "@rightkit/platform-ui/headless";
 import { useRef, useState } from "react";
-import Icon from "../Icon";
-import type { TaskNode } from "../../lib/types";
+import Icon from "../Icon.js";
+import type { TaskNode } from "../../lib/types.js";
 
 /**
  * Title-bar run indicators: tasks and agents.

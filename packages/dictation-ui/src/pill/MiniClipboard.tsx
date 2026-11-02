@@ -1,8 +1,8 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowClockwise, ArrowCounterClockwise, X } from "@phosphor-icons/react";
-import { invoke } from "../lib/tauri";
-import { pillTooltipProps } from "./pillTooltip";
-import { hostAppName } from "../appName";
+import { invoke } from "../lib/tauri.js";
+import { pillTooltipProps } from "./pillTooltip.js";
+import { hostAppName } from "../appName.js";
 
 export interface MiniClipboardItem {
   delivery_id: string;

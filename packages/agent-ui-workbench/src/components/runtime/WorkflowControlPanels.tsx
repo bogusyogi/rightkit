@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { DaemonConfig } from "@rightkit/agent-ui-core/lib/types";
-import type { RuntimeTab } from "./runtimePaneTypes";
+import type { RuntimeTab } from "./runtimePaneTypes.js";
 import {
   controlWorkflowRun,
   decideWorkflowApproval,

@@ -10,17 +10,16 @@ import {
   type GenerateRequest,
   type JobStatus,
   type MediaKind
-} from '../lib/api';
-import { loadBrowserMock } from '../lib/api';
-import { jobIsActive, useApp, type SessionJob } from '../lib/app-state';
-import { JobOutputs, statusText } from '../components/JobCard';
-import { heldActionLabel, heldActions, heldConsequence, heldExplanation, heldLabel, isRecoveredCode, type HeldAction } from '../lib/held-job';
-import { useConfirm } from '../lib/confirm';
-import { ErrorNote } from '../components/ErrorNote';
-import { IconAvatar, IconImage, IconMic, IconMotion, IconSpeaker, IconVideo } from '../components/icons';
+} from '../lib/api.js';
+import { loadBrowserMock } from '../lib/api.js';
+import { jobIsActive, useApp, type SessionJob } from '../lib/app-state.js';
+import { JobOutputs, statusText } from '../components/JobCard.js';
+import { heldActionLabel, heldActions, heldConsequence, heldExplanation, heldLabel, isRecoveredCode, type HeldAction } from '../lib/held-job.js';
+import { useConfirm } from '../lib/confirm.js';
+import { ErrorNote } from '../components/ErrorNote.js';
+import { IconAvatar, IconImage, IconMic, IconMotion, IconSpeaker, IconVideo } from '../components/icons.js';
 import { Card, Badge, Button, EmptyState, Notice, SegmentedControl } from '@rightkit/react-shell/react';
-import { relativeTime, usd } from '../components/ui';
-import './workspace.css';
+import { relativeTime, usd } from '../components/ui.js';
 
 const KIND_ICON: Record<MediaKind, ReactNode> = {
   image: <IconImage />,
@@ -50,7 +49,7 @@ const FILTERS: Array<{ id: Filter; label: string }> = [
 /** A non-terminal job with no observed progress for this long is stale: its
  * runner stopped (crash, closed window) and nothing is driving it. */
 const STALE_MS = (() => {
-  if (!import.meta.env.DEV) return 90_000;
+  if (!import.meta.env?.DEV) return 90_000;
   try {
     const v = Number(new URLSearchParams(window.location.search).get('qaStaleMs'));
     return Number.isFinite(v) && v > 0 ? v : 90_000;

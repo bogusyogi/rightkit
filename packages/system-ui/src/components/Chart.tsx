@@ -1,5 +1,4 @@
 import { useState, type CSSProperties, type PointerEvent } from "react";
-import "../views/monitor.css";
 
 type Pt = [number, number] | null;
 

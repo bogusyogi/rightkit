@@ -9,15 +9,15 @@ import {
   listLocalImages,
   resumeLocalImage,
   submitLocalImage
-} from '../../lib/api';
+} from '../../lib/api.js';
 import type {
   LocalImageConversationSnapshot,
   LocalImageInstallProgress,
   LocalImageJob,
   LocalImageJobEventPayload,
   LocalImageRuntimeStatus
-} from '../../lib/types';
-import { buildRetryRequest, isActiveJob } from './logic';
+} from '../../lib/types.js';
+import { buildRetryRequest, isActiveJob } from './logic.js';
 
 /**
  * Live state for the local image chat: conversations, runtime status, install

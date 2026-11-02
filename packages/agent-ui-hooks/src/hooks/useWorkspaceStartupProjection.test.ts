@@ -5,7 +5,7 @@ import {
   type WorkspaceStartupClient,
   type WorkspaceStartupStatus,
   useWorkspaceStartupProjection,
-} from "./useWorkspaceStartupProjection";
+} from "./useWorkspaceStartupProjection.js";
 
 function startupClient(status: WorkspaceStartupStatus): WorkspaceStartupClient {
   return {

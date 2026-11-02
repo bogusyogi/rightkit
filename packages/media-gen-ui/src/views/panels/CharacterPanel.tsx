@@ -5,8 +5,7 @@
 // app's approve_draft (an app-minted token over the exact plan), so nothing spends without the
 // user's click on a plan they were shown.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import './video.css';
-import type { StudioPanelProps } from './types';
+import type { StudioPanelProps } from './types.js';
 import {
   characters,
   lockInconsistencies,
@@ -22,11 +21,11 @@ import {
   type TrainPlan,
   type TrainStatus,
   type TrainersResult
-} from './character-lock';
-import { UNCONFIRMED_PRICE_LABEL, UNCONFIRMED_PRICE_SENTENCE } from '../../lib/gen-params';
+} from './character-lock.js';
+import { UNCONFIRMED_PRICE_LABEL, UNCONFIRMED_PRICE_SENTENCE } from '../../lib/gen-params.js';
 import { Badge, Button, Checkbox, Input, Notice, Pill, Select } from '@rightkit/react-shell/react';
-import { usd } from './video-quality';
-import { OUTCOME_UNKNOWN, errorCode, errorDetails, errorText, isHeldJob } from '../../lib/api';
+import { usd } from './video-quality.js';
+import { OUTCOME_UNKNOWN, errorCode, errorDetails, errorText, isHeldJob } from '../../lib/api.js';
 import {
   heldLabel,
   trainingAmount,
@@ -38,8 +37,8 @@ import {
   trainingHeldSince,
   trainingHeldTitle,
   type TrainingResolve
-} from '../../lib/held-job';
-import { useConfirm } from '../../lib/confirm';
+} from '../../lib/held-job.js';
+import { useConfirm } from '../../lib/confirm.js';
 
 export const CharacterPanelKinds: string[] = ['image', 'video'];
 

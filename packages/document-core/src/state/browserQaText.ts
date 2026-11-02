@@ -1,4 +1,4 @@
-import type { LoadedDocument } from "../documents/types";
+import type { LoadedDocument } from "../documents/types.js";
 
 // IPC-boundary disk for browser journeys. Session storage belongs to disposable QA
 // browser profile; survives reload, never reads/writes native app data or user files.

@@ -9,8 +9,8 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { useStreamingStore } from "./streamingStore";
-import { useComposerStore } from "./composerStore";
+import { useStreamingStore } from "./streamingStore.js";
+import { useComposerStore } from "./composerStore.js";
 
 describe("Lane C-2 render isolation — streaming store subscription boundary", () => {
   beforeEach(() => {

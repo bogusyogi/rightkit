@@ -3,32 +3,31 @@ import { createPortal } from "react-dom";
 import { createShortcutRegistry } from "@rightkit/react-shell";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy, PageViewport } from "pdfjs-dist";
-import "pdfjs-dist/web/pdf_viewer.css"; // .textLayer positioning + annotation styles
-import type { SearchProvider, ViewMeta } from "../types";
-import { boundedCanvasDpr, highlightSpan, viewportRotation } from "./pdfShared";
-import { PdfToolbar } from "./PdfToolbar";
-import { PdfViewerBody } from "./PdfViewerBody";
-import { PdfPasswordPrompt } from "./PdfPasswordPrompt";
-import { usePdfDocumentLoader } from "./usePdfDocumentLoader";
-import { usePdfPreviewRecompose } from "./usePdfPreviewRecompose";
-import { usePdfSavePlan } from "./usePdfSavePlan";
-import { usePdfFit } from "./usePdfFit";
+import type { SearchProvider, ViewMeta } from "../types.js";
+import { boundedCanvasDpr, highlightSpan, viewportRotation } from "./pdfShared.js";
+import { PdfToolbar } from "./PdfToolbar.js";
+import { PdfViewerBody } from "./PdfViewerBody.js";
+import { PdfPasswordPrompt } from "./PdfPasswordPrompt.js";
+import { usePdfDocumentLoader } from "./usePdfDocumentLoader.js";
+import { usePdfPreviewRecompose } from "./usePdfPreviewRecompose.js";
+import { usePdfSavePlan } from "./usePdfSavePlan.js";
+import { usePdfFit } from "./usePdfFit.js";
 import {
   acquirePdfRenderKeepalive,
   createPdfLinkService,
   type PdfLinkActions,
 } from "@rightkit/pdf-ui";
-import { openExternal } from "../../state/tauriBridge";
-import { usePdfSearch } from "./usePdfSearch";
-import { usePdfOcr } from "./usePdfOcr";
-import type { NativePdfEditingAction } from "./macPdfNativeBridge";
-import type { OcrLine } from "./pdfOcr";
-import { applyOcrCorrections, findOcrLineAt, sampleCanvasRectBackground } from "./pdfOcrEdit";
-import { usePdfViewControls } from "./usePdfViewControls";
-import { usePdfEditor } from "./usePdfEditor";
-import { createPdfEditorTextLayerAdapter, SOURCE_TEXT_COMMAND } from "./pdfEditor";
-import { usePdfEditSession, type PdfEditSessionBridge } from "./usePdfEditSession";
-import { PdfInlineTextEditor } from "./PdfInlineTextEditor";
+import { openExternal } from "../../state/tauriBridge.js";
+import { usePdfSearch } from "./usePdfSearch.js";
+import { usePdfOcr } from "./usePdfOcr.js";
+import type { NativePdfEditingAction } from "./macPdfNativeBridge.js";
+import type { OcrLine } from "./pdfOcr.js";
+import { applyOcrCorrections, findOcrLineAt, sampleCanvasRectBackground } from "./pdfOcrEdit.js";
+import { usePdfViewControls } from "./usePdfViewControls.js";
+import { usePdfEditor } from "./usePdfEditor.js";
+import { createPdfEditorTextLayerAdapter, SOURCE_TEXT_COMMAND } from "./pdfEditor.js";
+import { usePdfEditSession, type PdfEditSessionBridge } from "./usePdfEditSession.js";
+import { PdfInlineTextEditor } from "./PdfInlineTextEditor.js";
 import type {
   PdfColor,
   PdfEditCommand,
@@ -38,26 +37,26 @@ import type {
   PdfSavePlan,
   PdfTextAppearance,
   PdfTextIsland,
-} from "./pdfEditModel";
+} from "./pdfEditModel.js";
 // New PDF-edit backend commands (docs/PDF-EDITOR-NOW.md §5.2/§7.2/§9.4/§10.1/§10.3). These land in
 // tauriBridge.ts at Dispatch D2 — this lane imports them by name against the frozen type contract
 // in pdfEditModel.ts, per the dispatch brief ("D2 is responsible for making those exports real").
-import { inspectPdfPage, listPdfFonts } from "../../state/tauriBridge";
+import { inspectPdfPage, listPdfFonts } from "../../state/tauriBridge.js";
 // Worker-src setup lives in pdfPrinting.ts (module side effect), the one shared resolution point
 // for both the viewer and the print path — see its comment for why the worker URL must never be
 // resolved twice through different chunks.
-import "./pdfPrinting";
-import { printPdfDocument } from "./pdfPrinting";
-import { acquireResource } from "../../app/resourceCensus";
-import { logError, logPerf } from "../../state/diagnostics";
-import { errorMessage } from "../../state/errors";
+import "./pdfPrinting.js";
+import { printPdfDocument } from "./pdfPrinting.js";
+import { acquireResource } from "../../app/resourceCensus.js";
+import { logError, logPerf } from "../../state/diagnostics.js";
+import { errorMessage } from "../../state/errors.js";
 import {
   isPdfBenchEnabled,
   markPdfBenchError,
   markPdfBenchFirstCanvasPaint,
   registerPdfBenchLatePageNavigator,
-} from "./pdfBench";
-import { nearestVisiblePdfPage } from "./nearestVisiblePdfPage";
+} from "./pdfBench.js";
+import { nearestVisiblePdfPage } from "./nearestVisiblePdfPage.js";
 
 // pdf.js's own bundled code (build/pdf.mjs) has at least one call site — converting an existing
 // Stamp annotation into an editable `StampEditor` object, which `AnnotationEditorLayer`'s

@@ -18,7 +18,7 @@ import type { EditorView } from "@codemirror/view";
 import type { EditorView as ProseMirrorEditorView } from "prosemirror-view";
 import { TextSelection } from "prosemirror-state";
 import type { SearchProvider, ViewMode } from "@rightkit/document-core/documents/types";
-import type { SourceEditorViewState } from "../txt/TxtEditor";
+import type { SourceEditorViewState } from "../txt/TxtEditor.js";
 import { scrollPosIntoView } from "@rightkit/document-core/documents/txt/cmScroll";
 import { MarkdownEditor, type MarkdownToolbarState } from "@rightkit/markdown-editor/documents/markdown/MarkdownEditor";
 import type { MarkdownSourceRange } from "@rightkit/markdown-editor/documents/markdown/MarkdownProtectedBlock";
@@ -41,7 +41,7 @@ import { publishMarkdownDocumentActivity } from "@rightkit/markdown-editor/docum
 // prefetches this chunk when a md doc opens, so by the time the drawer is opened it's already warm
 // (the drawer shows readable source while the chunk resolves). The preview never unmounts, so the
 // Suspense fallback only ever covers the drawer.
-const TextEditor = lazy(() => import("../txt/TxtEditor").then((m) => ({ default: m.TextEditor })));
+const TextEditor = lazy(() => import("../txt/TxtEditor.js").then((m) => ({ default: m.TextEditor })));
 const noopSubscribeEdits = (_path: string, _cb: () => void) => () => {};
 const noopEditSnapshot = (_path: string) => undefined;
 

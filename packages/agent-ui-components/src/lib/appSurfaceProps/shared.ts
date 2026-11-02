@@ -1,4 +1,4 @@
-import type { Pane } from "../../components/WorkbenchContent";
+import type { Pane } from "../../components/WorkbenchContent.js";
 import type AppShellHeader from "@rightkit/agent-ui-core/components/app/AppShellHeader";
 import { isTauriHost } from "@rightkit/agent-ui-core/lib/daemon";
 import type { HealthResponse } from "@rightkit/agent-ui-core/lib/types";

@@ -8,7 +8,7 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { LoadedDocument, ViewMode } from "@rightkit/document-core/documents/types";
 import type { ImageSaveFunction } from "@rightkit/media-ui";
-import type { DocumentTabs } from "./useDocumentTabs";
+import type { DocumentTabs } from "./useDocumentTabs.js";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
 import { errorMessage } from "@rightkit/document-core/state/errors";
 import {
@@ -16,8 +16,8 @@ import {
   clearSetupRecoverySnapshot,
   loadSetupRecoverySnapshot,
   saveSetupRecoverySnapshot,
-} from "./setupRecovery";
-import { resolveAllDrafts } from "./draftResolution";
+} from "./setupRecovery.js";
+import { resolveAllDrafts } from "./draftResolution.js";
 
 interface SetupRecoveryDeps {
   blockDrafts: BlockDraftRegistry;

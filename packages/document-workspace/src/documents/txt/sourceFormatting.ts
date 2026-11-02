@@ -1,5 +1,5 @@
 import type { Diagnostic } from "@codemirror/lint";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 export type SourceLanguage = "markdown" | "html" | "plain";
 

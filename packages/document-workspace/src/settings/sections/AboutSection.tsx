@@ -1,8 +1,8 @@
-import { LEGAL_ABOUT_LINKS } from "../../state/legal";
-import { AboutFrame, LegalPanel, UpdatesPanel } from "../publishedSections";
+import { LEGAL_ABOUT_LINKS } from "../../state/legal.js";
+import { AboutFrame, LegalPanel, UpdatesPanel } from "../publishedSections.js";
 import { useSettings } from "@rightkit/document-core/settings/settings";
 import { openExternal } from "@rightkit/document-core/state/tauriBridge";
-import { UpdateLicenseBlock } from "./UpdateLicenseBlock";
+import { UpdateLicenseBlock } from "./UpdateLicenseBlock.js";
 
 const footerLink = "text-copper-hi underline-offset-4 hover:underline";
 

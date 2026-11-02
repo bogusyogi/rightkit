@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "@phosphor-icons/react";
-import { invoke, listen } from "../lib/tauri";
-import { CSS as PILL_CSS } from "./pillStyles";
-import { pillTooltipProps } from "./pillTooltip";
-import { getPlatform } from "../hooks/usePlatform";
+import { invoke, listen } from "../lib/tauri.js";
+import { CSS as PILL_CSS } from "./pillStyles.js";
+import { pillTooltipProps } from "./pillTooltip.js";
+import { getPlatform } from "../hooks/usePlatform.js";
 // Single source of truth for hint TEXT, shared with the macOS Swift pill (which
 // reads the same JSON). Add a hint there, not here — this renderer is just the
 // Windows container. See src/shared/hint-catalog.json.
-import hintCatalog from "../shared/hint-catalog.json";
+import hintCatalog from "../shared/hint-catalog.json" with { type: "json" };
 
 type ScreenshotDestination = "clipboard" | "disk";
 type FeatureHint = { title: string; body: string };

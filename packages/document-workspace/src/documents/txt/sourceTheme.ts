@@ -2,7 +2,7 @@ import { HighlightStyle } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
-import type { SourceLanguage } from "./sourceFormatting";
+import type { SourceLanguage } from "./sourceFormatting.js";
 
 const LINE_SELECT_CURSOR =
   'url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2724%27 height=%2724%27 viewBox=%270 0 24 24%27%3E%3Cg transform=%27matrix(-1 0 0 1 24 0)%27%3E%3Cpath d=%27M5 3l10 9h-5l3 7-2.4 1-3-7L5 17V3z%27 fill=%27white%27 stroke=%27black%27 stroke-width=%271.5%27 stroke-linejoin=%27round%27/%3E%3C/g%3E%3C/svg%3E") 12 4, e-resize';

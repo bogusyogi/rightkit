@@ -8,11 +8,11 @@ import {
   buildComposerProps,
   buildOnboardingPanelProps,
   buildWorkbenchProps,
-} from "../../../lib/appSurfaceProps";
+} from "../../../lib/appSurfaceProps/index.js";
 import type { BackgroundTasksSurfaceProps as AgentRailProps } from "@rightkit/agent-ui-core/lib/appSurfaceProps/backgroundTasksTypes";
 import { conductorSupportsThinkingLevels } from "@rightkit/agent-ui-core/lib/conductorModels";
 import type { PermissionMode } from "@rightkit/agent-ui-core/lib/daemon";
-import type { AppSurfaceInputs } from "./types";
+import type { AppSurfaceInputs } from "./types.js";
 
 // A normal engine boot with a known workspace is not an onboarding moment:
 // flashing the start-point chooser (with a Retry button) during the first

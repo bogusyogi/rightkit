@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { defaultMicErrorCopy, useMicRecorder } from "./useMicRecorder";
+import { defaultMicErrorCopy, useMicRecorder } from "./useMicRecorder.js";
 
 const copy = defaultMicErrorCopy();
 

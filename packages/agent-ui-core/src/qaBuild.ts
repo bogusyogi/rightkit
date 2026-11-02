@@ -11,4 +11,4 @@
 export const QA_BUILD: boolean =
   typeof __RIGHTKIT_QA__ === "boolean"
     ? __RIGHTKIT_QA__
-    : import.meta.env.MODE === "qa" || import.meta.env.VITE_RIGHTKIT_QA === "1";
+    : import.meta.env?.MODE === "qa" || import.meta.env?.VITE_RIGHTKIT_QA === "1";

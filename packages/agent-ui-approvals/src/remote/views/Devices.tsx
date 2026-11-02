@@ -15,10 +15,10 @@ import {
 import { clearVisibleInterval, visibleInterval } from "@rightkit/system-ui/visible";
 import { SettingRow, SettingsGroup, SettingsSearchSection } from "@rightkit/settings-ui/core";
 import { openSectionLabel } from "@rightkit/system-ui/views/settingsKit";
-import { PhonePairing } from "./PhonePairing";
-import { BrowserLogins } from "./BrowserLogins";
-import { OwnerPinCard, confirmOwnerKey, onMac, ownerProblem, touchIdProof } from "./OwnerPin";
-import { GuestsGroup } from "./Guests";
+import { PhonePairing } from "./PhonePairing.js";
+import { BrowserLogins } from "./BrowserLogins.js";
+import { OwnerPinCard, confirmOwnerKey, onMac, ownerProblem, touchIdProof } from "./OwnerPin.js";
+import { GuestsGroup } from "./Guests.js";
 
 /** Settings > Devices: paired devices, the pairing approval card, per-device grants and revoke.
  *  Every change goes to the resident engine (`device.*`); with no engine the page says so. */

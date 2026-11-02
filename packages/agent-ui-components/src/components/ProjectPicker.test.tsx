@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { open } from "@tauri-apps/plugin-dialog";
-import ProjectPicker from "./ProjectPicker";
+import ProjectPicker from "./ProjectPicker.js";
 import { useProjectRecentsStore } from "@rightkit/agent-ui-core/state/projectRecentsStore";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({

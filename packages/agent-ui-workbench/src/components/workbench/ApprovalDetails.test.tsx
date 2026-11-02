@@ -6,7 +6,7 @@ import {
   ApprovalOriginDetails,
   approvalActionLabel,
   approvalDisplayDetail,
-} from "./ApprovalDetails";
+} from "./ApprovalDetails.js";
 import type { PendingApproval } from "@rightkit/agent-ui-hooks/hooks/useApprovals";
 import type { SessionRow } from "@rightkit/agent-ui-core/lib/types";
 

@@ -1,20 +1,19 @@
 import { Badge, Button, Card, ContextMenu, EmptyState, IconButton, PageShell, cx } from "@rightkit/react-shell/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { pickFolder } from "../lib/dialog";
-import { errorCode, errorMessage, revealPath } from "../lib/engine";
+import { pickFolder } from "../lib/dialog.js";
+import { errorCode, errorMessage, revealPath } from "../lib/engine.js";
 import {
   type ProjectCard,
   SETTINGS_CHANGED,
   mediaScopeAllow,
   projectsList,
   thumbnails,
-} from "../lib/media";
-import { assetUrl } from "../lib/asset";
-import { baseName, projectShow } from "../lib/project";
-import { createHostSettingsBackend } from "../lib/settingsBackend";
-import { ErrorPanel, Thumbnail, timecode, Icon } from "../ui";
+} from "../lib/media.js";
+import { assetUrl } from "../lib/asset.js";
+import { baseName, projectShow } from "../lib/project.js";
+import { createHostSettingsBackend } from "../lib/settingsBackend.js";
+import { ErrorPanel, Thumbnail, timecode, Icon } from "../ui/index.js";
 
-import "./Home.css";
 
 const recentSettings = createHostSettingsBackend();
 let recentQueue: Promise<unknown> = Promise.resolve();
@@ -247,7 +246,7 @@ export function Home({
   };
 
   const pickFiles = async () => {
-    const { pickMedia } = await import("../lib/dialog");
+    const { pickMedia } = await import("../lib/dialog.js");
     const files = await pickMedia();
     if (files.length > 0) onFiles(files);
   };

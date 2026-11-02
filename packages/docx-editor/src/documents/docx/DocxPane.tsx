@@ -1,4 +1,5 @@
 import {
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -7,24 +8,23 @@ import {
   type ReactNode,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import { DocxEditor, type DocxEditorRef, type DocxHostToolbarContext } from "./eigenpalReact";
+import { DocxEditor, type DocxEditorRef, type DocxHostToolbarContext } from "./eigenpalReact.js";
 import { setGoogleFontsEnabled } from "@eigenpal/docx-editor-core";
-import "@eigenpal/docx-editor-react/styles.css";
 import { resolveAccentColors, resolveTheme, useSettings } from "@rightkit/document-core/settings/settings";
-import { buildEigenpalThemeCss } from "./eigenpalTheme";
-import { HostDocxToolbar } from "./HostDocxToolbar";
-import type { DocxMenuApi } from "./menuApi";
+import { buildEigenpalThemeCss } from "./eigenpalTheme.js";
+import { HostDocxToolbar } from "./HostDocxToolbar.js";
+import type { DocxMenuApi } from "./menuApi.js";
 import type { SearchProvider } from "@rightkit/document-core/documents/types";
-import { createDocxFindController, type DocxFindController } from "./docxFind";
-import { detectBlankDocxRender } from "./docxFallback";
-import { base64ToBuffer } from "./blankDocx";
-import { docxPrintMarkup } from "./docxPrint";
+import { createDocxFindController, type DocxFindController } from "./docxFind.js";
+import { detectBlankDocxRender } from "./docxFallback.js";
+import { base64ToBuffer } from "./blankDocx.js";
+import { docxPrintMarkup } from "./docxPrint.js";
 import { printHtmlMarkup } from "@rightkit/document-core/app/documentPrinting";
-import { assertDocxWithinBudget } from "./docxBudget";
+import { assertDocxWithinBudget } from "./docxBudget.js";
 import { logError } from "@rightkit/document-core/state/diagnostics";
 import { toast } from "@rightkit/platform-ui/headless";
 import { acquireResource, updateResource } from "@rightkit/document-core/app/resourceCensus";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 // the host app is local-first: DOCX uses embedded/system fonts plus local CSS fallbacks. Disabling
 // implicit Google lookup prevents invalid requests for Office-only families such as Calibri Light.
@@ -341,6 +341,7 @@ export function DocxPane({
       <div className="vr-docx h-full w-full overflow-auto" onWheel={onWheelZoom}>
         <style>{epThemeCss}</style>
         <div ref={paneRef} className="h-full w-full">
+          <Suspense fallback={null}>
           <DocxEditor
             ref={ref}
             documentBuffer={buffer}
@@ -371,6 +372,7 @@ export function DocxPane({
               );
             }}
           />
+          </Suspense>
         </div>
         {textFallback && <DocxTextFallback text={textFallback} />}
       </div>

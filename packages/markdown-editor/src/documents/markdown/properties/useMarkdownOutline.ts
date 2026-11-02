@@ -7,10 +7,10 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { buildMarkdownOutline, nearestOutlineNode } from "./markdownOutline";
-import type { OutlineNode } from "./markdownOutline";
-import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore";
-import { readFrontmatterDocument } from "./frontmatterDocument";
+import { buildMarkdownOutline, nearestOutlineNode } from "./markdownOutline.js";
+import type { OutlineNode } from "./markdownOutline.js";
+import type { MarkdownDocumentCore } from "../core/MarkdownDocumentCore.js";
+import { readFrontmatterDocument } from "./frontmatterDocument.js";
 
 export interface UseMarkdownOutlineOptions {
   readonly core: MarkdownDocumentCore | undefined;

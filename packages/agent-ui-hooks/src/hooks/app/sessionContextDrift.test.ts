@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { routeTargetFromToken, sessionContextDrift } from "./sessionContextDrift";
+import { routeTargetFromToken, sessionContextDrift } from "./sessionContextDrift.js";
 
 const SESS_A = "sess-a";
 const SESS_B = "sess-b";

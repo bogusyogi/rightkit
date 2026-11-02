@@ -1,4 +1,4 @@
-import { lookupCommands, lookupByPrefix, type CommandEntry } from "./commandIndex";
+import { lookupCommands, lookupByPrefix, type CommandEntry } from "./commandIndex.js";
 
 export interface ProjectContext {
   hasGit: boolean;

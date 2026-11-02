@@ -7,8 +7,8 @@ import type {
   DiscoverResult,
   ImportResult,
   SyncResult,
-} from "./CliSessionBrowser";
-import CliSessionBrowser from "./CliSessionBrowser";
+} from "./CliSessionBrowser.js";
+import CliSessionBrowser from "./CliSessionBrowser.js";
 
 const session = (overrides: Partial<CliSessionSummary> = {}): CliSessionSummary => ({
   sessionId: "claude-1",

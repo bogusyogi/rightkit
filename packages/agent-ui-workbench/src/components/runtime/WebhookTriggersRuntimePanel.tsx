@@ -4,7 +4,7 @@ import type { WebhookTrigger, WebhookTriggerDeliveryAuditRow } from "@rightkit/a
 import type { WebhookTriggerDraft } from "@rightkit/agent-ui-hooks/hooks/useRuntimeAggregates";
 import { ActionDialog, Checkbox, Select } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 function deliveryEndpoint(daemonUrl: string, trigger: WebhookTrigger): string {
   const base = daemonUrl.replace(/\/+$/, "");

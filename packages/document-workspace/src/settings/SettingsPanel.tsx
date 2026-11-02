@@ -5,17 +5,16 @@ import {
   mergeSections,
   type SettingsSection,
 } from "@rightkit/settings-ui";
-import { AboutSection } from "./sections/AboutSection";
-import { DiagnosticsSection } from "./sections/DiagnosticsSection";
+import { AboutSection } from "./sections/AboutSection.js";
+import { DiagnosticsSection } from "./sections/DiagnosticsSection.js";
 import { EditorSection } from "@rightkit/document-core/settings/sections/EditorSection";
 import { FileAssociationsSection } from "@rightkit/document-core/settings/sections/FileAssociationsSection";
-import { PrivacySection } from "./sections/PrivacySection";
+import { PrivacySection } from "./sections/PrivacySection.js";
 import { ThemeSection } from "@rightkit/document-core/settings/sections/ThemeSection";
 import { TypographySection } from "@rightkit/document-core/settings/sections/TypographySection";
 import { isMac, isWindows } from "@rightkit/document-core/platform";
 import { inTauri, isBrowserQaMode } from "@rightkit/document-core/state/tauriBridge";
-import "@rightkit/document-core/settings/rk-settings.css";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 const SETTINGS_MODAL_SLOTS = {
   overlay: "z-[60] bg-black/50 p-4 transition-opacity duration-[80ms] ease-out",

@@ -17,8 +17,8 @@ import {
 import { openWorkspaceWatch, postWorkspaceTreeExpand } from "@rightkit/agent-ui-core/lib/daemon/workspace-files";
 import type { WorkspaceEntry, WorkspaceWatchEvent } from "@rightkit/agent-ui-core/lib/types/workspace-files";
 import { useWorkspaceTree } from "@rightkit/agent-ui-hooks/hooks/useWorkspaceTree";
-import WorkspaceQuickOpen from "./WorkspaceQuickOpen";
-import WorkspaceRecentMenu from "./WorkspaceRecentMenu";
+import WorkspaceQuickOpen from "./WorkspaceQuickOpen.js";
+import WorkspaceRecentMenu from "./WorkspaceRecentMenu.js";
 
 // FilesPanel — right-side slide-in panel that lists the workspace folder
 // tree. D1 replaces the static placeholder tree with a real keyboard-native

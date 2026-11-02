@@ -49,7 +49,7 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 async function load() {
-  return import("./updateLicense");
+  return import("./updateLicense.js");
 }
 
 const noop = () => {};

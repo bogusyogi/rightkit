@@ -1,10 +1,10 @@
 import { Field, Input } from "@rightkit/react-shell/react";
 import { useState } from "react";
-import { errorText } from "./adapter";
+import { errorText } from "./adapter.js";
 
-import { editCaption, removeCaption } from "./actions";
-import type { EditSession } from "./adapter";
-import type { EditorCaption, EditorModel } from "./model";
+import { editCaption, removeCaption } from "./actions.js";
+import type { EditSession } from "./adapter.js";
+import type { EditorCaption, EditorModel } from "./model.js";
 
 export function CaptionInspector({ model, session, onCommitted, onError }: {
   model: EditorModel; session: EditSession; onCommitted: () => void; onError: (s: string) => void;

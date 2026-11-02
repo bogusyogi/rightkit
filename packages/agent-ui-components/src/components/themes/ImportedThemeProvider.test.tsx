@@ -5,7 +5,7 @@ import {
   applyImportedTheme,
   useImportedThemeStore,
 } from "@rightkit/agent-ui-core/state/importedThemeStore";
-import { ImportedThemeProvider, useImportedTheme } from "./ImportedThemeProvider";
+import { ImportedThemeProvider, useImportedTheme } from "./ImportedThemeProvider.js";
 
 const theme = {
   id: "vsc-test",

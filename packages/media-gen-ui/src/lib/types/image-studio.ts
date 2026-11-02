@@ -1,7 +1,7 @@
-import type { Brand } from './gallery';
-import type { ImageIntent } from './image';
-import type { EyesGateBlock, ProcessInfo } from './runtime';
-import type { AestheticLora, StudioCharacter } from './workflow';
+import type { Brand } from './gallery.js';
+import type { ImageIntent } from './image.js';
+import type { EyesGateBlock, ProcessInfo } from './runtime.js';
+import type { AestheticLora, StudioCharacter } from './workflow.js';
 
 export interface ImageStudioLora {
   path: string;

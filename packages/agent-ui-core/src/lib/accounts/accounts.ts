@@ -1,4 +1,4 @@
-import type { DaemonConfig } from "../types";
+import type { DaemonConfig } from "../types.js";
 
 /**
  * Typed adapters for the engine's account API (issue #34). Wire shapes follow

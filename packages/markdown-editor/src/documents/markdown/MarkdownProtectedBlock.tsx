@@ -11,26 +11,25 @@ import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import type { Node as ProseMirrorNode } from "prosemirror-model";
 import type { EditorView, NodeView } from "prosemirror-view";
 import type { ListItem } from "mdast";
-import type { OutlineHeading } from "./Outline";
-import { parseToTree } from "./parseMarkdown";
-import { buildBlocks, type Block } from "./semanticBlocks";
-import { SemanticBlock } from "./components";
-import { collectFootnotes, FootnotesContext } from "./footnotes";
-import { buildHeadingSlugs, HeadingSlugContext } from "./headingSlugs";
+import type { OutlineHeading } from "./Outline.js";
+import { parseToTree } from "./parseMarkdown.js";
+import { buildBlocks, type Block } from "./semanticBlocks.js";
+import { SemanticBlock } from "./components/index.js";
+import { collectFootnotes, FootnotesContext } from "./footnotes.js";
+import { buildHeadingSlugs, HeadingSlugContext } from "./headingSlugs.js";
 import {
   BibliographyContext,
   MarkdownInteractionContext,
   MarkdownLinkContext,
   renderNodes,
   TableOfContentsContext,
-} from "./renderNodes";
-import { ProtectedBlockHost } from "./blockEditing/ProtectedBlockHost";
-import type { MarkdownDocumentCore } from "./core/MarkdownDocumentCore";
-import type { BlockKind } from "./blockEditing/types";
+} from "./renderNodes.js";
+import { ProtectedBlockHost } from "./blockEditing/ProtectedBlockHost.js";
+import type { MarkdownDocumentCore } from "./core/MarkdownDocumentCore.js";
+import type { BlockKind } from "./blockEditing/types.js";
 import { BlockDraftProvider, useOptionalBlockDrafts } from "@rightkit/document-core/app/BlockDraftContext";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
-import "./ProtectedBlock.css";
-import { parseMarkdownCodeBlock } from "./editors/codeBlockModel";
+import { parseMarkdownCodeBlock } from "./editors/codeBlockModel.js";
 
 export interface ProtectedRenderContext {
   documentPath?: string;

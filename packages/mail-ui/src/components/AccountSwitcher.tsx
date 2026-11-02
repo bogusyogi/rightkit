@@ -3,12 +3,12 @@
 // each app's top bar (mail top bar, Drive/Calendar/Contacts bars) so switching
 // accounts is reachable everywhere without crowding the titlebar. Self-contained:
 // reads everything from the store, so it takes no props.
-import Icon from "./Icons";
+import Icon from "./Icons.js";
 import { memo, useRef } from "react";
 import { Button, IconButton, Popover } from "@rightkit/react-shell/react";
-import { initialOf, unreadFor } from "../lib/mail";
-import { setPref } from "../lib/preferences";
-import { useAppStore } from "../store";
+import { initialOf, unreadFor } from "../lib/mail.js";
+import { setPref } from "../lib/preferences.js";
+import { useAppStore } from "../store/index.js";
 
 export const AccountSwitcher = memo(function AccountSwitcher() {
   const accounts = useAppStore((s) => s.accounts);

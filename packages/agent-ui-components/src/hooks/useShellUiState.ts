@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { SettingsTab } from "../components/settings/types";
-import type { Pane } from "../components/WorkbenchContent";
+import type { SettingsTab } from "../components/settings/types.js";
+import type { Pane } from "../components/WorkbenchContent.js";
 
 export type RunTarget = "local" | "worktree";
 

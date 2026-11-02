@@ -1,6 +1,6 @@
 import { createElement, type ReactNode } from "react";
 
-import ReferenceLink from "./ReferenceLink";
+import ReferenceLink from "./ReferenceLink.js";
 import type { ReferenceObject } from "@rightkit/agent-ui-core/lib/types/references";
 
 // Module-level registry for inline-reference resolution. `MarkdownText.tsx`

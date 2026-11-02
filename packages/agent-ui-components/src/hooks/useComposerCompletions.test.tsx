@@ -2,7 +2,7 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CommandInfo } from "@rightkit/agent-ui-core/lib/daemon";
 import type { SkillItem } from "@rightkit/agent-ui-core/lib/types";
-import { useComposerCompletions } from "./useComposerCompletions";
+import { useComposerCompletions } from "./useComposerCompletions.js";
 
 const commands: CommandInfo[] = [
   { name: "new", usage: "/new", description: "Start a session" },

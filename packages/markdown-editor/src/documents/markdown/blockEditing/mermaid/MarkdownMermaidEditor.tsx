@@ -12,10 +12,10 @@ import {
   stringifyMarkdownMermaid,
   setMermaidContent,
   type MarkdownMermaidModel,
-} from "../../editors/mermaidModel";
-import type { MarkdownDocumentCore } from "../../core/MarkdownDocumentCore";
-import { useMarkdownBlockDraft } from "../useMarkdownBlockDraft";
-import { MarkdownBlockDraftStatus } from "../MarkdownBlockDraftStatus";
+} from "../../editors/mermaidModel.js";
+import type { MarkdownDocumentCore } from "../../core/MarkdownDocumentCore.js";
+import { useMarkdownBlockDraft } from "../useMarkdownBlockDraft.js";
+import { MarkdownBlockDraftStatus } from "../MarkdownBlockDraftStatus.js";
 
 export interface MarkdownMermaidEditorProps {
   readonly core: MarkdownDocumentCore;

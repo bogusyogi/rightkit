@@ -1,6 +1,6 @@
 // Plain-words mapping for the semantic search status (Settings line, search box).
-import type { SemanticState } from "./ipc/semantic";
-import { hostAppName } from "../appName";
+import type { SemanticState } from "./ipc/semantic.js";
+import { hostAppName } from "../appName.js";
 
 export interface SemanticStatusView {
   state: SemanticState;

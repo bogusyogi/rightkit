@@ -6,7 +6,7 @@ import {
   demoStatus,
   onDemoConsent,
   onDemoState,
-} from "./bindings";
+} from "./bindings.js";
 
 const IDLE: DemoState = { phase: "idle", session: null, bundle: null, message: null, hotkey: "" };
 

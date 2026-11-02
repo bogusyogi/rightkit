@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { TaskRow } from "@rightkit/agent-ui-core/lib/types";
-import TasksPane from "./TasksPane";
+import TasksPane from "./TasksPane.js";
 
 function task(state: TaskRow["state"]): TaskRow {
   return {

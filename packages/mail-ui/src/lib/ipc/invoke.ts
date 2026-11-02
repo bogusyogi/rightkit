@@ -1,6 +1,6 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import { browserQaEnabled } from "./qaGate";
-import { trace } from "../telemetry";
+import { browserQaEnabled } from "./qaGate.js";
+import { trace } from "../telemetry.js";
 
 // Commands whose IPC call we intentionally do NOT trace. `append_diag` is the
 // legacy FE diagnostics path and is already a separate log file.
@@ -17,8 +17,8 @@ export async function invoke<T>(
   if (!IPC_TRACE_SKIP.has(command)) {
     trace("ipc", `ipc.${command}`, args);
   }
-  if (typeof import.meta.env !== "undefined" && import.meta.env.DEV && browserQaEnabled()) {
-    const { qaInvoke } = await import("./qaMock");
+  if (typeof import.meta.env !== "undefined" && import.meta.env?.DEV && browserQaEnabled()) {
+    const { qaInvoke } = await import("./qaMock.js");
     return qaInvoke<T>(command, args);
   }
   return tauriInvoke<T>(command, args);

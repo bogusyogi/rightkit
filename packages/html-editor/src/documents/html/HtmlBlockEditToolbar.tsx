@@ -2,8 +2,8 @@ import type { RefObject } from "react";
 import { Dropdown, Group, Item, Sep, TBtn } from "@rightkit/document-core/documents/toolbarPrimitives";
 import { DocumentToolbarShell } from "@rightkit/document-core/documents/DocumentToolbarShell";
 import type { BlockDraftSnapshot } from "@rightkit/document-core/app/blockDrafts";
-import type { RichBlockOp, StructuralAction, StructuralSurface } from "./htmlOperationPlanner";
-import type { HtmlSafeBlockEditorHandle } from "./HtmlSafeBlockEditor";
+import type { RichBlockOp, StructuralAction, StructuralSurface } from "./htmlOperationPlanner.js";
+import type { HtmlSafeBlockEditorHandle } from "./HtmlSafeBlockEditor.js";
 import {
   IconDelete,
   IconMore,
@@ -11,7 +11,7 @@ import {
   IconMoveUp,
   IconUnwrap,
   IconWrap,
-} from "./htmlToolbarIcons";
+} from "./htmlToolbarIcons.js";
 
 // The "+" block inserter — each entry names the tag `insertSiblingPlan` inserts (Gutenberg's "+"
 // menu, sans drag-and-drop). "Heading" defaults to h2, matching the markdown block-insert

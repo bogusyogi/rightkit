@@ -1,14 +1,14 @@
 import { useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { RootContent } from "mdast";
-import type { MarkdownDocumentCore } from "../../core/MarkdownDocumentCore";
-import { buildBlocks } from "../../semanticBlocks";
-import { parseToTree } from "../../parseMarkdown";
-import type { FaqData } from "../../semanticBlocks";
-import type { StepperData } from "../../semanticBlocks";
-import type { ComparisonData } from "../../semanticBlocks";
-import type { RichTableData } from "../../semanticBlocks";
-import { useMarkdownBlockDraft } from "../useMarkdownBlockDraft";
-import { MarkdownBlockDraftStatus } from "../MarkdownBlockDraftStatus";
+import type { MarkdownDocumentCore } from "../../core/MarkdownDocumentCore.js";
+import { buildBlocks } from "../../semanticBlocks.js";
+import { parseToTree } from "../../parseMarkdown.js";
+import type { FaqData } from "../../semanticBlocks.js";
+import type { StepperData } from "../../semanticBlocks.js";
+import type { ComparisonData } from "../../semanticBlocks.js";
+import type { RichTableData } from "../../semanticBlocks.js";
+import { useMarkdownBlockDraft } from "../useMarkdownBlockDraft.js";
+import { MarkdownBlockDraftStatus } from "../MarkdownBlockDraftStatus.js";
 
 interface SemanticEditorProps {
   core: MarkdownDocumentCore;

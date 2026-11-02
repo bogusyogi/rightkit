@@ -7,8 +7,8 @@ import type {
   ApprovalDecision,
   ApprovalKind,
   PendingApproval,
-} from "./agentApprovals";
-import type { InvokeArgs } from "./qaMockTypes";
+} from "./agentApprovals.js";
+import type { InvokeArgs } from "./qaMockTypes.js";
 
 const TIMEOUT_MS = 15 * 60 * 1000;
 const ACCOUNT = "qa@example.com";

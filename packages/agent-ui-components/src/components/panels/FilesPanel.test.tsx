@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import FilesPanel, { type FileEntry } from "./FilesPanel";
+import FilesPanel, { type FileEntry } from "./FilesPanel.js";
 import { useWorkspaceStore } from "@rightkit/agent-ui-core/state/workspaceStore";
 import { postWorkspaceTreeExpand } from "@rightkit/agent-ui-core/lib/daemon/workspace-files";
 

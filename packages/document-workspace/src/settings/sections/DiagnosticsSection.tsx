@@ -4,10 +4,10 @@ import {
   collectDiagnosticsText,
   getDiagnostics,
 } from "@rightkit/document-core/state/diagnostics";
-import { APP_VERSION } from "../../state/updateLicense";
+import { APP_VERSION } from "../../state/updateLicense.js";
 import { useSettings } from "@rightkit/document-core/settings/settings";
 import { writeClipboardText } from "@rightkit/document-core/state/tauriBridge";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 export function DiagnosticsSection() {
   const { settings } = useSettings();

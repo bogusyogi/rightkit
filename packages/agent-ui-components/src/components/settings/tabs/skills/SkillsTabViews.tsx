@@ -5,13 +5,13 @@ import type {
   SkillItem,
   SkillProvenanceReviewResponse,
 } from "@rightkit/agent-ui-core/lib/types";
-import type { SkillInstallDraft } from "../../types";
-import { SkillDetailPanel } from "./SkillDetailPanel";
-import { SkillGovernancePanel } from "./SkillGovernancePanel";
-import { SkillInstallFormPanel } from "./SkillOptimizationPanel";
-import { SkillListPanel } from "./SkillListPanel";
-import { SkillProposalActions } from "./SkillProposalActions";
-import type { SkillLifecycleAction, SkillsView } from "./types";
+import type { SkillInstallDraft } from "../../types.js";
+import { SkillDetailPanel } from "./SkillDetailPanel.js";
+import { SkillGovernancePanel } from "./SkillGovernancePanel.js";
+import { SkillInstallFormPanel } from "./SkillOptimizationPanel.js";
+import { SkillListPanel } from "./SkillListPanel.js";
+import { SkillProposalActions } from "./SkillProposalActions.js";
+import type { SkillLifecycleAction, SkillsView } from "./types.js";
 
 export function SkillsTabHeader({
   skillDirs,

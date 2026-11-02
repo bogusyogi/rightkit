@@ -1,4 +1,4 @@
-import { DAEMON_OPENAPI_OPERATIONS } from "./generated/daemon-openapi";
+import { DAEMON_OPENAPI_OPERATIONS } from "./generated/daemon-openapi.js";
 
 export interface DaemonApiEndpoint {
   method: string;

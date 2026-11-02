@@ -1,9 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import ModelsTab from "./ModelsTab";
+import ModelsTab from "./ModelsTab.js";
 import type { OrchestrationSettings } from "@rightkit/agent-ui-core/lib/types";
-import type { SettingsDraft } from "../types";
+import type { SettingsDraft } from "../types.js";
 
 function baseSettings(): OrchestrationSettings {
   return {

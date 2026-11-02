@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { settleShortcutRecordingState, updateShortcutRecordingState } from "./ShortcutRecordingDialog";
+import { settleShortcutRecordingState, updateShortcutRecordingState } from "./ShortcutRecordingDialog.js";
 
 const emptyState = { chords: [], livePreview: null, settled: false };
 

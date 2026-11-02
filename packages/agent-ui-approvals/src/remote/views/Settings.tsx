@@ -9,15 +9,14 @@ import { UpdatesControls, type UpdatesController } from "@rightkit/settings-ui/s
 import { ChevronDown, ChevronUp, Cpu, HardDrive, MemoryStick, Pencil, Send as SendIcon, Wrench, X } from "lucide-react";
 import { LauncherLists, LauncherSearchRows, chordName, type LauncherConfig } from "@rightkit/system-ui/views/LauncherSettings";
 import { LocalNetworkRow, NearbyGroup } from "@rightkit/system-ui/views/NearbySettings";
-import { FileIndexLadderRows, HubHealthRows, NumberRow, ProtectedPinPrompt, RemoteAccessGroup } from "./RemoteSettings";
-import { SecureBoxGroup } from "./SecureBoxSettings";
-import { DevicesSection } from "./Devices";
+import { FileIndexLadderRows, HubHealthRows, NumberRow, ProtectedPinPrompt, RemoteAccessGroup } from "./RemoteSettings.js";
+import { SecureBoxGroup } from "./SecureBoxSettings.js";
+import { DevicesSection } from "./Devices.js";
 import { api, devicesApi, isProtectedKey, isWindows, setProtectedSetting, tone, type DeviceRecord, type DiskIndexHealth } from "@rightkit/system-ui/api";
 import { Bar } from "@rightkit/system-ui/views/Storage";
 import { SettingRow, SettingsGroup, SettingsItem, SettingsSearchProvider, SettingsSearchSection } from "@rightkit/settings-ui/core";
 import { NeedsLine, openSectionLabel, windowShortcutFrom } from "@rightkit/system-ui/views/settingsKit";
 import { SHOW_ONBOARDING } from "@rightkit/system-ui/onboarding/gate";
-import "@rightkit/system-ui/views/settings.css";
 import { clearVisibleInterval, visibleInterval } from "@rightkit/system-ui/visible";
 
 export interface Limit {

@@ -1,4 +1,4 @@
-import type { ProtocolEvent, ToolCall, TranscriptMessage } from "./types";
+import type { ProtocolEvent, ToolCall, TranscriptMessage } from "./types.js";
 
 export type AssistantTranscriptMessage = Extract<TranscriptMessage, { $kind: "assistant" }>;
 

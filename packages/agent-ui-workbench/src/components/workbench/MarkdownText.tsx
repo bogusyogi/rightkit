@@ -3,7 +3,7 @@ import React from "react";
 import { openExternal } from "@rightkit/agent-ui-core/lib/secureStore";
 import { githubRepositoryIdentity } from "@rightkit/agent-ui-core/lib/types/references";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import { renderInlineReference } from "./references/referenceRegistry";
+import { renderInlineReference } from "./references/referenceRegistry.js";
 
 // Parsing, GFM, block/inline rendering, autolinks, URL and HTML safety are all RightKit's
 // `MarkdownRenderer` (@rightkit/doc-render), rendered with its published structure. This module only

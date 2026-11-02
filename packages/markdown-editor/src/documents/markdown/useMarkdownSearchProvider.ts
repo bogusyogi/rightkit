@@ -17,8 +17,8 @@ import {
   findLiteralMatches,
   mapOffsetToDOM,
 } from "@rightkit/document-core/documents/searchUtils";
-import { searchMappingsFor } from "./markdownHybridDom";
-import { editablePmRangeForMatch } from "./projection/pmEditorState";
+import { searchMappingsFor } from "./markdownHybridDom.js";
+import { editablePmRangeForMatch } from "./projection/pmEditorState.js";
 
 const EMPTY_SEARCH: SearchResult = { count: 0, activeIndex: -1 };
 /** Transaction meta stamped on find/replace edits so the commit path can label

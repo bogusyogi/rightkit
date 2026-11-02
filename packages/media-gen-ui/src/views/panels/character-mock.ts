@@ -1,6 +1,6 @@
 // Browser-QA stand-in for studio.characters.*. Mirrors the Rust shapes; all
 // state is in-memory and nothing leaves the page.
-import type { CharacterList, CharacterSummary, LockResult, LorasResult, ReferenceItem, TrainPlan, TrainStatus, TrainersResult } from './character-lock';
+import type { CharacterList, CharacterSummary, LockResult, LorasResult, ReferenceItem, TrainPlan, TrainStatus, TrainersResult } from './character-lock.js';
 
 const iris: CharacterSummary = {
   id: 'dd/iris',

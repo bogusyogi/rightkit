@@ -7,17 +7,17 @@ import {
   useState,
   type ComponentProps,
 } from "react";
-import { isMac } from "../../platform";
-import { logError } from "../../state/diagnostics";
-import type { ViewMeta } from "../types";
-import type { PdfViewer as LegacyPdfViewer } from "./PdfViewer";
-import type { NativePdfEditingAction } from "./macPdfNativeBridge";
+import { isMac } from "../../platform.js";
+import { logError } from "../../state/diagnostics.js";
+import type { ViewMeta } from "../types.js";
+import type { PdfViewer as LegacyPdfViewer } from "./PdfViewer.js";
+import type { NativePdfEditingAction } from "./macPdfNativeBridge.js";
 
 const MacPdfReadPane = lazy(() =>
-  import("./MacPdfReadPane").then((module) => ({ default: module.MacPdfReadPane })),
+  import("./MacPdfReadPane.js").then((module) => ({ default: module.MacPdfReadPane })),
 );
 const PdfViewer = lazy(() =>
-  import("./PdfViewer").then((module) => ({ default: module.PdfViewer })),
+  import("./PdfViewer.js").then((module) => ({ default: module.PdfViewer })),
 );
 
 export function supportsNativePdfReading(): boolean {

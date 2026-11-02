@@ -1,8 +1,8 @@
 // RIGHTKIT-PENDING #383: ported version saved in /Volumes/D/scratch/postright/port-wip/full-port.patch
 // Invented publish jobs for the first channel. Job ids, entry ids, post ids, links and error text are fictional.
 // No job here reached a real platform. The second and third channels have no publish jobs.
-import type { PublishJobRecord } from "../types";
-import { SCOPE_ALPHA } from "./fixtures-optimise";
+import type { PublishJobRecord } from "../types.js";
+import { SCOPE_ALPHA } from "./fixtures-optimise.js";
 
 export const FIXTURE_PUBLISH_JOBS: PublishJobRecord[] = [
   {

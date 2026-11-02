@@ -8,8 +8,8 @@ import {
 import {
   applyGitIndexMutation,
   useGitStatusProjection,
-} from "./useGitStatusProjection";
-import type { GitStatusSnapshot } from "./useGitStatusProjection";
+} from "./useGitStatusProjection.js";
+import type { GitStatusSnapshot } from "./useGitStatusProjection.js";
 
 vi.mock("@rightkit/agent-ui-core/lib/daemon/delivery-environments-attention", () => ({
   stagePaths: vi.fn(),

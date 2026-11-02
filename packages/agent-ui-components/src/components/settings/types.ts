@@ -260,7 +260,7 @@ export interface SettingsDraft {
   keepDaemonResident: boolean;
 }
 
-export type { SettingsPaneProps } from "./SettingsPaneProps";
+export type { SettingsPaneProps } from "./SettingsPaneProps.js";
 
 export const permissionRulePresets: {
   label: string;

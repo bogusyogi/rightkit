@@ -1,8 +1,7 @@
 // Shorts — docs/design/app-ui.md §3.6.
 import { Badge, Button, Checkbox, EmptyState, Field, PageShell, useToast } from "@rightkit/react-shell/react";
-import "./Shorts.css";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { errorMessage } from "../lib/engine";
+import { errorMessage } from "../lib/engine.js";
 import {
   type ShortProposal,
   type ShortsResult,
@@ -15,13 +14,13 @@ import {
   shortsPropose,
   sourceList,
   thumbnails,
-} from "../lib/media";
-import { assetUrl } from "../lib/asset";
-import { appendClip, projectShow, type ProjectShow } from "../lib/project";
-import { FramingDrawer } from "./AutoEditView";
-import { RangePreview } from "../components/RangePreview";
-import { Drawer, ErrorPanel, ProgressRow, Thumbnail, timecode, Icon } from "../ui";
-import { hostAppName } from "../appName";
+} from "../lib/media.js";
+import { assetUrl } from "../lib/asset.js";
+import { appendClip, projectShow, type ProjectShow } from "../lib/project.js";
+import { FramingDrawer } from "./AutoEditView.js";
+import { RangePreview } from "../components/RangePreview.js";
+import { Drawer, ErrorPanel, ProgressRow, Thumbnail, timecode, Icon } from "../ui/index.js";
+import { hostAppName } from "../appName.js";
 
 type SourceRow = { id: string; name: string; path: string; exists: boolean; has_transcript: boolean };
 

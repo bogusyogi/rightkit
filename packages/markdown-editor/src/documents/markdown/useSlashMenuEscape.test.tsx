@@ -2,8 +2,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ModalShell } from "@rightkit/react-shell/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MarkdownLinkPopover } from "./references/MarkdownLinkPopover";
-import { useSlashMenuEscape } from "./useSlashMenuEscape";
+import { MarkdownLinkPopover } from "./references/MarkdownLinkPopover.js";
+import { useSlashMenuEscape } from "./useSlashMenuEscape.js";
 
 // No vitest globals: unmount between tests so a later test never reads an earlier test's DOM.
 afterEach(cleanup);

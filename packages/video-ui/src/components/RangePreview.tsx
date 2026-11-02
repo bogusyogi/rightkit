@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { MediaPlayer } from "@rightkit/media-ui";
-import { mediaKind, useMediaPlaybackId } from "../lib/mediaAdapters";
+import { mediaKind, useMediaPlaybackId } from "../lib/mediaAdapters.js";
 
 /** @rightkit/media-ui player confined to [startMs, endMs] of a real file: starts
  *  at the range start and either loops it (shorts) or stops at its end (phrases). */

@@ -1,14 +1,14 @@
 import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { createTrailingDebounce, type Debounced } from "../lib/debounce";
+import { createTrailingDebounce, type Debounced } from "../lib/debounce.js";
 import {
   isAutostart,
   listOutbox,
   type OutboxRow,
   setUnreadBadge,
   syncAll,
-} from "../lib/ipc";
-import type { View } from "../store/types";
+} from "../lib/ipc.js";
+import type { View } from "../store/types.js";
 
 type AppEventBindingArgs = {
   activeAccount: string | null;

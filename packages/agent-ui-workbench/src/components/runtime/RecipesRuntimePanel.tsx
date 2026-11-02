@@ -1,15 +1,15 @@
 import { EmptyState } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import RecipeParameterField from "./RecipeParameterField";
-import RecipeScheduleDialog from "./RecipeScheduleDialog";
-import { recipeVerdictClass } from "./recipeVerdictClass";
-import type { RecipesRuntimePanelProps } from "./RecipesRuntimePanelProps";
+import RecipeParameterField from "./RecipeParameterField.js";
+import RecipeScheduleDialog from "./RecipeScheduleDialog.js";
+import { recipeVerdictClass } from "./recipeVerdictClass.js";
+import type { RecipesRuntimePanelProps } from "./RecipesRuntimePanelProps.js";
 import {
   formatIsoTime,
   parseRecipeParamsDraft,
   recipeParameterValue,
   recipeParamsDraftWithValue,
-} from "./runtimeUtils";
+} from "./runtimeUtils.js";
 
 export default function RecipesRuntimePanel({
   recipes,

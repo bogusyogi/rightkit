@@ -1,8 +1,8 @@
 // Channel recipe — the app-wide recipe library applied to one project (recipes.* engine methods).
 import { Button, Field, Input, useToast } from "@rightkit/react-shell/react";
-import { Icon } from "../ui";
+import { Icon } from "../ui/index.js";
 import { useCallback, useEffect, useState } from "react";
-import { errorMessage } from "../lib/engine";
+import { errorMessage } from "../lib/engine.js";
 import {
   RECIPE_ID_RULE,
   type RecipeStatusResult,
@@ -12,7 +12,7 @@ import {
   recipesList,
   recipesSaveFromProject,
   recipesStatus,
-} from "../lib/media";
+} from "../lib/media.js";
 
 
 const ID_RULE_TEXT = "Use 1–64 lowercase letters, digits or hyphens.";

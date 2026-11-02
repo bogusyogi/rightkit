@@ -3,14 +3,14 @@ import type {
   HtmlRevision,
   HtmlSourcePatch,
   HtmlSourceRange,
-} from "./htmlMutationEngine";
+} from "./htmlMutationEngine.js";
 import {
   HtmlOperationError,
   locateElement,
   resolveInlineAnchor,
-} from "./htmlPlanLocations";
-import type { HtmlElementLocation } from "./htmlPlanLocations";
-import { planInlineTextReplace } from "./htmlInlineTextPlan";
+} from "./htmlPlanLocations.js";
+import type { HtmlElementLocation } from "./htmlPlanLocations.js";
+import { planInlineTextReplace } from "./htmlInlineTextPlan.js";
 import {
   deleteNodePlan,
   imageInsertPlan,
@@ -26,8 +26,8 @@ import {
   setLinkPlan,
   unwrapPlan,
   wrapPlan,
-} from "./htmlOperationPlanner";
-import type { RichBlockOp, StructuralAction, StructuralSurface } from "./htmlOperationPlanner";
+} from "./htmlOperationPlanner.js";
+import type { RichBlockOp, StructuralAction, StructuralSurface } from "./htmlOperationPlanner.js";
 
 /**
  * Operation-aware plan resolver (HTML-EDITING-ARCHITECTURE-FINAL.md section 14).

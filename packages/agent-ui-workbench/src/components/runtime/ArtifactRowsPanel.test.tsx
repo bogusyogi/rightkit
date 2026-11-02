@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ArtifactRow } from "@rightkit/agent-ui-core/lib/types";
-import ArtifactRowsPanel from "./ArtifactRowsPanel";
+import ArtifactRowsPanel from "./ArtifactRowsPanel.js";
 
 const artifact: ArtifactRow = {
   id: "artifact-1",

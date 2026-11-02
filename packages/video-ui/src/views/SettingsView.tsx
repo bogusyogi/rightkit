@@ -17,23 +17,22 @@ import {
   type SettingsContext,
   type SettingsSection,
 } from "@rightkit/settings-ui";
-import "@rightkit/settings-ui/settings.css";
 import { Kbd } from "@rightkit/react-shell/react";
-import type { DoctorReport, EngineStatus } from "../lib/engine";
-import { engineCall, errorMessage } from "../lib/engine";
-import { CAPTION_STYLES, DEFAULT_CAPTION_STYLE, storageClear, storageStatus } from "../lib/media";
-import { type HostInfo, genRightCallFailed, interpretHost } from "../lib/genright";
-import { pickFile, pickFolder } from "../lib/dialog";
-import { createModelsBackend } from "../lib/modelsBackend";
-import { createHostSettingsBackend } from "../lib/settingsBackend";
-import { themeStore } from "../lib/shell";
-import { licenseClient, logs, restartAfterUpdate, updates } from "../lib/services";
-import { LEGAL_GATE_DOCUMENTS, legalDocumentText, type LegalDocumentText } from "../legal/legalConfig";
+import type { DoctorReport, EngineStatus } from "../lib/engine.js";
+import { engineCall, errorMessage } from "../lib/engine.js";
+import { CAPTION_STYLES, DEFAULT_CAPTION_STYLE, storageClear, storageStatus } from "../lib/media.js";
+import { type HostInfo, genRightCallFailed, interpretHost } from "../lib/genright.js";
+import { pickFile, pickFolder } from "../lib/dialog.js";
+import { createModelsBackend } from "../lib/modelsBackend.js";
+import { createHostSettingsBackend } from "../lib/settingsBackend.js";
+import { themeStore } from "../lib/shell.js";
+import { licenseClient, logs, restartAfterUpdate, updates } from "../lib/services.js";
+import { LEGAL_GATE_DOCUMENTS, legalDocumentText, type LegalDocumentText } from "../legal/legalConfig.js";
 import { LegalDocumentBody } from "@rightkit/legal-ui";
 import { usePlatform } from "@rightkit/platform-ui/react";
 
-import { HDR_COLOR_PRESETS, HDR_UNAVAILABLE_NOTICE, useHdrToSdr } from "../hooks/useHdrToSdr";
-import { hostAppName } from "../appName";
+import { HDR_COLOR_PRESETS, HDR_UNAVAILABLE_NOTICE, useHdrToSdr } from "../hooks/useHdrToSdr.js";
+import { hostAppName } from "../appName.js";
 
 const COLOR_PRESETS = [
   ["neutral", "Neutral Rec.709"],
@@ -420,7 +419,7 @@ function EngineSection({ doctor, error }: { doctor: DoctorReport | null; error: 
 // release bundle neither imports nor contains src/demo.
 const DEMO_BUILD = typeof __RIGHTKIT_DEMO__ === "boolean" && __RIGHTKIT_DEMO__;
 const DemoSettingsLazy = DEMO_BUILD
-  ? lazy(() => import("../demo/DemoSettings").then((m) => ({ default: m.DemoSettings })))
+  ? lazy(() => import("../demo/DemoSettings.js").then((m) => ({ default: m.DemoSettings })))
   : null;
 
 function ShortcutsSection() {

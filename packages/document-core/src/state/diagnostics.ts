@@ -87,6 +87,7 @@ const DIAGNOSTIC_EVENTS = [
   "pdf-editor:initial-stamp",
   "pdf-editor:layer-init",
   "pdf-editor:init",
+  "pdf-editor:viewer-load",
   "pdf-editor:mode-switch",
   "pdf-editor:serialize:start",
   "pdf-editor:serialize:done",

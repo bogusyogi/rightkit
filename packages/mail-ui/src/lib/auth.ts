@@ -1,4 +1,4 @@
-import type { AuthStatus } from "./ipc";
+import type { AuthStatus } from "./ipc.js";
 
 export type AuthBadge = { label: string; level: "pass" | "fail" | "none"; title: string };
 

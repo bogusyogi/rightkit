@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { moveIndex } from "@rightkit/platform-ui/headless";
 import { Button, Card, EmptyState, PageShell, SegmentedControl, SkeletonRows } from "@rightkit/react-shell/react";
-import { AccountChip, JobBadges, LoadError, MockBanner, PublishProgressView } from "../components/Shared";
-import { useAsync } from "../hooks/useAsync";
+import { AccountChip, JobBadges, LoadError, MockBanner, PublishProgressView } from "../components/Shared.js";
+import { useAsync } from "../hooks/useAsync.js";
 import {
   accountOrdinals,
   dateKeyAdd,
@@ -18,8 +18,8 @@ import {
   type Account,
   type DataSource,
   type PublishJob,
-} from "../data";
-import { FORMAT_LABEL, MEDIA_STATUS_LABEL } from "./labels";
+} from "../data/index.js";
+import { FORMAT_LABEL, MEDIA_STATUS_LABEL } from "./labels.js";
 
 type View = "day" | "week";
 

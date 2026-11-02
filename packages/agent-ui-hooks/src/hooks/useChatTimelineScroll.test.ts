@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   useChatTimelineScroll,
   type TimelineListHandle,
-} from "./useChatTimelineScroll";
+} from "./useChatTimelineScroll.js";
 
 function listHandle(): TimelineListHandle {
   const node = document.createElement("div");

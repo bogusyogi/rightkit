@@ -44,8 +44,8 @@
 // `pill_terminal_reset_error` strings to THIS file — keep them present in
 // this comment if the code itself stays in usePillEvents.ts.
 
-import { getPlatform } from "../hooks/usePlatform";
-import { Icon } from "./PillIcon";
+import { getPlatform } from "../hooks/usePlatform.js";
+import { Icon } from "./PillIcon.js";
 import {
   BAR_BUFFER_SIZE,
   mmss,
@@ -53,11 +53,11 @@ import {
   processingDisplayBars,
   recordingBarPixelHeight,
   recordingDisplayBars,
-} from "./pillBars";
-import { CSS } from "./pillStyles";
-import { usePillAnimation } from "./usePillAnimation";
-import { usePillEvents, usePillEventSubscriptions } from "./usePillEvents";
-import { usePillGeometry } from "./usePillGeometry";
+} from "./pillBars.js";
+import { CSS } from "./pillStyles.js";
+import { usePillAnimation } from "./usePillAnimation.js";
+import { usePillEvents, usePillEventSubscriptions } from "./usePillEvents.js";
+import { usePillGeometry } from "./usePillGeometry.js";
 
 // Rendered <i> bar nodes carry heights from this constant buffer — the rAF
 // loop owns real values via direct DOM writes (see usePillAnimation).

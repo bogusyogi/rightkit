@@ -6,7 +6,7 @@
 // wrapper. The shapes here are local TS mirrors of the OpenAPI schemas the
 // daemon publishes — `check:protocol-mirror` validates drift.
 
-import type { DaemonConfig } from "../types/settings-plugins";
+import type { DaemonConfig } from "../types/settings-plugins.js";
 import type {
   WorkspaceArtifactsResponse,
   WorkspaceFileResponse,
@@ -17,7 +17,7 @@ import type {
   WorkspaceSearchResponse,
   WorkspaceTreeResponse,
   WorkspaceWatchEvent,
-} from "../types/workspace-files";
+} from "../types/workspace-files.js";
 
 export interface WorkspaceRequestError extends Error {
   status: number;

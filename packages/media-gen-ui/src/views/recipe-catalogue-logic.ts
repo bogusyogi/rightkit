@@ -3,7 +3,7 @@
 // each one names. The engine decides validity and served status; these helpers only order and label
 // what it returned. No runtime imports from the app, so the node tests load this file directly.
 
-import type { RecipeCatalogueError, RecipeCatalogueRoute, RecipePlannedName } from '../lib/api';
+import type { RecipeCatalogueError, RecipeCatalogueRoute, RecipePlannedName } from '../lib/api.js';
 
 export interface OrderableNode {
   id: string;

@@ -1,8 +1,8 @@
 // Browser-QA mock for semantic search: a switch that persists for the session,
 // a status that follows it, and an install that reports the "no source" error.
 
-import { QA_THREADS } from "./qaMockData";
-import type { InvokeArgs } from "./qaMockTypes";
+import { QA_THREADS } from "./qaMockData.js";
+import type { InvokeArgs } from "./qaMockTypes.js";
 
 let enabled = false;
 

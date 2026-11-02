@@ -1,19 +1,19 @@
 import { cx } from "@rightkit/react-shell/react";
 import { memo } from "react";
 import { CheckSquare, Images, Square, Trash2 } from "lucide-react";
-import { categoryIcon } from "../components/CategoryIcon";
-import type { HistoryRow } from "../contract";
-import { labelForSource, categoryForKind } from "../lib/jobDisplay";
+import { categoryIcon } from "../components/CategoryIcon.js";
+import type { HistoryRow } from "../contract.js";
+import { labelForSource, categoryForKind } from "../lib/jobDisplay.js";
 import {
   IMAGE_KIND_LABEL,
   imageCountForRow,
   imageCountLabel,
   isImageRow,
-} from "../lib/mediaSelection";
-import { isQaMode, qaState } from "../lib/ipc";
-import { fmtDate, fmtDuration } from "../lib/format";
-import { categoryToneClass } from "../lib/categoryDisplay";
-import { panelClass } from "../lib/ui";
+} from "../lib/mediaSelection.js";
+import { isQaMode, qaState } from "../lib/ipc/index.js";
+import { fmtDate, fmtDuration } from "../lib/format.js";
+import { categoryToneClass } from "../lib/categoryDisplay.js";
+import { panelClass } from "../lib/ui.js";
 
 type GroupedRows = Array<[string, HistoryRow[]]>;
 

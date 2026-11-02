@@ -1,4 +1,4 @@
-import type { RuntimeTab } from "../RuntimePane";
+import type { RuntimeTab } from "../RuntimePane.js";
 
 export function runtimeLabel(tab: RuntimeTab) {
   switch (tab) {

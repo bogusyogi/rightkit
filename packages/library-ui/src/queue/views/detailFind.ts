@@ -1,7 +1,7 @@
 // Pure helpers behind the Detail reader's find bar, SRT tab and timestamped
 // transcript lines. Kept free of React and CSS imports so they can be unit
 // tested directly (tests/detail-find-interaction.test.ts).
-import type { TranscriptDetail } from "../contract";
+import type { TranscriptDetail } from "../contract.js";
 
 /** Shorter queries match nearly every character; they neither count nor highlight. */
 export const FIND_MIN_CHARS = 2;

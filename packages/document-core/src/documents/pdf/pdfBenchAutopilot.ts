@@ -17,8 +17,8 @@
  * Delete this file together with the rest of the benchmark harness once the study is decided.
  */
 
-import { logEvent } from "../../state/diagnostics";
-import type { PdfBenchLoadMode } from "./pdfBench";
+import { logEvent } from "../../state/diagnostics.js";
+import type { PdfBenchLoadMode } from "./pdfBench.js";
 
 const PLAN_KEY = "vr.pdf.bench.autopilot.v1";
 const ENABLED_KEY = "vr.pdf.bench.enabled";
@@ -43,8 +43,8 @@ function dev(): boolean {
   // unavailable in production builds while allowing orchestration behavior to stay covered.
   return (
     typeof window !== "undefined" &&
-    (import.meta.env.DEV ||
-      import.meta.env.MODE === "test" ||
+    (import.meta.env?.DEV ||
+      import.meta.env?.MODE === "test" ||
       (typeof process !== "undefined" && process.env.NODE_ENV === "test"))
   );
 }
@@ -119,7 +119,7 @@ export function autopilotOnComplete(): void {
   // finalize() has already awaited both settle sampling & durable native write. Reload now: WKWebView
   // can indefinitely throttle a timer once its benchmark window becomes occluded, stranding a
   // multi-mode plan after its first valid sample.
-  if (import.meta.env.MODE !== "test") location.reload();
+  if (import.meta.env?.MODE !== "test") location.reload();
 }
 
 /** Begin a matrix. Arms the first mode and reloads so the run starts from a clean document load. */
@@ -128,7 +128,7 @@ export function startAutopilot(
   modes: PdfBenchLoadMode[] = DEFAULT_MODES,
   repeats = DEFAULT_REPEATS,
   reload = true,
-  runId = String(import.meta.env.VITE_PDF_BENCH_RUN_ID ?? label),
+  runId = String(import.meta.env?.VITE_PDF_BENCH_RUN_ID ?? label),
 ): void {
   if (!dev()) return;
   const plan: AutopilotPlan = { runId, modes, repeats, index: 0, label, done: false };
@@ -159,10 +159,10 @@ export function autopilotStatus(): AutopilotPlan | null {
  */
 export function maybeAutoStartFromEnv(): void {
   if (!dev()) return;
-  if (import.meta.env.VITE_PDF_BENCH_AUTOPILOT !== "1") return;
-  const label = String(import.meta.env.VITE_PDF_BENCH_LABEL ?? "auto");
-  const runId = String(import.meta.env.VITE_PDF_BENCH_RUN_ID ?? label);
-  const modes = String(import.meta.env.VITE_PDF_BENCH_MODES ?? "")
+  if (import.meta.env?.VITE_PDF_BENCH_AUTOPILOT !== "1") return;
+  const label = String(import.meta.env?.VITE_PDF_BENCH_LABEL ?? "auto");
+  const runId = String(import.meta.env?.VITE_PDF_BENCH_RUN_ID ?? label);
+  const modes = String(import.meta.env?.VITE_PDF_BENCH_MODES ?? "")
     .split(",")
     .map((mode) => mode.trim())
     .filter((mode): mode is PdfBenchLoadMode => DEFAULT_MODES.includes(mode as PdfBenchLoadMode));
@@ -172,7 +172,7 @@ export function maybeAutoStartFromEnv(): void {
   // so a plan left over from an earlier session/label (done, or for a different fixture) must
   // NOT silently block every future auto-start; start fresh for a new/changed label.
   if (existing && !existing.done && existing.runId === runId) return;
-  const repeats = Number(import.meta.env.VITE_PDF_BENCH_REPEATS ?? DEFAULT_REPEATS);
+  const repeats = Number(import.meta.env?.VITE_PDF_BENCH_REPEATS ?? DEFAULT_REPEATS);
   startAutopilot(
     label,
     modes.length > 0 ? modes : DEFAULT_MODES,

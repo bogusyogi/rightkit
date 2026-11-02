@@ -1,14 +1,14 @@
 import type { RefObject } from "react";
 import { ColorGrid, Dropdown, Group, Item, Sep, TBtn } from "@rightkit/document-core/documents/toolbarPrimitives";
 import { DocumentToolbarShell } from "@rightkit/document-core/documents/DocumentToolbarShell";
-import type { RichBlockOp } from "./htmlOperationPlanner";
-import type { HtmlEditorToolbarState, HtmlSafeBlockEditorHandle } from "./HtmlSafeBlockEditor";
+import type { RichBlockOp } from "./htmlOperationPlanner.js";
+import type { HtmlEditorToolbarState, HtmlSafeBlockEditorHandle } from "./HtmlSafeBlockEditor.js";
 import {
   HTML_HIGHLIGHT_COLORS,
   HTML_RICH_FONTS,
   HTML_RICH_SIZES,
   HTML_TEXT_COLORS,
-} from "./htmlTextStyle";
+} from "./htmlTextStyle.js";
 import {
   IconAddLink,
   IconCancel,
@@ -18,7 +18,7 @@ import {
   IconInsertImage,
   IconRemoveLink,
   IconReplaceImage,
-} from "./htmlToolbarIcons";
+} from "./htmlToolbarIcons.js";
 
 /**
  * Inline FORMAT bar for an active HTML block session — marks, font/color, links, image, and the

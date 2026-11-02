@@ -2,7 +2,7 @@ import { Popover } from "@rightkit/react-shell/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import type { SkillItem } from "@rightkit/agent-ui-core/lib/types";
-import { skillScopeLabel, skillStatusLabel } from "./app/composerBarHelpers";
+import { skillScopeLabel, skillStatusLabel } from "./app/composerBarHelpers.js";
 
 // Composer footer chip that opens a Skills popover wired to the existing
 // MentionPopover anatomy (icon + name + description + scope tag). Lets the

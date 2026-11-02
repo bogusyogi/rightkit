@@ -1,4 +1,4 @@
-import type { CalEvent } from "./ipc";
+import type { CalEvent } from "./ipc.js";
 
 export const DAY = 86400000;
 export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

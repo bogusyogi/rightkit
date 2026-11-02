@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { BUILT_IN_TEMPLATES } from "@rightkit/agent-ui-core/lib/promptTemplates/templates";
-import { TemplatePicker } from "./TemplatePicker";
+import { TemplatePicker } from "./TemplatePicker.js";
 
 const props = () => ({
   builtInTemplates: BUILT_IN_TEMPLATES.slice(0, 1), userTemplates: [], onSelect: vi.fn(), onDeleteUser: vi.fn(), open: true, onToggle: vi.fn(), pinnedIds: new Set<string>(), onTogglePin: vi.fn(), templateGroups: [], onCreateGroup: vi.fn(), onRenameGroup: vi.fn(), onDeleteGroup: vi.fn(), onMoveToGroup: vi.fn(),

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createWaitlistWorker, hashIp, isValidEmail, type KvStore } from "./index";
+import { createWaitlistWorker, hashIp, isValidEmail, type KvStore } from "./index.js";
 
 function memoryKv(): KvStore & { data: Map<string, string> } {
   const data = new Map<string, string>();

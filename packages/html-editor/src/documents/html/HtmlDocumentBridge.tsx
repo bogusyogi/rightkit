@@ -15,7 +15,7 @@ import {
   isInteractiveEditVisual,
   isInteractiveEditRefused,
   postInteractiveActivity,
-} from "./htmlInteractiveProtocol";
+} from "./htmlInteractiveProtocol.js";
 import {
   onContextOpenLinkExternal,
   onContextOpenLinkTab,
@@ -26,9 +26,9 @@ import {
 import { printIsolatedHtmlMarkup } from "@rightkit/document-core/app/documentPrinting";
 import { logError } from "@rightkit/document-core/state/diagnostics";
 import { toast } from "@rightkit/platform-ui/headless";
-import type { HtmlInspectTarget, HtmlSafeBlockTarget } from "./sourceMap";
+import type { HtmlInspectTarget, HtmlSafeBlockTarget } from "./sourceMap.js";
 import type { SearchResult } from "@rightkit/document-core/documents/types";
-import { HTML_SURFACE_MESSAGE, publishHtmlSurface } from "./htmlBridgeScript";
+import { HTML_SURFACE_MESSAGE, publishHtmlSurface } from "./htmlBridgeScript.js";
 
 /**
  * The interactive-preview postMessage bridge + the three native-context-menu Tauri event listeners

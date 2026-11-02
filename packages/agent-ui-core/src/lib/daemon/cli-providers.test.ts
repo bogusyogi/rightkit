@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { listCliProviders, mutateCliProvider } from "./cli-providers";
+import { listCliProviders, mutateCliProvider } from "./cli-providers.js";
 
 const config = { url: "http://127.0.0.1:5057", token: "test" };
 const snapshot = {

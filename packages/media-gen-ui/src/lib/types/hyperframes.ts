@@ -1,4 +1,4 @@
-import type { ProcessInfo } from './runtime';
+import type { ProcessInfo } from './runtime.js';
 
 export interface HyperFramesStudioRequest {
   project_slug: string;

@@ -1,6 +1,6 @@
 import type { ReactNode, RefObject } from "react";
 import type { SearchProvider, ViewMode } from "@rightkit/document-core/documents/types";
-import type { SourceEditorViewState } from "../txt/TxtEditor";
+import type { SourceEditorViewState } from "../txt/TxtEditor.js";
 import type { HtmlPageBuffer } from "@rightkit/html-editor/documents/html/sessionTypes";
 
 export interface HtmlDocumentProps {

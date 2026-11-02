@@ -1,4 +1,4 @@
-import type { Kind } from "../contract";
+import type { Kind } from "../contract.js";
 
 const platforms = [
   { id: "youtube", label: "YouTube", color: "#d92c2c", domains: ["youtube.com", "youtu.be"] },

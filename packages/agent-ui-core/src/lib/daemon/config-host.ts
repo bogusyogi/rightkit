@@ -1,8 +1,8 @@
-import type { DaemonConfig, ExecutionNetworkDefault } from "../types";
-import { requestDaemonApi } from "../generated/daemon-openapi";
+import type { DaemonConfig, ExecutionNetworkDefault } from "../types.js";
+import { requestDaemonApi } from "../generated/daemon-openapi.js";
 import { invoke } from "@tauri-apps/api/core";
-import { isTauriHost } from "./messages-stream-readiness";
-import { QA_BUILD } from "../../qaBuild";
+import { isTauriHost } from "./messages-stream-readiness.js";
+import { QA_BUILD } from "../../qaBuild.js";
 
 export interface SaveExecutionNetworkProfileRequest {
   name?: string;
@@ -55,13 +55,13 @@ export const DAEMON_CONFIG_KEY = "coderight.daemon";
  */
 export function daemonConfigFromEnv(): DaemonConfig | null {
   const fromEnv =
-    isTauriHost() || !(import.meta.env.DEV || QA_BUILD)
+    isTauriHost() || !(import.meta.env?.DEV || QA_BUILD)
       ? undefined
-      : (import.meta.env.VITE_RIGHTKIT_DAEMON_URL as string | undefined);
+      : (import.meta.env?.VITE_RIGHTKIT_DAEMON_URL as string | undefined);
   if (!fromEnv) return null;
   return {
     url: fromEnv,
-    token: (import.meta.env.VITE_RIGHTKIT_DAEMON_TOKEN as string | undefined) ?? "",
+    token: (import.meta.env?.VITE_RIGHTKIT_DAEMON_TOKEN as string | undefined) ?? "",
   };
 }
 

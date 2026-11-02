@@ -1,6 +1,6 @@
 import type WorkspaceTrustGate from "@rightkit/agent-ui-core/components/app/WorkspaceTrustGate";
-import type OnboardingPanel from "../../components/app/OnboardingPanel";
-import type { RunTarget } from "../../hooks/useShellUiState";
+import type OnboardingPanel from "../../components/app/OnboardingPanel.js";
+import type { RunTarget } from "../../hooks/useShellUiState.js";
 import type { WorkspaceTrustLevel, WorkspaceTrustStatus } from "@rightkit/agent-ui-core/lib/types";
 
 type OnboardingPanelProps = Parameters<typeof OnboardingPanel>[0];

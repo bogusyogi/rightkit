@@ -5,7 +5,7 @@ import {
   type FileFingerprint,
   type LoadedDocument,
   type ViewMeta,
-} from "../documents/types";
+} from "../documents/types.js";
 import type { LicenseClient } from "@rightkit/license";
 import { isTauri } from "@rightkit/platform-ui";
 import { createShell, type AssociationGroupStatus, type Shell } from "@rightkit/tauri-shell";
@@ -13,11 +13,11 @@ import { createShell, type AssociationGroupStatus, type Shell } from "@rightkit/
 // Browser-QA fixture modules load on demand. Every call site sits behind `BROWSER_QA_BUILD` (a
 // build-time constant), so production builds fold the guard to `false`, drop these dynamic imports,
 // and never emit the fixture chunks. Keep static imports of these modules out of this file.
-const loadQaFixtures = () => import("./browserQa");
-const loadQaText = () => import("./browserQaText");
-const loadQaDocx = () => import("./browserQaDocx");
-const loadQaPdf = () => import("./browserQaPdf");
-const loadQaLicense = () => import("./browserQaLicense");
+const loadQaFixtures = () => import("./browserQa.js");
+const loadQaText = () => import("./browserQaText.js");
+const loadQaDocx = () => import("./browserQaDocx.js");
+const loadQaPdf = () => import("./browserQaPdf.js");
+const loadQaLicense = () => import("./browserQaLicense.js");
 
 /** True when running inside the Tauri webview (vs. plain `vite dev` in a browser). */
 const inTauri = isTauri;
@@ -35,7 +35,7 @@ export function getShell(): Shell {
  * this module is guarded with it, so the minifier drops those branches and nothing references the
  * `browserQa*` fixture modules in a production bundle.
  */
-const BROWSER_QA_BUILD = import.meta.env.DEV || import.meta.env.VITE_RIGHTKIT_BROWSER_QA === "1";
+const BROWSER_QA_BUILD = import.meta.env?.DEV || import.meta.env?.VITE_RIGHTKIT_BROWSER_QA === "1";
 
 /**
  * Write text to the system clipboard: through the shell's native clipboard in the app, through the
@@ -54,8 +54,8 @@ export async function writeClipboardText(text: string): Promise<void> {
 }
 
 export function isBrowserQaMode(): boolean {
-  const qaBuild = import.meta.env.VITE_RIGHTKIT_BROWSER_QA === "1";
-  if (!import.meta.env.DEV && !qaBuild) return false;
+  const qaBuild = import.meta.env?.VITE_RIGHTKIT_BROWSER_QA === "1";
+  if (!import.meta.env?.DEV && !qaBuild) return false;
   if (typeof window === "undefined" || inTauri()) return false;
   const params = new URLSearchParams(window.location.search);
   return params.has("qa") || qaBuild;
@@ -515,9 +515,9 @@ import type {
   PreparePdfSave,
   PreparePdfSaveRequest,
   PreparedPdfSave,
-} from "../documents/pdf/pdfEditModel";
-import type { OcrLine } from "../documents/pdf/pdfOcr";
-import { hostAppName } from "../appName";
+} from "../documents/pdf/pdfEditModel.js";
+import type { OcrLine } from "../documents/pdf/pdfOcr.js";
+import { hostAppName } from "../appName.js";
 
 if (BROWSER_QA_BUILD && isBrowserQaMode())
   void loadQaPdf().then((qaPdf) => qaPdf.registerViewrightQaGlobal());
@@ -1041,5 +1041,5 @@ export {
   onContextOpenLinkExternal,
   onContextOpenLinkTab,
   onContextViewSource,
-} from "./bridgeEvents";
+} from "./bridgeEvents.js";
 export { inTauri };

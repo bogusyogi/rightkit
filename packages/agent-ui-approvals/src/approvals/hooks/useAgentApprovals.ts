@@ -4,7 +4,7 @@ import {
   AGENT_APPROVAL_EVENT,
   agentApprovalsPending,
 } from "@rightkit/mail-ui/lib/ipc/agentApprovals";
-import { emptyQueue, isExpired, queueReducer } from "../lib/approvalQueue";
+import { emptyQueue, isExpired, queueReducer } from "../lib/approvalQueue.js";
 
 /**
  * The queue of send approvals waiting for the user. The list always comes from

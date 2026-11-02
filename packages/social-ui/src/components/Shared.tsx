@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { Badge, Button, Notice } from "@rightkit/react-shell/react";
-import type { Account, AccountOrdinal, PublishJob, PublishProgress } from "../data";
-import { instantLabel, timeInZone } from "../data";
-import { shell } from "../lib/shell";
-import { PLATFORM_LABEL, PUBLISH_STATE_LABEL, STATE_LABEL, approvalText } from "../screens/labels";
+import type { Account, AccountOrdinal, PublishJob, PublishProgress } from "../data/index.js";
+import { instantLabel, timeInZone } from "../data/index.js";
+import { shell } from "../lib/shell.js";
+import { PLATFORM_LABEL, PUBLISH_STATE_LABEL, STATE_LABEL, approvalText } from "../screens/labels.js";
 
 /** Shown on every screen while MockDataSource is active. Folds to nothing in a release build (Vite constant-folds the guard). */
 export function MockBanner() {
-  if (!(import.meta.env.DEV || (typeof __RIGHTKIT_MOCK__ === "boolean" && __RIGHTKIT_MOCK__))) return null;
+  if (!(import.meta.env?.DEV || (typeof __RIGHTKIT_MOCK__ === "boolean" && __RIGHTKIT_MOCK__))) return null;
   return (
     <p role="status" className="op-banner">
       <strong>Mock data.</strong> Invented channels held in memory. Nothing here is live and nothing publishes.

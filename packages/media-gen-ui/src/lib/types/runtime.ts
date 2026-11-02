@@ -1,7 +1,7 @@
 // Shared runtime types extracted from the per-studio run-type modules.
 // The five studio run manifests share the process shape. Image and video runs
 // additionally share the eyes-gate shape.
-import type { EyesStatus } from './gallery';
+import type { EyesStatus } from './gallery.js';
 
 export interface ProcessInfo {
   command: string;

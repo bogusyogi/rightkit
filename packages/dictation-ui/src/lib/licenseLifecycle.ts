@@ -1,5 +1,5 @@
 import { isPro as viewIsPro, licenseMessage, type LicenseView } from "@rightkit/license";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 /** US spelling for text that comes from `@rightkit/license`, whose messages say "licence". Retire
  * this wrapper once the package offers en-US wording. */

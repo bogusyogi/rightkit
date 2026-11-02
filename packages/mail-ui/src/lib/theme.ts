@@ -2,10 +2,10 @@
 // @rightkit/react-shell's theme store; the 11 presets are app data applied as CSS
 // custom properties through @rightkit/theme presetTokens.
 
-import { shellSetTheme } from "./ipc/system";
+import { shellSetTheme } from "./ipc/system.js";
 import { applyBodyFont, createThemeStore, type ThemeChoice } from "@rightkit/react-shell";
 import { applyTokens, ensureContrast, mix, presetTokens, readableOn, luminance } from "@rightkit/theme";
-import { hostAppName } from "../appName";
+import { hostAppName } from "../appName.js";
 
 export type ThemeMode = "light" | "dark";
 

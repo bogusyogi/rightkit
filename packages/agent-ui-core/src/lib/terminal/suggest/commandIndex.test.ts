@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lookupByFirstToken, lookupByPrefix, lookupCommands } from "./commandIndex";
+import { lookupByFirstToken, lookupByPrefix, lookupCommands } from "./commandIndex.js";
 
 describe("terminal command index", () => {
   it("looks up a complete command by its first token", () => {

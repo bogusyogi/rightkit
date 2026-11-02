@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import DriverLifecycleStrip from "./DriverLifecycleStrip";
+import DriverLifecycleStrip from "./DriverLifecycleStrip.js";
 
 const drivers = vi.hoisted(() => ({
   getStatus: vi.fn(),

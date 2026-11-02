@@ -1,6 +1,6 @@
 import { Button, EmptyState } from "@rightkit/react-shell/react";
-import { addAccount, syncAll } from "../lib/ipc";
-import { FOLDERS } from "../lib/mail";
+import { addAccount, syncAll } from "../lib/ipc.js";
+import { FOLDERS } from "../lib/mail.js";
 
 export function InboxEmptyState({
   accountsLength,

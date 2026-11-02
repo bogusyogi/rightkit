@@ -14,14 +14,14 @@
  */
 import { Button } from "@rightkit/react-shell/react";
 import { useEffect, useMemo, useState } from "react";
-import { errorMessage } from "../lib/engine";
-import { transcriptShow, type CaptionCue, type Transcript } from "../lib/media";
-import { baseName, formatSeconds, newClipId, secondsToTicks, type ProjectShow } from "../lib/project";
+import { errorMessage } from "../lib/engine.js";
+import { transcriptShow, type CaptionCue, type Transcript } from "../lib/media.js";
+import { baseName, formatSeconds, newClipId, secondsToTicks, type ProjectShow } from "../lib/project.js";
 
-import type { EditSession } from "./adapter";
-import { insertClip, rippleDeleteRange, type EditAction } from "./actions";
-import { supports, unsupported, type CapabilityReport } from "./capabilities";
-import { clipRanges, coveredOutputRanges, sourceToOutput, type ClipRange } from "./transcript";
+import type { EditSession } from "./adapter.js";
+import { insertClip, rippleDeleteRange, type EditAction } from "./actions.js";
+import { supports, unsupported, type CapabilityReport } from "./capabilities.js";
+import { clipRanges, coveredOutputRanges, sourceToOutput, type ClipRange } from "./transcript.js";
 
 type WordExt = {
   text: string;

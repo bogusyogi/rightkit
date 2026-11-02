@@ -1,7 +1,7 @@
 // D1 — MarkdownArtifactView renderer tests.
 
 import { describe, expect, it } from "vitest";
-import { parseMarkdown } from "./MarkdownArtifactView";
+import { parseMarkdown } from "./MarkdownArtifactView.js";
 
 describe("parseMarkdown", () => {
   it("parses headings at all levels", () => {

@@ -17,7 +17,7 @@
  */
 
 import { ChangeSet } from "@codemirror/state";
-import type { MarkdownChangeMapSummary } from "./types";
+import type { MarkdownChangeMapSummary } from "./types.js";
 
 interface RangeChange {
   readonly fromA: number;

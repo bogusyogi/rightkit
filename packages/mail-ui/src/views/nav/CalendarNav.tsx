@@ -3,10 +3,10 @@
 // month drives the main grid's date cursor; the toggles drive which calendars
 // overlay via the shared store state.
 import { Button, IconButton, NavList, type NavGroup } from "@rightkit/react-shell/react";
-import Icon from "../../components/Icons";
-import { DAY, startOfDay } from "../../lib/calendarUtils";
-import { setPref } from "../../lib/preferences";
-import { useAppStore } from "../../store";
+import Icon from "../../components/Icons.js";
+import { DAY, startOfDay } from "../../lib/calendarUtils.js";
+import { setPref } from "../../lib/preferences.js";
+import { useAppStore } from "../../store/index.js";
 import { useState } from "react";
 
 const ALL_ID = "__all";

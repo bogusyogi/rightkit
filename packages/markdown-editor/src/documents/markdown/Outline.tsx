@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useDismiss } from "@rightkit/platform-ui/headless";
 import { createShortcutRegistry } from "@rightkit/react-shell";
-import { acquireMarkdownResource } from "./markdownResourceLifecycle";
+import { acquireMarkdownResource } from "./markdownResourceLifecycle.js";
 
 export interface OutlineHeading {
   depth: number;

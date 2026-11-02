@@ -1,8 +1,8 @@
 // RIGHTKIT-PENDING #383: ported version saved in /Volumes/D/scratch/postright/port-wip/full-port.patch
 // Invented gate policy and stored verdict records for the mock. Phrases, hashes and ids are fictional.
 // The thresholds are invented for the mock; they are not engine defaults, because the engine has none.
-import type { GatePolicy, GateRecord } from "../types";
-import { SCOPE_ALPHA } from "./fixtures-optimise";
+import type { GatePolicy, GateRecord } from "../types.js";
+import { SCOPE_ALPHA } from "./fixtures-optimise.js";
 
 export const FIXTURE_GATE_POLICIES: GatePolicy[] = [
   {

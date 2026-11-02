@@ -27,7 +27,7 @@ import {
   type UsageScope,
   type UsageSortColumn,
 } from "@rightkit/agent-ui-core/lib/usage/usageProjection";
-import { hostAppName } from "../../appName";
+import { hostAppName } from "../../appName.js";
 
 export interface UsageDashboardProps {
   /** Injected daemon connector. Analytics storage and endpoints stay upstream-owned. */

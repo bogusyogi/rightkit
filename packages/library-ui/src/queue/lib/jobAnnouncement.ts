@@ -1,4 +1,4 @@
-import type { DisplayJob } from "../contract";
+import type { DisplayJob } from "../contract.js";
 
 /** Stage tag per job id, remembered between renders. */
 export type SeenStages = Map<string, string>;

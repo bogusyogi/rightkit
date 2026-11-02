@@ -5,15 +5,15 @@ import {
   type MutableRefObject,
   type SetStateAction,
 } from "react";
-import { buildInteractivePreviewHtml } from "./htmlInteractive";
-import type { SiteRootGrant } from "./htmlInline";
+import { buildInteractivePreviewHtml } from "./htmlInteractive.js";
+import type { SiteRootGrant } from "./htmlInline.js";
 import { logEvent } from "@rightkit/document-core/state/diagnostics";
 import { errorMessage } from "@rightkit/document-core/state/errors";
-import type { HtmlPageBuffer } from "./sessionTypes";
-import { sourceChecksum } from "./sourceMap";
-import { htmlSrcDocCache, trackCancelledHtmlBuild } from "./htmlResourceLifecycle";
+import type { HtmlPageBuffer } from "./sessionTypes.js";
+import { sourceChecksum } from "./sourceMap.js";
+import { htmlSrcDocCache, trackCancelledHtmlBuild } from "./htmlResourceLifecycle.js";
 import { incIframeLoads, incPreviewGenerations } from "@rightkit/document-core/documents/perfEventCounters";
-import type { HtmlMutationPlan } from "./htmlMutationEngine";
+import type { HtmlMutationPlan } from "./htmlMutationEngine.js";
 
 /** Page-scoped history entry: the exact committed plan plus its exact inverse. */
 export interface HtmlBlockHistoryEntry {

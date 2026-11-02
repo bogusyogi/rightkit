@@ -4,7 +4,7 @@ import type { Node as ProseMirrorNode } from "prosemirror-model";
 import { scheduleAfterPaint } from "@rightkit/document-core/app/deferredMount";
 import { ensureShikiLanguage, getShikiHighlighter } from "@rightkit/doc-render";
 
-import { SHIKI_DARK_THEME, SHIKI_LIGHT_THEME } from "../shikiThemes";
+import { SHIKI_DARK_THEME, SHIKI_LIGHT_THEME } from "../shikiThemes.js";
 
 /**
  * Contract 14 §5.2.2 — native `code_fence` syntax highlighting.

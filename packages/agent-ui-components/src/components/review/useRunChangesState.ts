@@ -12,7 +12,7 @@ import {
   INITIAL_RUN_CHANGES_STATE,
   type RunChangesAction,
   type RunChangesState,
-} from "./runChangesStore";
+} from "./runChangesStore.js";
 
 type Listener = () => void;
 const listeners = new Set<Listener>();

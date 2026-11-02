@@ -5,15 +5,15 @@
 // timer for the wake pulse so it's cleared before re-scheduling and on unmount.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke, listen } from "../lib/tauri";
-import { useTauriEvent } from "./useTauriEvent";
+import { invoke, listen } from "../lib/tauri.js";
+import { useTauriEvent } from "./useTauriEvent.js";
 import {
   fmtSeconds,
   timeSavedSeconds,
   wordsThisWeek as wordsThisWeekCalc,
   type AppState,
   type HistoryItem,
-} from "../lib/homeMetrics";
+} from "../lib/homeMetrics.js";
 
 type CommandName = "start_dictation" | "stop_dictation" | "cancel_dictation";
 

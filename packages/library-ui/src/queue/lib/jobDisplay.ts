@@ -1,5 +1,5 @@
-import type { DisplayJob, ErrorKind, JobInfo, Kind, Stage } from "../contract";
-import { outputLabelForJob, sourceLabelForInput } from "./mediaSelection";
+import type { DisplayJob, ErrorKind, JobInfo, Kind, Stage } from "../contract.js";
+import { outputLabelForJob, sourceLabelForInput } from "./mediaSelection.js";
 
 const KIND_LABEL: Record<Kind, string> = {
   reel: "Reel",

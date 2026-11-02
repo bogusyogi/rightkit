@@ -1,16 +1,16 @@
 // Generated entry: every module whose exports do not collide with an earlier one.
 // Every module is also importable directly by subpath, e.g. `<package>/lib/foo`.
 
-export * from "./Markdown";
-export * from "./appName";
-export * from "./components/DiffView";
-export * from "./components/InputBar";
-export * from "./components/ModelSelector";
-export * from "./components/TranscriptPanel";
-export * from "./components/UsagePanel";
-export * from "./components/diffUtils";
-export * from "./contexts/DaemonContext";
-export * from "./contexts/SessionContext";
-export * from "./contexts/messagePayload";
-export * from "./contexts/sessionEventFormat";
-export * from "./markdownSecurity";
+export * from "./Markdown.js";
+export * from "./appName.js";
+export * from "./components/DiffView.js";
+export * from "./components/InputBar.js";
+export * from "./components/ModelSelector.js";
+export * from "./components/TranscriptPanel.js";
+export * from "./components/UsagePanel.js";
+export * from "./components/diffUtils.js";
+export * from "./contexts/DaemonContext.js";
+export * from "./contexts/SessionContext.js";
+export * from "./contexts/messagePayload.js";
+export * from "./contexts/sessionEventFormat.js";
+export * from "./markdownSecurity.js";

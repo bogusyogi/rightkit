@@ -1,6 +1,6 @@
 import type { PageViewport } from "pdfjs-dist";
-import type { PdfColor, PdfPoint, PdfRect, PdfTextAppearance } from "./pdfEditModel";
-import type { OcrLine } from "./pdfOcr";
+import type { PdfColor, PdfPoint, PdfRect, PdfTextAppearance } from "./pdfEditModel.js";
+import type { OcrLine } from "./pdfOcr.js";
 
 export interface PdfOcrHit {
   index: number;

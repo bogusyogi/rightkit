@@ -1,4 +1,4 @@
-import type { ConductorModelOption } from "./conductorOptions";
+import type { ConductorModelOption } from "./conductorOptions.js";
 
 /**
  * Claude's model catalog for the composer's per-conductor model submenu.

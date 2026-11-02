@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Checkbox, ConfirmDialog } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import type { ToolsetDraft } from "../types";
+import type { ToolsetDraft } from "../types.js";
 import { OfflinePanel } from "@rightkit/agent-ui-settings/components/settings/tabs/shared";
 
 import type {

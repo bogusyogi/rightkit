@@ -1,6 +1,6 @@
-import type SettingsPane from "../../components/settings/SettingsModal";
-import type { SettingsTab, ToolsetDraft } from "../../components/settings/types";
-import type { NewSessionControls } from "../../components/Sidebar";
+import type SettingsPane from "../../components/settings/SettingsModal.js";
+import type { SettingsTab, ToolsetDraft } from "../../components/settings/types.js";
+import type { NewSessionControls } from "../../components/Sidebar.js";
 import type {
   CoreSandboxSettings,
   DaemonConfig,
@@ -11,17 +11,17 @@ import type {
 } from "@rightkit/agent-ui-core/lib/types";
 import type { ConductorRuntimeModel } from "@rightkit/agent-ui-core/lib/conductorModels";
 import type { PermissionMode } from "@rightkit/agent-ui-core/lib/daemon";
-import type { UseOrchestrationSettingsReturn } from "../../hooks/useOrchestrationSettings";
-import type { UseSkillsRuntimeReturn } from "../../hooks/useSkillsRuntime";
-import type { UsePluginsRuntimeReturn } from "../../hooks/usePluginsRuntime";
+import type { UseOrchestrationSettingsReturn } from "../../hooks/useOrchestrationSettings.js";
+import type { UseSkillsRuntimeReturn } from "../../hooks/useSkillsRuntime.js";
+import type { UsePluginsRuntimeReturn } from "../../hooks/usePluginsRuntime.js";
 import type { UseLspSettingsReturn } from "@rightkit/agent-ui-core/hooks/useLspSettings";
 import type { UseLicenseStateReturn } from "@rightkit/agent-ui-core/hooks/useLicenseState";
 import type { LocalModelStoreState } from "@rightkit/agent-ui-core/state/localModelStore";
 import type { DiagnosticsStoreState } from "@rightkit/agent-ui-core/state/diagnosticsStore";
 import type { ExecutionStoreState } from "@rightkit/agent-ui-core/state/executionStore";
 import type { TelegramStoreState } from "@rightkit/agent-ui-core/state/telegramStore";
-import type { McpStoreState } from "../../state/mcpStore";
-import type { PermissionsStoreState } from "../../state/permissionsStore";
+import type { McpStoreState } from "../../state/mcpStore.js";
+import type { PermissionsStoreState } from "../../state/permissionsStore.js";
 
 type SettingsPaneProps = Parameters<typeof SettingsPane>[0];
 

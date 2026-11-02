@@ -5,14 +5,14 @@ import {
   buildHeaderProps,
   buildSidebarProps,
   buildTrustGateProps,
-} from "../../../lib/appSurfaceProps";
+} from "../../../lib/appSurfaceProps/index.js";
 import { forkSession, patchSession } from "@rightkit/agent-ui-core/lib/daemon";
 import { buildHandoffSummary } from "@rightkit/agent-ui-core/lib/accounts/accounts";
 import { useAccountSelectionStore } from "@rightkit/agent-ui-core/state/accountSelectionStore";
 import { useComposerStore } from "@rightkit/agent-ui-core/state/composerStore";
 import type { DaemonConfig } from "@rightkit/agent-ui-core/lib/types";
 import type WorkspaceTrustGate from "@rightkit/agent-ui-core/components/app/WorkspaceTrustGate";
-import type { AppSurfaceInputs } from "./types";
+import type { AppSurfaceInputs } from "./types.js";
 
 export interface ShellSurfaces {
   headerProps: ReturnType<typeof buildHeaderProps>;

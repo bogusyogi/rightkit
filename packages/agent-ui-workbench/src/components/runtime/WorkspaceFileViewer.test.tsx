@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { UseEditorBufferResult } from "@rightkit/agent-ui-hooks/hooks/useEditorBuffer";
 import type { WorkspaceFileSaveOutcome } from "@rightkit/agent-ui-core/lib/types/workspace-files";
-import WorkspaceFileViewer from "./WorkspaceFileViewer";
+import WorkspaceFileViewer from "./WorkspaceFileViewer.js";
 
 const hookState = vi.hoisted(() => ({ current: null as UseEditorBufferResult | null }));
 

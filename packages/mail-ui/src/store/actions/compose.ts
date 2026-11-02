@@ -1,15 +1,15 @@
 // Compose store actions: signature resolution, alias/contact-group warm-up, and
 // opening the compose drawer for a new message, reply, reply-all, or forward.
-import { htmlToText } from "../../lib/html";
+import { htmlToText } from "../../lib/html.js";
 import {
   getSignature,
   listAliases,
   warmPeopleCache,
   listContactGroups,
   type ThreadMessage,
-} from "../../lib/ipc";
-import type { AppState, ComposeState } from "../types";
-import type { StoreGet } from "../mk";
+} from "../../lib/ipc.js";
+import type { AppState, ComposeState } from "../types.js";
+import type { StoreGet } from "../mk.js";
 
 type ComposeActions = Pick<
   AppState,

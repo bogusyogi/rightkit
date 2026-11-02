@@ -7,7 +7,7 @@ import {
   toReferenceMeta,
   type ReferenceId,
   type ReferenceObject,
-} from "../lib/types/references";
+} from "../lib/types/references.js";
 
 // D2 — typed ReferenceObject store.
 //
@@ -34,10 +34,10 @@ export interface ReferenceStoreState {
   persist: () => void;
   /** Snapshot of the in-memory list as wire-friendly `ReferenceMeta[]`,
    * mirroring the Rust `ReferenceMeta` shape on submit. */
-  toWireMeta: () => import("../lib/types/references").ReferenceMeta[];
+  toWireMeta: () => import("../lib/types/references.js").ReferenceMeta[];
 }
 
-function writePersistedMeta(meta: import("../lib/types/references").ReferenceMeta[]) {
+function writePersistedMeta(meta: import("../lib/types/references.js").ReferenceMeta[]) {
   if (typeof localStorage === "undefined") return;
   try {
     localStorage.setItem(REFERENCE_STORAGE_KEY, JSON.stringify(meta));
@@ -112,7 +112,7 @@ export const useReferenceStore = create<ReferenceStoreState>((set, get) => ({
         set({ references: [], restoreError: null });
         return;
       }
-      const persisted = parsed as import("../lib/types/references").ReferenceMeta[];
+      const persisted = parsed as import("../lib/types/references.js").ReferenceMeta[];
       const revived = persisted.map(fromReferenceMeta);
       set({ references: dedupeById(revived), restoreError: null });
     } catch (err) {

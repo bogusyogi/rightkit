@@ -1,7 +1,7 @@
 import Icon from "@rightkit/agent-ui-core/components/Icon";
 import type { SkillItem, SkillProposalRecord } from "@rightkit/agent-ui-core/lib/types";
 import { OfflinePanel } from "@rightkit/agent-ui-settings/components/settings/tabs/shared";
-import type { SkillProposalActionsProps } from "./types";
+import type { SkillProposalActionsProps } from "./types.js";
 
 export function SkillProposalActions({
   selectedProposal,

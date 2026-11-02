@@ -2,8 +2,8 @@
 // Invented channel memory revisions and proofs for the mock. Every value is fictional: the brand, pillars,
 // phrases, answers and proofs are made up. Content hashes are placeholders in the engine's form. Only the first
 // channel has a memory document and proofs; the other channels have none.
-import type { ChannelMemoryDetail, ProofRecord } from "../types";
-import { SCOPE_ALPHA } from "./fixtures-optimise";
+import type { ChannelMemoryDetail, ProofRecord } from "../types.js";
+import { SCOPE_ALPHA } from "./fixtures-optimise.js";
 
 const SCOPE = { venture: "fixture-alpha", channel: "alpha-shorts", account: "alpha-main" };
 

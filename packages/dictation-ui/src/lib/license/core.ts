@@ -16,10 +16,10 @@ import {
   type LicenseView,
 } from "@rightkit/license";
 
-import { invoke, listen } from "../tauri";
-import { getLicenseLifecycle, snapshotFromLicenseView } from "../licenseLifecycle";
-import type { LicenseLifecycleSnapshot } from "../licenseLifecycle";
-import { setProBridgeConsumptionSuppressed } from "./proBridge";
+import { invoke, listen } from "../tauri.js";
+import { getLicenseLifecycle, snapshotFromLicenseView } from "../licenseLifecycle.js";
+import type { LicenseLifecycleSnapshot } from "../licenseLifecycle.js";
+import { setProBridgeConsumptionSuppressed } from "./proBridge.js";
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 

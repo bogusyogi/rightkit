@@ -58,7 +58,7 @@ vi.mock("@rightkit/agent-ui-core/state/deliveryStore", () => {
   return { useDeliveryStore };
 });
 
-import DeliveryPanel from "./DeliveryPanel";
+import DeliveryPanel from "./DeliveryPanel.js";
 import { useDeliveryStore } from "@rightkit/agent-ui-core/state/deliveryStore";
 
 const baseConfig = { url: "http://127.0.0.1:1", token: "x" };

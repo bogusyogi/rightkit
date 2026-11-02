@@ -1,9 +1,9 @@
 import { Badge, Button, Card, Field, Input, PageShell, SegmentedControl, Select, Toggle } from "@rightkit/react-shell/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ProgressState } from "../hooks/useProgress";
-import type { AssembleForm, ShotInput, TitleDraft } from "../lib/assemble";
-import { engineCall, errorMessage } from "../lib/engine";
-import { type HostInfo, genRightCallFailed, interpretHost } from "../lib/genright";
+import type { ProgressState } from "../hooks/useProgress.js";
+import type { AssembleForm, ShotInput, TitleDraft } from "../lib/assemble.js";
+import { engineCall, errorMessage } from "../lib/engine.js";
+import { type HostInfo, genRightCallFailed, interpretHost } from "../lib/genright.js";
 import {
   type DurationControl,
   type ModelCatalog,
@@ -17,10 +17,9 @@ import {
   pickModel,
   providersOf,
   spendTotal,
-} from "../lib/models";
-import { ErrorPanel, ProgressRow, Icon } from "../ui";
-import "./Prompt.css";
-import { hostAppName } from "../appName";
+} from "../lib/models.js";
+import { ErrorPanel, ProgressRow, Icon } from "../ui/index.js";
+import { hostAppName } from "../appName.js";
 
 // Preferred starting picks; used only when the installed the host app lists them (else the cheapest of the kind).
 const DEFAULTS = {

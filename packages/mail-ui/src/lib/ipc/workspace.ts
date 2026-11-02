@@ -1,5 +1,5 @@
-import { invoke } from "./invoke";
-import type { OutAttachment } from "../ipc";
+import { invoke } from "./invoke.js";
+import type { OutAttachment } from "../ipc.js";
 
 export interface CalendarInfo {
   id: string;
