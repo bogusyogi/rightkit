@@ -68,9 +68,12 @@ fn only_remote_enables_the_server_stack() {
             remote.contains(&format!("dep:{dep}")),
             "remote must enable {dep}"
         );
+        // The agent-daemon features (the in-process agent engine host) are the one other place the server stack may come from;
+        // `link` and every client feature stay free of it.
         let enabling: Vec<&str> = MANIFEST
             .lines()
             .filter(|l| l.contains(&format!("\"dep:{dep}\"")))
+            .filter(|l| !l.starts_with("agent_daemon_core = ") && !l.starts_with("agent_daemon_runtime = "))
             .collect();
         assert_eq!(
             enabling.len(),
