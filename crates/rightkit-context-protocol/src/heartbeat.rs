@@ -92,7 +92,7 @@ pub struct AdapterHeartbeatV1 {
     /// "what is installed" view; never parsed by the supervisor.
     pub adapter_version: String,
     /// Self-declared status. The supervisor MAY upgrade or downgrade this
-    /// during [`summarize_status`] but never below the truth the adapter
+    /// during `summarize_status` but never below the truth the adapter
     /// asserted — see the staleness rules in
     /// Membrane resident lifecycle heartbeat.
     pub status: AdapterStatus,

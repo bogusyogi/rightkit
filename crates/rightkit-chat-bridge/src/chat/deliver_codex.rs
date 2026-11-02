@@ -160,6 +160,7 @@ fn codex_candidates() -> Vec<PathBuf> {
             return vec![chosen];
         }
     }
+    #[cfg_attr(not(any(target_os = "macos", windows)), allow(unused_mut))]
     let mut candidates: Vec<PathBuf> = Vec::new();
     #[cfg(target_os = "macos")]
     {

@@ -254,7 +254,7 @@ impl PacketReductionPlanV1 {
             if representation.tokens <= remaining_tokens
                 && selected
                     .as_ref()
-                    .map_or(true, |current| representation.tokens > current.tokens)
+                    .is_none_or(|current| representation.tokens > current.tokens)
             {
                 selected = Some(representation);
             }

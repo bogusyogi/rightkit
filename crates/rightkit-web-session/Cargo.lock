@@ -2452,6 +2452,7 @@ dependencies = [
  "rightkit-fs",
  "rightkit-logs",
  "ring",
+ "serde",
  "serde_json",
  "windows",
 ]
