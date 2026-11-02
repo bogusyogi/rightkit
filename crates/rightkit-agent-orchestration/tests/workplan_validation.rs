@@ -319,11 +319,8 @@ fn independent_review_requires_a_distinct_named_identity() {
     plan.units[1].evidence[0].reviewer = Some(plan.units[1].owner.clone());
     assert_error(&plan, Code::IndependentReviewRequired);
     plan.units[1].evidence[0].reviewer = Some(
-        AgentId::new(format!(
-            " {} ",
-            plan.units[1].owner.as_str().to_ascii_uppercase()
-        ))
-        .unwrap(),
+        // Padding is refused earlier as an untrimmed field (InvalidField); the case-insensitive match is what this checks.
+        AgentId::new(plan.units[1].owner.as_str().to_ascii_uppercase()).unwrap(),
     );
     assert_error(&plan, Code::IndependentReviewRequired);
 }
