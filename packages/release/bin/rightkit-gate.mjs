@@ -1642,7 +1642,13 @@ async function runStages(o, args, root, git, io) {
       ok = true;
       if (ds) ok = await stageWebBuildOnce({ o, ds, root, git, appDir, cli, commonDir, commit, tree, stage, executor });
       if (ok && ds) ok = await stageWindowsIdentityOnce({ o, ds, root, git, appDir, cli, commonDir, commit, tree, stage, executor });
-      if (ok && ds) ok = await stageSidecarsOnce({ o, ds, root, git, configs: sidecarConfigsOf(), appDir, cli, commonDir, commit, tree, stage, executor });
+      if (ok && ds) {
+        // The package triple: a Mac recipe with `stageSidecars` builds for its own triple (universal-apple-darwin by default), so the gate stages that triple here, under its own
+        // producer carrier, and the recipe's prepare step (`stage-sidecar --target <triple>`) then finds it current and changes nothing.
+        const packageConfigs = sidecarConfigsOf();
+        const packageTarget = await packageSidecarTarget({ o, ds, configs: packageConfigs });
+        ok = await stageSidecarsOnce({ o, ds, root, git, configs: packageConfigs, appDir, cli, commonDir, commit, tree, stage, executor, target: packageTarget });
+      }
       // Source QA (right-release qa --stage source) exists for mac and win only; a mobile package is the signed build alone.
       // Row 7.04c (R-T1, 7.09): the snapshot holds no Cargo target. On a direct host the checkout's output directory is resolved here, in the primary
       // checkout, and handed to right-release absolute: it binds every manifest's target for this stage, and the sealed manifest must record it back
@@ -1944,6 +1950,14 @@ async function restagedSidecars({ o, ds, prior, now }) {
   return out;
 }
 
+/**
+ * The --target the package stage stages sidecars for: `package` on a Mac host, which right-release stage-sidecar resolves itself from the
+ * snapshot's config (the Mac package recipe's own triple, e.g. universal-apple-darwin), so this gate never imports app code; null elsewhere (host).
+ */
+export async function packageSidecarTarget({ o }) {
+  return o.platform === "darwin" ? "package" : null;
+}
+
 /** The release configs of `commit` (under `appDir`) that declare `sidecars`, read from `base` (the snapshot on the snapshot route): the commit's config decides, never the checkout's. */
 export function committedSidecarConfigs({ o, git, commit, appDir = ".", base }) {
   const listedConfigs = git("ls-tree", "-r", "--name-only", "-z", commit);
@@ -1957,9 +1971,14 @@ export function committedSidecarConfigs({ o, git, commit, appDir = ".", base }) 
  * step's additions must equal the files it reported plus its receipt (anything else is an unattributed write, RK_CHECK_ERROR). The
  * staged files become immutable `staged` ledger entries. Returns true when nothing is owed or staging passed.
  */
-export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appDir, cli, commonDir, commit, tree, stage, executor = null, tag = "rightkit-gate:" }) {
-  if (ds.sidecarsStaged) return true;
-  ds.sidecarsStaged = true;
+export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appDir, cli, commonDir, commit, tree, stage, executor = null, tag = "rightkit-gate:", target = null }) {
+  // Once per door run PER TARGET TRIPLE: `target` null is the host (the compile stage: stage-sidecar's own default, no `--target` passed), anything else is the triple the
+  // package recipe stages for (universal-apple-darwin on a Mac recipe with `stageSidecars`), passed to stage-sidecar as `--target`. stage-sidecar is a no-op for a target whose
+  // receipt and files are already current, so the recipe's own prepare step afterwards changes nothing.
+  const staged = ds.sidecarsStaged instanceof Set ? ds.sidecarsStaged : (ds.sidecarsStaged = new Set());
+  const key = target ?? "host";
+  if (staged.has(key)) return true;
+  staged.add(key);
   if (!configs.length) return true;
   const { attributionProblems, reportedPaths } = await import("../stage-ledger.mjs");
   const source = sourceSplitOf({ root, ds, appDir });
@@ -1967,13 +1986,13 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
   for (const config of configs) {
     const before = ds.ledger?.entries ?? [];
     // The stage-sidecar child's Cargo calls (its builds and metadata queries) are carried on a broker host (carried-cargo.mjs).
-    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag });
+    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, producer: true });
     if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; nothing was staged`); return false; }
     const run = startRun({ commonDir, commit, tree, stage, source });
     let r;
     try {
-      o.out(`${tag} [${stage}] right-release stage-sidecar --config ${path.join(ds.path, config)} (from the snapshot ${ds.path})`);
-      r = (o.spawnCapture ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, encoding: "utf8", maxBuffer: 1 << 26 })))(process.execPath, [cli, "stage-sidecar", "--config", path.join(ds.path, config), "--json"], { cwd: snapshotAppRootOf(ds.path, appDir), env: carriedEnv(carrier, { ...cleanEnv, ...run.env }) });
+      o.out(`${tag} [${stage}] right-release stage-sidecar --config ${path.join(ds.path, config)}${target ? ` --target ${target}` : ""} (from the snapshot ${ds.path})`);
+      r = (o.spawnCapture ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, encoding: "utf8", maxBuffer: 1 << 26 })))(process.execPath, [cli, "stage-sidecar", "--config", path.join(ds.path, config), ...(target ? ["--target", target] : []), "--json"], { cwd: snapshotAppRootOf(ds.path, appDir), env: carriedEnv(carrier, { ...cleanEnv, ...run.env }) });
     } finally { endRun(run); }
     const carriedOk = await carrier.finish({ stage });
     if (r?.stderr) o.err(String(r.stderr).trimEnd());
@@ -1989,7 +2008,7 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     const configDir = path.posix.dirname(String(config).replaceAll("\\", "/"));
     const underApp = (rel) => (configDir === "." ? rel : `${configDir}/${rel}`).replaceAll("\\", "/");
     const receiptAbs = typeof result.receiptPath === "string" ? path.relative(ds.path, result.receiptPath).split(path.sep).join("/") : null;
-    const problems = [...walked.problems, ...attributionProblems({ before, after: walked.entries, reported: [...reportedPaths(result)].map(underApp), receipt: receiptAbs })];
+    const problems = [...walked.problems, ...attributionProblems({ before, after: walked.entries, reported: [...reportedPaths(result)].map(underApp), receipt: receiptAbs, removable: before.filter((e) => e.kind === "staged" && e.producer?.stage === "sidecar" && e.producer?.step === config).map((e) => e.path) /* only THIS config's earlier staged files (Oracle: another config's build must never delete them unreported) */.map((e) => e.path) })];
     if (problems.length) { for (const p of problems.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [${stage}] stage-sidecar ${config}: ${p}`); return false; }
     const priorPaths = new Set(before.map((e) => e.path));
     const priorByPath = new Map(before.map((e) => [e.path, e]));
@@ -2048,7 +2067,7 @@ export async function stageWebBuildOnce({ o, ds, root, git = null, appDir, cli, 
   for (const config of configs) {
     if (!absent().length) break;
     const before = ds.ledger?.entries ?? [];
-    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag });
+    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, producer: true });
     if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; the web build did not run`); return false; }
     const run = startRun({ commonDir, commit, tree, stage, source });
     let r;
@@ -2100,7 +2119,7 @@ export async function stageWindowsIdentityOnce({ o, ds, root, git = null, appDir
   const producer = path.join(path.dirname(cli), "..", "windows-identity.mjs");
   for (const config of configs) {
     const before = ds.ledger?.entries ?? [];
-    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag });
+    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, producer: true });
     if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; the Windows identity package did not build`); return false; }
     const run = startRun({ commonDir, commit, tree, stage, source });
     let r;
@@ -2731,7 +2750,7 @@ async function snapshotCargoWorkspaces({ git, ds, root }) {
  * child's environment; `finish` runs after the child ended, fails on any call that was refused, unverified or unfinished and on any
  * receipt the gate cannot verify again itself, and removes the carrier. A direct executor, or no snapshot, has nothing to carry.
  */
-async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "rightkit-gate:" }) {
+async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "rightkit-gate:", producer = false }) {
   const none = { env: {}, carried: false, refusal: null, async finish() { return true; }, cleanup() {} };
   if (!ds || executor?.kind !== "broker") return none;
   let base = null;
@@ -2740,6 +2759,15 @@ async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "ri
     const carried = await import("../carried-cargo.mjs");
     const { brokerSection } = await import("../snapshot-broker.mjs");
     const sb = await carrierBroker({ o, root, ds, executor });
+    // Only a PRODUCER carrier (the gate's own web-build, windows-identity and stage-sidecar steps, which write declared inputs by design) takes the gate's digest of the
+    // declared inputs at stage open (absent included); the end-of-stage ledger re-verify then accepts any receipt state for an input that digest says the step changed.
+    // Every other carrier passes none: each receipt, adapter receipts included, must equal the stage-end digest of every declared input (strict), so a child that swaps
+    // an input around an admission and restores it is refused. A malformed declaration or an unreadable input is the refusal below, as before.
+    let openInputDigests = null;
+    if (producer) {
+      const { readDeclaredInputs: readInputsOf, declaredInputDigestsOf: digestInputsOf } = await import("../snapshot-request.mjs");
+      openInputDigests = digestInputsOf(ds.path, readInputsOf(ds.path), { allowAbsent: true });
+    }
     // Installing the carrier map sends nothing, so it records nothing: the child's own uncarried probes (`rustc -vV`, `--version`) never
     // reach the broker under a snapshot, and each carried request records its sub-handle just before it is sent (snapshot-broker.mjs).
     const checkoutDirs = await snapshotCargoWorkspaces({ git, ds, root });
@@ -2758,7 +2786,7 @@ async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "ri
         finished = true;
         let problems;
         try {
-          problems = await installed.problems(sb);
+          problems = await installed.problems(sb, openInputDigests ? { openInputDigests } : {});
           // The output directories the stage's verified receipts name: the package stage's sealed manifest must record only these.
           for (const dir of installed.outputDirs?.() ?? []) ((ds.carriedByStage ??= {})[at] ??= new Set()).add(dir);
           // And by workspace, for the next stage's children: a receipt already names the output directory, so none asks Cargo for it.
@@ -4055,12 +4083,20 @@ export async function main(argv, io = {}) {
       const unitByName = new Map(rust.units.map((u) => [u.name, u]));
       const known = new Set(unitByName.keys());
       const builtBins = {};
-      const addBins = (dir, unit) => { if (dir && unit?.testLinksBins && unit.bins?.length) builtBins[dir] = [...new Set([...(builtBins[dir] ?? []), ...unit.bins])].sort(); };
+      // Where Cargo put them: `<dir>/debug` on a direct host, `<dir>/<triple>/debug` on a broker host, whose jobs build with --target <triple> (the receipt
+      // names it, `targetTriple`). A broker row with no triple records nothing for its directory: a guessed path could vouch for a stale binary.
+      const addBins = (dir, unit, profile) => {
+        if (!dir || !profile || !unit?.testLinksBins || !unit.bins?.length) return;
+        const prior = builtBins[dir];
+        if (prior && prior.profile !== profile) { builtBins[dir] = { profile: null, bins: [] }; return; }
+        builtBins[dir] = { profile, bins: [...new Set([...(prior?.bins ?? []), ...unit.bins])].sort() };
+      };
       for (const r of scanResult.scans) {
         // A row answered from the scan cache compiled nothing in this run: the bytes in the target are not vouched for by it.
         if (r.status !== "pass" || r.cached === true || !/^test:rust(?:-serial)?:/.test(String(r.id))) continue;
         const unit = unitByName.get(rustUnitOfScanId(r.id, known));
-        addBins(snapshotBroker ? r.snapshotEvidence?.outputDir : targetDirs?.[unit?.cargoDir ?? "."], unit);
+        if (snapshotBroker) addBins(r.snapshotEvidence?.outputDir, unit, r.snapshotEvidence?.targetTriple ? `${r.snapshotEvidence.targetTriple}/debug` : null);
+        else addBins(targetDirs?.[unit?.cargoDir ?? "."], unit, "debug");
       }
       const outputWorkspaces = (snapshotBroker ? scanResult.scans.map((r) => r.snapshotEvidence?.outputDir) : Object.values(targetDirs ?? {})).filter(Boolean).map((dir) => [dir]);
       o.onCompileOutputs?.(outputWorkspaces.map(([dir]) => dir), builtBins);

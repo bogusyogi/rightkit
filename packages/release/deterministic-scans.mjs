@@ -2759,7 +2759,7 @@ export async function runScans(plan, options = {}) {
               const ref = readRequestRef(path.join(carrier.refDir, "request.json"));
               const receipt = await deps.snapshotBroker.receiptOf(ref.requestId);
               const { evidence } = verifySnapshotReceipt(receipt, { pins: deps.snapshotBroker.pins, jobId: ref.requestId, carrier: carrier.made.carrier, argv: carrier.cargoArgv, workspace: ref.workspace, observedEnv: observedEnvOf({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }, deps.platform ?? process.platform), checkout: deps.snapshotBroker.checkout, outputRoots: deps.snapshotBroker.outputRoots, platform: deps.snapshotBroker.platform ?? deps.platform ?? process.platform });
-              row.snapshotEvidence = { requestId: ref.requestId, outputDir: evidence.outputDir, cargoDir: s.cwd ?? ".", treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit };
+              row.snapshotEvidence = { requestId: ref.requestId, outputDir: evidence.outputDir, cargoDir: s.cwd ?? ".", targetTriple: typeof receipt?.targetTriple === "string" && /^[A-Za-z0-9_.]+(?:-[A-Za-z0-9_.]+){1,4}$/.test(receipt.targetTriple) ? receipt.targetTriple : null, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit };
             } catch (e) {
               status = "fail"; code = "SNAPSHOT_EVIDENCE"; detail = `${s.id}: the broker's snapshot evidence did not verify (${e.code ?? "error"}: ${e.message})`;
             }

@@ -272,6 +272,16 @@ function stageSidecarsSpec(value) {
   };
 }
 
+/** The triple a `targets.mac.macPackage` spec builds for: `triple`, else this host's arch when `universal: false`, else universal-apple-darwin. */
+export function macPackageTriple(spec) {
+  return spec.triple ?? (spec.universal === false ? (process.arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin") : "universal-apple-darwin");
+}
+
+/** True when the macPackage spec stages its declared sidecars itself (`stageSidecars: true | { config?, receipt? }`, the recipe's first prepare step). */
+export function macPackageStagesSidecars(spec) {
+  return spec.stageSidecars !== undefined && spec.stageSidecars !== false;
+}
+
 export function expandMacPackageTarget(target, { appRoot, config = {}, env = process.env, resolveTargetRoot = cargoResolveTargetRoot, managedRoots }) {
   if (!target?.macPackage) return withoutRecipe(target);
   const spec = target.macPackage;
@@ -291,7 +301,7 @@ export function expandMacPackageTarget(target, { appRoot, config = {}, env = pro
   if (spec.updater !== undefined && spec.updater !== true && spec.updater !== false && typeof spec.updater !== "string") fail("targets.mac.macPackage.updater must be true or an app-relative .tar.gz path");
   if (typeof spec.updater === "string" && !/\.tar\.gz$/i.test(relativeInside(spec.updater, "targets.mac.macPackage.updater"))) fail("targets.mac.macPackage.updater must end in .tar.gz");
   // Tauri's universal-apple-darwin target builds both slices and lipos them itself.
-  const triple = spec.triple ?? (spec.universal === false ? (process.arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin") : "universal-apple-darwin");
+  const triple = macPackageTriple(spec);
   if (spec.triple !== undefined) {
     const wrong = [...MAC_TRIPLES, "universal-apple-darwin"].find((other) => other !== triple && target.notarize.app.replaceAll("\\", "/").split("/").includes(other));
     if (wrong) fail(`targets.mac.macPackage.triple is ${triple} but notarize.app is under ${wrong}; the built .app lives in the ${triple} directory`);

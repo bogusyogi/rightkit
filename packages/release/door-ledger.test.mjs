@@ -527,3 +527,65 @@ test("[package restage] the package stage may stage the sidecars again for the p
   assert.equal((await closeSnapshotStage({ o: fx.o, ds: fx.ds, root: fx.repo, stage: "package", step: "package" })).ok, false);
   assert.match(fx.lines.join("\n"), /not a valid stage-sidecar receipt/);
 });
+
+// ---- producer carriers and the package-triple staging ----------------------------------------------------------------------------------
+
+test("[producer carrier] the web-build step's carrier hands the ledger re-verify the gate's stage-open digest of the declared inputs (dist absent at open); only the three producing steps pass producer: true", { skip: POSIX_SIM }, async (t) => {
+  const fx = await fixture(t, WEB_FILES, "rk-ledger-web-producer-");
+  const seen = [];
+  const spawn = webBuildDouble(fx);
+  const o = { ...fx.o, spawnInherit: spawn, snapshotBroker: {}, brokerSection: () => ({}), installCarrier: () => ({ env: {}, mode: "fake", problems: async (sb, opts) => { seen.push(opts); return []; }, cleanup() {} }) };
+  fx.ds.carrierBroker = {};
+  assert.equal(await stageWebBuildOnce({ ...webArgs(fx, spawn), o, executor: { kind: "broker" } }), true, fx.lines.join("\n"));
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0].openInputDigests, [{ path: "dist", absent: true }], "the digest the producer's carrier takes at stage open, absent included, owned by the gate");
+  const src = fs.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
+  assert.equal((src.match(/carrierForChildren\(\{[^}]*producer: true \}\)/g) ?? []).length, 3, "stage-sidecar, web-build and windows-identity are the producers");
+  assert.match(src, /const carrier = await carrierForChildren\(\{ o, ds, root, git, executor, stage, tag \}\);\n    if \(carrier\.refusal\) \{ o\.err\(`\$\{tag\} BLOCKED: \$\{carrier\.refusal\}; nothing ran`\)/, "right-release's own children (the package and compile steps) run in a strict, non-producer carrier");
+  assert.match(src, /const carrier = await carrierForChildren\(\{ o, ds, root, git, executor, stage: to, tag \}\);/, "the dev/test carrier is strict too");
+});
+
+test("[package triple] stage-sidecar is staged once per target triple: the host in the compile stage, then the package triple with --target; the re-stage may replace a staged file, its receipt and remove the earlier target's staged outputs, and nothing it does not report", { skip: POSIX_SIM }, async (t) => {
+  const fx = await fixture(t);
+  const UNIVERSAL = "universal-apple-darwin";
+  const host = [];
+  const hostSpawn = (cmd, args, opts) => { host.push(args); return stagingDouble(fx)(cmd, args, opts); };
+  assert.equal(await stageSidecarsOnce(stageArgs(fx, hostSpawn)), true, fx.lines.join("\n"));
+  assert.ok(host.length === 1 && !host[0].includes("--target"), "the host case passes no --target: the compile stage is unchanged");
+  const hostEntries = fx.ds.ledger.entries;
+  assert.deepEqual(hostEntries.map((e) => e.kind), ["staged", "staged"]);
+  assert.equal(await stageSidecarsOnce(stageArgs(fx, hostSpawn)), true);
+  assert.equal(host.length, 1, "the host is staged once per door run");
+  // The package stage: the same config for the universal triple. It replaces the staged receipt, adds the universal file and removes the host file it supersedes.
+  const calls = [];
+  const universalFile = "src-tauri/binaries/eng-universal-apple-darwin";
+  const universalDouble = ({ extra = [] } = {}) => (cmd, args) => {
+    calls.push(args);
+    fx.rm(`src-tauri/binaries/eng-${triple}`);
+    fx.write(universalFile, "universal-bytes"); fx.write("src-tauri/binaries/stage-sidecar.json", '{"schema":1,"target":"universal-apple-darwin"}\n');
+    for (const f of extra) fx.write(f, "unreported");
+    return { status: 0, stderr: "", stdout: JSON.stringify({ files: [{ name: "eng", path: universalFile, sha256: sha256("universal-bytes") }], receiptPath: path.join(fx.snapshot, "src-tauri/binaries/stage-sidecar.json") }) };
+  };
+  const packageArgs = (spawnCapture) => ({ ...stageArgs(fx, spawnCapture), stage: "package", target: UNIVERSAL });
+  assert.equal(await stageSidecarsOnce(packageArgs(universalDouble())), true, fx.lines.join("\n"));
+  assert.deepEqual(calls[0].slice(-3), ["--target", UNIVERSAL, "--json"]);
+  assert.deepEqual(fx.ds.ledger.entries.map((e) => [e.path, e.kind, e.producer.stage]), [[universalFile, "staged", "sidecar"], ["src-tauri/binaries/stage-sidecar.json", "staged", "sidecar"]]);
+  assert.equal(await stageSidecarsOnce(packageArgs(universalDouble())), true);
+  assert.equal(calls.length, 1, "and once per door run for that triple");
+});
+
+test("[package triple] a re-stage that writes a file it does not report, or removes a file that was not a staged sidecar output, is still refused", { skip: POSIX_SIM }, async (t) => {
+  const fx = await fixture(t);
+  assert.equal(await stageSidecarsOnce(stageArgs(fx, stagingDouble(fx))), true, fx.lines.join("\n"));
+  const reported = { files: [{ name: "eng", path: "src-tauri/binaries/eng-universal-apple-darwin", sha256: sha256("u") }], receiptPath: path.join(fx.snapshot, "src-tauri/binaries/stage-sidecar.json") };
+  const stray = (cmd, args) => { fx.write("src-tauri/binaries/eng-universal-apple-darwin", "u"); fx.write("src-tauri/binaries/stray.bin", "x"); return { status: 0, stderr: "", stdout: JSON.stringify(reported) }; };
+  assert.equal(await stageSidecarsOnce({ ...stageArgs(fx, stray), stage: "package", target: "universal-apple-darwin" }), false);
+  refused(fx, /stray\.bin was written by the staging step but it did not report it/);
+});
+
+test("a staging step may remove only the paths it is handed as removable (its own config's earlier staged files); any other removal refuses (Oracle on 0.6.22)", () => {
+  const e = (p) => ({ path: p, type: "file", size: 1, sha256: "a".repeat(64) });
+  const before = [e("bin/own-x"), e("bin/other-y")];
+  assert.deepEqual(attributionProblems({ before, after: [e("bin/other-y")], reported: [], receipt: null, removable: ["bin/own-x"] }), [], "its own earlier file may go");
+  assert.match(attributionProblems({ before, after: [e("bin/own-x")], reported: [], receipt: null, removable: ["bin/own-x"] }).join("\n"), /bin\/other-y was removed by the staging step/, "another config's staged file may not");
+});

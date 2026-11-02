@@ -57,13 +57,21 @@ async function main() {
   const config = await importReleaseConfig(configPath, { lenient: true });
   if (config?.sidecars === undefined) throw new Error(`${opts.config} declares no sidecars`);
   if (opts.check) {
-    const target = opts.target ?? process.env.TAURI_ENV_TARGET_TRIPLE ?? nodeHostTriple();
+    const target = (opts.target === "package" ? undefined : opts.target) ?? process.env.TAURI_ENV_TARGET_TRIPLE ?? nodeHostTriple();
     const plan = planSidecarStaging({ manifest: config.sidecars, target });
     if (opts.json) console.log(JSON.stringify(plan, null, 2));
     else for (const line of formatSidecarPlan(plan)) console.log(line);
     return;
   }
-  const target = resolveTargetTriple({ target: opts.target, cwd: appRoot });
+  // `--target package` (the gate's package stage): the triple the config's Mac package recipe stages for (its first prepare step's own
+  // --target), decided here in the child that already loaded the config, so the gate never imports app code; otherwise the host's.
+  let wanted = opts.target;
+  if (wanted === "package") {
+    const { macPackageStagesSidecars, macPackageTriple } = await import("./package-recipe-targets.mjs");
+    const mac = process.platform === "darwin" ? config?.targets?.mac?.macPackage : undefined;
+    wanted = mac && macPackageStagesSidecars(mac) ? macPackageTriple(mac) : undefined;
+  }
+  const target = resolveTargetTriple({ target: wanted, cwd: appRoot });
   // Warnings (a never-run row, a catalog row that is not staged) go to stderr; stdout stays the staged-file list or the --json document.
   const result = await stageSidecars({ appRoot, manifest: config.sidecars, target, ...(split ? { cacheRoot: split.checkoutAppRoot } : {}), deps: { warn: (line) => console.error(line) } });
   if (opts.json) console.log(JSON.stringify(result, null, 2));

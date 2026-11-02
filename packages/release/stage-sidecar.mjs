@@ -1941,7 +1941,6 @@ export async function stageSidecars({ appRoot, manifest, target, cacheRoot, deps
   if (cacheRoot !== undefined && (typeof cacheRoot !== "string" || !path.isAbsolute(cacheRoot))) fail("STAGE_SIDECAR_CONFIG_INVALID", "cacheRoot must be an absolute path");
   const env = deps.env ?? process.env;
   const plan = validateSidecarManifest(manifest, { target, mode: resolveBuildMode(env) });
-  assertNotNested(plan, env);
   // A source split (source-split.mjs; rightkit-gate's snapshot route): `appRoot` is the snapshot of the commit, where the declared
   // sources are read and where the staged files and the receipt go (the Tauri build script reads them there). `cacheRoot` is the
   // checkout's app directory, which keeps every cache, archive, slice and build tree right-release owns (`.right-release/...`) and
@@ -1969,6 +1968,12 @@ export async function stageSidecars({ appRoot, manifest, target, cacheRoot, deps
     makeTempDir: deps.makeTempDir ?? (() => nodeFs.mkdtempSync(path.join(os.tmpdir(), "rightkit-stage-"))),
     removeDir: deps.removeDir ?? ((dir) => nodeFs.rmSync(dir, { recursive: true, force: true })),
   };
+  // Already staged: when the receipt at the plan's receipt path is for this manifest and target and every file it names is on disk with its recorded sha256, nothing is built,
+  // downloaded, copied or written (the gate staged the package triple first, rightkit-gate stageSidecarsOnce, so a recipe's own prepare step changes nothing). Judged before the
+  // nested-broker refusal, which guards only a step that would build.
+  const current = currentStageReceipt(plan, ctx);
+  if (current) return { receipt: current, receiptPath: path.resolve(appRoot, plan.receiptPath), files: current.files, externalBinNames: current.files.filter((file) => file.externalBin).map((file) => file.name), unchanged: true };
+  assertNotNested(plan, env);
   await claimNativeOutputs(plan, ctx);
   const files = [];
   const skipped = [];
@@ -2007,6 +2012,40 @@ export async function stageSidecars({ appRoot, manifest, target, cacheRoot, deps
   fs.mkdirSync(path.dirname(receiptFile), { recursive: true });
   fs.writeFileSync(receiptFile, `${JSON.stringify(receipt, null, 2)}\n`);
   return { receipt, receiptPath: receiptFile, files, externalBinNames: files.filter((file) => file.externalBin).map((file) => file.name) };
+}
+
+/**
+ * The receipt at the plan's receipt path when staging is already current, else null: a valid receipt of this target whose skipped rows are the plan's, that has a file of the
+ * same kind and name for every named row the plan stages, and whose every file is on disk, a regular file, with its recorded sha256 (and, for a plan that wipes its stage
+ * directory, nothing else in that directory). A receipt that cannot be read or does not match is not current; nothing is ever written.
+ */
+function currentStageReceipt(plan, ctx) {
+  const { fs, appRoot } = ctx;
+  try {
+    const receiptFile = path.resolve(appRoot, plan.receiptPath);
+    const receipt = validateStageSidecarReceipt(JSON.parse(fs.readFileSync(receiptFile, "utf8")), { target: plan.target.triple });
+    const planned = plan.entries.filter((entry) => !entry.skipped);
+    const skipped = plan.entries.filter((entry) => entry.skipped).map((entry) => ({ kind: entry.kind, index: entry.index, platforms: entry.platforms }));
+    if (JSON.stringify(skipped) !== JSON.stringify(receipt.skipped ?? [])) return null;
+    if (receipt.files.length < planned.length) return null;
+    for (const entry of planned) if (typeof entry.name === "string" && ["cargo-bin", "command", "cmake", "prebuilt", "remote"].includes(entry.kind) && !receipt.files.some((file) => file.kind === entry.kind && file.name === entry.name)) return null;
+    const named = new Set();
+    for (const file of receipt.files) {
+      const full = path.resolve(appRoot, file.path);
+      const meta = fs.statSync(full);
+      if (!meta.isFile() || sha256Of(fs.readFileSync(full)) !== file.sha256) return null;
+      named.add(full.toLowerCase());
+    }
+    if (plan.wipeStageDir) {
+      named.add(receiptFile.toLowerCase());
+      const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).every((item) => {
+        const full = path.join(dir, item.name);
+        return item.isDirectory() ? walk(full) : named.has(path.resolve(full).toLowerCase());
+      });
+      if (!walk(path.resolve(appRoot, plan.stageDir))) return null;
+    }
+    return receipt;
+  } catch { return null; }
 }
 
 /** Structural check of a staging receipt; `expected` may pin target and names. */

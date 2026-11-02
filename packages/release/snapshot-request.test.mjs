@@ -13,6 +13,7 @@ import {
   ATTEST_NONCE_ENV, DESCRIPTOR_MAX_BYTES, REQUEST_ID_FILE_ENV, RESULT_EVIDENCE_FIELDS, SNAPSHOT_REQUEST_ENV, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, declaredInputDigestsOf, freshNonce,
   BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoSubcommandOf, isCallHandleOf, isCompileClass, isLockBound, isPackageObservation, lockedArgv, isGenerationTarget, isInsideGenerationTarget, GENERATION_LEAVES, nextCallHandle, ownershipOfHandle, observedEnvOf, readDeclaredInputs, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotEvidenceIdentity, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
+import { verifyBrokerLedger } from "./snapshot-broker.mjs";
 import { startRealBroker } from "./test-support/real-broker.mjs";
 import { loadVector } from "./test-support/vectors.mjs";
 
@@ -77,6 +78,14 @@ const TAMPERS = {
   /** An absent entry for an input the snapshot holds (and, on a compile request, any absent entry): a forged absent. */
   absentForged: { evidence: (e) => { e.declaredInputDigests = e.declaredInputDigests.map((d) => ({ path: d.path, absent: true })); } },
   digestsDropped: { evidence: (e) => { e.declaredInputDigests = []; } },
+  /** Malformed declaredInputDigests entries (the broker signs exactly { path, sha256 } or { path, absent: true }, in declaration order). */
+  absentAndSha: { evidence: (e) => { e.declaredInputDigests = e.declaredInputDigests.map((d, i) => (i === 0 ? { path: d.path, absent: true, sha256: "0".repeat(64) } : d)); } },
+  digestExtraKey: { evidence: (e) => { e.declaredInputDigests = e.declaredInputDigests.map((d, i) => (i === 0 ? { ...d, extra: 1 } : d)); } },
+  digestWrongOrder: { evidence: (e) => { e.declaredInputDigests = [...e.declaredInputDigests].reverse(); } },
+  /** The first declared input recorded with an arbitrary digest (an input another step of the stage may have rewritten), and the second likewise. */
+  shortSha: { evidence: (e) => { e.declaredInputDigests = e.declaredInputDigests.map((d, i) => (i === 0 ? { path: d.path, sha256: "abc" } : d)); } },
+  firstInputArbitrary: { evidence: (e) => { e.declaredInputDigests = e.declaredInputDigests.map((d, i) => (i === 0 ? { path: d.path, sha256: "0".repeat(64) } : d)); } },
+  lastInputArbitrary: { evidence: (e) => { e.declaredInputDigests = e.declaredInputDigests.map((d, i, all) => (i === all.length - 1 ? { path: d.path, sha256: "0".repeat(64) } : d)); } },
   noFreshness: { payload: (p) => { delete p.stageEvidence.freshness; }, receipt: (r) => { delete r.freshness; } },
   /** GB-19/GB-82: a census that could not be taken is {available:false, reason} and FAILS a compile that would otherwise have succeeded (RR_FRESHNESS_UNAVAILABLE). */
   censusUnavailable: { stage: (g) => { g.freshness = { available: false, reason: "timeout" }; }, payload: (p) => { p.result = { status: "FAILED", exitCode: 1, signal: null, code: "RR_FRESHNESS_UNAVAILABLE", reap: { reaped: true } }; } },
@@ -180,7 +189,7 @@ function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = {}, ada
   const inputs = readDeclaredInputs(carrier.snapshot.path);
   const evidence = {
     requestId: id, brokerVersion: "rustright-test", executor: fx.pins.host, commit: carrier.commit,
-    snapshot: { path: carrier.snapshot.path, treeAtStart: carrier.snapshot.expectedTree, treeAtExit: carrier.snapshot.expectedTree }, declaredInputDigests: declaredInputDigestsOf(carrier.snapshot.path, inputs, { allowAbsent: adapter === null && !isCompileClass(argv) }),
+    snapshot: { path: carrier.snapshot.path, treeAtStart: carrier.snapshot.expectedTree, treeAtExit: carrier.snapshot.expectedTree }, declaredInputDigests: declaredInputDigestsOf(carrier.snapshot.path, inputs, { allowAbsent: true }),
     ownership: carrier.ownership, outputDir: fx.outputDir,
     // rustright#190 (final): an adapter job's nested children are signed INSIDE snapshotEvidence and mirrored on the receipt (the evidence copy below).
     // The lineage is kept: a child names its own parent (a depth-2 child names an earlier child), and only a child with no parent is the root's.
@@ -406,7 +415,7 @@ test("data: [7.22] each refusal: provenance, signature, pins, request, job, nonc
 test("data: [7.22] declared inputs: the signed digests must be the gate's own digest of the snapshot's declared inputs, from the manifest it carried", (t) => {
   for (const tamper of ["digestWrong", "digestsDropped"]) {
     const c = receiptCase(t, { tamper });
-    assert.throws(() => c.check(), (e) => e.code === "evidence" && /declaredInputDigests are not the gate's own digest/.test(e.message), tamper);
+    assert.throws(() => c.check(), (e) => e.code === "evidence" && /declaredInputDigests are not (the gate's own digest|the snapshot's declared inputs in declaration order)/.test(e.message), tamper);
   }
   // A declared input changed in the snapshot after the broker digested it: the gate's own digest no longer matches.
   const moved = receiptCase(t);
@@ -422,38 +431,161 @@ test("data: [7.22] declared inputs: the signed digests must be the gate's own di
   assert.equal(c.check().evidence.declaredInputDigests.length, 1);
 });
 
-test("data: declared inputs that are build outputs: a non-compiling request records a missing input as {path, absent:true}; a compile request refuses it", (t) => {
-  const NONCOMPILE = ["metadata", "--no-deps", "--locked"];
+test("data: declared inputs that are build outputs: any request records a missing input as {path, absent:true}; a cargo receipt must equal the gate's current digest, absent included (broker rustright d378d32)", (t) => {
+  const NONCOMPILE = ["metadata", "--no-deps", "--locked"]; const COMPILE = ["test", "-p", "a", "--locked"];
   const ABSENT = [{ path: "gen/missing", absent: true }];
-  // Non-compile, input absent in the snapshot and signed absent: accepted, in the exact wire form (no sha256 key).
-  const ok = receiptCase(t, { inputs: ["gen/missing"], argv: NONCOMPILE });
-  const got = ok.check().evidence.declaredInputDigests;
-  assert.deepEqual(got, ABSENT);
-  assert.equal(Object.hasOwn(got[0], "sha256"), false);
-  // A mix: the present input keeps its digest, the missing one is absent.
-  const mixed = receiptCase(t, { inputs: ["gen/in.txt", "gen/missing"], argv: NONCOMPILE });
-  const mix = mixed.check().evidence.declaredInputDigests;
-  assert.equal(mix[0].sha256.length, 64); assert.deepEqual(mix[1], ABSENT[0]);
-  // Compile: the broker refuses a missing declared input, so a compile receipt that records one is refused, and the gate never digests it as absent.
-  const compile = receiptCase(t, { inputs: ["gen/in.txt"], argv: ["test", "-p", "a", "--locked"] });
-  fs.chmodSync(path.join(compile.fx.snapshot, "gen"), 0o755); fs.rmSync(path.join(compile.fx.snapshot, "gen", "in.txt"));
-  assert.throws(() => compile.check(), (e) => e.code === "evidence" && /cannot digest the snapshot's declared inputs \(.*ENOENT/.test(e.message));
-  const forged = receiptCase(t, { inputs: ["gen/in.txt"], argv: ["test", "-p", "a", "--locked"], tamper: "absentForged" });
-  assert.throws(() => forged.check(), (e) => e.code === "evidence" && /absent declared input on a compile request/.test(e.message));
-  // Disagreement, receipt absent but the gate sees the input present.
-  const present = receiptCase(t, { inputs: ["gen/missing"], argv: NONCOMPILE });
-  fs.mkdirSync(path.join(present.fx.snapshot, "gen"), { recursive: true });
-  fs.writeFileSync(path.join(present.fx.snapshot, "gen", "missing"), "built later\n");
-  assert.throws(() => present.check(), (e) => e.code === "evidence" && /not the gate's own digest/.test(e.message));
-  // Disagreement, receipt present but the gate sees the input absent.
-  const gone = receiptCase(t, { inputs: ["gen/in.txt"], argv: NONCOMPILE });
-  fs.chmodSync(path.join(gone.fx.snapshot, "gen"), 0o755); fs.rmSync(path.join(gone.fx.snapshot, "gen", "in.txt"));
-  assert.throws(() => gone.check(), (e) => e.code === "evidence" && /not the gate's own digest/.test(e.message));
+  for (const argv of [NONCOMPILE, COMPILE]) {
+    // Input absent in the snapshot and signed absent: accepted, in the exact wire form (no sha256 key), compile or not.
+    const ok = receiptCase(t, { inputs: ["gen/missing"], argv });
+    const got = ok.check().evidence.declaredInputDigests;
+    assert.deepEqual(got, ABSENT);
+    assert.equal(Object.hasOwn(got[0], "sha256"), false);
+    // A mix: the present input keeps its digest, the missing one is absent.
+    const mix = receiptCase(t, { inputs: ["gen/in.txt", "gen/missing"], argv }).check().evidence.declaredInputDigests;
+    assert.equal(mix[0].sha256.length, 64); assert.deepEqual(mix[1], ABSENT[0]);
+    // A forged absent for an input the snapshot holds present: refused.
+    const forged = receiptCase(t, { inputs: ["gen/in.txt"], argv, tamper: "absentForged" });
+    assert.throws(() => forged.check(), (e) => e.code === "evidence" && /not the gate's own digest/.test(e.message), argv.join(" "));
+    // Disagreement, receipt absent but the gate sees the input present.
+    const present = receiptCase(t, { inputs: ["gen/missing"], argv });
+    fs.mkdirSync(path.join(present.fx.snapshot, "gen"), { recursive: true });
+    fs.writeFileSync(path.join(present.fx.snapshot, "gen", "missing"), "built later\n");
+    assert.throws(() => present.check(), (e) => e.code === "evidence" && /not the gate's own digest/.test(e.message), argv.join(" "));
+    // Disagreement, receipt present but the gate sees the input absent.
+    const gone = receiptCase(t, { inputs: ["gen/in.txt"], argv });
+    fs.chmodSync(path.join(gone.fx.snapshot, "gen"), 0o755); fs.rmSync(path.join(gone.fx.snapshot, "gen", "in.txt"));
+    assert.throws(() => gone.check(), (e) => e.code === "evidence" && /not the gate's own digest/.test(e.message), argv.join(" "));
+  }
   // The digest function: absent only when asked; a link is never absent.
-  const snap = ok.fx.snapshot;
+  const snap = receiptCase(t, { inputs: ["gen/missing"] }).fx.snapshot;
   assert.deepEqual(declaredInputDigestsOf(snap, ["gen/missing", "nope/deeper"], { allowAbsent: true }), [{ path: "gen/missing", absent: true }, { path: "nope/deeper", absent: true }]);
   assert.throws(() => declaredInputDigestsOf(snap, ["gen/missing"]), /ENOENT/);
   assert.throws(() => declaredInputDigestsOf(snap, ["gen/missing"], { allowAbsent: false }), /ENOENT/);
+});
+
+/** An adapter job's receipt (pnpm, node, QA) over the given declared inputs; `check()` verifies it against the snapshot as it is NOW. */
+function adapterCase(t, { inputs = ["gen/in.txt"], tamper = "none" } = {}) {
+  const fx = dataHost(t, { inputs }); const argv = ["exec", "tauri", "build"];
+  const made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: inputs, handle: fx.handle, primaryCwd: fx.checkout, argv, nonce: "a".repeat(64) });
+  const receipt = signedReceipt(fx, { id: JOB, carrier: made.carrier, argv, workspace: fx.checkout, tamper, adapter: "rightkit-pnpm" });
+  const check = (extra = {}) => verifySnapshotReceipt(receipt, { pins: fx.pins, jobId: JOB, carrier: made.carrier, argv, workspace: fx.checkout, checkout: fx.checkout, outputRoots: [fx.wsRoot], platform: process.platform, adapter: "rightkit-pnpm", ...extra });
+  return { fx, receipt, check };
+}
+
+test("data: an adapter receipt is not compared with the snapshot's current inputs (the job may have produced them) but its declaredInputDigests must be well formed", (t) => {
+  // dist recorded absent at admission, present now: accepted per call; and the reverse (recorded present, rewritten since).
+  const built = adapterCase(t, { inputs: ["gen/in.txt", "gen/dist"] });
+  assert.deepEqual(built.receipt.declaredInputDigests.map((d) => [d.path, d.absent === true]), [["gen/in.txt", false], ["gen/dist", true]]);
+  fs.mkdirSync(path.join(built.fx.snapshot, "gen", "dist"), { recursive: true }); fs.writeFileSync(path.join(built.fx.snapshot, "gen", "dist", "index.html"), "built\n");
+  fs.writeFileSync(path.join(built.fx.snapshot, "gen", "in.txt"), "rewritten by the job\n");
+  assert.equal(built.check().nestedChildren.length, 0);
+  // Malformed entries are refused whatever the snapshot holds: absent and sha256 together, an extra key, a short sha256, a wrong order, a dropped entry.
+  for (const tamper of ["absentAndSha", "digestExtraKey", "digestWrongOrder", "digestsDropped"]) {
+    const c = adapterCase(t, { inputs: ["gen/in.txt", "gen/missing"], tamper });
+    assert.throws(() => c.check(), (e) => e.code === "evidence" && /declaredInputDigests are not the snapshot's declared inputs in declaration order/.test(e.message), tamper);
+  }
+  const short = adapterCase(t, { inputs: ["gen/in.txt"], tamper: "shortSha" });
+  assert.throws(() => short.check(), (e) => e.code === "evidence" && /declaredInputDigests are not the snapshot's declared inputs in declaration order/.test(e.message));
+});
+
+/** One carried call as the ledger records it, with its signed receipt, over the snapshot as it is NOW. */
+function ledgerCall(fx, { n, argv = ["test", "-p", "a", "--locked"], inputs, tamper = "none", adapter = null }) {
+  const made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: inputs, handle: fx.handle, callHandle: `${fx.handle}#${n}`, primaryCwd: fx.checkout, argv, nonce: String(n).repeat(64) });
+  const requestId = `0000000${n}-1111-4111-8111-111111111111`;
+  const receipt = signedReceipt(fx, { id: requestId, carrier: made.carrier, argv, workspace: fx.checkout, tamper, ...(adapter ? { adapter, children: [] } : {}) });
+  const entry = { ...(adapter ? { adapter, nestedChildren: [] } : {}), mode: "broker", status: "verified", nonce: String(n).repeat(64), requestId, argv, workspace: fx.checkout, checkoutCwd: fx.checkout, cwd: fx.checkout, ownershipHandle: `${fx.handle}#${n}`, adapterEnv: {}, observedEnv: {} };
+  return { entry, receipt };
+}
+const ledgerBroker = (fx, calls) => ({ handle: fx.handle, commit: fx.sb.commit, snapshot: fx.sb.snapshot, checkout: fx.checkout, outputRoots: [fx.wsRoot], pins: fx.pins, platform: process.platform, receiptOf: async (id) => calls.find((c) => c.entry.requestId === id).receipt });
+
+test("data: ledger re-verify: an input the stage changed (open digest differs from the end digest) accepts any receipt state; an unchanged one must equal the end digest", async (t) => {
+  const inputs = ["gen/in.txt", "gen/dist"];
+  const mk = () => {
+    const fx = dataHost(t, { inputs });
+    const open = declaredInputDigestsOf(fx.snapshot, inputs, { allowAbsent: true });
+    return { fx, open };
+  };
+  const produce = (fx, body) => { fs.mkdirSync(path.join(fx.snapshot, "gen", "dist"), { recursive: true }); fs.writeFileSync(path.join(fx.snapshot, "gen", "dist", "index.html"), body); };
+  // dist absent at open, the receipt says absent, the stage built dist: accepted. So is a receipt that records dist with any digest at all.
+  for (const tamper of ["none", "lastInputArbitrary"]) {
+    const { fx, open } = mk();
+    const call = ledgerCall(fx, { n: 1, inputs, tamper });
+    produce(fx, "built\n");
+    assert.deepEqual(await verifyBrokerLedger([call.entry], ledgerBroker(fx, [call]), { openInputDigests: open }), [], tamper);
+  }
+  // dist present at open and rewritten with other bytes by stage end: the receipt (made before the rewrite, or with any digest) is accepted.
+  for (const tamper of ["none", "lastInputArbitrary"]) {
+    const { fx } = mk();
+    produce(fx, "first build\n");
+    const open = declaredInputDigestsOf(fx.snapshot, inputs, { allowAbsent: true });
+    const call = ledgerCall(fx, { n: 1, inputs, tamper });
+    produce(fx, "second build, different bytes\n");
+    assert.deepEqual(await verifyBrokerLedger([call.entry], ledgerBroker(fx, [call]), { openInputDigests: open }), [], tamper);
+  }
+  // The swap-around-admission case: gen/in.txt did not change between open and end, and the receipt records another digest for it: refused, even though dist changed.
+  {
+    const { fx, open } = mk();
+    const call = ledgerCall(fx, { n: 1, inputs, tamper: "firstInputArbitrary" });
+    produce(fx, "built\n");
+    const problems = await verifyBrokerLedger([call.entry], ledgerBroker(fx, [call]), { openInputDigests: open });
+    assert.equal(problems.length, 1, problems.join("\n"));
+    assert.match(problems[0], /gen\/in\.txt is not the gate's own digest/);
+  }
+  // Without the stage-open digest nothing is produced, so the receipt's absent dist differs from the end digest and is refused; with it, accepted.
+  {
+    const { fx, open } = mk();
+    const call = ledgerCall(fx, { n: 1, inputs });
+    produce(fx, "built\n");
+    const problems = await verifyBrokerLedger([call.entry], ledgerBroker(fx, [call]));
+    assert.equal(problems.length, 1, "without an open digest dist is not produced: the receipt's absent differs from the end digest");
+    assert.match(problems[0], /gen\/dist is not the gate's own digest/);
+    assert.deepEqual(await verifyBrokerLedger([call.entry], ledgerBroker(fx, [call]), { openInputDigests: open }), []);
+  }
+});
+
+test("data: ledger re-verify: a sidecar compile admitted with binaries absent and a second with binaries half-filled both verify in a stage that changed binaries", async (t) => {
+  const inputs = ["gen/in.txt", "bin/sidecars"];
+  const fx = dataHost(t, { inputs });
+  const open = declaredInputDigestsOf(fx.snapshot, inputs, { allowAbsent: true });
+  assert.equal(open[1].absent, true);
+  const first = ledgerCall(fx, { n: 1, inputs });
+  fs.mkdirSync(path.join(fx.snapshot, "bin", "sidecars"), { recursive: true }); fs.writeFileSync(path.join(fx.snapshot, "bin", "sidecars", "one"), "sidecar one\n");
+  const second = ledgerCall(fx, { n: 2, inputs });
+  assert.notDeepEqual(first.receipt.declaredInputDigests[1], second.receipt.declaredInputDigests[1]);
+  fs.writeFileSync(path.join(fx.snapshot, "bin", "sidecars", "two"), "sidecar two\n");
+  const calls = [first, second];
+  assert.deepEqual(await verifyBrokerLedger(calls.map((c) => c.entry), ledgerBroker(fx, calls), { openInputDigests: open }), []);
+  // Without the stage-open digest nothing counts as produced: the same two receipts keep the strict rule and are refused.
+  const strict = await verifyBrokerLedger(calls.map((c) => c.entry), ledgerBroker(fx, calls));
+  assert.equal(strict.length, 2, strict.join("\n"));
+});
+
+test("data: ledger re-verify in a NON-producer carrier (no stage-open digest): a staged input swapped around an admission and restored, with an extra ignored file, is refused, for a cargo and for an adapter receipt; so is an input changed between steps", async (t) => {
+  const inputs = ["gen/in.txt", "bin/sidecars"];
+  const put = (fx, file, body) => { fs.mkdirSync(path.join(fx.snapshot, "bin", "sidecars"), { recursive: true }); fs.writeFileSync(path.join(fx.snapshot, "bin", "sidecars", file), body); };
+  for (const adapter of [null, "rightkit-pnpm"]) {
+    const argv = adapter ? ["exec", "tauri", "build"] : ["test", "-p", "a", "--locked"];
+    const fx = dataHost(t, { inputs });
+    put(fx, "eng", "staged sidecar A");
+    // The hostile child swaps A to B, the call is admitted and reads B, the child restores A and leaves an extra ignored file.
+    put(fx, "eng", "swapped sidecar B");
+    const call = ledgerCall(fx, { n: 1, inputs, argv, adapter });
+    put(fx, "eng", "staged sidecar A"); put(fx, "extra.bin", "ignored extra");
+    const problems = await verifyBrokerLedger([call.entry], ledgerBroker(fx, [call]));
+    assert.equal(problems.length, 1, `${adapter ?? "cargo"}: ${problems.join("\n")}`);
+    assert.match(problems[0], /bin\/sidecars is not the gate's own digest/, adapter ?? "cargo");
+    // The honest control: the receipt made against the end state verifies.
+    const honest = ledgerCall(fx, { n: 2, inputs, argv, adapter });
+    assert.deepEqual(await verifyBrokerLedger([honest.entry], ledgerBroker(fx, [honest])), [], `${adapter ?? "cargo"} control`);
+  }
+  // An input changed between steps (outside any producer carrier): the call recorded the state it saw, the end state differs: refused.
+  const fx = dataHost(t, { inputs });
+  put(fx, "eng", "state A");
+  const call = ledgerCall(fx, { n: 1, inputs });
+  put(fx, "eng", "state B, written between steps");
+  const problems = await verifyBrokerLedger([call.entry], ledgerBroker(fx, [call]));
+  assert.equal(problems.length, 1, problems.join("\n"));
+  assert.match(problems[0], /bin\/sidecars is not the gate's own digest/);
 });
 
 test("data: [7.22] output directory: absolute, outside the snapshot and the checkout, and a managed generation target", (t) => {

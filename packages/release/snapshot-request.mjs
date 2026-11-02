@@ -356,9 +356,9 @@ export function assertSuppliedInputs(snapshotRoot, supplied) {
  * anywhere, a special file, or a limit breach is a refusal. The name is the input's path components joined by `/` on EVERY platform (GB-49: RustRight hashes
  * `/` on Windows too, so a `\` in a declaration or a platform separator never reaches the hash), UTF-8, no Unicode normalisation.
  *
- * `allowAbsent` is set ONLY for a non-compiling snapshot-bound request (the carried read-only set): a declared input that does not exist in the
- * snapshot (ENOENT/ENOTDIR on a component; a link is still refused) is then the entry `{ path, absent: true }` (no `sha256`, 0 files, 0 bytes), the
- * wire form RustRight signs. A compile request never allows it: a missing declared input is a refusal there (the build outputs must exist).
+ * `allowAbsent` makes a declared input that does not exist in the snapshot (ENOENT/ENOTDIR on a component; a link is still refused) the entry
+ * `{ path, absent: true }` (no `sha256`, 0 files, 0 bytes), the wire form RustRight signs. The broker admits every request with an absent input
+ * (a compile is refused at exit only if an input CHANGED while it ran, rustright d378d32), so the receipt check digests with it for every class.
  */
 export function declaredInputDigestsOf(snapshotRoot, inputs, { allowAbsent = false } = {}) {
   let files = 0; let bytes = 0;
@@ -528,7 +528,8 @@ export function verifyNestedChildren(evidence, receipt, { snapshotPath, checkout
  * Beyond the signature, the job, the nonce and the request digest, the receipt must carry (item 7 row 7.22):
  *   - signed SUCCEEDED with exit 0, and signed snapshotEvidence equal to the receipt's copies (commit, ownership handle, request id,
  *     snapshot path, `treeAtStart` = `treeAtExit` = the expected tree);
- *   - `declaredInputDigests` equal to the gate's own digest of the snapshot's declared inputs, read from the snapshot now;
+ *   - `declaredInputDigests` well formed (the declaration's paths in order, each `{path, sha256}` or `{path, absent:true}`), and for a cargo request equal to the gate's own
+ *     digest of the snapshot's declared inputs read now (absent included; an adapter request skips the comparison, it may produce an input); `inputPolicy` replaces that digest (see below);
  *   - `outputDir` absolute, outside the snapshot and the checkout, and a managed generation target under one of `outputRoots`;
  *   - signed stageEvidence (freshness, attribution, toolchain) equal to the receipt's;
  *   - for a compile, freshness.causeEvidence (rustright.cause-evidence.v1) coherent with its census and with a verdict of `explained`: refused as `evidence` when missing,
@@ -536,7 +537,7 @@ export function verifyNestedChildren(evidence, receipt, { snapshotPath, checkout
  *   - timingsMs, exit, diagnosticsPath, brokerVersion and executor present with their types; the retired `verdict` and `refreshed` are refused (GB-30: Class A and its verdict reuse are the gate's).
  * `checkout` and `outputRoots` are required: without them nothing can be said about where the outputs went, so it refuses.
  */
-export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, workspace, observedEnv = {}, adapter = null, adapterEnv = {}, checkout, outputRoots, platform = process.platform, canonicalPath = (p) => fs.realpathSync.native(p), digestInputs = declaredInputDigestsOf, readInputs = readDeclaredInputs }) {
+export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, workspace, observedEnv = {}, adapter = null, adapterEnv = {}, checkout, outputRoots, platform = process.platform, canonicalPath = (p) => fs.realpathSync.native(p), digestInputs = declaredInputDigestsOf, readInputs = readDeclaredInputs, inputPolicy = null }) {
   const requestDigest = requestDigestOf(snapshotRequestCore({ argv, workspace, observedEnv, carrier, adapter, adapterEnv }));
   const payload = verifyProvenance(receipt, pins, { jobId, nonce: carrier.nonce, requestDigest });
   // The signed outcome, not the client's exit code: a passing row needs the broker to have signed SUCCEEDED with exit 0 and no
@@ -563,21 +564,36 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
     commit: carrier.commit, tree: carrier.snapshot.expectedTree, jobId, handle: carrier.ownership.handle, snapshotPath: carrier.snapshot.path,
     samePath: (a, b) => { try { return canonicalPath(a) === canonicalPath(b); } catch { return false; } },
   });
-  // Declared inputs: what the broker digested in place must be what the gate digests in the snapshot, from the same manifest.
-  // An absent entry ({path, absent:true}) is evidence only for a non-compiling snapshot-bound request, and only when the gate's own read of the
-  // snapshot finds the input absent too: the gate digests with `allowAbsent` for that class alone, so a receipt that says absent where the gate
-  // sees the input present (or present where it is absent) differs below and is refused. A compile receipt never carries one.
-  const nonCompile = adapter === null && !isCompileClass(argv);
-  if (!nonCompile && Array.isArray(evidence.declaredInputDigests) && evidence.declaredInputDigests.some((d) => isObject(d) && (d.absent !== undefined || d.sha256 === undefined))) {
-    fail("evidence", "the signed declaredInputDigests carry an absent declared input on a compile request (cargo " + `${cargoSubcommandOf(argv)}); only a non-compiling request may record one`);
-  }
-  let gateInputs; let gateDigests;
+  // Declared inputs. The broker admits every snapshot request with a declared input absent and records it as `{ path, absent: true }` in the signed
+  // snapshotEvidence.declaredInputDigests (declaration order); a compile is refused at exit if any declared input changed while it ran, an absent one
+  // appearing included (rustright d378d32). So an absent entry is evidence on any request, and the receipt is judged per class:
+  //   - a cargo request (adapter === null): the receipt's digests equal the gate's current digest of the snapshot's inputs (the child copies the next
+  //     file only after the call returns, and the broker refused a compile whose inputs changed during it);
+  //   - an adapter request: the digest comparison is skipped (the job may be the producer of an input), but the receipt's entries must be well formed,
+  //     the declaration's paths in declaration order, each exactly `{ path, sha256 }` or exactly `{ path, absent: true }`;
+  //   - with `inputPolicy` ({ produced: Set<path>, current: digest array }) the gate's own digest is replaced: an input whose path is in `produced` accepts any
+  //     well-formed entry (absent or any sha256); every other input must equal `current`'s entry for that path (the swap-around-admission refusal).
+  let gateInputs; let gateDigests = null;
   try {
     gateInputs = readInputs(carrier.snapshot.path);
-    gateDigests = digestInputs(carrier.snapshot.path, gateInputs, { platform, allowAbsent: nonCompile });
+    if (!inputPolicy && adapter === null) gateDigests = digestInputs(carrier.snapshot.path, gateInputs, { platform, allowAbsent: true });
   } catch (e) { fail("evidence", `the gate cannot digest the snapshot's declared inputs (${e.message})`); }
   if (!same(gateInputs, carrier.declaredInputs?.inputs)) fail("evidence", "the snapshot's declared inputs are not the ones this request carried (declaredInputs differs from the snapshot declaration)");
-  if (!same(evidence.declaredInputDigests, gateDigests)) fail("evidence", "the signed declaredInputDigests are not the gate's own digest of the snapshot's declared inputs (an input the receipt records absent must be absent in the snapshot, and the reverse)");
+  const signedInputs = evidence.declaredInputDigests;
+  const wellFormed = Array.isArray(signedInputs) && signedInputs.length === gateInputs.length && signedInputs.every((d, i) => {
+    if (!isObject(d) || d.path !== gateInputs[i]) return false;
+    const keys = Object.keys(d).sort().join();
+    return (keys === "path,sha256" && typeof d.sha256 === "string" && /^[0-9a-f]{64}$/.test(d.sha256)) || (keys === "absent,path" && d.absent === true);
+  });
+  if (!wellFormed) fail("evidence", "the signed declaredInputDigests are not the snapshot's declared inputs in declaration order, each exactly { path, sha256 } or { path, absent: true }");
+  if (inputPolicy) {
+    const { produced, current } = inputPolicy;
+    if (!(produced instanceof Set) || !Array.isArray(current) || current.length !== gateInputs.length) fail("evidence", "the gate's input policy is not { produced: Set, current: one digest per declared input }");
+    signedInputs.forEach((d, i) => {
+      if (produced.has(gateInputs[i])) return;
+      if (!same(d, current[i])) fail("evidence", `the signed declaredInputDigests entry for ${gateInputs[i]} is not the gate's own digest of that input at the end of the stage, and the stage did not change it (an input the receipt records absent must be absent, and the reverse)`);
+    });
+  } else if (adapter === null && !same(signedInputs, gateDigests)) fail("evidence", "the signed declaredInputDigests are not the gate's own digest of the snapshot's declared inputs (an input the receipt records absent must be absent in the snapshot, and the reverse)");
   // Output directory: where the outputs went must be the broker's managed generation target, never under the snapshot or the checkout.
   const out = evidence.outputDir;
   if (typeof out !== "string" || !path.isAbsolute(out) && !path.win32.isAbsolute(out)) fail("evidence", "the signed evidence names no absolute output directory");

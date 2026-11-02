@@ -136,10 +136,10 @@ function finish(ledgerDir, dir, workspaces = {}) {
   const checkoutRoots = Object.values(workspaces);
   return {
     /** Every call of the stage that is not a completed, verified success, and every verified call the gate cannot verify again itself. */
-    async problems(sb) {
+    async problems(sb, opts = {}) {
       const { entries, problems } = readLedger(ledgerDir, UNSCOPED);
       const out = [...problems];
-      if (sb) out.push(...await verifyBrokerLedger(entries, sb));
+      if (sb) out.push(...await verifyBrokerLedger(entries, sb, opts));
       return out;
     },
     /** The verified calls' output directories, in call order (the receipts'; an adapter job's nested children's included). */

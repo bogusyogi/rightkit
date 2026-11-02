@@ -114,14 +114,14 @@ test("[rustright#209 item 5] a passed compile records the sha256 of the bin targ
   fs.writeFileSync(path.join(out, "debug", "rustright.d"), "dep-info", { mode: 0o644 });
   const sha = (text) => createHash("sha256").update(text).digest("hex");
   assert.deepEqual(compiledBinaries({ [out]: ["rustright-broker", "rustright", "rustright", "not-built-here"] }), [
-    { dir: out, name: `not-built-here${exe}`, size: null, sha256: null },
-    { dir: out, name: `rustright${exe}`, size: 12, sha256: sha("client-bytes") },
-    { dir: out, name: `rustright-broker${exe}`, size: 12, sha256: sha("broker-bytes") },
+    { dir: out, path: `debug/not-built-here${exe}`, name: `not-built-here${exe}`, size: null, sha256: null },
+    { dir: out, path: `debug/rustright${exe}`, name: `rustright${exe}`, size: 12, sha256: sha("client-bytes") },
+    { dir: out, path: `debug/rustright-broker${exe}`, name: `rustright-broker${exe}`, size: 12, sha256: sha("broker-bytes") },
   ], "only the built bin targets, each once; a missing one is recorded as missing; the stale executable is never recorded");
 
   const truncated = compileOutputsRecord({ dirs: [out], builtBins: { [out]: ["rustright"], "/elsewhere/target": ["x"] }, census: (dirs) => ({ dirs, entries: 250001, digest: "d", truncated: true, missing: [] }) });
   assert.equal(truncated.truncated, true);
-  assert.equal(truncated.binariesOf, "built-bin-targets/1");
+  assert.equal(truncated.binariesOf, "built-bin-targets/2");
   assert.deepEqual(truncated.binaries.map((b) => b.name), [`rustright${exe}`], "recorded even when the census proves nothing; only directories the compile reported");
   assert.equal(compileOutputsRecord({ dirs: [out] }).binaries, undefined, "a compile that reported no built targets records no binaries and no marker");
 });
@@ -129,4 +129,19 @@ test("[rustright#209 item 5] a passed compile records the sha256 of the bin targ
 test("[rustright#209 item 5] a Windows built target is <bin>.exe", () => {
   const rows = compiledBinaries({ T: ["a"] }, { platform: "win32", stat: () => ({ isFile: () => true, size: 1 }), readFile: () => Buffer.from("x") });
   assert.deepEqual(rows.map((b) => b.name), ["a.exe"]);
+});
+
+test("[rustright#209 item 5] a broker --target build is read from <dir>/<triple>/debug, never the stale <dir>/debug beside it", (t) => {
+  const out = path.join(tmpDir(t, "rk-bins-triple-"), "target");
+  const exe = process.platform === "win32" ? ".exe" : "";
+  fs.mkdirSync(path.join(out, "debug"), { recursive: true });
+  fs.mkdirSync(path.join(out, "aarch64-apple-darwin", "debug"), { recursive: true });
+  fs.writeFileSync(path.join(out, "debug", `rustright${exe}`), "stale-from-october", { mode: 0o755 });
+  fs.writeFileSync(path.join(out, "aarch64-apple-darwin", "debug", `rustright${exe}`), "this-compile", { mode: 0o755 });
+  const sha = (text) => createHash("sha256").update(text).digest("hex");
+  assert.deepEqual(compiledBinaries({ [out]: { profile: "aarch64-apple-darwin/debug", bins: ["rustright"] } }), [
+    { dir: out, path: `aarch64-apple-darwin/debug/rustright${exe}`, name: `rustright${exe}`, size: 12, sha256: sha("this-compile") },
+  ]);
+  assert.deepEqual(compiledBinaries({ [out]: { profile: null, bins: ["rustright"] } }), [], "no known profile (a broker row without a triple): nothing is recorded");
+  assert.deepEqual(compiledBinaries({ [out]: { profile: "../escape", bins: ["rustright"] } }), [], "a profile is a plain relative directory");
 });

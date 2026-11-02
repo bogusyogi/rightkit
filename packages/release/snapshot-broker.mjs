@@ -27,7 +27,7 @@ import { removeCarrier, sweepSnapshotRequests } from "./carrier-census.mjs";
 import { DEFAULT_RETRY_WINDOW_MS, RETRYABLE_OUTCOME_CODES, clientGuardMs, diagnoseControlReply, drainFrames, operationDeadlineEnv, operationOutcomeInOutput, overCapProblem, refusalInCapturedOutput, retryPauseMs, sleepSync } from "./broker-wire.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend, markCarriedUnsent } from "./ownership-mark.mjs";
 import {
-  MANAGED_RUST_ENVIRONMENT_KEYS, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, isCallHandleOf, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
+  MANAGED_RUST_ENVIRONMENT_KEYS, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, declaredInputDigestsOf, isCallHandleOf, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
 
 /**
@@ -698,9 +698,26 @@ export const runBrokerCargo = (call) => carryBrokerCargo(call).status;
  * again now, verifies against THIS gate's commit, snapshot, ownership handle and pins, and its carrier was used once: a nonce or a
  * request id that appears twice in the run (`seen`) is a replay. Returns the problems; none means every call verified.
  */
-export async function verifyBrokerLedger(entries, sb, { seen = { nonces: new Set(), ids: new Set(), handles: new Set() } } = {}) {
+export async function verifyBrokerLedger(entries, sb, { seen = { nonces: new Set(), ids: new Set(), handles: new Set() }, openInputDigests = null } = {}) {
   seen.handles ??= new Set();
   const problems = [];
+  // `openInputDigests` is supplied ONLY by a producer carrier (the gate's own web-build, windows-identity and stage-sidecar steps, which write declared inputs by design):
+  // the inputs whose digest at stage open (the gate's own, allowAbsent) differs from the digest at stage end, computed once, are then "produced" and accept any well-formed
+  // receipt entry. Without it (every other carrier) nothing is produced: every receipt, cargo AND adapter, must equal the stage-end digest input by input, so an input a child
+  // swapped around an admission and restored is refused. closeSnapshotStage's attribution check is what makes "produced" safe. A failure to digest ends the verification with that problem.
+  let inputPolicy = null;
+  const ledgered = entries.some((e) => e.mode === "broker" && e.status === "verified");
+  if (ledgered) {
+    try {
+      const end = declaredInputDigestsOf(sb.snapshot.path, readDeclaredInputs(sb.snapshot.path), { platform: sb.platform, allowAbsent: true });
+      const produced = new Set();
+      if (Array.isArray(openInputDigests)) {
+        if (openInputDigests.length !== end.length) throw new SnapshotRequestError("ledger", "the stage-open digest of the declared inputs does not match the declaration");
+        end.forEach((d, i) => { if (openInputDigests[i]?.path !== d.path) throw new SnapshotRequestError("ledger", "the stage-open digest of the declared inputs is not in declaration order"); if (canonicalJson(openInputDigests[i]) !== canonicalJson(d)) produced.add(d.path); });
+      }
+      inputPolicy = { produced, current: end };
+    } catch (error) { return [`the gate cannot digest the snapshot's declared inputs at the end of the stage (${error.code ?? "error"}: ${error.message})`]; }
+  }
   for (const e of entries) {
     if (e.mode !== "broker" || e.status !== "verified") continue;
     const adapter = typeof e.adapter === "string" && e.adapter ? e.adapter : null;
@@ -733,7 +750,7 @@ export async function verifyBrokerLedger(entries, sb, { seen = { nonces: new Set
         ownership: { handle: e.ownershipHandle }, primaryCwd: e.checkoutCwd, argvSha256: argvSha256(e.argv), nonce: e.nonce,
       };
       const receipt = await sb.receiptOf(e.requestId);
-      const verified = verifySnapshotReceipt(receipt, { pins: sb.pins, jobId: e.requestId, carrier, argv: e.argv, workspace: e.workspace, observedEnv: e.observedEnv ?? {}, adapter, adapterEnv: e.adapterEnv ?? {}, checkout: sb.checkout, outputRoots: sb.outputRoots, platform: sb.platform });
+      const verified = verifySnapshotReceipt(receipt, { pins: sb.pins, jobId: e.requestId, carrier, argv: e.argv, workspace: e.workspace, observedEnv: e.observedEnv ?? {}, adapter, adapterEnv: e.adapterEnv ?? {}, checkout: sb.checkout, outputRoots: sb.outputRoots, platform: sb.platform, inputPolicy });
       if (adapter !== null) {
         // The children the ledger records (the bundle root and the stage's output directories are read from them) are the signed ones, and no more.
         if (canonicalJson(e.nestedChildren ?? null) !== canonicalJson(verified.nestedChildren)) throw new SnapshotRequestError("nested", "the nested children the call recorded are not the ones the broker's receipt signs");

@@ -137,12 +137,15 @@ export const sameEntries = (x, y) => { const d = diffEntries(x, y); return !d.ad
  * The attribution diff of a staging step: every path the step added must be one it reported (or its receipt), and every path it
  * reported must exist. Anything else is an unattributed write. `reported` and `receipt` are snapshot-relative posix paths.
  */
-export function attributionProblems({ before, after, reported, receipt }) {
+export function attributionProblems({ before, after, reported, receipt, removable = [] }) {
   const d = diffEntries(before, after);
   const allowed = new Set([...reported, ...(receipt ? [receipt] : [])]);
+  // A step re-staging another target may replace a file an earlier staging step staged (a CHANGED path it reports is allowed above) and may remove one (a path in `removable`,
+  // the staged sidecar outputs of the step's own earlier staging, which a `wipeStageDir` re-stage deletes); nothing else may be removed.
+  const removableSet = new Set(removable);
   const problems = [];
   for (const p of [...d.added, ...d.changed]) if (!allowed.has(p)) problems.push(`${p} was written by the staging step but it did not report it`);
-  for (const p of d.removed) problems.push(`${p} was removed by the staging step`);
+  for (const p of d.removed) if (!removableSet.has(p)) problems.push(`${p} was removed by the staging step`);
   const present = new Set(after.map((e) => e.path));
   for (const p of allowed) if (!present.has(p)) problems.push(`${p} was reported by the staging step but is not in the snapshot as a ledger entry`);
   return problems;

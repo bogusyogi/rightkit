@@ -234,10 +234,11 @@ export function compileKeyOf(env = {}) {
 export const COMPILE_PROFILE_DIR = "debug";
 
 /** How `binaries` was chosen: only the bin targets the compile built in that directory (a consumer requires this marker). */
-export const BUILT_BINARIES_SCHEMA = "built-bin-targets/1";
+export const BUILT_BINARIES_SCHEMA = "built-bin-targets/2";
 
 /**
- * The sha256 of each binary this compile built (rustright#209 item 5): for every output directory, the files `<dir>/debug/<bin>[.exe]` of the
+ * The sha256 of each binary this compile built (rustright#209 item 5): for every output directory, the files `<dir>/<profile>/<bin>[.exe]` (`debug`, or
+ * `<triple>/debug` for a broker build with --target; each row's `path` names it, schema built-bin-targets/2) of the
  * bin targets the compile built there (`builtBins`, { [dir]: [bin target name] }: the units whose scans ran `cargo build -p <crate>` in that
  * directory's workspace, so each binary was rebuilt or proven fresh by Cargo for this commit). Any other file in `debug/`, a stale binary of a
  * removed or renamed target or of a package this run did not build, is never recorded. A census proves nothing once truncated (a broker
@@ -247,12 +248,16 @@ export const BUILT_BINARIES_SCHEMA = "built-bin-targets/1";
 export function compiledBinaries(builtBins = {}, { platform = process.platform, stat = (f) => fs.statSync(f), readFile = (f) => fs.readFileSync(f) } = {}) {
   const out = [];
   for (const dir of Object.keys(builtBins ?? {}).filter((d) => typeof d === "string" && d).sort()) {
-    for (const bin of [...new Set(builtBins[dir] ?? [])].sort()) {
+    // { profile, bins }: profile is the directory under `dir` Cargo wrote them to (`debug`, or `<triple>/debug` for a --target build); a bare array is `debug`.
+    const entry = Array.isArray(builtBins[dir]) ? { profile: COMPILE_PROFILE_DIR, bins: builtBins[dir] } : builtBins[dir] ?? {};
+    if (typeof entry.profile !== "string" || !/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)?$/.test(entry.profile)) continue;
+    for (const bin of [...new Set(entry.bins ?? [])].sort()) {
       const name = `${bin}${platform === "win32" ? ".exe" : ""}`;
-      const file = path.join(dir, COMPILE_PROFILE_DIR, name);
+      const rel = `${entry.profile}/${name}`;
+      const file = path.join(dir, ...rel.split("/"));
       let info = null;
       try { info = stat(file); } catch { info = null; }
-      out.push(info?.isFile?.() ? { dir, name, size: info.size, sha256: sha256(readFile(file)) } : { dir, name, size: null, sha256: null });
+      out.push(info?.isFile?.() ? { dir, path: rel, name, size: info.size, sha256: sha256(readFile(file)) } : { dir, path: rel, name, size: null, sha256: null });
     }
   }
   return out;
