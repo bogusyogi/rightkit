@@ -285,7 +285,12 @@ mod tests {
             ("rightkit-doctor-no-such-clipboard-b", &["--input"]),
         ];
         let err = copy_with(missing, "x").unwrap_err();
-        assert!(err.starts_with("rightkit-doctor-no-such-clipboard-b: spawn error"), "{err}");
-        assert!(copy_with(&[], "x").unwrap_err().contains("no clipboard candidates"));
+        assert!(
+            err.starts_with("rightkit-doctor-no-such-clipboard-b: spawn error"),
+            "{err}"
+        );
+        assert!(copy_with(&[], "x")
+            .unwrap_err()
+            .contains("no clipboard candidates"));
     }
 }
