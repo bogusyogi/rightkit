@@ -510,7 +510,7 @@ pub fn prepare(
     build(payload, remote_account, Mode::NoMedia)
 }
 
-/// [`prepare`] for a payload whose images are uploaded: `images` holds one image URN per media item, in entry
+/// `prepare` for a payload whose images are uploaded: `images` holds one image URN per media item, in entry
 /// order. A count that differs from the payload's media is `media_missing`, so an image is never dropped.
 pub fn prepare_with(
     payload: &crate::wire::PublishPayload,

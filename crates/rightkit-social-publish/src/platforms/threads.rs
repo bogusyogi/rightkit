@@ -370,7 +370,7 @@ pub fn prepare(
     Ok(prepared)
 }
 
-/// [`prepare`] that also accepts a carousel (two to twenty media items).
+/// `prepare` that also accepts a carousel (two to twenty media items).
 pub fn prepare_any(
     payload: &crate::wire::PublishPayload,
     remote_account: &str,

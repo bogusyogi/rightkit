@@ -33,7 +33,7 @@
 //! The permalink. The v5 pin object's `link` is the pin's DESTINATION link (the page the pin points to), not
 //! its address on Pinterest. The pin's own address, `https://www.pinterest.com/pin/<id>/`, is built from the
 //! confirmed id; that form is the conventional one and is UNVERIFIED against a live server. The destination
-//! link read back is available through [`destination_link`].
+//! link read back is available through `destination_link`.
 //!
 //! UNVERIFIED (the capability matrix says: "Pin spec: unsourced, reference not fetched"): every numeric pin
 //! limit here (the 100-character title, the 500-character description, the 2,048-character link), the field
