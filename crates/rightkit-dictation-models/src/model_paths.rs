@@ -1,7 +1,7 @@
 // Canonical ASR model-location resolution — the ONE source of truth.
 //
 // Activated Parakeet resolves to its exact Orthic Labs shared-store variant,
-// then the app-private legacy directory. Bundled Sherpa KWS is separate.
+// then the app-private legacy directory. Bundled KWS is separate.
 
 use std::path::{Path, PathBuf};
 
@@ -55,7 +55,7 @@ pub const RETIRED_TDT_MODELS: &[(&str, &str)] = &[
 pub const RETIRED_TDT_MODELS: &[(&str, &str)] =
     &[(MACOS_TDT_PREVIOUS_SUBDIR, MACOS_TDT_PREVIOUS_STORE_ID)];
 
-pub const SHERPA_KWS_SUBDIR: &str = "kws";
+pub const KWS_SUBDIR: &str = "kws";
 
 /// Where primary ASR models live, and the engine's fallback base.
 pub fn install_base() -> PathBuf {
@@ -262,69 +262,69 @@ pub fn local_asr_ready(dir: &Path, subdir: &str) -> bool {
 /// location actually won: a shipped bundle location, an exe-relative
 /// (non-bundle) location, or the dev-only source-checkout fallback.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SherpaKwsCandidateKind {
+pub enum KwsCandidateKind {
     Bundle,
     ExeRelative,
     DevSource,
 }
 
-pub struct SherpaKwsCandidate {
-    pub kind: SherpaKwsCandidateKind,
+pub struct KwsCandidate {
+    pub kind: KwsCandidateKind,
     pub path: PathBuf,
 }
 
-/// Build the ordered candidate list for Sherpa KWS resolution. Executable-
+/// Build the ordered candidate list for KWS resolution. Executable-
 /// relative / macOS bundle locations are tried FIRST because that is what
 /// ships to users. The `CARGO_MANIFEST_DIR` source-checkout path is a
 /// dev-only last resort: it is compiled in at build time, so a release
 /// binary built on a developer machine would otherwise keep resolving into
 /// that developer's source tree instead of its own bundle.
-pub fn sherpa_kws_candidates(exe: Option<&Path>) -> Vec<SherpaKwsCandidate> {
+pub fn kws_candidates(exe: Option<&Path>) -> Vec<KwsCandidate> {
     let mut candidates = Vec::new();
     if let Some(exe) = exe {
         if let Some(dir) = exe.parent() {
-            candidates.push(SherpaKwsCandidate {
-                kind: SherpaKwsCandidateKind::ExeRelative,
+            candidates.push(KwsCandidate {
+                kind: KwsCandidateKind::ExeRelative,
                 path: dir.join("kws"),
             });
-            candidates.push(SherpaKwsCandidate {
-                kind: SherpaKwsCandidateKind::ExeRelative,
+            candidates.push(KwsCandidate {
+                kind: KwsCandidateKind::ExeRelative,
                 path: dir.join("resources/kws"),
             });
             #[cfg(target_os = "macos")]
             if let Some(contents) = dir.parent() {
-                candidates.push(SherpaKwsCandidate {
-                    kind: SherpaKwsCandidateKind::Bundle,
+                candidates.push(KwsCandidate {
+                    kind: KwsCandidateKind::Bundle,
                     path: contents.join("Resources/kws"),
                 });
-                candidates.push(SherpaKwsCandidate {
-                    kind: SherpaKwsCandidateKind::Bundle,
+                candidates.push(KwsCandidate {
+                    kind: KwsCandidateKind::Bundle,
                     path: contents.join("Resources/resources/kws"),
                 });
             }
         }
     }
     #[cfg(feature = "test-mode")]
-    candidates.push(SherpaKwsCandidate {
-        kind: SherpaKwsCandidateKind::DevSource,
+    candidates.push(KwsCandidate {
+        kind: KwsCandidateKind::DevSource,
         path: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources/kws"),
     });
     candidates
 }
 
 /// Pure selection over a candidate list plus an existence/readiness
-/// predicate — kept separate from `sherpa_kws_dir` so ordering can be unit
+/// predicate — kept separate from `kws_dir` so ordering can be unit
 /// tested without a real bundle or dev checkout on disk.
-pub fn select_sherpa_kws_dir(
-    candidates: Vec<SherpaKwsCandidate>,
+pub fn select_kws_dir(
+    candidates: Vec<KwsCandidate>,
     mut ready: impl FnMut(&Path) -> bool,
-) -> (PathBuf, SherpaKwsCandidateKind) {
+) -> (PathBuf, KwsCandidateKind) {
     let fallback = candidates
         .iter()
         .find(|c| {
             matches!(
                 c.kind,
-                SherpaKwsCandidateKind::Bundle | SherpaKwsCandidateKind::ExeRelative
+                KwsCandidateKind::Bundle | KwsCandidateKind::ExeRelative
             )
         })
         .map(|c| (c.path.clone(), c.kind))
@@ -333,32 +333,29 @@ pub fn select_sherpa_kws_dir(
         .into_iter()
         .find(|c| ready(&c.path))
         .map(|c| (c.path, c.kind));
-    selected.or(fallback).unwrap_or_else(|| {
-        (
-            PathBuf::from("resources/kws"),
-            SherpaKwsCandidateKind::Bundle,
-        )
-    })
+    selected
+        .or(fallback)
+        .unwrap_or_else(|| (PathBuf::from("resources/kws"), KwsCandidateKind::Bundle))
 }
 
-/// Resolve bundled Sherpa KWS resources from installed (bundle / exe-
+/// Resolve bundled KWS resources from installed (bundle / exe-
 /// relative) layouts first, falling back to the dev source checkout only in
 /// debug builds. Logs which candidate kind was selected so a mis-resolution
 /// like "release binary loading from a developer's source tree" is obvious
 /// in telemetry.
-pub fn sherpa_kws_dir() -> PathBuf {
+pub fn kws_dir() -> PathBuf {
     let exe = std::env::current_exe().ok();
-    let candidates = sherpa_kws_candidates(exe.as_deref());
-    let (dir, kind) = select_sherpa_kws_dir(candidates, sherpa_kws_ready);
+    let candidates = kws_candidates(exe.as_deref());
+    let (dir, kind) = select_kws_dir(candidates, kws_ready);
     crate::telemetry::log_message(
-        "sherpa_kws_dir_resolved",
+        "kws_dir_resolved",
         &format!("dir={} candidate_kind={kind:?}", dir.display()),
     );
     dir
 }
 
-/// True only when every selected Sherpa chunk-16 KWS runtime artifact is present.
-pub fn sherpa_kws_ready(dir: &Path) -> bool {
+/// True only when every selected chunk-16 KWS runtime artifact is present.
+pub fn kws_ready(dir: &Path) -> bool {
     dir.join("encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx")
         .is_file()
         && dir
@@ -371,8 +368,8 @@ pub fn sherpa_kws_ready(dir: &Path) -> bool {
         && dir.join("keywords.txt").is_file()
 }
 
-pub fn sherpa_kws_missing() -> bool {
-    !sherpa_kws_ready(&sherpa_kws_dir())
+pub fn kws_missing() -> bool {
+    !kws_ready(&kws_dir())
 }
 
 /// The bundled ffmpeg for an executable at `exe`, in the layout the installers write: beside the
@@ -427,9 +424,7 @@ mod tests {
         std::fs::create_dir(tmp.path().join("AudioEncoder.mlmodelc")).unwrap();
         assert!(super::stage_exists(tmp.path(), "AudioEncoder"));
     }
-    use super::{
-        select_sherpa_kws_dir, sherpa_kws_ready, SherpaKwsCandidate, SherpaKwsCandidateKind,
-    };
+    use super::{kws_ready, select_kws_dir, KwsCandidate, KwsCandidateKind};
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -442,19 +437,19 @@ mod tests {
         let bundle = PathBuf::from("/Applications/Example.app/Contents/Resources/kws");
         let dev_source = PathBuf::from("/Volumes/D/src/example/src-tauri/resources/kws");
         let candidates = vec![
-            SherpaKwsCandidate {
-                kind: SherpaKwsCandidateKind::Bundle,
+            KwsCandidate {
+                kind: KwsCandidateKind::Bundle,
                 path: bundle.clone(),
             },
-            SherpaKwsCandidate {
-                kind: SherpaKwsCandidateKind::DevSource,
+            KwsCandidate {
+                kind: KwsCandidateKind::DevSource,
                 path: dev_source.clone(),
             },
         ];
         // Both candidates are "ready" — the ordering, not readiness, must decide.
-        let (chosen, kind) = select_sherpa_kws_dir(candidates, |_| true);
+        let (chosen, kind) = select_kws_dir(candidates, |_| true);
         assert_eq!(chosen, bundle);
-        assert_eq!(kind, SherpaKwsCandidateKind::Bundle);
+        assert_eq!(kind, KwsCandidateKind::Bundle);
     }
 
     #[test]
@@ -462,18 +457,18 @@ mod tests {
         let exe_relative = PathBuf::from("/tmp/nonexistent-exe-relative/kws");
         let dev_source = PathBuf::from("/tmp/nonexistent-dev-source/kws");
         let candidates = vec![
-            SherpaKwsCandidate {
-                kind: SherpaKwsCandidateKind::ExeRelative,
+            KwsCandidate {
+                kind: KwsCandidateKind::ExeRelative,
                 path: exe_relative,
             },
-            SherpaKwsCandidate {
-                kind: SherpaKwsCandidateKind::DevSource,
+            KwsCandidate {
+                kind: KwsCandidateKind::DevSource,
                 path: dev_source.clone(),
             },
         ];
-        let (chosen, kind) = select_sherpa_kws_dir(candidates, |p: &Path| p == dev_source);
+        let (chosen, kind) = select_kws_dir(candidates, |p: &Path| p == dev_source);
         assert_eq!(chosen, dev_source);
-        assert_eq!(kind, SherpaKwsCandidateKind::DevSource);
+        assert_eq!(kind, KwsCandidateKind::DevSource);
     }
 
     #[test]
@@ -481,56 +476,56 @@ mod tests {
         let exe_relative = PathBuf::from("/tmp/nonexistent-exe-relative/kws");
         let dev_source = PathBuf::from("/tmp/nonexistent-dev-source/kws");
         let candidates = vec![
-            SherpaKwsCandidate {
-                kind: SherpaKwsCandidateKind::ExeRelative,
+            KwsCandidate {
+                kind: KwsCandidateKind::ExeRelative,
                 path: exe_relative.clone(),
             },
-            SherpaKwsCandidate {
-                kind: SherpaKwsCandidateKind::DevSource,
+            KwsCandidate {
+                kind: KwsCandidateKind::DevSource,
                 path: dev_source,
             },
         ];
         // Nothing is ready — the fallback must still never be the dev source.
-        let (chosen, kind) = select_sherpa_kws_dir(candidates, |_| false);
+        let (chosen, kind) = select_kws_dir(candidates, |_| false);
         assert_eq!(chosen, exe_relative);
-        assert_eq!(kind, SherpaKwsCandidateKind::ExeRelative);
+        assert_eq!(kind, KwsCandidateKind::ExeRelative);
     }
 
     #[test]
     fn release_build_never_produces_a_dev_source_candidate() {
-        // sherpa_kws_candidates gates DevSource behind the test-mode feature.
+        // kws_candidates gates DevSource behind the test-mode feature.
         // In a release build (test-mode off) this list must contain no
         // DevSource entries at all, so selection can never fall into one.
-        let candidates = super::sherpa_kws_candidates(None);
+        let candidates = super::kws_candidates(None);
         if !cfg!(feature = "test-mode") {
             assert!(candidates
                 .iter()
-                .all(|c| c.kind != SherpaKwsCandidateKind::DevSource));
+                .all(|c| c.kind != KwsCandidateKind::DevSource));
         }
     }
 
     #[test]
-    fn model_paths_sherpa_kws_requires_exact_runtime_files() {
+    fn model_paths_kws_requires_exact_runtime_files() {
         let root = std::env::temp_dir().join(format!(
-            "rightkit-sherpa-kws-{}-{}",
+            "rightkit-kws-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("system clock before epoch")
                 .as_nanos(),
         ));
-        fs::create_dir_all(&root).expect("create Sherpa fixture");
+        fs::create_dir_all(&root).expect("create KWS fixture");
         for file in [
             "encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx",
             "decoder-epoch-13-avg-2-chunk-16-left-64.onnx",
             "joiner-epoch-13-avg-2-chunk-16-left-64.int8.onnx",
             "tokens.txt",
         ] {
-            fs::write(root.join(file), b"fixture").expect("write Sherpa fixture");
+            fs::write(root.join(file), b"fixture").expect("write KWS fixture");
         }
-        assert!(!sherpa_kws_ready(&root));
+        assert!(!kws_ready(&root));
         fs::write(root.join("keywords.txt"), b"fixture").expect("write keyword fixture");
-        assert!(sherpa_kws_ready(&root));
-        fs::remove_dir_all(root).expect("remove Sherpa fixture");
+        assert!(kws_ready(&root));
+        fs::remove_dir_all(root).expect("remove KWS fixture");
     }
 }
