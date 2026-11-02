@@ -338,3 +338,241 @@ pub fn validate_write_scope(raw: &str) -> Result<(), String> {
          (e.g. D--Claude-heardright / Users-adrdsouza-claude); a novel single-token scope forks the corpus"
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| item.to_string()).collect()
+    }
+
+    #[test]
+    fn path_to_scope_normalizes_windows_drive_case_and_separators() {
+        assert_eq!(path_to_scope(r"D:\Claude\myproject"), "D--Claude-myproject");
+        assert_eq!(path_to_scope(r"d:\Claude\myproject"), "D--Claude-myproject");
+        assert_eq!(path_to_scope(r"\\?\d:\Claude"), "D--Claude");
+    }
+
+    #[test]
+    fn path_to_scope_trims_edges_and_falls_back_to_workspace() {
+        assert_eq!(path_to_scope("/Users/x/claude"), "Users-x-claude");
+        assert_eq!(path_to_scope("/"), "workspace");
+        assert_eq!(path_to_scope(""), "workspace");
+    }
+
+    #[test]
+    fn normalize_scope_only_uppercases_a_leading_lowercase_drive_token() {
+        assert_eq!(normalize_scope("d--Claude-x"), "D--Claude-x");
+        assert_eq!(normalize_scope("D--Claude-x"), "D--Claude-x");
+        assert_eq!(normalize_scope("global"), "global");
+        assert_eq!(normalize_scope("a"), "a");
+    }
+
+    #[test]
+    fn scope_chain_includes_self_existing_ancestors_and_global_but_not_siblings() {
+        let existing = strings(&["D--Claude", "D--Claude-other", "global"]);
+        assert_eq!(
+            scope_chain("D--Claude-coderight", &existing),
+            strings(&["D--Claude-coderight", "D--Claude", "global"])
+        );
+    }
+
+    #[test]
+    fn scope_chain_always_leads_with_self_even_without_rows() {
+        assert_eq!(scope_chain("proj-a", &[]), strings(&["proj-a"]));
+    }
+
+    #[test]
+    fn canonical_scope_chain_resolves_paths_slugs_and_empty_input_alike() {
+        let existing = strings(&["D--Claude", "global"]);
+        let expected = strings(&["D--Claude-heardright", "D--Claude", "global"]);
+        assert_eq!(
+            canonical_scope_chain(r"d:\Claude\heardright", &existing),
+            expected
+        );
+        assert_eq!(
+            canonical_scope_chain("d--Claude-heardright", &existing),
+            expected
+        );
+        assert_eq!(canonical_scope_chain("  ", &existing), strings(&["global"]));
+    }
+
+    #[test]
+    fn validate_write_scope_accepts_known_names_paths_and_slugs() {
+        for ok in [
+            "global",
+            "proposed",
+            "workspace",
+            "virtual:tenant:id",
+            "/home/me/proj",
+            r"D:\Claude",
+            "D--Claude-heardright",
+            "d--Claude",
+            "Users-adrdsouza-claude",
+            "my-long-slug",
+        ] {
+            assert!(validate_write_scope(ok).is_ok(), "{ok} should be accepted");
+        }
+    }
+
+    #[test]
+    fn validate_write_scope_rejects_empty_and_single_token_typos() {
+        assert_eq!(
+            validate_write_scope("   ").unwrap_err(),
+            "scope must be non-empty"
+        );
+        let err = validate_write_scope("heardright").unwrap_err();
+        assert!(err.contains("refusing hand-typed scope"), "got {err}");
+        assert!(validate_write_scope("two-parts").is_err());
+    }
+
+    #[test]
+    fn virtual_chain_is_nearest_first_and_requires_registered_parents() {
+        let descriptor =
+            ScopeDescriptorV1::virtual_scope("leaf", "t1", strings(&["mid", "root"]), false);
+        let existing = strings(&["virtual:t1:mid", "virtual:t1:root"]);
+        assert_eq!(
+            descriptor.resolve_chain(&existing).unwrap(),
+            strings(&["virtual:t1:leaf", "virtual:t1:mid", "virtual:t1:root"])
+        );
+        assert_eq!(
+            descriptor.resolve_chain(&[]).unwrap_err(),
+            ScopeDescriptorError::UnknownParent
+        );
+    }
+
+    #[test]
+    fn virtual_chain_rejects_invalid_descriptors() {
+        let existing = strings(&["virtual:t:p"]);
+        let resolve = |d: ScopeDescriptorV1| d.resolve_chain(&existing).unwrap_err();
+        assert_eq!(
+            resolve(ScopeDescriptorV1::virtual_scope(" ", "t", vec![], false)),
+            ScopeDescriptorError::MissingVirtualIdentity
+        );
+        assert_eq!(
+            resolve(ScopeDescriptorV1::virtual_scope("a", "t", vec![], true)),
+            ScopeDescriptorError::GlobalInheritance
+        );
+        assert_eq!(
+            resolve(ScopeDescriptorV1::virtual_scope(
+                "a",
+                "t",
+                strings(&["virtual:t:p"]),
+                false
+            )),
+            ScopeDescriptorError::InvalidParent
+        );
+        assert_eq!(
+            resolve(ScopeDescriptorV1::virtual_scope(
+                "a",
+                "t",
+                strings(&["p", "p"]),
+                false
+            )),
+            ScopeDescriptorError::Cycle
+        );
+        assert_eq!(
+            resolve(ScopeDescriptorV1::virtual_scope(
+                "a",
+                "t",
+                strings(&["a"]),
+                false
+            )),
+            ScopeDescriptorError::Cycle
+        );
+        let too_deep: Vec<String> = (0..MAX_VIRTUAL_SCOPE_DEPTH)
+            .map(|i| format!("p{i}"))
+            .collect();
+        assert_eq!(
+            resolve(ScopeDescriptorV1::virtual_scope("a", "t", too_deep, false)),
+            ScopeDescriptorError::Depth
+        );
+    }
+
+    #[test]
+    fn filesystem_descriptor_requires_path_and_uses_canonical_chain() {
+        assert_eq!(
+            ScopeDescriptorV1::filesystem("  ")
+                .resolve_chain(&[])
+                .unwrap_err(),
+            ScopeDescriptorError::MissingPath
+        );
+        let existing = strings(&["global"]);
+        assert_eq!(
+            ScopeDescriptorV1::filesystem("/Users/x/claude")
+                .resolve_chain(&existing)
+                .unwrap(),
+            strings(&["Users-x-claude", "global"])
+        );
+    }
+
+    #[test]
+    fn descriptor_deserializes_tagged_forms_with_defaults_and_rejects_unknown_fields() {
+        let parsed: ScopeDescriptorV1 =
+            serde_json::from_str(r#"{"kind":"virtual","id":"a","tenant_id":"t"}"#).unwrap();
+        assert_eq!(
+            parsed,
+            ScopeDescriptorV1::virtual_scope("a", "t", vec![], false)
+        );
+        let fs: ScopeDescriptorV1 =
+            serde_json::from_str(r#"{"kind":"filesystem","path":"/x"}"#).unwrap();
+        assert_eq!(fs, ScopeDescriptorV1::filesystem("/x"));
+        assert!(serde_json::from_str::<ScopeDescriptorV1>(
+            r#"{"kind":"filesystem","path":"/x","extra":1}"#
+        )
+        .is_err());
+    }
+
+    fn unique_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "rightkit-memory-store-scope-test-{}-{tag}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn workspace_root_from_prefers_valid_explicit_directory() {
+        let dir = unique_dir("explicit");
+        let expected = dir.canonicalize().unwrap();
+        assert_eq!(
+            workspace_root_from(dir.to_str(), None),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            workspace_root_from(dir.join("missing").to_str(), None),
+            None,
+            "an invalid explicit root must not fall through to config"
+        );
+        assert_eq!(workspace_root_from(Some("relative/dir"), None), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn workspace_root_from_reads_config_and_enforces_schema_version() {
+        let dir = unique_dir("config");
+        let root = dir.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = dir.join("workspace.json");
+
+        let write = |version: u32| {
+            let body = serde_json::json!({
+                "schemaVersion": version,
+                "workspaceRoot": root.to_str().unwrap(),
+            });
+            std::fs::write(&config, body.to_string()).unwrap();
+        };
+        write(3);
+        assert_eq!(
+            workspace_root_from(None, Some(config.as_path())),
+            Some(root.canonicalize().unwrap())
+        );
+        write(2);
+        assert_eq!(workspace_root_from(None, Some(config.as_path())), None);
+        assert_eq!(workspace_root_from(Some("  "), None), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

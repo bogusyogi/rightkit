@@ -189,3 +189,78 @@ fn derive_event_path(memory_path: &Path) -> PathBuf {
         .unwrap_or("cortex");
     memory_path.with_file_name(format!("{stem}.membrane-events.sqlite3"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derive_event_path_uses_memory_db_stem() {
+        let derived = derive_event_path(Path::new("some/dir/memory.sqlite3"));
+        assert_eq!(
+            derived.file_name().and_then(|name| name.to_str()),
+            Some("memory.membrane-events.sqlite3")
+        );
+        assert_eq!(
+            derived.parent(),
+            Path::new("some/dir/memory.sqlite3").parent()
+        );
+    }
+
+    #[test]
+    fn derive_event_path_falls_back_to_cortex_without_stem() {
+        let derived = derive_event_path(Path::new(""));
+        assert_eq!(derived, PathBuf::from("cortex.membrane-events.sqlite3"));
+    }
+
+    #[test]
+    fn sqlite_error_passes_sqlite_errors_through_unchanged() {
+        let mapped = sqlite_error(rightkit_db::DbError::Sqlite(
+            rusqlite::Error::QueryReturnedNoRows,
+        ));
+        assert!(matches!(mapped, rusqlite::Error::QueryReturnedNoRows));
+    }
+
+    #[test]
+    fn observable_events_schema_is_idempotent_and_enforces_kind_check() {
+        let mut conn = rightkit_db::open_in_memory().unwrap();
+        ensure_observable_events_schema(&mut conn).unwrap();
+        ensure_observable_events_schema(&mut conn).unwrap();
+
+        let insert = |kind: &str| {
+            conn.execute(
+                "INSERT INTO observable_events (event_id, schema_version, kind, client_id,
+                    installation_id, occurred_at_unix_ms, observed_at_unix_ms, observed_at_iso,
+                    payload_json, digest)
+                 VALUES (?1, 1, ?2, 'c', 'i', 1, 2, '2026-01-01T00:00:00Z', '{}', 'd')",
+                params![format!("evt-{kind}"), kind],
+            )
+        };
+        assert_eq!(insert("adapter_heartbeat").unwrap(), 1);
+        assert!(insert("not_a_kind").is_err());
+    }
+
+    #[test]
+    fn open_store_creates_a_writable_database_in_a_temp_dir() {
+        let dir = std::env::temp_dir().join(format!(
+            "rightkit-memory-store-db-test-{}-open",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("store.sqlite3");
+        {
+            let conn = open_store(&path).unwrap();
+            conn.execute_batch("CREATE TABLE t (v INTEGER); INSERT INTO t VALUES (7);")
+                .unwrap();
+        }
+        {
+            let conn = open_store_read_only(&path, Duration::from_millis(100)).unwrap();
+            let value: i64 = conn
+                .query_row("SELECT v FROM t", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(value, 7);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

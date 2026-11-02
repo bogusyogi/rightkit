@@ -1115,3 +1115,191 @@ fn validate_fact(f: &TemporalFact) -> Result<(), String> {
 pub fn validate_fact_proposal(fact: &TemporalFact) -> Result<(), String> {
     validate_fact(fact)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fact(id: &str, valid_from: &str, object: serde_json::Value) -> TemporalFact {
+        TemporalFact {
+            fact_id: id.to_string(),
+            subject: "user".to_string(),
+            predicate: "lives_in".to_string(),
+            object,
+            scope_id: "global".to_string(),
+            authority: "A2".to_string(),
+            veracity: "supported".to_string(),
+            observed_at: "2026-01-01T00:00:00Z".to_string(),
+            valid_from: valid_from.to_string(),
+            valid_until: None,
+            expires_at: None,
+            supersedes: None,
+        }
+    }
+
+    #[test]
+    fn valid_instant_accepts_utc_seconds_with_optional_fraction() {
+        assert!(valid_instant("2026-01-02T03:04:05Z"));
+        assert!(valid_instant("2026-01-02T03:04:05.678Z"));
+    }
+
+    #[test]
+    fn valid_instant_rejects_malformed_timestamps() {
+        for bad in [
+            "",
+            "2026-01-02",
+            "2026-01-02T03:04:05",
+            "2026-01-02T03:04:05+00:00",
+            "2026/01/02T03:04:05Z",
+            "2026-01-02 03:04:05Z",
+            "2026-01-02T03:04:0xZ",
+        ] {
+            assert!(!valid_instant(bad), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn timestamp_from_ms_formats_epoch_leap_days_and_negative_values() {
+        assert_eq!(timestamp_from_ms(0), "1970-01-01T00:00:00.000Z");
+        assert_eq!(
+            timestamp_from_ms(1_700_000_000_123),
+            "2023-11-14T22:13:20.123Z"
+        );
+        assert_eq!(
+            timestamp_from_ms(951_782_400_000),
+            "2000-02-29T00:00:00.000Z"
+        );
+        assert_eq!(timestamp_from_ms(-1), "1969-12-31T23:59:59.999Z");
+    }
+
+    #[test]
+    fn timestamp_from_ms_output_is_a_valid_instant() {
+        assert!(valid_instant(&timestamp_from_ms(1_234_567_890_123)));
+    }
+
+    #[test]
+    fn authority_rank_parses_a_levels_and_defaults_to_zero() {
+        assert_eq!(authority_rank("A0"), 0);
+        assert_eq!(authority_rank("A5"), 5);
+        assert_eq!(authority_rank("B3"), 0);
+        assert_eq!(authority_rank("A"), 0);
+        assert_eq!(authority_rank(""), 0);
+    }
+
+    #[test]
+    fn digest_is_deterministic_and_sha256_prefixed() {
+        let a = digest(&serde_json::json!({"k": 1})).unwrap();
+        let b = digest(&serde_json::json!({"k": 1})).unwrap();
+        let c = digest(&serde_json::json!({"k": 2})).unwrap();
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert!(a.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn unavailable_instant_has_no_value_and_defaults_blank_reasons() {
+        let known = TemporalInstantV1::known("2026-01-01T00:00:00Z");
+        assert_eq!(known.value(), Some("2026-01-01T00:00:00Z"));
+        assert_eq!(known.reason("default"), None);
+
+        let blank = TemporalInstantV1::unavailable("   ");
+        assert_eq!(blank.value(), None);
+        assert_eq!(blank.reason("default"), Some("default"));
+
+        let explained = TemporalInstantV1::unavailable("no clock");
+        assert_eq!(explained.reason("default"), Some("no clock"));
+    }
+
+    #[test]
+    fn fact_proposal_validation_reports_specific_error_codes() {
+        let good = fact("f1", "2026-01-01T00:00:00Z", serde_json::json!("Paris"));
+        assert_eq!(validate_fact_proposal(&good), Ok(()));
+
+        let mut blank_subject = good.clone();
+        blank_subject.subject = "  ".to_string();
+        assert_eq!(
+            validate_fact_proposal(&blank_subject),
+            Err("temporal_fact_identity_invalid".to_string())
+        );
+
+        let mut bad_time = good.clone();
+        bad_time.valid_from = "yesterday".to_string();
+        assert_eq!(
+            validate_fact_proposal(&bad_time),
+            Err("temporal_fact_timestamp_invalid".to_string())
+        );
+
+        let mut backwards = good.clone();
+        backwards.valid_until = Some(good.valid_from.clone());
+        assert_eq!(
+            validate_fact_proposal(&backwards),
+            Err("temporal_fact_interval_invalid".to_string())
+        );
+
+        let mut bad_authority = good.clone();
+        bad_authority.authority = "A9".to_string();
+        assert_eq!(
+            validate_fact_proposal(&bad_authority),
+            Err("temporal_fact_authority_invalid".to_string())
+        );
+    }
+
+    #[test]
+    fn recording_the_same_fact_twice_is_idempotent_but_changed_payload_conflicts() {
+        let store = TemporalFactStore::new(MemDb::open_in_memory());
+        let original = fact("f1", "2026-01-01T00:00:00Z", serde_json::json!("Paris"));
+        let first = store.record(original.clone(), false).unwrap();
+        let again = store.record(original, false).unwrap();
+        assert_eq!(first.fact_id, "f1");
+        assert_eq!(first.payload_sha256, again.payload_sha256);
+        assert!(again.transitions.is_empty());
+
+        let changed = fact("f1", "2026-01-01T00:00:00Z", serde_json::json!("Rome"));
+        assert_eq!(
+            store.record(changed, false).unwrap_err(),
+            "temporal_fact_conflict"
+        );
+    }
+
+    #[test]
+    fn single_valued_record_closes_the_previous_fact_with_a_transition() {
+        let db = MemDb::open_in_memory();
+        let store = TemporalFactStore::new(db.clone());
+        store
+            .record(
+                fact("f1", "2026-01-01T00:00:00Z", serde_json::json!("Paris")),
+                true,
+            )
+            .unwrap();
+        let receipt = store
+            .record(
+                fact("f2", "2026-02-01T00:00:00Z", serde_json::json!("Rome")),
+                true,
+            )
+            .unwrap();
+
+        assert_eq!(receipt.transitions.len(), 1);
+        let transition = &receipt.transitions[0];
+        assert_eq!(transition.from_fact_id, "f1");
+        assert_eq!(transition.to_fact_id, "f2");
+        assert_eq!(transition.effective_at, "2026-02-01T00:00:00Z");
+        assert!(transition.transition_sha256.starts_with("sha256:"));
+
+        let (valid_until, superseded_by): (Option<String>, Option<String>) = db
+            .lock()
+            .query_row(
+                "SELECT valid_until, superseded_by FROM membrane_temporal_fact WHERE fact_id='f1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(valid_until.as_deref(), Some("2026-02-01T00:00:00Z"));
+        assert_eq!(superseded_by.as_deref(), Some("f2"));
+
+        let stale = store.record(
+            fact("f3", "2025-01-01T00:00:00Z", serde_json::json!("Oslo")),
+            true,
+        );
+        assert_eq!(stale.unwrap_err(), "temporal_fact_conflict");
+    }
+}
