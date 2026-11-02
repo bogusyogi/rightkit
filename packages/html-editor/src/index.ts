@@ -3,7 +3,6 @@
 
 export * from "./appName.js";
 export * from "./documents/html/HtmlBlockEditToolbar.js";
-export * from "./documents/html/HtmlDocument.bridge-mock.js";
 export * from "./documents/html/HtmlDocumentBridge.js";
 export * from "./documents/html/HtmlDocumentChrome.js";
 export * from "./documents/html/HtmlDocumentEdit.js";

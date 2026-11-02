@@ -1,4 +1,5 @@
 import {
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -340,6 +341,7 @@ export function DocxPane({
       <div className="vr-docx h-full w-full overflow-auto" onWheel={onWheelZoom}>
         <style>{epThemeCss}</style>
         <div ref={paneRef} className="h-full w-full">
+          <Suspense fallback={null}>
           <DocxEditor
             ref={ref}
             documentBuffer={buffer}
@@ -370,6 +372,7 @@ export function DocxPane({
               );
             }}
           />
+          </Suspense>
         </div>
         {textFallback && <DocxTextFallback text={textFallback} />}
       </div>

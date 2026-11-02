@@ -2,12 +2,11 @@
 // is a small patch to DocxEditor that this package carries in patches/ until it lands upstream;
 // the types below describe that patched contract. Against an unpatched editor the prop is
 // ignored and the editor keeps its own toolbar.
-import type { ForwardRefExoticComponent, ReactNode, RefAttributes } from "react";
-import {
-  DocxEditor as BaseDocxEditor,
-  type DocxEditorProps as BaseDocxEditorProps,
-  type DocxEditorRef,
-  type EditorMode,
+import { lazy, type ForwardRefExoticComponent, type ReactNode, type RefAttributes } from "react";
+import type {
+  DocxEditorProps as BaseDocxEditorProps,
+  DocxEditorRef,
+  EditorMode,
 } from "@eigenpal/docx-editor-react";
 import type { ColorValue, ParagraphAlignment, Style, Theme } from "@eigenpal/docx-editor-core/types/document";
 
@@ -99,6 +98,9 @@ export type DocxEditorProps = BaseDocxEditorProps & {
   renderToolbar?: (context: DocxHostToolbarContext) => ReactNode;
 };
 
-export const DocxEditor = BaseDocxEditor as unknown as ForwardRefExoticComponent<
-  DocxEditorProps & RefAttributes<DocxEditorRef>
->;
+// Loaded on first render (render it inside <Suspense>): the editor package imports its stylesheets from JS, which only a
+// bundler can load, so importing this package (plain Node, a host's module graph before render) must not pull it in.
+// React.lazy forwards the ref to the resolved forwardRef component.
+export const DocxEditor = lazy(() =>
+  import("@eigenpal/docx-editor-react").then((m) => ({ default: m.DocxEditor })),
+) as unknown as ForwardRefExoticComponent<DocxEditorProps & RefAttributes<DocxEditorRef>>;

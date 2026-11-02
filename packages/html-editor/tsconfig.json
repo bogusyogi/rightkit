@@ -33,6 +33,7 @@
     "src/**/__tests__/**",
     "src/**/__fixtures__/**",
     "src/test/**",
-    "src/tests/**"
+    "src/tests/**",
+    "src/**/*.bridge-mock.ts"
   ]
 }
