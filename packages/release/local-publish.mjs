@@ -371,7 +371,7 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
   // rustdoc with -D warnings, for the tested and the checked feature sets: the same rows the CI shards (scripts/ci/gate.mjs) and
   // publish.yml's native verify run, so a broken or private intra-doc link fails this unit stage instead of a later verify.
   const docSets = [...new Map([...featureSets, ...allFeatureCheckSets(entry)].map((features) => [JSON.stringify(features), features])).values()];
-  for (const features of docSets) steps.push({ command: "cargo", args: ["doc", "-p", unit, "--no-deps", ...features], test: false, env: { RUSTDOCFLAGS: "-D warnings" } });
+  for (const features of docSets) steps.push({ command: "cargo", args: ["doc", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", ...features], test: false, env: { RUSTDOCFLAGS: "-D warnings" } });
   // Consumer rows (separate Cargo workspaces) gate only this crate: they come from this crate's own entry.
   const consumers = consumerRows(unit, entry);
   for (const row of consumers) steps.push(...consumerRowInvocations(row));
