@@ -19,7 +19,11 @@ fn rollback_mode_opens_at_truncate_effective_path() {
         .conn()
         .query_row("PRAGMA database_list", [], |row| row.get(2))
         .expect("read effective SQLite path");
-    assert_eq!(std::path::Path::new(&opened), expected.as_path());
+    // SQLite reports the resolved path (macOS: /var is /private/var).
+    assert_eq!(
+        std::fs::canonicalize(&opened).expect("opened path exists"),
+        std::fs::canonicalize(&expected).expect("expected path exists")
+    );
 
     let report = journal_mode(storage.conn()).expect("read fallback journal mode");
     assert_eq!(report, "truncate");

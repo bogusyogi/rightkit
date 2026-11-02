@@ -289,6 +289,20 @@ mod db_permission_tests {
     }
 }
 
+/// Whether two database paths name the same location once symlinked directories are resolved (the file itself
+/// may not exist yet). SQLite reports the resolved path, so a plain comparison misreads macOS's /var -> /private/var.
+fn same_location(a: &Path, b: &Path) -> bool {
+    let resolve = |p: &Path| -> std::path::PathBuf {
+        std::fs::canonicalize(p).unwrap_or_else(|_| match (p.parent(), p.file_name()) {
+            (Some(dir), Some(name)) => std::fs::canonicalize(dir)
+                .map(|dir| dir.join(name))
+                .unwrap_or_else(|_| p.to_path_buf()),
+            _ => p.to_path_buf(),
+        })
+    };
+    a == b || resolve(a) == resolve(b)
+}
+
 impl Storage {
     /// Persist the daemon-wide PL-009 observation ledger as one atomically
     /// replaced snapshot. Schema creation is idempotent for older databases.
@@ -344,7 +358,8 @@ impl Storage {
             .with_journal_env("RIGHTKIT_SQLITE_JOURNAL_MODE")
             .with_per_host_fallback(true);
         read_options.foreign_keys = true;
-        if effective_path != path {
+        // SQLite reports the resolved path (macOS: /var is /private/var). Only a real per-host fallback moves the readers.
+        if !same_location(effective_path, path) {
             read_options.journal = rightkit_db::JournalSelect::Truncate;
         }
         let read_pool = StoragePool::from_options(read_options, 4)?;

@@ -91,7 +91,7 @@ pub(crate) enum TerminalHandoff {
 
 /// The current screen's pointer policy; ordinary pickers retain alternate-scroll input.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) enum OverlayInput {
     #[default]
     Default,
@@ -101,9 +101,8 @@ pub(crate) enum OverlayInput {
     Usage,
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 impl OverlayInput {
-    #[cfg(test)]
     pub(crate) fn captures_mouse(self, owned_screen: bool) -> bool {
         match self {
             Self::Default => owned_screen,
