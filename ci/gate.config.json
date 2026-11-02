@@ -296,10 +296,6 @@
         [],
         [
           "--features",
-          "test-mode"
-        ],
-        [
-          "--features",
           "remote"
         ],
         [
@@ -360,10 +356,7 @@
     },
     "rightkit-models": {
       "featureSets": [
-        [
-          "--features",
-          "test-mode"
-        ]
+        []
       ],
       "checkFeatureSets": [
         [],
