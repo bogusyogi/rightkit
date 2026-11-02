@@ -21,7 +21,7 @@ const TRUST_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 // every byte as well as its expression so a new call cannot extend this closure.
 const COMPUTED_HELPER_IMPORTS = Object.freeze({
   "packages/release/local-publish.mjs": Object.freeze({
-    sha256: "1fcb3973e6150bc5e89d9054d71b01f3936b05422b18eec623dbfb31e69afcab",
+    sha256: "95cf229407d41dbed5de34109ece5e0b485fa916e4d57d99f30ecf7ae4f85621",
     expression: 'pathToFileURL(path.join(workspaceRoot, "scripts", "ci", file)).href',
     count: 1,
     paths: Object.freeze(["scripts/ci/test-results.mjs", "scripts/ci/upload.mjs"]),

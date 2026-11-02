@@ -12,7 +12,7 @@ import { execFileSync } from './background-process.mjs';
 import { checkPublicationGate, provenGateSteps, publishGatedTarball } from './publication-gate.mjs';
 import { startRun, endRun } from './gate-stages.mjs';
 import { mintTestCapability } from './test-support/publish-capability-fixture.mjs';
-import { LOCAL_WIN32_HOST_POLICY_REASON, LocalPublishError, batchCargoExecute, batchClippyInvocations, checkCrateLayers, consumerRows, deriveCrateLayers, hostScratchRoot, localTestPlan, parseCrateLayers, parseLocalPublishArgs, runLocalPublishUploadEngine as runLocalPublish, compileLocalUnit, packageLocalUnit, qualifyLocalUnit, closeLocalUnit, localUnitCompileRequests } from './local-publish.mjs';
+import { LOCAL_WIN32_HOST_POLICY_REASON, LocalPublishError, batchCargoExecute, batchClippyInvocations, checkCrateLayers, consumerRows, deriveCrateLayers, hostScratchRoot, localTestPlan, parseCrateLayers, parseLocalPublishArgs, runLocalPublishUploadEngine as runLocalPublish, compileLocalUnit, packageLocalUnit, qualifyLocalUnit, closeLocalUnit, localUnitCompileRequests, stepFailureOutput } from './local-publish.mjs';
 import { runCargoAsync, spawnCollect } from './managed-cargo.mjs';
 import { tgzOf } from './test-support/tgz.mjs';
 import { npmContentDigest } from './pack-digest.mjs';
@@ -1071,4 +1071,18 @@ test('on a managed host every pnpm step is its rightkit-pnpm broker job, matchin
       assert.ok(requestIs({ request: { kind: 'adapter', adapter: 'rightkit-pnpm', requestedArgv: target.args.slice(3) } }, pnpmRows[i]), `${stage} ${args.join(' ')}`);
     }
   }
+});
+
+test('a failed step keeps its tail: cargo artifact records are dropped, compiler messages rendered, test failures reach the refusal', () => {
+  const artifacts = Array.from({ length: 5000 }, (_, i) => JSON.stringify({ reason: 'compiler-artifact', package_id: `dep${i}`, filenames: ['x'.repeat(200)] }));
+  const message = JSON.stringify({ reason: 'compiler-message', message: { rendered: 'error[E0308]: mismatched types\n --> src/lib.rs:1:1\n' } });
+  const stdout = [...artifacts, message, 'test lifecycle::owned ... FAILED', "thread 'owned' panicked at tests/lifecycle.rs:376:5:", JSON.stringify({ reason: 'build-finished', success: false })].join('\n');
+  const out = stepFailureOutput(stdout);
+  assert.doesNotMatch(out, /compiler-artifact|build-finished/);
+  assert.match(out, /error\[E0308\]: mismatched types\n --> src\/lib\.rs:1:1/);
+  assert.match(out, /test lifecycle::owned \.\.\. FAILED\nthread 'owned' panicked at tests\/lifecycle\.rs:376:5:$/);
+  const long = stepFailureOutput(Array.from({ length: 1000 }, (_, i) => `line ${i}`).join('\n'), 10);
+  assert.match(long, /^\[990 earlier line\(s\) cut\]\nline 990\n/);
+  assert.match(long, /line 999$/);
+  assert.equal(stepFailureOutput(undefined), '');
 });
