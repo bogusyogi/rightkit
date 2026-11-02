@@ -425,8 +425,7 @@ pub fn approval_sha256(path: &Path) -> Result<String, String> {
     if after.code_signature.is_some() {
         return Err("backend integrity: signature remains after normalization".to_string());
     }
-    if before.code_signature.is_some() {
-        let before_signature = before.code_signature.unwrap();
+    if let Some(before_signature) = before.code_signature {
         if before.ncmds != after.ncmds + 1 || before.sizeofcmds != after.sizeofcmds + 16 {
             return Err(
                 "backend integrity: signature removal changed Mach-O command layout".to_string(),
