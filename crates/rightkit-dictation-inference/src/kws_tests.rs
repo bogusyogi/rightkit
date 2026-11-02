@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use serde::Deserialize;
 
 #[test]
 fn production_decoder_contract_is_cross_platform() {
@@ -10,23 +12,6 @@ fn production_decoder_contract_is_cross_platform() {
     assert_eq!(command_text("@ZEPHYR_STOP"), Some("zephyr stop"));
     assert_eq!(command_text("ZEPHYR_SEND"), Some("zephyr send"));
     assert_eq!(command_text("@ZEPHYR_CANCEL"), Some("zephyr cancel"));
-}
-
-#[cfg(not(feature = "rust-kws"))]
-#[test]
-fn rust_backend_request_falls_back_to_sherpa_without_the_feature() {
-    assert_eq!(KwsBackend::DEFAULT, KwsBackend::Sherpa);
-    assert_eq!(KwsBackend::resolve("rust"), KwsBackend::Sherpa);
-    assert_eq!(KwsBackend::resolve("sherpa"), KwsBackend::Sherpa);
-    assert_eq!(KwsBackend::resolve("nonsense"), KwsBackend::DEFAULT);
-    let Err(error) = KwsRuntime::load(
-        KwsBackend::Rust,
-        RustKwsTuning::PRODUCTION,
-        std::path::Path::new("."),
-    ) else {
-        panic!("the Rust backend is not compiled in");
-    };
-    assert!(error.contains("rust-kws"), "{error}");
 }
 
 #[test]
@@ -229,7 +214,7 @@ fn accepts_compact_path_without_inventing_a_second_timestamp_clock() {
 #[test]
 fn scheduled_fresh_confirmation_rejects_expired_candidate_and_bad_cursor() {
     let model_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources/kws");
-    let mut kws = SherpaKws::load(&model_dir).expect("load bundled Sherpa KWS");
+    let mut kws = load_test_kws(&model_dir).expect("load bundled KWS");
     kws.clock.observe_wake(0, 800, 0);
     let live = 800 + CONFIRM_TIMEOUT_SAMPLES + 1;
     let audio = vec![0.0; live];
@@ -265,7 +250,7 @@ fn saved_quiet_sessions_recover_first_zephyr_send() {
         ("1790873062716-5438-session-7.wav", 20.0_f32),
     ];
     let model_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources/kws");
-    let mut kws = SherpaKws::load(&model_dir).expect("load bundled Sherpa KWS cascade");
+    let mut kws = load_test_kws(&model_dir).expect("load bundled KWS cascade");
     for (name, max_wake_start_s) in cases {
         let path = capture_dir.join(name);
         assert!(path.is_file(), "missing saved session {}", path.display());
@@ -320,13 +305,13 @@ fn saved_quiet_sessions_recover_first_zephyr_send() {
 }
 
 #[cfg(target_os = "macos")]
-fn replay_corpus_control(kws: &mut SherpaKws, audio: &[f32], fresh: bool) -> Option<String> {
+fn replay_corpus_control(kws: &mut Kws, audio: &[f32], fresh: bool) -> Option<String> {
     replay_corpus_control_with_confirmation(kws, audio, fresh)
 }
 
 #[cfg(target_os = "macos")]
 fn replay_corpus_control_with_confirmation(
-    kws: &mut SherpaKws,
+    kws: &mut Kws,
     audio: &[f32],
     prefer_fresh_confirmation: bool,
 ) -> Option<String> {
@@ -390,7 +375,7 @@ fn canonical_corpus_preserves_actions_without_false_triggers() {
     assert_eq!(positives.raw_audio.len(), 14);
     assert_eq!(negatives.len(), 238);
     let model_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources/kws");
-    let mut kws = SherpaKws::load(&model_dir).expect("load native corpus cascade");
+    let mut kws = load_test_kws(&model_dir).expect("load native corpus cascade");
     let mut outputs = Vec::new();
     for (positive, clips, directory) in [
         (true, positives.raw_audio, "positive14/audio"),
@@ -466,7 +451,7 @@ fn owner_positive_corpus_preserves_every_control_action() {
     }
     let root = PathBuf::from("/Volumes/D/kwstest");
     let models = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources/kws");
-    let mut kws = SherpaKws::load(&models).expect("load native owner corpus cascade");
+    let mut kws = load_test_kws(&models).expect("load native owner corpus cascade");
     let mut outputs = Vec::new();
     for platform in ["mac", "windows"] {
         let manifest: Manifest = serde_json::from_slice(
@@ -532,7 +517,7 @@ fn owner_positive_corpus_preserves_every_control_action() {
 fn owner_negative_corpus_rejects_false_controls() {
     let root = PathBuf::from("/Volumes/D/kwstest");
     let models = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources/kws");
-    let mut kws = SherpaKws::load(&models).expect("load native owner corpus cascade");
+    let mut kws = load_test_kws(&models).expect("load native owner corpus cascade");
     let mut checked = 0;
     let mut failures = Vec::new();
     for platform in ["mac", "windows"] {
@@ -582,7 +567,7 @@ fn owner_send_regression_diagnostic() {
         "/Volumes/D/kwstest/owner/windows/audio/1785658814809-222316-session-6.wav",
     ));
     let models = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources/kws");
-    let mut kws = SherpaKws::load(&models).unwrap();
+    let mut kws = load_test_kws(&models).unwrap();
     let persistent = replay_corpus_control(&mut kws, &audio, false);
     let fresh_confirmation = replay_corpus_control_with_confirmation(&mut kws, &audio, true);
     eprintln!("owner Send: persistent={persistent:?}; fresh_confirmation={fresh_confirmation:?}");
@@ -597,7 +582,7 @@ fn canonical_cancel_miss_confirmation_diagnostic() {
     let path = PathBuf::from("/Volumes/D/kwstest/canonical/positive14/audio/take_9.wav");
     let audio = read_test_wav(&path);
     let models = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources/kws");
-    let mut kws = SherpaKws::load(&models).unwrap();
+    let mut kws = load_test_kws(&models).unwrap();
     let persistent = replay_corpus_control(&mut kws, &audio, false);
     let fresh_confirmation = replay_corpus_control_with_confirmation(&mut kws, &audio, true);
     eprintln!(
@@ -611,7 +596,7 @@ fn canonical_cancel_miss_confirmation_diagnostic() {
 #[test]
 fn bundled_runtime_loads_and_accepts_silence() {
     let model_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources/kws");
-    let mut kws = SherpaKws::load(&model_dir).expect("load bundled Sherpa KWS");
+    let mut kws = load_test_kws(&model_dir).expect("load bundled KWS");
     assert!(
         kws.hey_wake_spotter.is_none(),
         "idle spotter must load lazily"
@@ -621,14 +606,14 @@ fn bundled_runtime_loads_and_accepts_silence() {
         .expect("decode silence");
     assert!(result.text.is_empty());
     assert!(result.tokens.is_empty());
-    kws.reset_stream().expect("reset bundled Sherpa stream");
+    kws.reset_stream().expect("reset bundled KWS stream");
 }
 
 #[cfg(target_os = "macos")]
 #[test]
 fn bundled_idle_wake_stream_is_direct_and_marker_owner_lazy() {
     let model_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources/kws");
-    let mut kws = SherpaKws::load(&model_dir).expect("load bundled Sherpa KWS");
+    let mut kws = load_test_kws(&model_dir).expect("load bundled KWS");
     assert!(kws.hey_wake_available());
     kws.start_idle_wake(0.25).expect("start idle wake");
     assert!(kws.hey_wake_spotter.is_some());
@@ -687,7 +672,7 @@ fn saved_idle_wake_positive_replays_return_hits() {
     for chunk in required_chunks {
         let path = chunks_dir.join(format!("chunk-{chunk:06}.wav"));
         let audio = read_test_wav(&path);
-        let mut kws = SherpaKws::load(&model_dir).expect("load bundled Sherpa KWS");
+        let mut kws = load_test_kws(&model_dir).expect("load bundled KWS");
         kws.start_idle_wake(0.25).expect("start idle wake");
         let mut hit = None;
         for (chunk_index, chunk) in audio.chunks(KWS_FEED_CHUNK_SAMPLES).enumerate() {
@@ -730,7 +715,7 @@ fn owner_boundary_replay_cuts_at_acoustic_wake_before_final_asr() {
     );
     let audio = read_test_wav(&path);
     let model_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources/kws");
-    let mut kws = SherpaKws::load(&model_dir).expect("load bundled Sherpa KWS cascade");
+    let mut kws = load_test_kws(&model_dir).expect("load bundled KWS cascade");
     let mut padded = audio.clone();
     padded.resize(audio.len() + CONFIRM_TIMEOUT_SAMPLES, 0.0);
     let mut live = SAMPLE_RATE as usize / 4;
@@ -843,13 +828,13 @@ fn owner_boundary_replay_cuts_at_acoustic_wake_before_final_asr() {
 fn bundled_windows_runtime_matches_app_ort() {
     let resource_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources");
     // Production loader must bind bundled ORT itself, without a test preload.
-    let mut kws = SherpaKws::load(&resource_dir.join("kws")).expect("load bundled Sherpa KWS");
+    let mut kws = load_test_kws(&resource_dir.join("kws")).expect("load bundled KWS");
     let result = kws
         .transcribe_result(&vec![0.0; SAMPLE_RATE as usize / 2])
         .expect("decode silence");
     assert!(result.text.is_empty());
     assert!(result.tokens.is_empty());
-    kws.reset_stream().expect("reset bundled Sherpa stream");
+    kws.reset_stream().expect("reset bundled KWS stream");
 }
 
 #[cfg(target_os = "windows")]
@@ -871,22 +856,10 @@ fn production_cascade_replays_reports() {
         .expect("RIGHTKIT_KWS_CASCADE_REPORTS must contain semicolon-separated report paths");
     let resources = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources");
     let ort = resources.join("runtime/onnxruntime.dll");
-    // RIGHTKIT_KWS_BACKEND selects the runtime (default Sherpa). Sherpa imports the
-    // bundled ORT by DLL name; the Rust backend runs on the process-wide ORT
-    // binding, which the engine makes at startup and this replay makes here.
-    let backend = KwsBackend::from_env();
-    let _ort = match backend {
-        KwsBackend::Sherpa => {
-            Some(unsafe { Library::new(&ort) }.expect("preload bundled ONNX Runtime"))
-        }
-        KwsBackend::Rust => {
-            bind_test_ort(&ort);
-            None
-        }
-    };
-    eprintln!("production cascade replay backend={backend:?}");
-    let mut kws = SherpaKws::load_with_backend(&resources.join("kws"), backend)
-        .expect("load bundled KWS cascade");
+    // The spotter runs on the process-wide ORT binding, which the engine makes at
+    // startup and this replay makes here.
+    bind_test_ort(&ort);
+    let mut kws = Kws::load(&resources.join("kws")).expect("load bundled KWS cascade");
     let mut checked = 0usize;
     let mut positives = 0usize;
     let mut false_actions = Vec::new();
@@ -977,8 +950,7 @@ fn production_cascade_replays_reports() {
 const TAIL_WAKE_NEW_AUDIO_SAMPLES_FOR_TEST: usize = SAMPLE_RATE as usize / 4;
 
 /// Bind ONNX Runtime once per test process through rightkit_onnx, as the engine
-/// does at startup; the Rust KWS backend runs on that process-wide binding.
-#[cfg(any(target_os = "windows", feature = "rust-kws"))]
+/// does at startup; the KWS spotter runs on that process-wide binding.
 pub(super) fn bind_test_ort(path: &Path) -> PathBuf {
     static BOUND: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     let bound = BOUND.get_or_init(|| {
@@ -1005,6 +977,25 @@ pub(super) fn bind_test_ort(path: &Path) -> PathBuf {
         "this test process already bound another ONNX Runtime"
     );
     bound.clone()
+}
+
+/// The cascade on the bundled model, with ONNX Runtime bound first (`RIGHTKIT_TEST_ORT_DYLIB`,
+/// else the runtime staged beside the app resources).
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn load_test_kws(model_dir: &Path) -> Result<Kws, String> {
+    #[cfg(target_os = "macos")]
+    const ORT_LIBRARY: &str = "libonnxruntime.dylib";
+    #[cfg(target_os = "windows")]
+    const ORT_LIBRARY: &str = "onnxruntime.dll";
+    let ort = std::env::var_os("RIGHTKIT_TEST_ORT_DYLIB")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../src-tauri/resources/runtime")
+                .join(ORT_LIBRARY)
+        });
+    bind_test_ort(&ort);
+    Kws::load(model_dir)
 }
 
 pub(super) fn read_test_wav(path: &Path) -> Vec<f32> {

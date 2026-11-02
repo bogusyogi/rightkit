@@ -1,8 +1,7 @@
 //! Nonshipping export replay over frozen opaque PCM inputs.
-//! A plan arm may set `"backend": "sherpa" | "rust"` (KWS runtime A/B); rows carry it.
 #[cfg(target_os = "windows")]
 mod probe {
-    use rightkit_dictation_inference::sherpa_kws::{KwsBackend, SherpaKws};
+    use rightkit_dictation_inference::kws::Kws;
     use rightkit_text_polish::text_pipeline::parse_control_command;
     use serde::Deserialize;
     use serde_json::json;
@@ -24,32 +23,12 @@ mod probe {
         fresh_window_samples: usize,
         #[serde(default = "default_paths")]
         paths: i32,
-        /// `sherpa` | `rust`; absent = `RIGHTKIT_KWS_BACKEND` (test-mode) or the platform default.
-        #[serde(default)]
-        backend: Option<String>,
     }
     fn fresh_window() -> usize {
         24000
     }
     fn default_paths() -> i32 {
         8
-    }
-    fn arm_backend(arm: &Arm) -> Result<KwsBackend, String> {
-        match arm.backend.as_deref() {
-            None => Ok(KwsBackend::from_env()),
-            Some("sherpa") => Ok(KwsBackend::Sherpa),
-            Some("rust") => Ok(KwsBackend::Rust),
-            Some(other) => Err(format!(
-                "arm {}: backend must be sherpa or rust, got {other:?}",
-                arm.label
-            )),
-        }
-    }
-    fn backend_label(backend: KwsBackend) -> &'static str {
-        match backend {
-            KwsBackend::Sherpa => "sherpa",
-            KwsBackend::Rust => "rust",
-        }
     }
     #[derive(Deserialize)]
     struct Plan {
@@ -78,7 +57,7 @@ mod probe {
             |t: FILETIME| ((u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime)) as f64;
         (ticks(k) + ticks(u)) / 10000.0
     }
-    fn replay(kws: &mut SherpaKws, audio: &[f32], arm: &Arm) -> Result<serde_json::Value, String> {
+    fn replay(kws: &mut Kws, audio: &[f32], arm: &Arm) -> Result<serde_json::Value, String> {
         kws.reset_stream()?;
         let mut pending = false;
         let mut last_full = 0usize;
@@ -169,37 +148,23 @@ mod probe {
             pcm.extend_from_slice(&[0.0; 3200]);
             audio.push(pcm);
         }
-        let backends = plan
-            .arms
-            .iter()
-            .map(arm_backend)
-            .collect::<Result<Vec<_>, _>>()?;
-        if backends.contains(&KwsBackend::Rust) {
-            // The Rust backend runs on the runtime rightkit-onnx binds; Sherpa preloads the same file.
-            rightkit_onnx::configure_runtime_with_options(
-                [rightkit_onnx::RuntimeCandidate::new(
-                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                        .join("../src-tauri/resources/runtime/onnxruntime.dll"),
-                    rightkit_onnx::CandidateSource::Explicit,
-                )],
-                &rightkit_onnx::RuntimeBindingOptions {
-                    force_replace: true,
-                    ..Default::default()
-                },
-            )
-            .map_err(|e| format!("bind bundled ONNX Runtime: {e}"))?;
-        }
+        // The spotter runs on the runtime rightkit-onnx binds.
+        rightkit_onnx::configure_runtime_with_options(
+            [rightkit_onnx::RuntimeCandidate::new(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../src-tauri/resources/runtime/onnxruntime.dll"),
+                rightkit_onnx::CandidateSource::Explicit,
+            )],
+            &rightkit_onnx::RuntimeBindingOptions {
+                force_replace: true,
+                ..Default::default()
+            },
+        )
+        .map_err(|e| format!("bind bundled ONNX Runtime: {e}"))?;
         let mut models = plan
             .arms
             .iter()
-            .zip(&backends)
-            .map(|(a, backend)| {
-                SherpaKws::load_for_replay_with_paths_and_backend(
-                    std::path::Path::new(&a.model_dir),
-                    a.paths,
-                    *backend,
-                )
-            })
+            .map(|a| Kws::load_for_replay_with_paths(std::path::Path::new(&a.model_dir), a.paths))
             .collect::<Result<Vec<_>, _>>()?;
         for (arm, kws) in plan.arms.iter().zip(models.iter_mut()) {
             replay(kws, &audio[0], arm)?;
@@ -222,12 +187,11 @@ mod probe {
                         Ok(mut row) => {
                             row["id"] = json!(input.id);
                             row["arm"] = json!(plan.arms[i].label);
-                            row["backend"] = json!(backend_label(backends[i]));
                             row["repeat"] = json!(repeat);
                             row
                         }
                         Err(e) => {
-                            json!({"id":input.id,"arm":plan.arms[i].label,"backend":backend_label(backends[i]),"repeat":repeat,"error":e})
+                            json!({"id":input.id,"arm":plan.arms[i].label,"repeat":repeat,"error":e})
                         }
                     };
                     serde_json::to_writer(&mut out, &row).map_err(|e| e.to_string())?;

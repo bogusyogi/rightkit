@@ -1,7 +1,7 @@
 //! Serialization boundary for main on-device ASR inference.
 //!
 //! Final, file, and committed-window decodes share one accelerator and take
-//! this lease. CPU Sherpa KWS owns a separate model and worker, so it never
+//! this lease. CPU KWS owns a separate model and worker, so it never
 //! contends on this gate.
 
 use std::sync::OnceLock;

@@ -1,14 +1,11 @@
-//! The unchanged cascade policy on the Rust keyword spotter (`rightkit_asr::kws`),
-//! and a per-snapshot A/B against the Sherpa C API.
+//! The cascade policy on the Rust keyword spotter (`rightkit_asr::kws`).
 //!
 //! Real-audio tests print a `SKIP` line and pass when an input is absent:
 //! - `RIGHTKIT_TEST_ORT_DYLIB`: ONNX Runtime library, bound once through rightkit_onnx.
 //! - `RIGHTKIT_TEST_KWS_DIR`: KWS model directory (default: the bundled `src-tauri/resources/kws`).
-//! - `RIGHTKIT_SHERPA_LIBRARY_PATH` (A/B only): Sherpa C API library. On macOS and Windows the
-//!   bundled runtime is used when the variable is unset. Point `RIGHTKIT_TEST_ORT_DYLIB` at the
-//!   ONNX Runtime that Sherpa library links, so one runtime serves both backends.
-//! - `RIGHTKIT_TEST_KWS_AB_WAVS` (A/B only, optional): semicolon-separated 16 kHz WAVs replayed
-//!   after the dictation fixtures, so the A/B also covers clips that fire keywords.
+//! - `RIGHTKIT_TEST_KWS_AB_WAVS` (optional): semicolon-separated 16 kHz WAVs replayed
+//!   after the dictation fixtures by the speed-lever comparison, so it also covers clips
+//!   that fire keywords.
 
 use super::tests::{bind_test_ort, read_test_wav};
 use super::*;
@@ -17,35 +14,8 @@ use super::*;
 const NEGATIVE_FIXTURES: [&str; 3] = ["short_9s.wav", "long_38s.wav", "filler_retake.wav"];
 const IDLE_WAKE_THRESHOLD: f32 = 0.25;
 
-/// What the Rust backend must equal for the Sherpa library under test.
-/// macOS/Windows link the the app-patched build, which IS the production
-/// contract. Other platforms have only stock upstream Sherpa (GCC build): no
-/// active-path TTL, the 1.5 s trailing-blank reset, and an f64 joiner softmax.
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-const SHERPA_REFERENCE_TUNING: RustKwsTuning = RustKwsTuning::PRODUCTION;
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-const SHERPA_REFERENCE_TUNING: RustKwsTuning = RustKwsTuning {
-    active_path_ttl_frames: None,
-    trailing_blank_reset: true,
-    softmax_f64: true,
-    // Onset estimation stays on: the A/B then also proves it never changes a result.
-    ..RustKwsTuning::PRODUCTION
-};
-
 #[test]
-fn backend_switch_parses_and_defaults_per_platform() {
-    assert_eq!(KwsBackend::parse("rust"), Some(KwsBackend::Rust));
-    assert_eq!(KwsBackend::parse(" Sherpa\n"), Some(KwsBackend::Sherpa));
-    assert_eq!(KwsBackend::parse("onnx"), None);
-    assert_eq!(KwsBackend::parse(""), None);
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    assert_eq!(KwsBackend::DEFAULT, KwsBackend::Sherpa);
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    assert_eq!(KwsBackend::DEFAULT, KwsBackend::Rust);
-}
-
-#[test]
-fn rust_backend_reproduces_the_patched_sherpa_contract() {
+fn production_tuning_is_the_qualified_contract() {
     assert_eq!(ACTIVE_KEYWORD_TTL_FRAMES, 38);
     assert_eq!(
         RustKwsTuning::PRODUCTION,
@@ -176,18 +146,18 @@ fn onset_samples_are_exact_multiples_of_the_feature_shift() {
     for t in [0, 1, 73, 131, 999] {
         assert_eq!(
             onset_sample(0, estimate(4 * t)),
-            seconds_to_samples(sherpa_json_timestamp(0.04 * t as f32))
+            seconds_to_samples(round_timestamp(0.04 * t as f32))
         );
     }
 }
 
 #[test]
-fn rust_timestamps_take_sherpa_json_rounding() {
-    // Sherpa prints `%.2f`; frame 3 is 0.120000005 as f32 either way.
-    assert_eq!(sherpa_json_timestamp(0.04 * 3.0), 0.12);
-    assert_eq!(sherpa_json_timestamp(1.004_999), 1.0);
-    assert_eq!(sherpa_json_timestamp(0.0), 0.0);
-    assert_eq!(sherpa_json_timestamp(7.6), 7.6);
+fn timestamps_round_to_two_decimals() {
+    // Two decimals; frame 3 is 0.120000005 as f32 either way.
+    assert_eq!(round_timestamp(0.04 * 3.0), 0.12);
+    assert_eq!(round_timestamp(1.004_999), 1.0);
+    assert_eq!(round_timestamp(0.0), 0.0);
+    assert_eq!(round_timestamp(7.6), 7.6);
 }
 
 fn test_model_dir() -> Option<PathBuf> {
@@ -208,7 +178,7 @@ fn test_model_dir() -> Option<PathBuf> {
 }
 
 /// The model directory with ONNX Runtime bound, or `None` after a SKIP line.
-fn rust_backend_inputs(test: &str) -> Option<PathBuf> {
+fn kws_test_inputs(test: &str) -> Option<PathBuf> {
     let Some(ort) = std::env::var_os("RIGHTKIT_TEST_ORT_DYLIB").map(PathBuf::from) else {
         eprintln!("SKIP {test}: set RIGHTKIT_TEST_ORT_DYLIB to an ONNX Runtime library");
         return None;
@@ -244,11 +214,7 @@ type TraceStep = (
 /// Replay a clip through `transcribe_scheduled_probe_result_with_wake_start`
 /// exactly as the corpus tests drive it (3 s snapshots, 250 ms hop, 50 ms once
 /// armed), recording every call. Returns the trace and any latched action.
-fn replay_trace(
-    kws: &mut SherpaKws,
-    audio: &[f32],
-    drive: Drive,
-) -> (Vec<TraceStep>, Option<String>) {
+fn replay_trace(kws: &mut Kws, audio: &[f32], drive: Drive) -> (Vec<TraceStep>, Option<String>) {
     kws.reset_stream().expect("reset cascade");
     let mut padded = audio.to_vec();
     padded.resize(audio.len() + CONFIRM_TIMEOUT_SAMPLES, 0.0);
@@ -307,7 +273,7 @@ type IdleWakeEvent = (usize, Result<(usize, usize), String>);
 
 /// Feed the always-on hey-wake stream in 20 ms arrivals, restarting after each
 /// hit or error, as the idle owner does after a hit.
-fn idle_wake_trace(kws: &mut SherpaKws, audio: &[f32]) -> Vec<IdleWakeEvent> {
+fn idle_wake_trace(kws: &mut Kws, audio: &[f32]) -> Vec<IdleWakeEvent> {
     kws.start_idle_wake(IDLE_WAKE_THRESHOLD)
         .expect("start idle wake");
     let mut events = Vec::new();
@@ -336,13 +302,11 @@ fn idle_wake_trace(kws: &mut SherpaKws, audio: &[f32]) -> Vec<IdleWakeEvent> {
 }
 
 #[test]
-fn rust_backend_loads_and_accepts_silence() {
-    let Some(model_dir) = rust_backend_inputs("rust_backend_loads_and_accepts_silence") else {
+fn cascade_loads_and_accepts_silence() {
+    let Some(model_dir) = kws_test_inputs("cascade_loads_and_accepts_silence") else {
         return;
     };
-    let mut kws =
-        SherpaKws::load_with_backend(&model_dir, KwsBackend::Rust).expect("load Rust KWS cascade");
-    assert_eq!(kws.backend(), KwsBackend::Rust);
+    let mut kws = Kws::load(&model_dir).expect("load KWS cascade");
     assert!(
         kws.hey_wake_spotter.is_none(),
         "idle spotter must load lazily"
@@ -366,20 +330,15 @@ fn rust_backend_loads_and_accepts_silence() {
     kws.stop_idle_wake();
     assert!(kws.idle_wake_stream.is_none());
     kws.reset_stream().expect("reset Rust KWS stream");
-    let replay = SherpaKws::load_for_replay_with_paths_and_backend(&model_dir, 4, KwsBackend::Rust)
-        .expect("load Rust replay cascade");
-    assert_eq!(replay.backend(), KwsBackend::Rust);
+    Kws::load_for_replay_with_paths(&model_dir, 4).expect("load replay cascade");
 }
 
 #[test]
-fn rust_backend_cascade_latches_no_command_on_dictation() {
-    let Some(model_dir) =
-        rust_backend_inputs("rust_backend_cascade_latches_no_command_on_dictation")
-    else {
+fn cascade_latches_no_command_on_dictation() {
+    let Some(model_dir) = kws_test_inputs("cascade_latches_no_command_on_dictation") else {
         return;
     };
-    let mut kws =
-        SherpaKws::load_with_backend(&model_dir, KwsBackend::Rust).expect("load Rust KWS cascade");
+    let mut kws = Kws::load(&model_dir).expect("load KWS cascade");
     let mut false_actions = Vec::new();
     for name in NEGATIVE_FIXTURES {
         let audio = fixture(name);
@@ -404,7 +363,7 @@ fn rust_backend_cascade_latches_no_command_on_dictation() {
     }
     assert!(
         false_actions.is_empty(),
-        "Rust backend latched commands on dictation: {false_actions:#?}"
+        "KWS cascade latched commands on dictation: {false_actions:#?}"
     );
 }
 
@@ -434,36 +393,13 @@ fn non_empty_outputs(trace: &[TraceStep]) -> usize {
         .count()
 }
 
-/// Run every clip on both backends and diff the per-snapshot traces.
-/// Returns human-readable divergences (first differing call per clip/drive).
-fn ab_divergences(model_dir: &Path, tuning: RustKwsTuning) -> (Vec<String>, usize) {
-    let mut sherpa = SherpaKws::load_with_paths(
-        model_dir,
-        MAX_ACTIVE_PATHS,
-        KwsBackend::Sherpa,
-        RustKwsTuning::PRODUCTION,
-    )
-    .expect("load Sherpa KWS cascade");
-    let mut rust =
-        SherpaKws::load_with_paths(model_dir, MAX_ACTIVE_PATHS, KwsBackend::Rust, tuning)
-            .expect("load Rust KWS cascade");
-    assert_eq!(sherpa.backend(), KwsBackend::Sherpa);
-    assert_eq!(rust.backend(), KwsBackend::Rust);
-    cascade_divergences(
-        ("sherpa", &mut sherpa),
-        ("rust", &mut rust),
-        &ab_clips(),
-        false,
-    )
-}
-
 /// Replay every clip on two cascades and diff their per-snapshot traces (both
 /// drives) and idle-wake hits; with `reports`, also every onset report (token
 /// probabilities, scores and onset candidates, compared exactly). Returns the
 /// first divergence per clip/drive and the number of calls compared.
 fn cascade_divergences(
-    (expected_name, expected_kws): (&str, &mut SherpaKws),
-    (actual_name, actual_kws): (&str, &mut SherpaKws),
+    (expected_name, expected_kws): (&str, &mut Kws),
+    (actual_name, actual_kws): (&str, &mut Kws),
     clips: &[(String, Vec<f32>)],
     reports: bool,
 ) -> (Vec<String>, usize) {
@@ -524,52 +460,6 @@ fn cascade_divergences(
     (divergences, compared)
 }
 
-fn sherpa_ab_inputs(test: &str) -> Option<PathBuf> {
-    let model_dir = rust_backend_inputs(test)?;
-    if resolve_library_path().is_none() {
-        eprintln!("SKIP {test}: set RIGHTKIT_SHERPA_LIBRARY_PATH to a Sherpa C API library");
-        return None;
-    }
-    Some(model_dir)
-}
-
-/// Both backends produce identical outputs on every cascade snapshot and every
-/// idle-wake arrival, with the Rust spotter configured as the Sherpa library
-/// under test is built ([`SHERPA_REFERENCE_TUNING`]).
-#[test]
-fn sherpa_and_rust_backends_match_per_snapshot() {
-    let Some(model_dir) = sherpa_ab_inputs("sherpa_and_rust_backends_match_per_snapshot") else {
-        return;
-    };
-    let (divergences, compared) = ab_divergences(&model_dir, SHERPA_REFERENCE_TUNING);
-    eprintln!(
-        "A/B reference tuning {SHERPA_REFERENCE_TUNING:?}: {compared} calls compared, {} divergences",
-        divergences.len()
-    );
-    assert!(
-        divergences.is_empty(),
-        "Sherpa and Rust KWS backends diverged: {divergences:#?}"
-    );
-}
-
-/// Off macOS/Windows the Sherpa library is stock upstream, so the shipped Rust
-/// contract (38-frame TTL, no trailing-blank reset, f32 softmax) is reported
-/// against it rather than asserted.
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-#[test]
-fn production_rust_contract_against_upstream_sherpa_report() {
-    let Some(model_dir) =
-        sherpa_ab_inputs("production_rust_contract_against_upstream_sherpa_report")
-    else {
-        return;
-    };
-    let (divergences, compared) = ab_divergences(&model_dir, RustKwsTuning::PRODUCTION);
-    eprintln!(
-        "A/B production tuning vs upstream Sherpa: {compared} calls compared, {} divergences: {divergences:#?}",
-        divergences.len()
-    );
-}
-
 /// A scratch directory removed on drop.
 struct ScratchDir(PathBuf);
 
@@ -589,7 +479,7 @@ impl Drop for ScratchDir {
 /// fixtures ("and" as the wake word, "and" again as SEND), so the whole
 /// cascade latches on bundled audio and every onset path runs.
 fn firing_model_dir(test: &str) -> Option<ScratchDir> {
-    let model_dir = rust_backend_inputs(test)?;
+    let model_dir = kws_test_inputs(test)?;
     let dir = ScratchDir(
         std::env::temp_dir().join(format!("hr-kws-onset-{}-{test}", std::process::id())),
     );
@@ -616,8 +506,7 @@ fn latch_with(
     audio: &[f32],
     switches: KwsSwitches,
 ) -> (Option<String>, Option<usize>, Vec<KwsOnsetReport>) {
-    let mut kws = SherpaKws::load_with_switches(model_dir, KwsBackend::Rust, switches)
-        .expect("load Rust KWS cascade");
+    let mut kws = Kws::load_with_switches(model_dir, switches).expect("load KWS cascade");
     kws.reset_stream().unwrap();
     let mut padded = audio.to_vec();
     padded.resize(audio.len() + CONFIRM_TIMEOUT_SAMPLES, 0.0);
@@ -751,10 +640,7 @@ const SPEED_LEVERS: KwsSwitches = KwsSwitches {
 
 /// The Rust spotter's model.
 fn rust_model(spotter: &KwsSpotter) -> Arc<rust_kws::KwsModel> {
-    match spotter {
-        KwsSpotter::Rust(spotter) => Arc::clone(spotter.borrow().model()),
-        KwsSpotter::Sherpa { .. } => panic!("not a Rust spotter"),
-    }
+    Arc::clone(spotter.0.borrow().model())
 }
 
 /// The three speed levers change no cascade output: the production Rust
@@ -797,10 +683,10 @@ fn speed_levers_change_no_rust_cascade_output() {
                 .collect(),
         ),
     ] {
-        let mut base = SherpaKws::load_with_switches(dir, KwsBackend::Rust, KwsSwitches::default())
-            .expect("load Rust KWS cascade");
-        let mut fast = SherpaKws::load_with_switches(dir, KwsBackend::Rust, SPEED_LEVERS)
-            .expect("load Rust KWS cascade with the speed levers");
+        let mut base =
+            Kws::load_with_switches(dir, KwsSwitches::default()).expect("load KWS cascade");
+        let mut fast = Kws::load_with_switches(dir, SPEED_LEVERS)
+            .expect("load KWS cascade with the speed levers");
         fast.start_idle_wake(IDLE_WAKE_THRESHOLD)
             .expect("start idle wake");
         base.start_idle_wake(IDLE_WAKE_THRESHOLD)
@@ -844,31 +730,5 @@ fn speed_levers_change_no_rust_cascade_output() {
     assert!(
         divergences.is_empty(),
         "the speed levers changed Rust cascade output: {divergences:#?}"
-    );
-}
-
-/// The Sherpa A/B with the three speed levers on: still identical on every
-/// snapshot and idle-wake arrival.
-#[test]
-fn sherpa_and_rust_backends_match_per_snapshot_with_speed_levers() {
-    let Some(model_dir) =
-        sherpa_ab_inputs("sherpa_and_rust_backends_match_per_snapshot_with_speed_levers")
-    else {
-        return;
-    };
-    let tuning = RustKwsTuning {
-        static_batch: true,
-        decoder_cache: true,
-        shared_model: true,
-        ..SHERPA_REFERENCE_TUNING
-    };
-    let (divergences, compared) = ab_divergences(&model_dir, tuning);
-    eprintln!(
-        "A/B reference tuning with speed levers {tuning:?}: {compared} calls compared, {} divergences",
-        divergences.len()
-    );
-    assert!(
-        divergences.is_empty(),
-        "Sherpa and Rust KWS backends diverged with the speed levers on: {divergences:#?}"
     );
 }

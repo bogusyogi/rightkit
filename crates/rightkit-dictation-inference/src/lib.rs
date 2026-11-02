@@ -38,9 +38,8 @@ pub mod file_transcribe;
 pub mod inference_gate;
 #[cfg(not(target_os = "macos"))]
 mod onnx_beam_decode;
-// All targets: the cascade policy and the Rust backend build and test everywhere; the
-// Sherpa C API backend loads a bundled runtime on macOS and Windows only.
-pub mod sherpa_kws;
+// All targets: the keyword-spotting cascade runs on the Rust spotter and builds and tests everywhere.
+pub mod kws;
 pub mod subtitle_export;
 pub mod timeline_recorder;
 #[cfg(any(target_os = "macos", target_os = "windows"))]

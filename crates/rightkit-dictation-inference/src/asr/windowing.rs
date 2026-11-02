@@ -38,7 +38,7 @@ pub struct Static15TerminalCut {
     pub noise_floor_rms: f32,
 }
 
-/// Find a terminal-command seam no more than 800 ms before Sherpa's emitted
+/// Find a terminal-command seam no more than 800 ms before the KWS cascade's emitted
 /// first-keyword timestamp. RMS minima are ambiguous during continuous speech,
 /// so accept only a 200 ms candidate that belongs to the recording's quietest
 /// decile of like-sized pre-trigger windows. Low-confidence audio stays full-buffer.

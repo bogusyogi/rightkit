@@ -565,7 +565,7 @@ pub enum AsrRuntime {
     #[cfg(target_os = "macos")]
     CoreMlParakeet(crate::coreml_asr::CoreMlParakeet),
     #[cfg(any(target_os = "macos", target_os = "windows"))]
-    SherpaKws(crate::sherpa_kws::SherpaKws),
+    Kws(crate::kws::Kws),
     /// Safety fallback selected when no KWS mechanism passes native acceptance.
     /// It keeps probe scheduling alive but can never emit text, timing, or control.
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -745,10 +745,10 @@ impl AsrRuntime {
                 return Ok(AsrRuntime::ProbeDisabled);
             }
             let _ = (models_dir, ep);
-            let dir = crate::engine_paths::sherpa_kws_dir().ok_or_else(|| {
-                "bundled Sherpa KWS directory was not resolved at engine startup".to_string()
+            let dir = crate::engine_paths::kws_dir().ok_or_else(|| {
+                "bundled KWS directory was not resolved at engine startup".to_string()
             })?;
-            crate::sherpa_kws::SherpaKws::load(&dir).map(AsrRuntime::SherpaKws)
+            crate::kws::Kws::load(&dir).map(AsrRuntime::Kws)
         }
         #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         Self::load(models_dir, ep)
@@ -1003,7 +1003,7 @@ impl AsrRuntime {
             #[cfg(target_os = "macos")]
             AsrRuntime::CoreMlParakeet(_) => "parakeet_asr",
             #[cfg(any(target_os = "macos", target_os = "windows"))]
-            AsrRuntime::SherpaKws(_) => "sherpa_kws",
+            AsrRuntime::Kws(_) => "kws",
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             AsrRuntime::ProbeDisabled => "disabled_probe",
             #[cfg(target_os = "macos")]
@@ -1031,7 +1031,7 @@ impl AsrRuntime {
                 }
             }
             #[cfg(any(target_os = "macos", target_os = "windows"))]
-            AsrRuntime::SherpaKws(m) => m.transcribe(samples),
+            AsrRuntime::Kws(m) => m.transcribe(samples),
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             AsrRuntime::ProbeDisabled => Ok(String::new()),
             #[cfg(target_os = "macos")]
@@ -1106,7 +1106,7 @@ impl AsrRuntime {
         samples: &[f32],
     ) -> Result<TranscriptionResult, String> {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
-        if let AsrRuntime::SherpaKws(model) = self {
+        if let AsrRuntime::Kws(model) = self {
             return model.transcribe_result(samples);
         }
         #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -1116,10 +1116,10 @@ impl AsrRuntime {
                 tokens: Vec::new(),
             });
         }
-        Err("timed KWS decode requires Sherpa runtime".into())
+        Err("timed KWS decode requires KWS runtime".into())
     }
 
-    /// Return cascade output plus an explicit absolute onset when Sherpa's
+    /// Return cascade output plus an explicit absolute onset when the KWS cascade's
     /// acoustic wake candidate paired with a confirmed action. This keeps
     /// confirmation timestamps out of audio-cut ownership.
     pub fn transcribe_probe_cascade_result_with_wake_start(
@@ -1130,7 +1130,7 @@ impl AsrRuntime {
         confirmation_armed: bool,
     ) -> Result<(TranscriptionResult, Option<usize>), String> {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
-        if let AsrRuntime::SherpaKws(model) = self {
+        if let AsrRuntime::Kws(model) = self {
             return model.transcribe_cascade_result_with_wake_start(
                 samples,
                 snapshot_start_sample,
@@ -1147,7 +1147,7 @@ impl AsrRuntime {
         samples: &[f32],
     ) -> Result<(TranscriptionResult, Option<usize>), String> {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
-        if let AsrRuntime::SherpaKws(model) = self {
+        if let AsrRuntime::Kws(model) = self {
             return model.transcribe_fresh_confirmation_result_with_wake_start(samples);
         }
         self.transcribe_probe_result(samples)
@@ -1163,7 +1163,7 @@ impl AsrRuntime {
         use_fresh_confirmation: bool,
     ) -> Result<(TranscriptionResult, Option<usize>, bool), String> {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
-        if let AsrRuntime::SherpaKws(model) = self {
+        if let AsrRuntime::Kws(model) = self {
             return model.transcribe_scheduled_probe_result_with_wake_start(
                 samples,
                 snapshot_start_sample,
@@ -1190,7 +1190,7 @@ impl AsrRuntime {
                 transcribe_padded_window(samples, |window| coreml_parakeet_result(m, window))
             }
             #[cfg(any(target_os = "macos", target_os = "windows"))]
-            AsrRuntime::SherpaKws(m) => m.transcribe_result(samples),
+            AsrRuntime::Kws(m) => m.transcribe_result(samples),
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             AsrRuntime::ProbeDisabled => Ok(TranscriptionResult {
                 text: String::new(),
@@ -1251,13 +1251,13 @@ impl AsrRuntime {
         self.transcribe_final_result_under_lease(samples)
     }
 
-    /// Sherpa control firing requires token-frame timing. If a timed decode
+    /// KWS control firing requires token-frame timing. If a timed decode
     /// fails, do not retry as text-only: that would reintroduce full-buffer
     /// final transcription of fired control audio.
     pub fn requires_timed_control_probe(&self) -> bool {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
-            matches!(self, AsrRuntime::SherpaKws(_))
+            matches!(self, AsrRuntime::Kws(_))
         }
         #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
@@ -1267,7 +1267,7 @@ impl AsrRuntime {
 
     pub fn reset_probe_stream(&mut self) -> Result<(), String> {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
-        if let AsrRuntime::SherpaKws(model) = self {
+        if let AsrRuntime::Kws(model) = self {
             return model.reset_stream();
         }
         Ok(())
@@ -1275,15 +1275,15 @@ impl AsrRuntime {
 
     pub fn start_idle_wake(&mut self, threshold: f32) -> Result<(), String> {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
-        if let AsrRuntime::SherpaKws(model) = self {
+        if let AsrRuntime::Kws(model) = self {
             return model.start_idle_wake(threshold);
         }
-        Err("idle wake requires Sherpa KWS".into())
+        Err("idle wake requires KWS".into())
     }
 
     pub fn stop_idle_wake(&mut self) {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
-        if let AsrRuntime::SherpaKws(model) = self {
+        if let AsrRuntime::Kws(model) = self {
             model.stop_idle_wake();
         }
     }
@@ -1295,10 +1295,10 @@ impl AsrRuntime {
         live_total_sample: usize,
     ) -> Result<Option<(usize, usize)>, String> {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
-        if let AsrRuntime::SherpaKws(model) = self {
+        if let AsrRuntime::Kws(model) = self {
             return model.feed_idle_wake(samples, start_sample, live_total_sample);
         }
-        Err("idle wake requires Sherpa KWS".into())
+        Err("idle wake requires KWS".into())
     }
 
     pub fn transcribe_file(&mut self, samples: &[f32]) -> Result<FileTranscript, String> {

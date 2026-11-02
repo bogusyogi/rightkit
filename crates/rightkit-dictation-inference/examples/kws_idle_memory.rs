@@ -8,13 +8,11 @@
 //! `MallocStackLogging=1` to attribute retained blocks to their allocation stacks.
 //!
 //! usage: kws_idle_memory <kws-model-dir> [audio-seconds=600] [hold-seconds=120]
-//!          [--backend sherpa|rust] [--ort ONNXRUNTIME_LIB]
-//! Without `--backend`, `RIGHTKIT_KWS_BACKEND` decides (test-mode builds). The Sherpa
-//! backend finds `libsherpa-onnx-c-api` beside the runtime `ORT_DYLIB_PATH` names;
-//! the Rust backend runs on the runtime bound here (`--ort`, else `ORT_DYLIB_PATH`).
-//! Run each backend in its own process: memory is per process.
+//!          [--ort ONNXRUNTIME_LIB]
+//! The spotter runs on the ONNX Runtime bound here (`--ort`, else `ORT_DYLIB_PATH`).
+//! Memory is per process, so run each configuration in its own process.
 
-use rightkit_dictation_inference::sherpa_kws::{KwsBackend, SherpaKws};
+use rightkit_dictation_inference::kws::Kws;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -24,20 +22,12 @@ const CHUNK: usize = SAMPLE_RATE / 50;
 
 fn main() {
     let usage = "usage: kws_idle_memory <kws-model-dir> [audio-seconds] [hold-seconds] \
-[--backend sherpa|rust] [--ort ONNXRUNTIME_LIB]";
+[--ort ONNXRUNTIME_LIB]";
     let mut positional = Vec::new();
-    let mut backend = None;
     let mut ort = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--backend" => {
-                backend = Some(match args.next().as_deref() {
-                    Some("sherpa") => KwsBackend::Sherpa,
-                    Some("rust") => KwsBackend::Rust,
-                    _ => panic!("--backend must be sherpa or rust\n{usage}"),
-                })
-            }
             "--ort" => ort = Some(PathBuf::from(args.next().expect("--ort needs a path"))),
             _ => positional.push(arg),
         }
@@ -52,18 +42,9 @@ fn main() {
         .next()
         .and_then(|v| v.parse().ok())
         .unwrap_or(120);
-    let backend = backend.unwrap_or_else(KwsBackend::from_env);
-    let backend_label = match backend {
-        KwsBackend::Sherpa => "sherpa",
-        KwsBackend::Rust => "rust",
-    };
 
-    // The Rust backend's ONNX sessions need a runtime bound through rightkit-onnx.
-    if let Some(runtime) = ort.or_else(|| {
-        (backend == KwsBackend::Rust)
-            .then(|| std::env::var_os("ORT_DYLIB_PATH").map(PathBuf::from))
-            .flatten()
-    }) {
+    // The spotter's ONNX sessions need a runtime bound through rightkit-onnx.
+    if let Some(runtime) = ort.or_else(|| std::env::var_os("ORT_DYLIB_PATH").map(PathBuf::from)) {
         rightkit_onnx::configure_runtime_with_options(
             [rightkit_onnx::explicit_file_candidate(
                 std::path::absolute(&runtime).expect("absolute ONNX Runtime path"),
@@ -76,9 +57,9 @@ fn main() {
         .unwrap_or_else(|error| panic!("bind ONNX Runtime {}: {error}", runtime.display()));
     }
 
-    let mut kws = SherpaKws::load_with_backend(&model_dir, backend).expect("load the KWS cascade");
+    let mut kws = Kws::load(&model_dir).expect("load the KWS cascade");
     kws.start_idle_wake(0.5).expect("start idle wake stream");
-    println!("pid {} backend {backend_label}", std::process::id());
+    println!("pid {}", std::process::id());
 
     let mut seed: u32 = 0x9E37_79B9;
     let mut cursor = 0usize;

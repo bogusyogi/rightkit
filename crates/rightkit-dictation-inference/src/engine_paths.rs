@@ -28,8 +28,8 @@ pub struct EnginePaths {
     pub app_data_root: PathBuf,
     /// Base directory of the app-private models (`<app_data_root>/models`).
     pub models_base: PathBuf,
-    /// Bundled Sherpa KWS resources.
-    pub sherpa_kws_dir: PathBuf,
+    /// Bundled KWS resources.
+    pub kws_dir: PathBuf,
     /// Bundled ffmpeg, when the installation has one.
     pub ffmpeg: Option<PathBuf>,
     /// Compiled CoreML model cache (`<app_data_root>/coreml-cache`).
@@ -60,12 +60,10 @@ pub fn models_base_dir() -> Option<PathBuf> {
         .or_else(|| installed().map(|paths| paths.models_base.clone()))
 }
 
-/// Bundled Sherpa KWS directory: test-mode override, else the installed root.
-pub fn sherpa_kws_dir() -> Option<PathBuf> {
-    dev_override(rightkit_dictation_core::dev_var_os!(
-        "RIGHTKIT_SHERPA_KWS_DIR"
-    ))
-    .or_else(|| installed().map(|paths| paths.sherpa_kws_dir.clone()))
+/// Bundled KWS directory: test-mode override, else the installed root.
+pub fn kws_dir() -> Option<PathBuf> {
+    dev_override(rightkit_dictation_core::dev_var_os!("RIGHTKIT_KWS_DIR"))
+        .or_else(|| installed().map(|paths| paths.kws_dir.clone()))
 }
 
 /// Bundled ffmpeg: test-mode override, else the installed root.
