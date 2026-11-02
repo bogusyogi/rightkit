@@ -1,6 +1,16 @@
 # Changelog
 
-## 0.6.26 (unpublished)
+## 0.6.27 (unpublished)
+
+- **Build-helper trace, ready for every host.** `right-release build-helpers trace` / `trace-all`:
+  - runs `--jobs N` builds at once (default 4), starting the next as each finishes;
+  - judges each crate only on its own build's process tree (eslogger / ETW by pid, strace -ff per build);
+  - builds each helper through a probe package that depends on exactly its version and features, seeded with the workspace lock (`cargo build -p` panics for a build-only dependency), with the release profile and the broker's toolchain (never the RustRight shim);
+  - compares allowed folders by real path (a linked `~/.cargo`);
+  - streams the whole-run recording in 8 MiB chunks (the Dell crashed reading a > 512 MB ETW export into one string).
+- **The trace key drops the toolchain (Adrian, 2026-11-03, rightkit#1473).** A unit is crate + version + checksum + features + target, so a Rust upgrade never voids a trace list; entries recorded under the old key are re-keyed on read.
+
+## 0.6.26 — 2026-11-03
 
 - **Direct cargo on a broker host runs the broker's own toolchain and plugins (fixes every Dell Class A on 0.6.25).** The gate's direct, non-compiling cargo (GC-A11) took cargo from PATH with the RustRight shims removed. The Dell has no cargo on PATH (`spawn cargo ENOENT`), rustup's default there is another toolchain (1.97.1 instead of the broker's 1.98.0), and cargo-deny / cargo-audit live only in the broker's registered tools. `managed-cargo.mjs` `brokerToolchain` now reads the broker config (`tools`: cargo, then the registered cargo plugins; the managed control root's config, else the data root's) and `directCargoPath` puts those folders first and uses that cargo. Linux and CI, with no broker config, keep PATH.
 

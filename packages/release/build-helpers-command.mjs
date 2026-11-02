@@ -89,12 +89,14 @@ function traceAll(argv, { env, platform, log, err }) {
     for (const ws of workspaces) {
       log(`--- ${ws}`);
       const jobsAt = argv.indexOf("--jobs");
-      const code = main(["trace", "--manifest-path", path.join(ws, "Cargo.toml"), "--record-repo", ...(jobsAt >= 0 ? ["--jobs", argv[jobsAt + 1]] : [])], { env, platform, log, err });
+      // The host list is what Class A reads on this host; a repository's committed list is written only on request (--record-repo), so
+      // tracing never edits a checkout another owner holds.
+      const code = main(["trace", "--manifest-path", path.join(ws, "Cargo.toml"), ...(argv.includes("--record-repo") ? ["--record-repo"] : []), ...(jobsAt >= 0 ? ["--jobs", argv[jobsAt + 1]] : [])], { env, platform, log, err });
       if (code !== 0) err(`right-release build-helpers trace-all: ${ws} ended with ${code}`);
       worst = Math.max(worst, code);
     }
   } finally { try { keepAlive?.kill(); } catch { /* already gone */ } }
-  log(`right-release build-helpers trace-all: done; commit each workspace's .rightkit/build-helper-trace.json`);
+  log(`right-release build-helpers trace-all: done${argv.includes("--record-repo") ? "; commit each workspace's .rightkit/build-helper-trace.json" : ""}`);
   return worst;
 }
 
@@ -188,12 +190,16 @@ function mainWith(argv, { env, platform, run, log, err }) {
       run("sleep", ["2"]);
       stopTracer = () => { run("sleep", ["1"]); if (tracerPid) { run("sudo", ["-n", "pkill", "-INT", "-P", tracerPid]); run("kill", [tracerPid]); run("sleep", ["1"]); } };
     } else if (platform === "win32") {
-      etl = { file: path.join(sessionDir, "file.etl"), proc: path.join(sessionDir, "proc.etl") };
-      run("logman", ["stop", "rk-bht-file", "-ets"]); run("logman", ["stop", "rk-bht-proc", "-ets"]);
-      const startProc = run("logman", ["start", "rk-bht-proc", "-p", "Microsoft-Windows-Kernel-Process", "0x10", "-o", etl.proc, "-ets"], { encoding: "utf8" });
-      const startFile = run("logman", ["start", "rk-bht-file", "-p", "Microsoft-Windows-Kernel-File", "0x1E90", "-o", etl.file, "-ets"], { encoding: "utf8" });
-      if (startProc.status !== 0 || startFile.status !== 0) { err(`right-release build-helpers trace: logman could not start the ETW sessions: ${String(startFile.stdout ?? startProc.stdout ?? "").trim()}`); return 2; }
-      stopTracer = () => { run("logman", ["stop", "rk-bht-file", "-ets"]); run("logman", ["stop", "rk-bht-proc", "-ets"]); };
+      // One ETW session with both kernel providers, each with an explicit level (0x5): a separate process-only session without a level
+      // recorded nothing on the Dell (proc.etl 0 MB), so no write could be tied to its build. Tested on the Dell: process starts (with
+      // ParentProcessID) and file writes both recorded.
+      etl = { file: path.join(sessionDir, "trace.etl") };
+      const providers = path.join(sessionDir, "providers.txt");
+      fs.writeFileSync(providers, '"Microsoft-Windows-Kernel-Process" 0x10 0x5\r\n"Microsoft-Windows-Kernel-File" 0x1E90 0x5\r\n');
+      run("logman", ["stop", "rk-bht", "-ets"]);
+      const started = run("logman", ["start", "rk-bht", "-pf", providers, "-o", etl.file, "-ets"], { encoding: "utf8" });
+      if (started.status !== 0) { err(`right-release build-helpers trace: logman could not start the ETW session: ${String(started.stdout ?? "").trim()}`); return 2; }
+      stopTracer = () => { run("logman", ["stop", "rk-bht", "-ets"]); };
     }
     // The runner keeps `jobs` builds running and starts the next whenever one finishes; each build's pid is its tree's root.
     const jobsFile = path.join(sessionDir, "jobs.json"); const resultFile = path.join(sessionDir, "results.json");
@@ -209,7 +215,7 @@ function mainWith(argv, { env, platform, run, log, err }) {
     if (platform === "darwin") { try { recorded = fs.statSync(traceFile).size > 0; if (recorded) byRoot = esloggerWritesByRoot(traceFile, roots); } catch { /* no output */ } }
     if (platform === "win32") {
       const xml = path.join(sessionDir, "trace.xml");
-      const exported = run("tracerpt", [etl.proc, etl.file, "-o", xml, "-of", "XML", "-y"], { encoding: "utf8" });
+      const exported = run("tracerpt", [etl.file, "-o", xml, "-of", "XML", "-y"], { encoding: "utf8" });
       if (exported.status !== 0) { err("right-release build-helpers trace: tracerpt could not export the ETW trace"); return 2; }
       try { recorded = fs.statSync(xml).size > 0; if (recorded) byRoot = etwWritesByRoot(xml, roots, devices); } catch { /* no output */ }
     }
