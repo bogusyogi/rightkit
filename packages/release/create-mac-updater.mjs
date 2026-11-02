@@ -3,6 +3,7 @@ import { spawnSync } from "./background-process.mjs";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
 import { signMacUpdaterFiles } from "./macos-signing-session.mjs";
+import { assertUpdaterMatchesShippedKey } from "./updater-shipped-key.mjs";
 import { ArtifactPathError, loadSplitArtifactContext, resolveArtifactPath, resolveArtifactWritePath } from "./release-artifact-path.mjs";
 
 const args = process.argv.slice(2);
@@ -56,6 +57,9 @@ else {
   console.log(`pnpm exec tauri signer sign ${outputPath}`);
   try { signMacUpdaterFiles([outputPath], { cwd, env }); }
   catch (error) { fail(`${error.code ? `[${error.code}] ` : ""}${error.message}`); }
+  // rightkit#1443: the signature must verify with the key the app ships (tauri.conf plugins.updater.pubkey), whatever key signed it.
+  try { assertUpdaterMatchesShippedKey({ appRoot: cwd, file: outputPath }); }
+  catch (error) { fail(`[MAC_UPDATER_SHIPPED_KEY] ${error.message}`); }
 }
 
 function run(command, commandArgs) {

@@ -23,7 +23,7 @@ import path from "node:path";
 import { REQUEST_OVER_CAP_CODE, requestOverCap } from "./broker-wire.mjs";
 import { ownerFileOf, writeCarrierOwner } from "./carrier-census.mjs";
 import { BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoCommandIndex, cargoSubcommandOf, expandCargoAliases, isCompileCommand, isPackageObservation } from "./cargo-shapes.mjs";
-import { canonicalJson, CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, ProvenanceError, requireExplainedCauses, verifyBr19Evidence, verifyCauseEvidence, verifyProvenance, verifyReceiptCoverage, verifyResultEvidence } from "./provenance-verify.mjs";
+import { canonicalJson, CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, ProvenanceError, verifyBr19Evidence, verifyCauseEvidence, verifyProvenance, verifyReceiptCoverage, verifyResultEvidence } from "./provenance-verify.mjs";
 
 export const SNAPSHOT_REQUEST_SCHEMA = "rustright.snapshot-request/1";
 // One spelling per variable, the current one (rustright-cli shims.rs reads RUSTRIGHT_* first, then the legacy RIGHTKIT_* spelling, which task
@@ -646,8 +646,11 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   // legitimately carries no census; when one carries cause evidence anyway it must still be well formed, but nothing is judged for it (nothing was rebuilt).
   const signedFreshness = stage.freshness ?? null;
   let causeEvidence = null;
-  if (compile) causeEvidence = requireExplainedCauses(signedFreshness);
-  else if (isObject(signedFreshness) && signedFreshness.causeEvidence !== undefined) causeEvidence = verifyCauseEvidence(signedFreshness);
+  // Adrian, 2026-11-02 (the broker owner's chat, checked with pulse `said`): "Refusal, remove but I want a daily job checking the warmth etc and
+  // reporting issues." An unexplained or unknown rebuild no longer fails a stage: the cause evidence is still read, checked well formed and
+  // recorded (the daily warmth check reports it), never judged here. The broker stopped refusing it too (rustright b00220f).
+  // A compile must still carry well-formed signed cause evidence (verifyCauseEvidence refuses a missing or incoherent one); its verdict is not judged.
+  if (compile || (isObject(signedFreshness) && signedFreshness.causeEvidence !== undefined)) causeEvidence = verifyCauseEvidence(signedFreshness);
   // Fields the signature does not cover must still be present with their types (the consumer reads them). Every carried command:
   // exit (an integer, or null with a signal) and signal, timingsMs{admission, queue, bind, cargo, afterExitBind, diagnostics} (each a
   // number or null) and diagnosticsPath (a path, or null). Success needs exit 0 and no signal, as signed. `verdict` and `refreshed`

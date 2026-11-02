@@ -1,0 +1,10 @@
+{
+  "_comment": "The pinned zig that gives every gate host a C/C++ toolchain for the two foreign OS targets (scripts/ci/provision-zig.mjs, packages/release/local-publish.mjs CROSS_TARGETS). Digests are the shasum fields of https://ziglang.org/download/index.json for the pinned version.",
+  "version": "0.14.1",
+  "platforms": {
+    "linux-x64": { "archive": "zig-x86_64-linux-0.14.1.tar.xz", "sha256": "24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c" },
+    "darwin-arm64": { "archive": "zig-aarch64-macos-0.14.1.tar.xz", "sha256": "39f3dc5e79c22088ce878edc821dedb4ca5a1cd9f5ef915e9b3cc3053e8faefa" },
+    "darwin-x64": { "archive": "zig-x86_64-macos-0.14.1.tar.xz", "sha256": "b0f8bdfb9035783db58dd6c19d7dea89892acc3814421853e5752fe4573e5f43" },
+    "win32-x64": { "archive": "zig-x86_64-windows-0.14.1.zip", "sha256": "554f5378228923ffd558eac35e21af020c73789d87afeabf4bfd16f2e6feed2c" }
+  }
+}

@@ -27,17 +27,23 @@ export const envNamed = (env, name) => {
  * way (rustright 07829c05, pinned in the shared fixtures as "linux no-env defaults to the account state directory"). The broker's answering roots, not either
  * resolver's guess, say where a running broker keeps its state.
  */
-export function resolveManagedRoots({ env = process.env, platform = process.platform, home = homedir(), controlRoot, dataRoot, runtimeRoot } = {}) {
+export function resolveManagedRoots({ env = process.env, platform = process.platform, home = homedir(), controlRoot, dataRoot, runtimeRoot, windowsControlDefault = 'localappdata' } = {}) {
   const paths = platform === 'win32' ? win32 : posix;
   const legacyRoot = platform === 'win32' ? 'D:\\.rightkit-managed' : '/Volumes/D/.rightkit-managed';
   const managedPlatform = platform === 'darwin' || platform === 'win32';
   dataRoot ??= envNamed(env, 'DATA_ROOT') || envNamed(env, 'MANAGED_ROOT') || envNamed(env, 'EXTERNAL_ROOT') || (managedPlatform ? legacyRoot : paths.join(home, '.local', 'state', 'rightkit'));
+  // rustright#54 (Adrian, 2026-11-02: "all apps are installed in internal drives ... doesn't rr belong there? the dev workspace sits on d"): the
+  // Windows control root (config, logs, policy, agent-bin, attestation) is %LOCALAPPDATA%\RightKit\build-control, as the Mac's is under Application
+  // Support; build data (ws, sccache, cargo home, snapshots) stays on the data root. Flipped together with rustright-config WindowsControlDefault.
+  const localAppData = () => env.LOCALAPPDATA || paths.join(home, 'AppData', 'Local');
   controlRoot ??= envNamed(env, 'CONTROL_ROOT') || (platform === 'darwin'
-    ? paths.join(home, 'Library', 'Application Support', 'RightKit', 'build-control') : dataRoot);
-  runtimeRoot ??= envNamed(env, 'RUNTIME_ROOT') || (platform === 'darwin' ? paths.join(home, 'Library', 'Application Support', 'RustRight') : platform === 'win32' ? 'D:\\.rustright' : controlRoot);
+    ? paths.join(home, 'Library', 'Application Support', 'RightKit', 'build-control')
+    : platform === 'win32' && windowsControlDefault === 'localappdata' ? paths.join(localAppData(), 'RightKit', 'build-control') : dataRoot);
+  runtimeRoot ??= envNamed(env, 'RUNTIME_ROOT') || (platform === 'darwin' ? paths.join(home, 'Library', 'Application Support', 'RustRight') : platform === 'win32' ? (windowsControlDefault === 'localappdata' ? paths.join(localAppData(), 'RustRight') : 'D:\\.rustright') : controlRoot);
   return Object.freeze({ controlRoot, dataRoot, legacyRoot, runtimeCurrent: paths.join(controlRoot, 'runtime'), runtimeRoot, liveRuntime: paths.join(runtimeRoot, 'runtime'),
     configPath: paths.join(controlRoot, 'config.json'), socket: platform === 'win32' ? null : paths.join(controlRoot, 'broker.sock'),
-    logs: paths.join(controlRoot, 'logs'), agentBin: paths.join(controlRoot, 'agent-bin'),
+    // rustright 303c6c6: on Windows agent-bin stays on the data root (agents' PATH and broker job PATH use D:\\.rightkit-managed\\agent-bin).
+    logs: paths.join(controlRoot, 'logs'), agentBin: platform === 'win32' ? paths.join(dataRoot, 'agent-bin') : paths.join(controlRoot, 'agent-bin'),
     agentPolicy: paths.join(controlRoot, 'agent-policy'), ownershipInstall: paths.join(controlRoot, 'ownership-install'),
     // The Mac signing agent already lives on the internal disk; moving it would force a re-provision.
     signingAgent: platform === 'darwin' ? paths.join(home, 'Library', 'Application Support', 'Orthic Labs', 'shared', 'signing-agent')
@@ -144,6 +150,8 @@ export function managedRuntimeClient(env = process.env, platform = process.platf
   const roots = managedControlCandidates({ env, platform, home });
   const configured = resolveManagedRoots({ env, platform, home });
   const ordered = [paths.join(configured.liveRuntime, exe)];
+  // rustright#54: until a Windows host's cutover moves the runtime to %LOCALAPPDATA%\\RustRight, its live runtime is still the legacy one.
+  if (platform === 'win32') ordered.push(paths.join(resolveManagedRoots({ env, platform, home, windowsControlDefault: 'legacy' }).liveRuntime, exe));
   for (const root of roots) ordered.push(paths.join(root, 'runtime', exe));
   for (const root of roots) ordered.push(paths.join(root, 'runtime-current', exe)); // the pre-cutover link: last, never preferred over the live runtime
   if (platform === 'darwin') {

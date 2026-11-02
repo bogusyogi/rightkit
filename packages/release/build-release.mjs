@@ -560,7 +560,13 @@ try {
           if (linked.action === "moved-aside") console.error(`[right-release] hosted CI: moved existing ${targetLink} aside to ${linked.aside}`);
         }
         // A Cargo-less native iOS app installs Node dependencies only when it has a package.json.
-        if (nativeIos ? hasPackageJson : resolveProjectType({ appRoot, config, target }) !== "swiftpm" || config.packageManager) await runLocalStep(() => runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, heavyDecisionOfRun?.localSteps ? { ...env, RIGHTSUITE_HEAVY_WORK_OWNER: "1" } : env, cacheTarget, path.join(stateRoot, "stall-install.log")));
+        const needsNodeInstall = nativeIos ? hasPackageJson : resolveProjectType({ appRoot, config, target }) !== "swiftpm" || config.packageManager;
+        // rightkit#1443.3: in a gate split the snapshot's node_modules were already installed by the gate, offline, from the same lockfile; a
+        // second install here would run inside the snapshot around the broker (which refuses it). It is skipped; a snapshot without them is refused.
+        if (needsNodeInstall && splitSource) {
+          if (!existsSync(path.join(appRoot, "node_modules"))) fail(`the gate's snapshot at ${appRoot} has no node_modules: the gate installs them before the package stage; nothing is installed here (rightkit#1443)`);
+          console.error(`[right-release] node_modules already installed by the gate in the snapshot; no second install (rightkit#1443)`);
+        } else if (needsNodeInstall) await runLocalStep(() => runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, heavyDecisionOfRun?.localSteps ? { ...env, RIGHTSUITE_HEAVY_WORK_OWNER: "1" } : env, cacheTarget, path.join(stateRoot, "stall-install.log")));
       },
       build: async () => {
         throwIfInterrupted();

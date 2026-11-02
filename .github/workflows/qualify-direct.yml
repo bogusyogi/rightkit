@@ -91,6 +91,11 @@ jobs:
         with:
           toolchain: 1.98.0
           components: clippy, rustfmt
+          targets: aarch64-apple-darwin, x86_64-pc-windows-gnu, x86_64-unknown-linux-gnu
+      # Cross-target clippy (packages/release/cross-targets.mjs, Adrian 2026-11-02): the zig C toolchain for the other two OS targets.
+      - name: Provision the pinned zig for cross-target clippy
+        shell: bash
+        run: node scripts/ci/provision-zig.mjs
       - name: Use the qualification toolchain by default
         run: rustup default 1.98.0
       # Compile time is the largest per-unit cost after setup (25-90 s, runs 41324657453 & 41325170872). The gate binds each Cargo

@@ -86,7 +86,7 @@ const gateResolveExecutor = (args) => resolveExecutor({ ...args, gateWrappers: t
 import { ALL_UNITS_ERRORS, ALL_UNITS_EXCEPTIONS_FILE, BROKER_EXCEPTIONS_FILE, BROKER_EXCEPTION_ERRORS, CARGO_WORKSPACE_LIST_FILE, CARGO_WORKSPACE_LIST_KEY, RIGHTKIT_IDENTITY_FILE, authorizeAllUnits, authorizeNoBroker, checkCargoWorkspaceList, describeAllUnitsException, describeBrokerException, isRightKitIdentity, unitsOfSelector } from "../broker-exception.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { gitListRustFiles } from "../signing-files.mjs";
-import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directPlatform, linuxBrokerDeclared, managedRuntimeClient, realCargoOf } from "../managed-cargo.mjs";
+import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directCargoPath, directPlatform, linuxBrokerDeclared, managedRuntimeClient, realCargoOf } from "../managed-cargo.mjs";
 import { createBrokerLive } from "../broker-admission.mjs";
 import { bindingOf, compileOutputsRecord, compileReuseProblem, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
@@ -2059,8 +2059,8 @@ export async function stageWebBuildOnce({ o, ds, root, git = null, appDir, cli, 
   for (const config of configs) {
     if (!absent().length) break;
     const before = ds.ledger?.entries ?? [];
-    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, producer: true });
-    if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; the web build did not run`); return false; }
+    // Adrian, 2026-11-02: the web build (vite, any bundling) runs outside the broker, directly in the snapshot; no carrier, no carried call.
+    const carrier = { carried: false, env: {}, finish: async () => true };
     const run = startRun({ commonDir, commit, tree, stage, source });
     let r;
     try {
@@ -3516,7 +3516,6 @@ export async function main(argv, io = {}) {
         return failed(r) ? [] : text(r).split("\0").filter(Boolean).map(posix);
       };
       if (executor.kind === "broker" && snapshot && (snapshotA || snapshotB) && manifests.length) {
-        const { snapshotCargoSpawn } = await import("../snapshot-metadata.mjs");
         const { createSnapshotBroker } = await import("../snapshot-broker.mjs");
         const snapshotCheck = await import("../snapshot-check.mjs");
         const snapshotCommitOf = () => snapshotCheck.commitOf(fs.realpathSync.native(root), String(snapshot), o.spawn);
@@ -3528,8 +3527,15 @@ export async function main(argv, io = {}) {
             discoveryBroker = createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: sc.commit, tree: sc.tree }, snapshot: { path: repo, expectedTree: sc.tree }, ownership: o.buildOwnership, client: executor.route === LINUX_BROKER_ROUTE ? executor.client : which("rustright").find((c) => path.isAbsolute(c)), gateFile: callingGatePath(), spawn: o.spawn });
           }
         } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SNAPSHOT_BROKER"}: ${error.message}; nothing compiled`); return 1; }
-        snapshotSpawn = snapshotCargoSpawn({ spawn: withDeclaredClient((c, a, opts) => o.spawn(c, a, opts)), cargoCommand: planCargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
-        scanSpawn = snapshotCargoSpawn({ spawn: withDeclaredClient(defaultSpawnAsync), carrySpawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand: planCargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
+        // GATE-CONTRACT GC-A11 (Adrian, 2026-11-02): Class A never runs in the broker. The snapshot's discovery metadata and every Class A Cargo
+        // read (metadata, fetch, deny, audit, fmt --check) run DIRECTLY with the host's real toolchain cargo (RustRight shims and outer gate
+        // wrappers taken off PATH), each into its own scratch target under the gate's tmp root; nothing is carried.
+        const { directReadSpawn } = await import("../snapshot-metadata.mjs");
+        const pathKey = o.platform === "win32" ? (Object.keys(o.env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH";
+        const direct = directCargoPath({ env: { ...o.env, PATH: o.env[pathKey] }, exists: o.exists, platform: o.platform, gateWrappers: true });
+        const readOpts = { cargoCommand: planCargoCommand, snapshotRoot: repo, directPath: direct.path, pathKey, tmpRoot: gateTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }), env: o.env, err: o.err };
+        snapshotSpawn = directReadSpawn({ spawn: withDeclaredClient((c, a, opts) => o.spawn(c, a, opts)), ...readOpts });
+        scanSpawn = directReadSpawn({ spawn: withDeclaredClient(defaultSpawnAsync), ...readOpts });
       }
       npm = discoverNpmUnits({ root: repo, tracked, readFile: readSnap, exists: o.exists });
       npmRoots = discoverPnpmRoots({ root: repo, tracked, exists: o.exists });
@@ -3610,7 +3616,9 @@ export async function main(argv, io = {}) {
       // own workspace's checkout target directory or refuses it (RK_CARGO_*), whatever path reaches cargo. Direct POSIX hosts only (a
       // broker host never reaches here; a direct Windows host keeps the fail-closed static walk). Removed when the gate ends (cleanup).
       if (o.platform !== "win32" && rust.workspaces.length) {
-        const realCargo = realCargoOf(which("cargo"));
+        // GC-A11: the wrapper runs non-compiling calls directly, so a broker-mode wrapper also needs the real toolchain cargo (shims off PATH).
+        const directCargoBin = () => { const pk = o.platform === "win32" ? (Object.keys(o.env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH"; const d = directCargoPath({ env: { ...o.env, PATH: o.env[pk] }, exists: o.exists, platform: o.platform, gateWrappers: true }); const names = o.platform === "win32" ? ["cargo.exe"] : ["cargo"]; for (const dir of String(d.path ?? "").split(o.platform === "win32" ? ";" : ":").filter(Boolean)) for (const n of names) { const c = path.join(dir, n); if (o.exists(c)) return c; } return null; };
+        const realCargo = wrapBroker ? (directCargoBin() ?? undefined) : realCargoOf(which("cargo"));
         if (!realCargo && !wrapBroker) { o.err(`${tag} BLOCKED: no cargo on PATH to wrap for the snapshot compile; nothing compiled`); return 1; }
         try {
           const shimModule = await import("../cargo-target-shim.mjs");
@@ -3977,7 +3985,7 @@ export async function main(argv, io = {}) {
       toolPolicy: scanTools?.policy ?? {},
       // The class A cargo reads (deny, audit, metadata, fetch) are carried requests the broker executes (scanSpawn): cargo-deny and cargo-audit are then the
       // broker's registered tools, in the check stage too (which has no snapshotBroker). Only when the reads really go to the broker.
-      ...(executor.kind === "broker" && scanSpawn ? { cargoReadsCarried: true } : {}),
+      // GC-A11: never carried; scanSpawn runs the class A cargo reads directly, and cargo-deny and cargo-audit are the gate's enrolled tools.
       // A broker host: every Cargo call a class A scan makes inside the snapshot is a carried read-only request; the gate's own temporary files
       // (cargo-deny's metadata and config) live in a gate-owned directory the broker can read, outside the checkout.
       ...(scanSpawn ? { spawn: scanSpawn, tmpRoot: gateTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }) } : {}),

@@ -86,6 +86,7 @@ jobs:
             packages/release/committed-source.mjs
             packages/release/crate-graph.mjs
             packages/release/credential-provider.mjs
+            packages/release/cross-targets.mjs
             packages/release/development-signing.mjs
             packages/release/devtools-policy.mjs
             packages/release/execution-policy.mjs

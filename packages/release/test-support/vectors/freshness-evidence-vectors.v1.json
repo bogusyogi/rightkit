@@ -2,9 +2,10 @@
  "schema": "rustright.freshness-evidence-vectors.v1",
  "description": "Shared evidence semantics for a Cargo compile's freshness census (BROKER-CONTRACT section 16, GB-68). RustRight's broker (rustright-policy cargo_freshness, rustright-broker cargo_evidence) is tested against these; RightKit's direct census (packages/release/freshness-census.mjs) is expected to produce the same unit, kind, cause, scope and completeness for the same inputs. A census that cannot read what exists is unavailable, never empty, and never a first build.",
  "caps": {
-  "reasons": 200,
+  "reasons": 10000,
   "reasonTextChars": 512
  },
+ "explainedCauses": ["first-build", "toolchain-changed", "source-or-dependency-changed", "env-rustflags-profile-features-or-target-changed", "generation-change", "authorized-eviction", "new-unit", "new-namespace", "after-failed-build", "fingerprint-changed"],
  "causes": {
   "FreshBuild": "first-build",
   "FingerprintMissing": "fingerprint-missing",
@@ -288,17 +289,17 @@
    }
   },
   {
-   "name": "the reason cap keeps 200 reasons and counts the rest",
+   "name": "the reason cap keeps 10000 reasons and counts the rest",
    "strip": true,
    "repeat": {
-    "count": 205,
+    "count": 10005,
     "unitPrefix": "u",
     "template": "dirty"
    },
    "expect": {
-    "dirtyUnits": 205,
+    "dirtyUnits": 10005,
     "truncated": 5,
-    "reasonCount": 200
+    "reasonCount": 10000
    }
   },
   {

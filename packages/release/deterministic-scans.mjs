@@ -25,6 +25,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn as spawnChild, spawnSync } from "./background-process.mjs";
 import { spawnUnderOwnership } from "./build-ownership.mjs";
 import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
+import { crossCompileEnv, crossTargetsFor } from "./cross-targets.mjs";
 import { CLIPPY_UNIVERSAL_FEATURE_FLAGS, canonicalJson, clippyBatchPlan, clippySelectionOf, digestScanSet, requiredScanIds, rustCratePlan, rustScanId } from "./scan-digest.mjs";
 import { reach } from "./lock-graph.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
@@ -33,7 +34,7 @@ import { PYTHON_LOCK_FILE, pythonLockProblems } from "./python-lock.mjs";
 import { lockOwnerOf, packageLockProblems, xcodeProjectLockProblems } from "./swift-lock.mjs";
 import { LAUNCH_GUARD_IMPORT } from "./class-a-launch-guard.mjs";
 import { advisoryCacheRoot, ensureAdvisoryDb, prepareDenyOverlay, readAdvisoryPin } from "./advisory-db.mjs";
-import { observedEnvOf, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest } from "./snapshot-request.mjs";
+import { isInsideGenerationTarget, observedEnvOf, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest } from "./snapshot-request.mjs";
 import { SCAN_TOKEN_ENV, appendLedger, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
 import { brokerSection, carryBrokerAdapterAsync, verifyBrokerLedger } from "./snapshot-broker.mjs";
 import { ADMISSION_POLL_MS, CARRIED_CANCEL_GRACE_MS, QUEUED_CEILING_FACTOR, createBrokerLive, createRunClock, createStatusPoller, watchBrokerAdmission } from "./broker-admission.mjs";
@@ -63,13 +64,14 @@ export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
 export const UNOBSERVED_NESTED_CARGO_NOTE = "cargo calls that a build script makes through $CARGO are unobserved: cargo hands build scripts its own path, not the gate's wrapper, so they are not in the cargo ledger; they inherit the parent's bound CARGO_TARGET_DIR, and the per-scan sentinel and the after-compile snapshot verify are the backstops";
 
 /** The ledger token of the gate's own tool version probes (they reach the cargo wrapper like any scan does). */
+const BUILD_HELPERS_COMMAND = fileURLToPath(new URL("./build-helpers-command.mjs", import.meta.url));
 const PROBE_LEDGER_TOKEN = scanTokenOf("tool-probe");
 
 /** Scan id prefixes (the text before the first ":") that belong to each class. */
 export const CLASS_A_SCAN_PREFIXES = Object.freeze([
   "rustfmt", "node-check", "json-parse", "toml-parse", "yaml-parse", "ownership-catalog",
   "actionlint", "shellcheck", "pnpm-lockfile", "swift-lock", "gradle-lock", "python-lock", "pnpm-audit", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list",
-  "changelog-version", "license", "secret-scan", "path-policy", "advisory-exceptions", "suite-api",
+  "changelog-version", "license", "secret-scan", "path-policy", "advisory-exceptions", "suite-api", "build-helpers",
   // Everything mechanical and deterministic that does not compile is class A (Adrian, 2026-10-27): typecheck, lint, generated docs.
   "tsc", "eslint", "biome", "generated-docs",
 ]);
@@ -154,7 +156,13 @@ const BUILD_ENV_NAMES = new Set(["CI", "GITHUB_ACTIONS", "CC", "CXX", "AR", "LD"
   "VCINSTALLDIR", "LIB", "INCLUDE", "LIBPATH", "CFLAGS", "CXXFLAGS", "LDFLAGS", "CPPFLAGS", "PKG_CONFIG_PATH", "PKG_CONFIG_LIBDIR", "OPENSSL_DIR", "OPENSSL_LIB_DIR", "OPENSSL_INCLUDE_DIR",
   "LIBCLANG_PATH", "LLVM_CONFIG_PATH", "ORT_LIB_LOCATION", "ORT_STRATEGY", "PROTOC", "WEBVIEW2_", "TAURI_"]);
 const BUILD_ENV_PREFIXES = ["CARGO_", "RUST", "SCCACHE_", "RK_", "RIGHTKIT_", "RUSTRIGHT_", "PNPM_", "NPM_CONFIG_", "CMAKE_", "CFLAGS_", "CXXFLAGS_", "OPENSSL_", "ORT_", "ONNX", "TAURI_", "WEBVIEW2_", "WINDOWS_SDK", "MSVC"];
-const BUILD_ENV_EXCLUDED = /^(RK_GATE_|RUSTRIGHT_QUIET_LEASE$)/;
+// Per-run identities never key a result (they change on every run, so the cache could never hit; measured 2026-11-02: HR Class A wrote
+// 3,809 entries and hit none across identical runs): the run's ownership handle, the attest nonce, the request-id file, the carried call's
+// snapshot request and cargo map, the direct receipt path.
+const BUILD_ENV_EXCLUDED = /^(RK_GATE_|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_BUILD_OWNERSHIP$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$)/;
+// A per-run temporary directory inside a value (the runtime cargo wrapper lives under a fresh `rk-gate-shim-XXXXXX`) is normalised: the
+// wrapper's own identity (`rk-cargo-shim-<identity>`) still keys the result, the random parent does not.
+const normalizeRunTemp = (value) => String(value).replace(/rk-gate-shim-[A-Za-z0-9]+/g, "rk-gate-shim-*");
 export const buildEnvName = (name) => {
   const upper = String(name).toUpperCase();
   if (BUILD_ENV_EXCLUDED.test(upper)) return false;
@@ -163,7 +171,7 @@ export const buildEnvName = (name) => {
 
 /** sha256 of the build-relevant part (buildEnvName) of the environment a scan's child receives. Pass the merged `{ ...deps.env, ...scan.env }`. */
 export function inheritedEnvDigest(env = {}) {
-  const rows = Object.entries(env).filter(([name, value]) => value !== undefined && value !== null && buildEnvName(name)).map(([name, value]) => [String(name).toUpperCase(), String(value)]);
+  const rows = Object.entries(env).filter(([name, value]) => value !== undefined && value !== null && buildEnvName(name)).map(([name, value]) => [String(name).toUpperCase(), normalizeRunTemp(value)]);
   rows.sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
   return sha256(canonicalJson(rows));
 }
@@ -202,9 +210,9 @@ export function fileScanCache(dir, { now = () => new Date(), fsApi = fs } = {}) 
 
 const packageFlags = (units) => [].concat(units).flatMap((unit) => ["-p", unit]);
 
-/** `cargo clippy -p <units> [--message-format=...] --no-deps --all-targets <features> [--locked] -- -D warnings` (argv after `cargo`). */
-export function clippyArgs(units, { features = [], messageFormat, noDeps = true, locked = false } = {}) {
-  return ["clippy", ...packageFlags(units), ...(messageFormat ? [`--message-format=${messageFormat}`] : []), ...(noDeps ? ["--no-deps"] : []), "--all-targets", ...features, ...(locked ? ["--locked"] : []), "--", "-D", "warnings"];
+/** `cargo clippy -p <units> [--message-format=...] --no-deps --all-targets [--target <t>] <features> [--locked] -- -D warnings` (argv after `cargo`). */
+export function clippyArgs(units, { features = [], messageFormat, noDeps = true, locked = false, target = null } = {}) {
+  return ["clippy", ...packageFlags(units), ...(messageFormat ? [`--message-format=${messageFormat}`] : []), ...(noDeps ? ["--no-deps"] : []), "--all-targets", ...(target ? ["--target", target] : []), ...features, ...(locked ? ["--locked"] : []), "--", "-D", "warnings"];
 }
 
 /** `cargo check -p <unit> [--message-format=...] --all-targets <features> [--locked]`. */
@@ -981,9 +989,14 @@ export function planScans({
   const plainDir = (d) => !ABSOLUTE_PATH.test(d) && !d.split("/").includes("..") && SAFE_UNIT_DIR.test(d);
   const cargoWs = cleanDir(cargoDir);
   if (!plainDir(cargoWs)) throw new TypeError("planScans: cargoDir must be a plain repository-relative directory");
-  const cargoBase = (ws, args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...everyFailure(args)], ...(ws !== "." ? { cwd: ws } : {}), ...(targetDirs?.[ws] ? { env: { CARGO_TARGET_DIR: targetDirs[ws] } } : {}) });
+  const cargoBase = (ws, args, { raw = false } = {}) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...(raw ? args : everyFailure(args))], ...(ws !== "." ? { cwd: ws } : {}), ...(targetDirs?.[ws] ? { env: { CARGO_TARGET_DIR: targetDirs[ws] } } : {}) });
   // Class B (compiles): started from the primary checkout on a broker host, the snapshot carrier names the source.
   const cargoIn = (ws, ...args) => ({ ...cargoBase(ws, args), ...(cargoLiveRoot ? { root: "cargoLive" } : {}) });
+  // A Rust test scan on a BROKER host (cargoLiveRoot set; GATE-CONTRACT GC-A08): the broker compiles with the plain test command plus --locked and
+  // --message-format=json (the broker adds --no-run itself and never executes a test), and the gate runs the listed executables outside it. --no-fail-fast and
+  // --test-threads=1 are RUN arguments (runOutside.args), never part of the compile. A direct host (no broker, cargoLiveRoot unset) has nothing to keep tests
+  // out of: its test scan stays the one-step `test ... --locked --no-fail-fast`, compile and run together, with no runOutside.
+  const cargoTestIn = (ws, ...args) => ({ ...cargoBase(ws, [...args, "--message-format=json"], { raw: true }), root: "cargoLive" });
   // Class A (reads Cargo inputs, compiles nothing): always the content root, the snapshot or the commit's own tree. These still execute
   // cargo (through the broker on a broker host), so a unit-scoped check follows the Rust closure for them (app-closure.mjs scopeScans reads
   // the ids `cargo-metadata|cargo-deny|cargo-audit[:<label>]` and `cargo-package-list:<unit>` and the scan's `cwd`; rename one there too).
@@ -1228,6 +1241,9 @@ export function planScans({
   }
   if (rustTouched) {
     for (const ws of touchedWs) add({ id: `cargo-metadata${wsIdSuffix(ws)}`, class: A, ...cargoReadIn(ws, ...metadataArgs()) });
+    // rightkit#1450 (Adrian, 2026-11-02): every build script and proc macro of the workspace must have been traced once on this host, writing only
+    // inside its build directories; an untraced or out-of-bounds unit refuses Class A, naming it. Runs the gate's own command, directly (GC-A11).
+    for (const ws of touchedWs) add({ id: `build-helpers${wsIdSuffix(ws)}`, class: A, tool: "node", args: [BUILD_HELPERS_COMMAND, "check", "--manifest-path", ws === "." ? "Cargo.toml" : `${ws}/Cargo.toml`], root: "content" });
     // Locked package listings are observations in RustRight (#1216). They run through the selected executor
     // from the checked Cargo inputs, just like metadata; an executor refusal remains a failed scan.
     for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, ...cargoReadIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });
@@ -1295,6 +1311,7 @@ export function planScans({
     });
   }
   const clippyEntries = [];
+  const crossOnBroker = [];
   for (const name of crateNames) {
     // Feature sets exactly as CI's gate runs them (scripts/ci/gate.mjs, ci/gate.config.json rust.<crate>):
     // clippy per `featureSets` (default features when absent); check per `checkFeatureSets` (default
@@ -1309,12 +1326,25 @@ export function planScans({
     checkSets.forEach((set, i) => add({ id: rustScanId.checkFeatures(name, i), class: B, ...cargoIn(ws, ...checkArgs(crate, { features: set, locked: true })) }));
     if (clippyBatching) lintSets.forEach((set) => clippyEntries.push({ name, crate, ws, set, count: lintSets.length, env: targetDirs?.[ws] ?? null }));
     else lintSets.forEach((set, i) => add({ id: rustScanId.clippy(name, lintSets.length, i), class: B, ...cargoIn(ws, ...clippyArgs(crate, { features: set, locked: true })) }));
+    // The other two OS targets, every lint set, -D warnings (cross-targets.mjs; Adrian 2026-11-02). A direct route (CI, Linux) runs them with
+    // the provisioned zig C toolchain (RIGHTKIT_CROSS_CC_DIR). The broker does not yet admit `--target` for them or the zig CC_/CXX_/AR_
+    // variables, so a broker host plans none and says so in the notes; CI checks all three on every push.
+    const foreign = crossTargetsFor(own, platform);
+    if (foreign.length && cargoLiveRoot) crossOnBroker.push(name);
+    else for (const target of foreign) {
+      const crossEnv = crossCompileEnv(target);
+      lintSets.forEach((set, i) => {
+        const scan = cargoIn(ws, ...clippyArgs(crate, { features: set, locked: true, target }));
+        add({ id: `${rustScanId.clippy(name, lintSets.length, i)}@${target}`, class: B, ...scan, ...(crossEnv ? { env: { ...(scan.env ?? {}), ...crossEnv } } : {}) });
+      });
+    }
     // rustdoc flags go after `--` for this crate's library only: the broker owns RUSTDOCFLAGS and refuses
     // a request that sets it. A crate with no library has no API docs to check.
     if (exists(path.join(contentRoot, rustDir(name), "src", "lib.rs"))) {
       add({ id: rustScanId.doc(name), class: B, ...cargoIn(ws, "rustdoc", "-p", crate, "--lib", ...lintSets[0], "--locked", "--", ...DOC_RUSTDOC_ARGS) });
     }
   }
+  if (crossOnBroker.length) notes.push(`cross-target clippy (the other two OS targets) not run on this broker host for ${crossOnBroker.length} crate(s): the broker does not yet admit --target with the zig C toolchain; CI runs it on every push`);
   if (clippyBatching && clippyEntries.length) {
     // One Clippy scan per batch (row 8.6): the independent batches first, the sidecar-bound ones after them (row 8.8; the compile lane
     // drains in plan order). The reason a configuration stays separate is recorded in the plan notes.
@@ -1432,8 +1462,8 @@ export function planScans({
       const e2e = e2eCrateDirs instanceof Set && e2eCrateDirs.has(rustDir(name));
       if (e2e) { qualifyOwed.push({ id: rustScanId.testRust(name, sets.length, 0), kind: "e2e-crate", dir: rustDir(name), crate: crateOf(name), reason: "end-to-end crate: its tests drive a built app and never run as class B unit tests (P7)" }); notes.push(`${crateOf(name)} is an end-to-end crate: its test scan compiles with --no-run here; its tests run in the qualify stage against the built app (qa.journeys), never as class B unit tests`); }
       sets.forEach((set, i) => {
-        add({ id: rustScanId.testRust(name, sets.length, i), class: B, ...quiet, ...(e2e ? { e2e: true } : {}), ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", ...(e2e ? ["--no-run"] : ["--no-fail-fast"])) });
-        if (own.alsoSerial) add({ id: rustScanId.testRustSerial(name, sets.length, i), class: B, ...quiet, ...(e2e ? { e2e: true } : {}), ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", ...(e2e ? ["--no-run"] : ["--no-fail-fast", "--", "--test-threads=1"])) });
+        add({ id: rustScanId.testRust(name, sets.length, i), class: B, ...quiet, ...(e2e ? { e2e: true } : {}), ...(e2e ? cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-run") : cargoLiveRoot ? { ...cargoTestIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked"), runOutside: { args: [] } } : cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast")) });
+        if (own.alsoSerial) add({ id: rustScanId.testRustSerial(name, sets.length, i), class: B, ...quiet, ...(e2e ? { e2e: true } : {}), ...(e2e ? cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-run") : cargoLiveRoot ? { ...cargoTestIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked"), runOutside: { args: ["--test-threads=1"] } } : cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast", "--", "--test-threads=1")) });
       });
     }
     for (const name of pkgNames) {
@@ -1761,6 +1791,200 @@ export function parseTestSummary(text) {
     return { runner: "vitest", tests, pass: n(/(\d+) passed/), fail: n(/(\d+) failed/), skipped: n(/(\d+) skipped/), todo: n(/(\d+) todo/) };
   }
   return null;
+}
+
+// ---- Rust tests run outside the broker (GATE-CONTRACT GC-A08) -------------------------------------------------------------------------
+// On a broker host a Rust test scan compiles through the broker with the plain test command and --message-format=json (the broker adds
+// --no-run itself) and the gate then runs the listed test executables itself, never through the broker. A direct host (no broker) keeps the
+// one-step test command and uses none of this. Doctests
+// are not planned: the broker refuses `test --doc`, and a --no-run listing has no doctest executable. These are the pure
+// parts of that second phase; they mirror crates/rightkit-qa/src/run_tests (artifacts.rs, exec.rs, libtest.rs).
+
+/** The package name and version of a cargo package id: `path+file:///w/fx#fx@0.1.0`, `path+file:///w/fx#0.1.0` (the name is the last
+ * path segment) or the old `fx 0.1.0 (path+file:///w/fx)`. Null parts when the id says nothing usable. */
+export function packageOfId(id) {
+  const text = String(id ?? "");
+  const old = /^([^\s#@]+) (\d[^\s]*) \(/.exec(text);
+  if (old) return { name: old[1], version: old[2] };
+  const hash = text.indexOf("#");
+  if (hash === -1) return { name: null, version: null };
+  const fragment = text.slice(hash + 1);
+  const at = fragment.indexOf("@");
+  if (at > 0) return { name: fragment.slice(0, at), version: fragment.slice(at + 1) || null };
+  if (/^\d/.test(fragment)) {
+    const segments = text.slice(0, hash).replace(/\/+$/, "").split("/");
+    return { name: segments.at(-1) || null, version: fragment };
+  }
+  return { name: fragment || null, version: null };
+}
+
+/**
+ * What a `cargo test --no-run --message-format=json` listing says. Only `compiler-artifact` records of the test profile that name an
+ * executable are test executables (every unit-test binary and integration test; never a build script, library or plain binary). Lines
+ * that are not JSON objects (a broker banner) are ignored. `buildFinished` is true when every `build-finished` record said success,
+ * false when one said otherwise, null when the listing has none (a compile cut short).
+ */
+export function parseTestListing(text) {
+  const out = { binaries: [], buildFinished: null, artifacts: 0 };
+  const seen = new Set();
+  for (const raw of String(text ?? "").split(/\r?\n/)) {
+    const line = raw.trimStart();
+    if (!line.startsWith("{")) continue;
+    let v; try { v = JSON.parse(line); } catch { continue; }
+    if (v?.reason === "build-finished") out.buildFinished = (out.buildFinished ?? true) && v.success === true;
+    else if (v?.reason === "compiler-artifact") {
+      out.artifacts += 1;
+      if (v.profile?.test !== true || typeof v.executable !== "string" || v.executable === "" || seen.has(v.executable)) continue;
+      seen.add(v.executable);
+      const pkg = packageOfId(v.package_id);
+      const manifest = typeof v.manifest_path === "string" ? v.manifest_path : "";
+      const target = typeof v.target?.name === "string" ? v.target.name : "";
+      out.binaries.push({ package: pkg.name ?? target, version: pkg.version, target, kind: Array.isArray(v.target?.kind) ? v.target.kind.filter((k) => typeof k === "string") : [], executable: v.executable, manifestDir: manifest ? path.dirname(manifest) : "" });
+    }
+  }
+  out.binaries.sort((a, b) => (a.executable < b.executable ? -1 : a.executable > b.executable ? 1 : 0));
+  return out;
+}
+
+/** The text a failed compile leaves for a reader: the rendered error diagnostics of the JSON listing plus every non-JSON line (a broker refusal). */
+export function listingFailureText(text, limit = 8000) {
+  const out = [];
+  for (const raw of String(text ?? "").split(/\r?\n/)) {
+    const line = raw.trimEnd();
+    if (!line.trim()) continue;
+    if (!line.trimStart().startsWith("{")) { out.push(line); continue; }
+    try { const v = JSON.parse(line); if (v?.reason === "compiler-message" && v.message?.level === "error" && typeof v.message.rendered === "string") out.push(v.message.rendered.trimEnd()); } catch { out.push(line.slice(0, 300)); }
+  }
+  return out.join("\n").slice(-limit);
+}
+
+/** Sum of every `test result: ok. N passed; M failed; ...` line a libtest binary printed; null when it printed none (a custom harness, a crash). A line counts only when it starts the line and carries both a passed and a failed count. */
+export function parseLibtestSummary(text) {
+  const sum = { results: 0, ok: true, passed: 0, failed: 0, ignored: 0, measured: 0, filteredOut: 0 };
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    const m = /^test result: (ok|FAILED)\. (.*)$/.exec(line.trimEnd());
+    if (!m) continue;
+    const counts = {}; for (const c of m[2].matchAll(/(\d+) (passed|failed|ignored|measured|filtered out)/g)) counts[c[2]] = Number(c[1]);
+    if (counts.passed === undefined || counts.failed === undefined) continue;
+    sum.results += 1; sum.ok = sum.ok && m[1] === "ok";
+    sum.passed += counts.passed; sum.failed += counts.failed; sum.ignored += counts.ignored ?? 0; sum.measured += counts.measured ?? 0; sum.filteredOut += counts["filtered out"] ?? 0;
+  }
+  return sum.results > 0 ? sum : null;
+}
+
+const TEST_RUN_OPS = Object.freeze({
+  realpath: (p) => fs.realpathSync.native(p),
+  isFile: (p) => fs.statSync(p).isFile(),
+  isDir: (p) => fs.statSync(p).isDirectory(),
+  digestFile: (p) => sha256(fs.readFileSync(p)),
+});
+
+const insideDir = (real, dirReal, platform) => {
+  const mod = platform === "win32" ? path.win32 : path;
+  const fold = (p) => (platform === "win32" ? p.toLowerCase() : p);
+  const rel = mod.relative(fold(dirReal), fold(real));
+  return rel !== "" && !mod.isAbsolute(rel) && rel.split(/[\\/]/)[0] !== "..";
+};
+
+/**
+ * Every test executable must be a regular file whose real path is inside the verified output directory (`boundDirs`: the receipt's
+ * outputDir on a broker host, the scan's bound target directory otherwise); with `generationRoots` its lexical directory must also be a
+ * managed generation target. An executable anywhere else is refused: the gate never runs a binary the verified compile did not write.
+ * Returns { accepted: [binary + real + sha256], problems: [text] }.
+ */
+export function containTestExecutables(binaries, { boundDirs, generationRoots = null, platform = process.platform, ops = TEST_RUN_OPS } = {}) {
+  const mod = platform === "win32" ? path.win32 : path;
+  const problems = []; const accepted = [];
+  const dirs = [];
+  for (const d of boundDirs ?? []) { try { dirs.push(ops.realpath(d)); } catch { /* an output directory that does not exist contains nothing */ } }
+  if (dirs.length === 0) return { accepted, problems: [`no verified output directory exists (${(boundDirs ?? []).join(", ") || "none bound"}); no test executable can be shown to come from the compile`] };
+  for (const b of binaries) {
+    const exe = b.executable;
+    if (!mod.isAbsolute(exe)) { problems.push(`${exe} is not an absolute path`); continue; }
+    if (generationRoots && !isInsideGenerationTarget(mod.dirname(exe), generationRoots, platform)) { problems.push(`${exe} is not inside a managed generation target`); continue; }
+    let real;
+    try { real = ops.realpath(exe); if (!ops.isFile(real)) throw new Error("not a regular file"); } catch (e) { problems.push(`${exe} is not a readable file (${e.message})`); continue; }
+    if (!dirs.some((d) => insideDir(real, d, platform))) { problems.push(`${exe} resolves to ${real}, outside the verified output directory ${dirs.join(", ")}`); continue; }
+    let sha = null; try { sha = ops.digestFile(real); } catch (e) { problems.push(`${exe} cannot be read (${e.message})`); continue; }
+    accepted.push({ ...b, real, sha256: sha });
+  }
+  return { accepted, problems };
+}
+
+/**
+ * Run the accepted test executables one after another, outside the broker, each from its package directory with the CARGO_MANIFEST_DIR,
+ * CARGO_PKG_NAME and CARGO_PKG_VERSION cargo would set, with `scan.runOutside.args`, under one deadline (`limitMs`) that kills the
+ * process tree. Every executable runs (no-fail-fast); the row fails if any failed. The judgment is per crate (the scan), not per
+ * executable: the libtest summaries are summed and the same rules as a node:test row apply (testResultsProblem), because many test
+ * binaries legitimately run 0 tests. Returns { status, code?, detail?, results, executables }.
+ */
+/**
+ * Every accepted test executable must be in the broker's signed list (receipt.testExecutables: [{path, sha256, ...}]) with the same sha256.
+ * A null list (the broker could not enumerate them, e.g. no JSON output) refuses everything, naming the broker's reason.
+ */
+export function signedTestExecutableProblems(accepted, signed, reason = null, platform = process.platform) {
+  if (!Array.isArray(signed)) return [`the broker signed no test executable list (${reason ?? "none given"})`];
+  const norm = (p) => { const r = (platform === "win32" ? path.win32 : path.posix).normalize(String(p)); return platform === "win32" ? r.toLowerCase() : r; };
+  const byPath = new Map(signed.map((e) => [norm(e?.path), e]));
+  const problems = [];
+  for (const b of accepted) {
+    const e = byPath.get(norm(b.executable)) ?? byPath.get(norm(b.real));
+    if (!e) problems.push(`${b.executable} is not in the broker's signed test executables`);
+    else if (e.sha256 !== b.sha256) problems.push(`${b.executable} has sha256 ${b.sha256}, the broker signed ${e.sha256}`);
+  }
+  return problems;
+}
+
+/** Test executables run at once (ADR-001 C2, rightkit#1454): the host's physical cores minus 2, at least 1. */
+export function testRunConcurrency({ cpus = os.cpus().length } = {}) {
+  return Math.max(1, cpus - 2);
+}
+
+export async function runTestBinaries({ scan, binaries, spawn, env, limitMs, signal = null, ops = TEST_RUN_OPS, concurrency = testRunConcurrency() }) {
+  const args = [...(scan.runOutside?.args ?? [])];
+  const ctl = new AbortController();
+  const startedAt = Date.now();
+  const clock = setTimeout(() => ctl.abort(), limitMs);
+  const runSignal = signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal;
+  const executables = []; const failures = []; const total = { tests: 0, pass: 0, fail: 0, skipped: 0, todo: 0 };
+  let stopped = null;
+  // ADR-001 C2 (kept by Adrian 2026-11-02, rightkit#1454): the executables run in parallel, `concurrency` at a time (physical cores minus 2), each
+  // recording into its own slot so the report keeps the listing order.
+  const slots = new Array(binaries.length);
+  const runOne = async (b, index) => {
+    const executables = { push: (e) => { slots[index] = e; } };
+    {
+      const label = `${b.package}::${b.target}`;
+      if (runSignal.aborted) { stopped = signal?.aborted ? "CANCELLED" : "TIMEOUT"; executables.push({ label, sha256: b.sha256, status: "not-run" }); return; }
+      try { if (!b.manifestDir || !ops.isDir(b.manifestDir)) { failures.push(`${label}: its package directory ${b.manifestDir || "(none)"} does not exist`); executables.push({ label, sha256: b.sha256, status: "fail" }); return; } } catch (e) { failures.push(`${label}: its package directory ${b.manifestDir} is unreadable (${e.message})`); executables.push({ label, sha256: b.sha256, status: "fail" }); return; }
+      const childEnv = { ...env, CARGO_MANIFEST_DIR: b.manifestDir, CARGO_PKG_NAME: b.package, ...(b.version ? { CARGO_PKG_VERSION: b.version } : {}) };
+      const remaining = Math.max(1, limitMs - (Date.now() - startedAt));
+      let r;
+      try { r = await spawn(b.real, args, { cwd: b.manifestDir, env: childEnv, signal: runSignal, boundedMs: remaining }); } catch (e) { r = { error: e }; }
+      if (runSignal.aborted && (!r || r.error || r.status !== 0)) { stopped = signal?.aborted ? "CANCELLED" : "TIMEOUT"; executables.push({ label, sha256: b.sha256, status: "not-run" }); return; }
+      if (r?.error?.code === "ETIMEDOUT" || r?.timedOut === true) { stopped = "TIMEOUT"; executables.push({ label, sha256: b.sha256, status: "fail" }); failures.push(`${label}: killed with its process tree at the run limit`); return; }
+      const summary = parseLibtestSummary(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`);
+      if (summary) { total.tests += summary.passed + summary.failed + summary.ignored; total.pass += summary.passed; total.fail += summary.failed; total.skipped += summary.ignored; }
+      const entry = { label, sha256: b.sha256, status: "pass", ...(summary ? { passed: summary.passed, failed: summary.failed, ignored: summary.ignored } : {}) };
+      if (!r || r.error) { entry.status = "fail"; failures.push(`${label}: ${r?.error?.message ?? "no result"}`); }
+      else if (r.status !== 0) { entry.status = "fail"; failures.push(`${label}: ${failureDetail(r) || `exit ${r.status}`}`); }
+      else if (summary && (!summary.ok || summary.failed > 0)) { entry.status = "fail"; failures.push(`${label}: exited 0 but its summary reports ${summary.failed} failed test(s)`); }
+      executables.push(entry);
+    }
+  };
+  try {
+    let next = 0;
+    const worker = async () => { while (next < binaries.length) { const i = next; next += 1; await runOne(binaries[i], i); } };
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, binaries.length)) }, () => worker()));
+    for (const e of slots) if (e) executables.push(e);
+  } finally { clearTimeout(clock); }
+  const results = { runner: "libtest", ...total, binaries: executables.length };
+  if (stopped === "CANCELLED") return { status: "not-run", code: "CANCELLED", detail: "cancelled while running", results, executables };
+  if (stopped === "TIMEOUT") return { status: "fail", code: "TIMEOUT", detail: `${scan.id}: its test executables ran longer than the ${Math.round(limitMs / 1000)} s run limit and were killed with their process tree${failures.length ? `; ${failures.slice(0, 3).join(" | ")}` : ""}`, results, executables };
+  if (failures.length) return { status: "fail", code: "TEST_FAILED", detail: `${failures.length} of ${executables.length} test executable(s) failed: ${failures.slice(0, 5).join(" | ")}`.slice(0, 4000), results, executables };
+  const problem = testResultsProblem(results);
+  if (problem) return { status: "fail", code: problem.code, detail: `${problem.detail} (summed over ${executables.length} test executable(s) of ${scan.id})`, results, executables };
+  return { status: "pass", results, executables };
 }
 
 /** The largest inline `run:` script a workflow may carry while the pinned actionlint is 1.7.12 (rhysd/actionlint#702). */
@@ -2218,7 +2442,9 @@ export async function runScans(plan, options = {}) {
   const selected = plan.scans.filter((s) => classes.includes(s.class) && !exclude(s));
   const ordered = [...selected.filter((s) => s.class === SCAN_CLASS.A), ...selected.filter((s) => s.class === SCAN_CLASS.B)];
   const ctx = { deps, contentRoot, read: (f) => deps.readFile(path.join(contentRoot, f)) };
-  const cargoReadsAreCarried = Boolean(deps.snapshotBroker) || options.cargoReadsCarried === true;
+  // GATE-CONTRACT GC-A11 (Adrian, 2026-11-02): Class A never runs in the broker. Class A cargo reads are never carried, in any stage; the gate
+  // runs them directly (snapshot-metadata.mjs directReadSpawn), and cargo-deny / cargo-audit are its own enrolled tools.
+  const cargoReadsAreCarried = false;
   // A broker host: the gate says so (options.brokerHost, from its executor) and a snapshot carrier implies it. One predicate (isBrokerCarriedScan) names the scans the broker carries.
   const brokerHost = options.brokerHost === true || Boolean(deps.snapshotBroker);
   const carriedCtx = { brokerHost, snapshotBroker: deps.snapshotBroker ?? null };
@@ -2320,7 +2546,14 @@ export async function runScans(plan, options = {}) {
   async function runOneBody(s, extraEnv = null) {
     if (signal?.aborted) return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "not-run", code: "CANCELLED", detail: "cancelled before it started" };
     const started = Date.now();
-    const row = await scanRow(s, extraEnv);
+    let row = await scanRow(s, extraEnv);
+    // rightkit#1459: a class A scan that timed out is run once more before it fails Class A (a hung tool, e.g. actionlint on 2026-11-02, ran
+    // 27 min and failed a run whose rerun passed in 1 s). Class B and carried scans are not retried: a compile that times out is a real failure.
+    if (row.status === "fail" && row.code === "TIMEOUT" && s.class === SCAN_CLASS.A && !signal?.aborted) {
+      const first = row;
+      row = await scanRow(s, extraEnv);
+      row = { ...row, retried: { code: first.code, detail: first.detail } };
+    }
     done += 1;
     try { onResult(row, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
     return row;
@@ -2459,6 +2692,7 @@ export async function runScans(plan, options = {}) {
   }
   async function scanRowIn(s, extraEnv, owned) {
     const row = { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "fail" };
+    const scanStartedAt = Date.now();
     if (s.class === SCAN_CLASS.B && classBBlocked) {
       return { ...row, status: "not-run", code: "CLASS_A_REQUIRED", detail: "class B refused: class A did not run in this call and no valid prior class A evidence for the same scan set was supplied" };
     }
@@ -2511,22 +2745,25 @@ export async function runScans(plan, options = {}) {
         else if (depVersionProblem) { status = "fail"; code = "TOOL_VERSION"; detail = `TOOL_VERSION: ${s.tool} runs ${depVersionProblem}`; }
         else {
           let cacheKey = null;
-          // A cargo request that builds the commit snapshot through the broker (options.snapshotBroker) is never served from or written
-          // to the scan cache: each run must carry its own request and verify the broker's own signed evidence.
+          // GATE-CONTRACT GC-T14: every unchanged scan result is reused by its full input key, a broker-carried compile included (measured
+          // 2026-11-02: HR class B re-ran 92 broker jobs, most with no dirty unit, because carried compiles were never cached). The key covers the
+          // crate's closure, its lock entries, the toolchain files, the tool version and the build environment; a miss runs the compile and
+          // verifies the broker's signed evidence as before, and only a verified pass is written.
           const carriedScan = isBrokerCarriedScan(s, carriedCtx);
           const viaSnapshotBroker = carriedScan && Boolean(deps.snapshotBroker) && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
-          const carriedRead = cargoReadsAreCarried && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo"); // a snapshot compile never reuses a cargo read either
-          if (cache && !viaSnapshotBroker && !carriedRead) {
+          const carriedRead = cargoReadsAreCarried && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo");
+          if (cache && !carriedRead) {
             try {
               const digest = cache.digest(s);
               // The analyzers a scan runs through (actionlint's shellcheck) judge it too, so their versions key it as well.
               const toolVersion = [p.identity ? `${p.version}@${p.identity.sha256}` : p.version, ...depVersions].join(" + ");
-              if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.command, toolVersion, env: s.env ?? {}, inheritedEnv: inheritedEnvDigest({ ...deps.env, ...s.env }), digest });
+              if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion, env: s.env ?? {}, inheritedEnv: inheritedEnvDigest({ ...deps.env, ...s.env }), digest });
             } catch { cacheKey = null; }
             const hit = cacheKey ? cache.read(cacheKey) : null;
             // A cached test pass counts only with the counts it recorded: without them its coverage is unknown, so it runs again.
             // ...and only if it passed at least one test: a cached all-skipped "pass" (written before D17) runs again (rightkit#1236).
-            const testEvidence = s.kind !== "test" || testResultsProblem(hit?.row?.results) === null;
+            // A Rust test scan (runOutside) is judged the same way: the executables are unknown until the compile, so its key is the source digest and the cached row must carry the summed libtest counts.
+            const testEvidence = (s.kind !== "test" && !s.runOutside) || testResultsProblem(hit?.row?.results) === null;
             if (hit && hit.key === cacheKey && hit.row?.status === "pass" && hit.row.id === s.id && hit.row.command === s.command && testEvidence) {
               cacheHits.push(s.id);
               return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" ? { results: hit.row.results } : {}) };
@@ -2663,6 +2900,9 @@ export async function runScans(plan, options = {}) {
             fs.mkdirSync(sentinel, { recursive: true });
           }
           const sentinelEnv = sentinel ? { CARGO_TARGET_DIR: sentinel, CARGO_BUILD_TARGET_DIR: sentinel } : {};
+          // A Rust test scan's JSON listing (every compiler-artifact record) streams whole to a file of its own: the kept tail of a spawn would lose the early artifact records of a noisy compile.
+          let listingDir = null; let listingFile = null; let listingText = ""; let listingCut = false;
+          if (s.runOutside) { listingDir = fs.mkdtempSync(path.join(tmpRoot, "rk-testlist-")); listingFile = path.join(listingDir, "listing.jsonl"); }
           try {
           // The ownership records this request's sub-handle immediately before it is sent (the reclaim proof reads broker.submitted): a
           // missing hook or a mark that did not land sends nothing.
@@ -2716,7 +2956,14 @@ export async function runScans(plan, options = {}) {
             admission = watchBrokerAdmission({ clock: runClock, refFiles, live: brokerLive, poller: statusPoller });
             admission.start();
           }
-          try { r = await deps.spawn(p.command, spawnArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...refEnv, ...(carriedScan && !watched ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv }, signal: scanSignal, ...(watched ? {} : { timeout: limitMs }) }); } finally { stopClock(); advisory?.cleanup?.(); }
+          try { r = await deps.spawn(p.command, spawnArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...refEnv, ...(carriedScan && !watched ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv }, signal: scanSignal, ...(listingFile ? { stdoutFile: listingFile } : {}), ...(watched ? {} : { timeout: limitMs }) }); } finally { stopClock(); advisory?.cleanup?.(); }
+          if (s.runOutside && r && !r.error) {
+            // The whole listing: the file the spawn streamed, else (a spawn that does not know stdoutFile) its stdout. What a reader sees of a failed compile is the rendered errors.
+            let fromFile = false;
+            try { if (fs.existsSync(listingFile) && fs.statSync(listingFile).size > 0) { listingText = fs.readFileSync(listingFile, "utf8"); fromFile = true; } } catch { /* falls back to stdout */ }
+            if (!fromFile) { listingText = String(r.stdout ?? ""); listingCut = r.truncated === true; }
+            r = { ...r, stdout: listingFailureText(listingText) };
+          }
           }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if ((clockExpired || timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) {
@@ -2767,7 +3014,7 @@ export async function runScans(plan, options = {}) {
               const ref = readRequestRef(path.join(carrier.refDir, "request.json"));
               const receipt = await deps.snapshotBroker.receiptOf(ref.requestId);
               const { evidence } = verifySnapshotReceipt(receipt, { pins: deps.snapshotBroker.pins, jobId: ref.requestId, carrier: carrier.made.carrier, argv: carrier.cargoArgv, workspace: ref.workspace, observedEnv: observedEnvOf({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }, deps.platform ?? process.platform), checkout: deps.snapshotBroker.checkout, outputRoots: deps.snapshotBroker.outputRoots, platform: deps.snapshotBroker.platform ?? deps.platform ?? process.platform });
-              row.snapshotEvidence = { requestId: ref.requestId, outputDir: evidence.outputDir, cargoDir: s.cwd ?? ".", targetTriple: typeof receipt?.targetTriple === "string" && /^[A-Za-z0-9_.]+(?:-[A-Za-z0-9_.]+){1,4}$/.test(receipt.targetTriple) ? receipt.targetTriple : null, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit };
+              row.snapshotEvidence = { requestId: ref.requestId, outputDir: evidence.outputDir, cargoDir: s.cwd ?? ".", targetTriple: typeof receipt?.targetTriple === "string" && /^[A-Za-z0-9_.]+(?:-[A-Za-z0-9_.]+){1,4}$/.test(receipt.targetTriple) ? receipt.targetTriple : null, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit, ...(receipt && Object.hasOwn(receipt, "testExecutables") ? { testExecutables: receipt.testExecutables, testExecutablesReason: receipt.testExecutablesReason ?? null } : {}) };
             } catch (e) {
               status = "fail"; code = "SNAPSHOT_EVIDENCE"; detail = `${s.id}: the broker's snapshot evidence did not verify (${e.code ?? "error"}: ${e.message})`;
             }
@@ -2775,6 +3022,43 @@ export async function runScans(plan, options = {}) {
           } finally {
             if (carrier) { removeCarrier(carrier.made.file); fs.rmSync(carrier.refDir, { recursive: true, force: true }); }
             if (tscProject) fs.rmSync(tscProject.dir, { recursive: true, force: true });
+            if (listingDir) fs.rmSync(listingDir, { recursive: true, force: true });
+          }
+          // GATE-CONTRACT GC-A08: the compile above never ran a test. The gate runs the listed test executables here, outside the broker.
+          // Quiet lane: a quiet suite keeps the broker's quiet lease (taken by runScans around this whole scan) through this run phase. The lease exists so nothing else
+          // runs beside a conflict-prone suite, and the suite's tests now execute here, so releasing it after the compile would defeat it; the run phase is bounded
+          // to what is left of QUIET_SCAN_MAX_MS so compile + run stay under the broker's lease ceiling.
+          if (s.runOutside && status === "pass" && r && !r.error) {
+            const fail = (c, d) => { status = "fail"; code = c; detail = d; };
+            const listing = parseTestListing(listingText);
+            const platform = deps.snapshotBroker?.platform ?? deps.platform ?? process.platform;
+            if (listingCut) fail("TEST_LISTING", `${s.id}: the compile listing was cut at the kept output tail, so the test executables cannot be enumerated`);
+            else if (listing.buildFinished !== true) fail("TEST_LISTING", `${s.id}: the compile exited 0 but its listing has no successful build-finished record (${listing.buildFinished === false ? "a build-finished record said failure" : "none found"})`);
+            else if (listing.binaries.length === 0) {
+              // A test scan that lists no test executable proves nothing; it is never a pass (rightkit-qa run_tests: "the compile listed no test executable").
+              fail("NO_TEST_EXECUTABLES", `${s.id}: the compile listed no test executable (${listing.artifacts} artifact record(s), none of the test profile with an executable); a test scan that runs nothing is not a pass`);
+            } else {
+              let boundDirs; let generationRoots = null;
+              if (viaSnapshotBroker) { boundDirs = row.snapshotEvidence?.outputDir ? [row.snapshotEvidence.outputDir] : []; generationRoots = deps.snapshotBroker.outputRoots ?? []; }
+              else {
+                const scanDir = path.join(rootDir(s.root), s.cwd ?? "");
+                const target = s.env?.CARGO_TARGET_DIR ?? deps.env?.CARGO_TARGET_DIR ?? "target";
+                boundDirs = [path.resolve(scanDir, target)];
+              }
+              const ops = { ...TEST_RUN_OPS, ...(options.testRunOps ?? {}) };
+              const contained = containTestExecutables(listing.binaries, { boundDirs, generationRoots, platform, ops });
+              // ADR-001 C2 (rightkit#1454): a broker that signs the compile's test executables (receipt.testExecutables, rustright) binds each one;
+              // an executable whose path or sha256 is not in that signed list never runs. An older broker that signs no list leaves containment only.
+              const signedProblems = viaSnapshotBroker && row.snapshotEvidence && Object.hasOwn(row.snapshotEvidence, "testExecutables") ? signedTestExecutableProblems(contained.accepted, row.snapshotEvidence.testExecutables, row.snapshotEvidence.testExecutablesReason, platform) : [];
+              if (contained.problems.length) fail("TEST_EXECUTABLE_OUTSIDE_OUTPUT", `${s.id}: ${contained.problems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
+              else if (signedProblems.length) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: ${signedProblems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
+              else {
+                const budget = s.quiet === true ? Math.max(1, Math.min(limitMs, QUIET_SCAN_MAX_MS - (Date.now() - scanStartedAt))) : limitMs;
+                const ran = await runTestBinaries({ scan: s, binaries: contained.accepted, spawn: deps.spawn, env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, limitMs: budget, signal, ops });
+                row.results = ran.results; row.testRun = { executables: ran.executables };
+                if (ran.status !== "pass") { status = ran.status; code = ran.code; detail = ran.detail; }
+              }
+            }
           }
           if (status === "fail" && options.scanLogDir && r) {
             try { fs.mkdirSync(options.scanLogDir, { recursive: true }); const file = path.join(options.scanLogDir, `${s.id.replace(/[^A-Za-z0-9._-]+/g, "_")}.log`); fs.writeFileSync(file, `$ ${s.command ?? s.id}\nexit ${r.status}\n--- stdout\n${r.stdout ?? ""}\n--- stderr\n${r.stderr ?? ""}\n`); row.log = file; detail = `${detail} (full output: ${file})`; } catch { /* the tail in the row remains */ }

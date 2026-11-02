@@ -379,17 +379,22 @@ export async function resolveRightKitPins({
   };
   await pool(names, async (entry) => {
     try {
-      let value;
+      let value; let body;
       if (entry.ecosystem === "npm") {
-        value = (await packument(entry.name)).body?.["dist-tags"]?.latest;
+        body = (await packument(entry.name)).body;
+        value = body?.["dist-tags"]?.latest;
       } else {
         const response = await client.getJson(`${REGISTRIES.cargoApi}${entry.name}`);
+        body = response.body;
         value = response.body?.crate?.max_stable_version;
       }
       if (typeof value !== "string" || !EXACT_SEMVER.test(value)) throw new RightKitRegistryError("registry-outage", `${entry.name} registry answer carries no usable latest version`, { recoverable: true });
       const previous = cache.read("latest", entry.ecosystem, entry.name);
       const mark = previous?.highWater?.version ?? previous?.latest;
-      const row = { ecosystem: entry.ecosystem, name: entry.name, latest: value, observedAt, via: "live" };
+      // The freshness bar is the settled latest (published at least SETTLE_MS ago), never above the live latest.
+      const settled = settledLatest(entry.ecosystem, body);
+      const bar = settled && EXACT_SEMVER.test(settled) && compareVersions(settled, value) < 0 ? settled : value;
+      const row = { ecosystem: entry.ecosystem, name: entry.name, latest: bar, ...(bar !== value ? { liveLatest: value } : {}), observedAt, via: "live" };
       let highWater = { version: value, observedAt };
       if (typeof mark === "string" && EXACT_SEMVER.test(mark) && compareVersions(mark, value) > 0) {
         if (entry.ecosystem === "npm" && await stillPublished(entry, mark)) {
@@ -584,6 +589,28 @@ export function verifiedVersionMaps(snapshot) {
     maps[entry.ecosystem].set(entry.name, set);
   }
   return maps;
+}
+
+/**
+ * Adrian, 2026-11-02: a pin is held to the newest version that has been published for at least 24 hours (`SETTLE_MS`), so a RightKit publish
+ * during an app's run never turns its pins stale. The registry's live latest is still recorded (`liveLatest`). Versions are the registry's own:
+ * crates.io `versions[]` ({num, created_at, yanked}), npm `time` + `versions` (deprecated skipped). When no stable version is that old, the
+ * oldest stable version is the floor (nothing newer is required yet). Returns null when the registry answer carries no dates.
+ */
+export const SETTLE_MS = 24 * 60 * 60 * 1000;
+export function settledLatest(ecosystem, body, { now = Date.now(), settleMs = SETTLE_MS } = {}) {
+  let rows;
+  if (ecosystem === "npm") {
+    const times = body?.time ?? {}; const versions = body?.versions ?? {};
+    rows = Object.keys(versions).filter((v) => !versions[v]?.deprecated).map((v) => ({ v, at: Date.parse(times[v]) }));
+  } else {
+    rows = (body?.versions ?? []).filter((r) => r && !r.yanked).map((r) => ({ v: r.num, at: Date.parse(r.created_at) }));
+  }
+  rows = rows.filter((r) => typeof r.v === "string" && EXACT_SEMVER.test(r.v) && !r.v.includes("-") && Number.isFinite(r.at));
+  if (!rows.length) return null;
+  const byVersion = (a, b) => compareVersions(a.v, b.v);
+  const settled = rows.filter((r) => now - r.at >= settleMs).sort(byVersion);
+  return settled.length ? settled.at(-1).v : rows.sort(byVersion)[0].v;
 }
 
 // ---------------------------------------------------------------------------------------------- freshness + holds

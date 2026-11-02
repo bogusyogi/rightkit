@@ -121,3 +121,35 @@ export function snapshotCargoSpawn({ spawn, carrySpawn = spawn, cargoCommand, sn
     } catch (e) { return refused(e.code ?? "RK_SNAPSHOT_BROKER", e.message); }
   };
 }
+
+/**
+ * GATE-CONTRACT GC-A11 (Adrian, 2026-11-02: "Class a never in the broker. Any cargo things that are cheap and non compiling are in class a,
+ * can run outside the broker."): the same read-only shapes as above, run DIRECTLY with the host's real toolchain cargo, never carried to the
+ * broker. `directPath` is the PATH with RustRight shims and outer gate wrappers taken off (managed-cargo.mjs directCargoPath), so `cargo`
+ * resolves to the pinned toolchain, not the broker's shim. Each call writes only to its own scratch target under `tmpRoot` (cargo would
+ * otherwise write target/.rustc_info.json beside the manifest and the snapshot would no longer be the commit's tree); the scratch is removed
+ * when the call returns. Every other cargo call inside the snapshot is refused (a compile belongs to the broker); calls outside the snapshot
+ * and every non-cargo command pass through to `spawn` unchanged. `spawn` may be synchronous or return a promise.
+ */
+export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath, pathKey = "PATH", tmpRoot, env, err = () => {} }) {
+  const prefix = cargoCommand.slice(1);
+  const refused = (code, message) => { err(`rightkit-gate: ${code}: ${message}`); return { status: BROKER_REFUSAL_STATUS, signal: null, error: null, stdout: "", stderr: `rightkit-gate: ${code}: ${message}\n` }; };
+  return (cmd, args, opts = {}) => {
+    const cargo = cmd === cargoCommand[0] && prefix.every((w, i) => args[i] === w);
+    if (!cargo || typeof opts.cwd !== "string" || !within(real(opts.cwd), real(snapshotRoot))) return spawn(cmd, args, opts);
+    const words = args.slice(prefix.length);
+    const shape = carriedScanRefusal(words);
+    if (shape !== null) return refused(CARRIED_METADATA_REFUSED, `\`cargo ${words.join(" ")}\` would run inside the managed snapshot ${snapshotRoot} and is not one of the read-only shapes Class A runs directly (GC-A11): ${shape}`);
+    let scratch;
+    try { fs.mkdirSync(tmpRoot, { recursive: true }); scratch = fs.mkdtempSync(path.join(tmpRoot, "rk-class-a-cargo-")); }
+    catch (e) { return refused("RK_CLASS_A_SCRATCH", `cannot create a scratch target under ${tmpRoot}: ${e.message}`); }
+    const childEnv = { ...env, ...(opts.env ?? {}), [pathKey]: directPath, CARGO_TARGET_DIR: scratch };
+    const cleanup = () => { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort: a scratch dir under the gate's tmp root */ } };
+    let r;
+    try { r = spawn("cargo", words, { ...opts, env: childEnv }); }
+    catch (e) { cleanup(); throw e; }
+    if (r && typeof r.then === "function") return r.finally(cleanup);
+    cleanup();
+    return r;
+  };
+}

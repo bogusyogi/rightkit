@@ -217,10 +217,12 @@ export const CAUSE_EVIDENCE_SCHEMA = "rustright.cause-evidence.v1";
 /** The refusal codes of a verdict that is not `explained` (the other cause-evidence refusals are `evidence`, like every malformed signed field). */
 export const CAUSE_UNKNOWN = "cause-unknown";
 export const CAUSE_UNEXPLAINED = "cause-unexplained";
-/** cargo_evidence.rs EXPLAINED_CAUSES: the only causes that explain a rebuilt unit; any other (including `unexplained`, `fingerprint-missing` and one this list does not know) does not. */
+/** cargo_evidence.rs EXPLAINED_CAUSES (the same 10, in the broker's order): the only causes that explain a rebuilt unit; any other (including `unexplained`, `fingerprint-missing` and one this list does not know) does not. */
 export const EXPLAINED_CAUSES = Object.freeze([
   "first-build", "toolchain-changed", "source-or-dependency-changed", "env-rustflags-profile-features-or-target-changed",
   "generation-change", "authorized-eviction", "new-unit", "new-namespace",
+  // A unit missing its recorded fingerprint row while its package has a fingerprint dir under another build (rustright judge step 0, cargo_evidence.rs same_package_other_build).
+  "after-failed-build", "fingerprint-changed",
 ]);
 const CAUSE_STATES = Object.freeze(["complete", "incomplete", "unavailable"]);
 const CAUSE_VERDICTS = Object.freeze(["explained", "unexplained", "unknown"]);

@@ -31,6 +31,7 @@ import { recordPublished, stageSourceVersions, workspaceFeedOptions } from "./ri
 import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
 import { exclusionsFor, npmContentDigest } from "./pack-digest.mjs";
 import { requireDoorRun, gateStateDir } from "./gate-stages.mjs";
+import { crossCompileEnv, crossTargetsFor } from "./cross-targets.mjs";
 
 export const LOCAL_OPERATOR = "agent (local-build grant)";
 export const LOCAL_HOST_POLICY_REASON = "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run";
@@ -341,6 +342,8 @@ const consumerDirs = (rows) => [...new Set(rows.map((row) => path.posix.dirname(
 // the file on disk must be the committed file, or the publish is refused.
 export const GATE_CONFIG_FILES = Object.freeze(["ci/gate.config.json", "ci/asset-gated.json"]);
 
+export { CROSS_TARGETS, ZIG_TARGETS, CROSS_CC_ENV, crossTargetsFor, crossCompileEnv } from "./cross-targets.mjs";
+
 /** The CI gate's commands for one unit (scripts/ci/gate.mjs npmGate/rustGate), mirrored exactly. */
 export function localTestPlan({ kind, unit, dir, config, manifest, batch = false, platform = "darwin" }) {
   if (kind === "npm") {
@@ -367,6 +370,14 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
   // Batch mode lints the whole batch once (batchClippyInvocations) and records it as a batch receipt.
   // Every tested feature set is linted (-D warnings), not only the first.
   if (!batch) for (const features of featureSets) steps.push({ command: "cargo", args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"], test: false });
+  // Every crate is checked for the other two OS targets too, every tested feature set, -D warnings (CROSS_TARGETS). Batch mode
+  // lints them with the batch's own clippy (batchClippyInvocations crossTargetsOf).
+  if (!batch) for (const target of crossTargetsFor(entry, platform)) {
+    for (const features of featureSets) {
+      const env = crossCompileEnv(target);
+      steps.push({ command: "cargo", args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", "--target", target, ...features, "--", "-D", "warnings"], test: false, ...(env ? { env } : {}) });
+    }
+  }
   for (const features of allFeatureCheckSets(entry)) steps.push({ command: "cargo", args: ["check", "-p", unit, "--message-format=json-render-diagnostics", "--all-targets", ...features], test: false });
   // rustdoc with -D warnings, for the tested and the checked feature sets: the same rows the CI shards (scripts/ci/gate.mjs) and
   // publish.yml's native verify run, so a broken or private intra-doc link fails this unit stage instead of a later verify.
@@ -385,7 +396,7 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
  * names two crates: one `-p <crate>` run per crate and feature set, in layer order. Crates with a different
  * RIGHTKIT_REQUIRE_ASSETS (asset-gated) keep their own environment.
  */
-export function batchClippyInvocations(layer, { featuresOf = () => [], featureSetsOf = (unit) => [featuresOf(unit)], assetGatedOf = () => false } = {}) {
+export function batchClippyInvocations(layer, { featuresOf = () => [], featureSetsOf = (unit) => [featuresOf(unit)], assetGatedOf = () => false, crossTargetsOf = () => [] } = {}) {
   const invocations = [];
   for (const unit of layer) {
     // Every tested feature set of a crate is linted, in order; identical sets of one crate collapse to one run.
@@ -397,6 +408,13 @@ export function batchClippyInvocations(layer, { featuresOf = () => [], featureSe
         crates: [unit], assetGated: assetGatedOf(unit),
         args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"],
       });
+      for (const target of crossTargetsOf(unit)) {
+        const env = crossCompileEnv(target);
+        invocations.push({
+          crates: [unit], assetGated: assetGatedOf(unit), ...(env ? { env } : {}),
+          args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", "--target", target, ...features, "--", "-D", "warnings"],
+        });
+      }
     }
   }
   return invocations;
@@ -906,8 +924,9 @@ async function runLocalPublishBatch(parsed, deps) {
   commands.push(scanText);
   const featureSetsOf = (unit) => gateConfig?.rust?.[unit]?.featureSets ?? [[]];
   for (const layer of layers) {
-    for (const invocation of batchClippyInvocations(layer, { featureSetsOf, assetGatedOf: isAssetGated })) {
-      await batchCheck("clippy", "cargo", invocation.args, invocation.crates, testEnv(deps, invocation.assetGated), invocation.crates.map((unit) => path.join(workspaceRoot, "crates", unit)));
+    for (const invocation of batchClippyInvocations(layer, { featureSetsOf, assetGatedOf: isAssetGated, crossTargetsOf: (unit) => crossTargetsFor(gateConfig?.rust?.[unit], platform) })) {
+      // A cross-target invocation carries the zig C toolchain environment for its target (crossCompileEnv).
+      await batchCheck("clippy", "cargo", invocation.args, invocation.crates, { ...testEnv(deps, invocation.assetGated), ...(invocation.env ?? {}) }, invocation.crates.map((unit) => path.join(workspaceRoot, "crates", unit)));
     }
   }
   const receipt = { id: `batch-${head.slice(0, 12)}-${sha256(JSON.stringify(layers)).slice(0, 8)}`, ...stamp, crates, checks };

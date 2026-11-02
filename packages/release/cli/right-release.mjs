@@ -34,6 +34,7 @@ const commands = new Map([
   ["mirror-root-artifact", "mirror-root-artifact.mjs"],
   ["test", "test-command.mjs"],
   ["web-build", "web-build.mjs"],
+  ["build-helpers", "build-helpers-command.mjs"],
   ["license-notices", "npm-license-notices.mjs"],
   ["toolchain", "toolchain-swift.mjs"],
   ["github", "github-release.mjs"],

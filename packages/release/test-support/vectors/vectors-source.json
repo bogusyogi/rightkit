@@ -31,19 +31,19 @@
       "note": "GC-I22: copied byte for byte from rustright docs/contracts at a6a2a50 (identical at main b0f14c7f), which adds the two absent-input cases of GC-I14 (14 cases; the pin at c839d1f held 12)"
     },
     "freshness-evidence-vectors.v1.json": {
-      "sha256": "13a87427d659d33fb586dd284d652280663c02c437d4ad89cf440a0cd036b5a8",
+      "sha256": "86e61829596978fc70798e0789c69912bb5316c2636668f24aa32bec88e654bd",
       "schema": "rustright.freshness-evidence-vectors.v1",
-      "commit": "ddfb07b185d35cf3c0b7848c0a195ec34ac146dd",
-      "note": "copied byte for byte from rustright docs/contracts at ddfb07b (GB-68), identical at the branch tip 8a97e085830205ca633f092158aee650bab7d707"
+      "commit": "30520f79084f7210fa5f8703a004bdf964925203",
+      "note": "copied byte for byte from rustright docs/contracts at 30520f7 (explainedCauses, caps.reasons 10000); 30520f7 is a local rustright commit, re-pin to its pushed sha once Adrian approves the push"
     },
     "lease-status-vectors.v1.json": {
       "sha256": "1e2bd4abca08932962c86c3e8e143ec56b08046a2f570b6e368e000c25b7ab46",
       "schema": "rustright.lease-status-vectors.v1"
     },
     "managed-roots.fixtures.json": {
-      "sha256": "9139b2de043f5db0b5df1e4f3ea102d6ebde073090ba4065044b2b0a59ea5d96",
+      "sha256": "a95c128cafd72691a5876169423fe6b108cfb8f74afe6e3b5367c39dbe716189",
       "schema": "rustright.managed-roots.fixtures.v1",
-      "commit": "07829c05ad3a59332c70553189caca07f3d60e06",
+      "commit": "303c6c6fc8cb9026d6a1e954102cd0da5622941c",
       "note": "copied byte for byte from rustright docs/contracts at 07829c05 (branch claude/wave4-partial): adds the case \"linux no-env defaults to the account state directory\" (14 cases, same key set)"
     },
     "receipt-vectors.v1.json": {

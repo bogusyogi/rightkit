@@ -39,6 +39,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { crateWorkspaces, pathDependencies, reverseDependents } from "../../packages/release/crate-workspaces.mjs";
+import { crossCompileEnv, crossTargetsFor } from "../../packages/release/cross-targets.mjs";
 import { checkArgs, clippyArgs, planScans, runScans, scanDeferrals, scanFailures, scanToolPolicyFromPipeline } from "../../packages/release/deterministic-scans.mjs";
 import { scanGatePassed } from "./scan-receipt.mjs";
 import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
@@ -481,6 +482,11 @@ async function rustGate(selection, config, consumers = new Map()) {
     // The clippy and check command lines come from the one scan module (packages/release/deterministic-scans.mjs).
     const cwd = crateCwd(name);
     for (const features of featureSets) await run(`rust:${name}`, "cargo", clippyArgs(name, { features }), { cwd, timeoutMinutes });
+    // The other two OS targets, every tested feature set (packages/release/cross-targets.mjs; Adrian 2026-11-02), with the zig C toolchain
+    // scripts/ci/provision-zig.mjs provisioned (RIGHTKIT_CROSS_CC_DIR).
+    for (const target of crossTargetsFor(entry, process.platform)) {
+      for (const features of featureSets) await run(`rust:${name}`, "cargo", clippyArgs(name, { features, target }), { cwd, timeoutMinutes, env: { ...env, ...(crossCompileEnv(target) ?? {}) } });
+    }
     // Features the tests do not enable must still compile; keep in step with packages/release/local-publish.mjs.
     const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);
     for (const features of checkSets) await run(`rust:${name}`, "cargo", checkArgs(name, { features }), { cwd, timeoutMinutes });

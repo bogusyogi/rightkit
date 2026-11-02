@@ -1,7 +1,0 @@
-right-release <version>
-app: fixture
-platform: <host>
-tier: <required for release/publish>
-packageManager: pnpm
-artifact-storage: no installer-copy scripts detected
-preflight:

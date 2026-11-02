@@ -60,6 +60,24 @@ const ALIASES = Object.freeze({ b: "build", c: "check", t: "test", r: "run", d: 
 const VERSION_PROBES = Object.freeze([["-V"], ["--version"], ["-vV"], ["-Vv"], ["--version", "--verbose"], ["-V", "--verbose"], ["-v", "-V"], ["version"]]);
 // The read-only commands the broker admits to a carried request only in carriedScanRefusal's exact shapes (snapshot-metadata.mjs).
 const CARRIED_SHAPE = new Set(["metadata", "deny", "audit", "fmt"]);
+// GATE-CONTRACT GC-A11 (Adrian, 2026-11-02): a cargo call that compiles nothing never goes to the broker; in broker mode these run directly
+// with the host's real toolchain cargo (map.realCargo), each into its own scratch target, never carried (rustright a2972f0 refuses them).
+export const READ_ONLY_DIRECT = Object.freeze(new Set(["metadata", "fetch", "tree", "pkgid", "verify-project", "read-manifest", "locate-project", "deny", "audit", "fmt"]));
+/** Whether an argv compiles nothing: a READ_ONLY_DIRECT subcommand, or `cargo package --list` (lists files, builds nothing). */
+export function readOnlyCargo(args) {
+  const sub = cargoSubcommandOf(args);
+  return READ_ONLY_DIRECT.has(sub) || (sub === "package" && args.includes("--list"));
+}
+/** The cargo subcommand of an argv (after a +toolchain and global options), or null. */
+export function cargoSubcommandOf(args) {
+  for (let i = args[0]?.startsWith("+") ? 1 : 0; i < args.length; i += 1) {
+    const w = args[i];
+    if (w === "--") return null;
+    if (GLOBAL_VALUE.has(w)) { i += 1; continue; }
+    if (!w.startsWith("-")) return ALIASES[w] ?? w;
+  }
+  return null;
+}
 const insideOf = (child, parent) => { const rel = path.relative(parent, child); return rel === "" || !(rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)); };
 // Global options that take a value (`--color always`, `--explain E0001`); the subcommand is the first word after them.
 const GLOBAL_VALUE = new Set(["--color", "--explain"]);
@@ -306,6 +324,19 @@ export function runShim(argv, { env = process.env, cwd = process.cwd(), spawn = 
   let decision;
   try { decision = decideCargoInvocation({ args: words, cwd, env, map, locate }); } catch (error) { return refuse({ code: "RK_CARGO_SHIM_ERROR", message: error.message }); }
   if (decision.refuse) return refuse(decision.refuse);
+  if (broker && decision.exec.workspace && readOnlyCargo(decision.exec.args) && map.realCargo) {
+    // GC-A11: a non-compiling call runs directly with the real toolchain cargo, writing only to its own scratch target (removed after).
+    let scratch;
+    try { scratch = fs.mkdtempSync(path.join(path.dirname(map.ledgerDir), "read-scratch-")); }
+    catch (error) { return refuse({ code: "RK_CARGO_SHIM_ERROR", message: `cannot create a scratch target for a read-only call (${error.message})` }); }
+    const { CARGO_TARGET_DIR: _bound, CARGO_BUILD_TARGET_DIR: _bound2, ...rest } = decision.exec.env ?? env; void _bound; void _bound2;
+    let r;
+    try { r = spawn(map.realCargo, decision.exec.args, { cwd, env: { ...rest, CARGO: map.realCargo, CARGO_TARGET_DIR: scratch }, stdio: "inherit" }); }
+    finally { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* scratch under the wrapper's own directory */ } }
+    if (r.error) return refuse({ code: "RK_CARGO_SHIM_ERROR", message: `${map.realCargo} did not start (${r.error.message})` });
+    record({ ...base, status: "ran", direct: true, exit: r.status ?? null });
+    return r.status ?? (r.signal ? 128 : SHIM_REFUSAL_STATUS);
+  }
   if (broker && decision.exec.workspace) {
     // The `pending` record above stays this call's until the broker call finishes: its records carry the same call id.
     return runBrokerCargo({ words: decision.exec.args, cwd, env, section: map.broker, workspace: decision.exec.workspace, checkoutWorkspace: decision.exec.checkoutWorkspace, record: (entry) => record({ ...entry, id }), spawn, err });

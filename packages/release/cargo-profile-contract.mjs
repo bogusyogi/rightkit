@@ -165,7 +165,7 @@ export function scanDebugAssertionSources(root) {
       if (!/#!?\[cfg|cfg!\s*\(/.test(line)) return;
       if (line.includes(ENV_ALLOW_MARKER) || (lines[index - 1] ?? "").includes(ENV_ALLOW_MARKER)) return;
       if (ENV_READ.test(lines.slice(index, index + ENV_WINDOW_LINES + 1).join("\n"))) {
-        findings.push({ rule: "debug-assertions-env", file: label, line: index + 1, message: "environment-variable override gated by cfg(debug_assertions): present in cargo test, absent from both installers (dev and release use [profile.release]); gate it on an explicit feature" });
+        findings.push({ rule: "debug-assertions-env", file: label, line: index + 1, message: "environment-variable override gated by cfg(debug_assertions): present in cargo test, absent from both installers (dev and release use [profile.release]); inject it (a config value or a test root the caller passes), never read it from the environment" });
       }
     });
   }

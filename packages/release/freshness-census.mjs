@@ -29,7 +29,7 @@ export const FINGERPRINT_LOG_FILTER = "cargo::core::compiler::fingerprint=info";
 const FINGERPRINT_TARGET = "cargo::core::compiler::fingerprint";
 export const FRESHNESS_SOURCE = "cargo-fingerprint-log+fingerprint-mtime";
 /** Reasons kept in the receipt; the rest are counted. */
-export const REASONS_CAP = 200;
+export const REASONS_CAP = 10_000;
 /** Characters kept of one reason (Cargo prints it with `Debug`, paths and mtimes included). */
 export const REASON_TEXT_CAP = 512;
 /** Unit directories and files visited before the census is declared unavailable rather than partial. */

@@ -18,8 +18,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
-import { existsSync } from "node:fs";
-import { buildLaunch } from "./build-launch.mjs";
+import { existsSync, readFileSync } from "node:fs";
 import { CommandSpecError, loadAppConfig, resolveInvocation, validateStep } from "./command-spec.mjs";
 import { defaultReleaseConfigFile } from "./release-config.mjs";
 import { requireDoorRun } from "./gate-stages.mjs";
@@ -61,20 +60,46 @@ export function webBuildDoorRefusal({ appRoot, env = process.env, spawnSyncFn = 
   return requireDoor({ env, commonDir: context.commonDir, commit: context.commit, command: "right-release web-build" });
 }
 
+/**
+ * Adrian, 2026-11-02 ("Yes send them", relayed by the broker owner and checked): tsc runs once, in Class A only, and vite (any web bundling)
+ * runs outside the broker. A `tsc` step that emits nothing (`--noEmit`, or `compilerOptions.noEmit` in the tsconfig it reads) only type-checks,
+ * which Class A already did for this commit, so it is skipped here. A tsc step that emits files still runs. An unreadable tsconfig keeps the step.
+ */
+export function typecheckOnlyTsc(invocation, { readFile = (f) => readFileSync(f, "utf8") } = {}) {
+  const script = String(invocation.args?.find((a) => /(^|[\\/])typescript[\\/]bin[\\/]tsc$/.test(String(a))) ?? "");
+  if (!script) return false;
+  const args = invocation.args.slice(invocation.args.indexOf(script) + 1).map(String);
+  if (args.includes("--noEmit")) return true;
+  if (args.some((a) => a === "--build" || a === "-b")) return false;
+  const p = args.indexOf("-p") >= 0 ? args.indexOf("-p") : args.indexOf("--project");
+  let file = p >= 0 ? args[p + 1] : "tsconfig.json";
+  if (!file) return false;
+  file = path.resolve(invocation.cwd ?? ".", file);
+  if (!/\.json$/i.test(file)) file = path.join(file, "tsconfig.json");
+  try {
+    const text = readFile(file).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"])\/\/.*$/gm, "$1").replace(/,(\s*[}\]])/g, "$1");
+    return JSON.parse(text)?.compilerOptions?.noEmit === true;
+  } catch { return false; }
+}
+
+/** The direct launch of a web-build step: never through the broker (Adrian, 2026-11-02: vite and web bundling run outside the broker). */
+export const directWebLaunch = (cmd, args) => ({ command: cmd, args });
+
 function doorError(refusal) { const error = new Error(refusal); error.code = "RK_DOOR"; return error; }
 
 /**
  * Run the steps in order under a live door run; `spawnSyncFn`, `requireDoor` and `log` are injectable. Returns the exit code. The
  * door is checked here as well as in main: this is the only place a step is spawned.
  */
-export function runWebBuild(steps, { appRoot, env = process.env, dryRun = false, spawnSyncFn = spawnSync, requireDoor = requireDoorRun, log = console.log, door = buildLaunch } = {}) {
+export function runWebBuild(steps, { appRoot, env = process.env, dryRun = false, spawnSyncFn = spawnSync, requireDoor = requireDoorRun, log = console.log, door = directWebLaunch, readFile } = {}) {
   const refusal = webBuildDoorRefusal({ appRoot, env, spawnSyncFn, requireDoor });
   if (refusal) throw doorError(refusal);
   for (const step of steps) {
     const invocation = resolveInvocation(step, { appRoot, baseEnv: env });
+    if (typecheckOnlyTsc(invocation, readFile ? { readFile } : {})) { log(`skipped (type-check only; Class A ran tsc for this commit): ${[invocation.cmd, ...invocation.args].join(" ")}`); continue; }
     log(`${dryRun ? "[dry-run] " : ""}${[invocation.cmd, ...invocation.args].join(" ")}`);
     if (dryRun) continue;
-    // A web build is a build: through the one door (build-launch.mjs), a broker job on a managed host.
+    // The web build runs directly, never as a broker job: it is cheap and not cargo (Adrian, 2026-11-02).
     const target = door(invocation.cmd, invocation.args, { env: invocation.env, stepEnv: step.env, cwd: invocation.cwd, exists: existsSync });
     const result = spawnSyncFn(target.command, target.args, { cwd: invocation.cwd, env: target.env ? { ...invocation.env, ...target.env } : invocation.env, stdio: "inherit" });
     if (result.error) throw result.error;

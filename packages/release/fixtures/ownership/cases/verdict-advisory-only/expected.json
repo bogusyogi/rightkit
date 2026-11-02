@@ -1,9 +1,0 @@
-{
-  "verdict": {
-    "admit": true,
-    "code": "RK_OWNERSHIP_ADVISORY",
-    "problems": [
-      "logging (log.println in src/main.rs) is owned by rightkit-log [advise]"
-    ]
-  }
-}

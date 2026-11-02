@@ -1,5 +1,0 @@
-{
-  "kind": "identity",
-  "description": "canonicalRepositoryIdentity(\"git@bücher.example:team/app.git\")",
-  "value": "git@bücher.example:team/app.git"
-}

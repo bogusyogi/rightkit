@@ -49,9 +49,25 @@ export const CALLING_GATE_ENV = "RUSTRIGHT_CALLING_GATE";
 /** The managed `ws` roots a broker pins its generation targets under (BROKER-CONTRACT output pinning). */
 export const brokerOutputRoots = ({ dataRoot }) => [path.join(dataRoot, "rightkit-build-control", "ws")];
 
-/** The broker's receipt of one request, read through the RustRight client (`rustright status <id>`), synchronously. */
-export function receiptSync({ client, requestId, env, spawn = spawnSync, platform = process.platform }) {
-  return receiptFromReply(spawnBrokerClient(spawn, client, ["status", requestId], statusOptions(env), { platform }), requestId);
+/**
+ * The longest a read waits for a job that is still live although its client already exited (A7). The client can return before the broker
+ * has started the job (a race seen at 16 lanes), so one STATUS read of a live job is not a verdict: the read then follows the job with
+ * `rustright attach <id>` (the client's WATCH: it blocks until the job ends and rides out a broker restart; never a poll) and reads STATUS again.
+ */
+export const LIVE_WAIT_MS = 300_000;
+const liveWaitOptions = (env, ms) => ({ ...statusOptions(env), timeout: ms });
+const isLiveRead = (e) => e?.diagnosis?.kind === "live";
+const stillLive = (e, waitedMs) => Object.assign(new SnapshotRequestError(e.code, `${e.message}; the read also waited up to ${Math.round(waitedMs / 1000)} s with \`rustright attach\` (WATCH) for the terminal state and the job was still live`), { diagnosis: e.diagnosis });
+
+/** The broker's receipt of one request, read through the RustRight client (`rustright status <id>`), synchronously; a live job is waited for once, bounded (LIVE_WAIT_MS). */
+export function receiptSync({ client, requestId, env, spawn = spawnSync, platform = process.platform, liveWaitMs = LIVE_WAIT_MS }) {
+  const read = () => receiptFromReply(spawnBrokerClient(spawn, client, ["status", requestId], statusOptions(env), { platform }), requestId);
+  try { return read(); } catch (e) {
+    if (!isLiveRead(e) || !(liveWaitMs > 0)) throw e;
+    // The attach result is not the verdict (its stream is not a receipt): whatever it ends with, the terminal state is read back by STATUS.
+    spawnBrokerClient(spawn, client, ["attach", requestId], liveWaitOptions(env, liveWaitMs), { platform });
+    try { return read(); } catch (again) { throw isLiveRead(again) ? stillLive(again, liveWaitMs) : again; }
+  }
 }
 const statusOptions = (env) => ({ encoding: "utf8", env, timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
 
@@ -63,7 +79,8 @@ function receiptFromReply(r, requestId) {
   // A refused or unavailable reply may arrive with a nonzero exit (the client exits 125 on a REJECTED result): its typed body is still diagnosed (GB-84).
   try { doc = JSON.parse(String(r.stdout)); } catch { throw r.status !== 0 ? failedRun() : new SnapshotRequestError("receipt", `rustright status ${requestId} printed no JSON`); }
   // The status envelope is `{type:"STATUS", id, state, ..., receipt}`: `receipt` is null while the job is live and full once it is
-  // terminal. Polling is not allowed, so a null receipt after the cargo process exited is a clear error, never a retry.
+  // terminal. A null receipt after the cargo process exited is not a verdict at once: the caller waits for the terminal state once (receiptSync:
+  // `rustright attach`, bounded, never a poll), and a job still live after that is a clear error, never a retry.
   // GB-53: an over-cap outcome is a typed truncation, never a missing-field mystery.
   const over = overCapProblem(doc);
   if (over) throw new SnapshotRequestError(over.code, `rustright status ${requestId}: ${over.message}`);
@@ -386,7 +403,7 @@ function carryBrokerCargoOnce({ words, cwd, env, section, workspace, checkoutWor
     } catch (e) { return refuse("RK_CARGO_BROKER_CARRIER", e.message); }
     try { record({ ...base, status: "pending", nonce: made.carrier.nonce, requestRef: path.join(refDir, "request.json"), ownershipHandle: made.carrier.ownership.handle, checkoutCwd, spawnCwd }); } catch (e) { removeCarrier(made.file); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
     // GB-52: the call's operation deadline (the caller's own cap is never replaced) and an outer guard past the client's own cancel wait.
-    const childEnv = { ...clientEnv, ...made.env, ...operationDeadlineEnv({ env: clientEnv, deadlineMs }) };
+    const childEnv = { RUST_BACKTRACE: clientEnv.RUST_BACKTRACE ?? "1", ...clientEnv, ...made.env, ...operationDeadlineEnv({ env: clientEnv, deadlineMs }) };
     const guard = clientGuardMs(childEnv);
     const capture = stdio === "capture";
     // Broker work may exist from the next statement on: the ownership records this request's sub-handle first (a mark that does not land sends nothing).
@@ -410,6 +427,7 @@ function carryBrokerCargoOnce({ words, cwd, env, section, workspace, checkoutWor
     } catch (e) {
       outcome = { status: "unverified", code: e.code ?? "error", message: e.message, ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
+    outcome = { ...outcome, clientStatus: r.status ?? null, clientSignal: r.signal ?? null }; // A7: the client's own exit, kept with every outcome
     const out = capture ? { stdout: String(r.stdout ?? ""), stderr: String(r.stderr ?? "") } : { stdout: "", stderr: "" };
     // GB-54: a request the broker REFUSED (admission paused, a suspended or unknown job, a cutover drain) never started: the client's typed REJECTED result is kept as the outcome's
     // code ("admission is paused; nothing was spawned"), not folded into a missing request reference. It is never a build outcome.
@@ -595,7 +613,7 @@ function* carryBrokerAdapterSteps({ adapter, words, cwd, env, section, record, e
     } catch (e) { return refuse("RK_ADAPTER_BROKER_CARRIER", e.message); }
     try { record({ ...base, status: "pending", nonce: made.carrier.nonce, requestRef: path.join(refDir, "request.json"), ownershipHandle: made.carrier.ownership.handle, checkoutCwd, spawnCwd }); } catch (e) { removeCarrier(made.file); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
     // GB-52: the call's operation deadline (the caller's own cap is never replaced) and an outer guard past the client's own cancel wait.
-    const childEnv = { ...clientEnv, ...made.env, ...operationDeadlineEnv({ env: clientEnv, deadlineMs }) };
+    const childEnv = { RUST_BACKTRACE: clientEnv.RUST_BACKTRACE ?? "1", ...clientEnv, ...made.env, ...operationDeadlineEnv({ env: clientEnv, deadlineMs }) };
     const guard = clientGuardMs(childEnv);
     const capture = stdio === "capture";
     // Broker work may exist from the next statement on: the ownership records this request's sub-handle first (a mark that does not land sends nothing).
@@ -625,14 +643,21 @@ function* carryBrokerAdapterSteps({ adapter, words, cwd, env, section, record, e
       // directory in the snapshot), which must be inside that root"). It is the carrier's primaryCwd, never the toplevel for a step run from a subfolder
       // (an app whose root is `app/`), and never a directory outside the primary checkout or one that is not this call's counterpart.
       if (canonicalCounterpart(ref.workspace) !== canonicalCounterpart(checkoutCwd) || !inside(canonicalCounterpart(ref.workspace), section.checkout)) throw new SnapshotRequestError("workspace", `the request's workspace ${ref.workspace} is not the primary checkout counterpart ${checkoutCwd} of the step's directory ${realCwd} (primary toplevel ${section.checkout})`);
-      const statusReply = yield { args: ["status", ref.requestId], options: statusOptions(clientEnv) };
-      const receipt = receiptFromReply(statusReply, ref.requestId);
+      let statusReply = yield { args: ["status", ref.requestId], options: statusOptions(clientEnv) };
+      // A job still live although its client exited (A7): follow it once with `rustright attach` (WATCH, bounded), then read STATUS again; never a poll.
+      let liveWaited = false;
+      try { receiptFromReply(statusReply, ref.requestId); } catch (probe) {
+        if (isLiveRead(probe)) { yield { args: ["attach", ref.requestId], options: liveWaitOptions(clientEnv, LIVE_WAIT_MS) }; statusReply = yield { args: ["status", ref.requestId], options: statusOptions(clientEnv) }; liveWaited = true; }
+      }
+      let receipt;
+      try { receipt = receiptFromReply(statusReply, ref.requestId); } catch (again) { throw liveWaited && isLiveRead(again) ? stillLive(again, LIVE_WAIT_MS) : again; }
       const { payload, evidence, attribution, toolchain, nestedChildren } = verifySnapshotReceipt(receipt, { pins: section.pins, jobId: ref.requestId, carrier: made.carrier, argv: words, workspace: ref.workspace, adapter, adapterEnv, checkout: section.checkout, outputRoots: section.outputRoots, platform: section.platform });
       nativeManaged = signedNativeOutputs(receipt, payload);
       outcome = { status: "verified", requestId: ref.requestId, workspace: ref.workspace, outputDir: evidence.outputDir, nestedChildren, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit, attribution, toolchain };
     } catch (e) {
       outcome = { status: "unverified", code: e.code ?? "error", message: e.message, ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
+    outcome = { ...outcome, clientStatus: r.status ?? null, clientSignal: r.signal ?? null }; // A7: the client's own exit, kept with every outcome
     const out = capture ? { stdout: String(r.stdout ?? ""), stderr: String(r.stderr ?? "") } : { stdout: "", stderr: "" };
     // GB-54: a request the broker REFUSED (admission paused, a suspended or unknown job, a cutover drain) never started: the client's typed REJECTED result is kept as the outcome's
     // code ("admission is paused; nothing was spawned"), not folded into a missing request reference. It is never a build outcome.

@@ -48,6 +48,29 @@ Adrian, 2026-11-02: "No, no flag. There is only one command and that is cargo te
 
 A crash restores the snapshot at the next start. In this mode rightkit-qa's installed-app guard (`crates/rightkit-qa/src/config.rs:136-139`) allows the installed dev copy, and only a copy that carries the QA control marker. Adrian, answering HRwin's item 2: "no. I prefer the snapshot and restore. I disagree with what others do here." Issue: rightkit#1437. The numbering of items 1 and 2 is HRwin's proposal, as HRwin relayed it; Adrian's words are verbatim.
 
+[GC-A11] 2026-11-02: **Class A never runs in the broker.**
+- Every cheap, non-compiling cargo call in Class A runs directly, outside the broker, on every host: `metadata`, `fetch`, `tree`, `deny`, `audit`, package list, `locate-project`, version probes.
+- It uses the host's pinned toolchain and the gate's enrolled scan tools.
+- The gate never sends a Class A call to the broker, and the broker admits compiles only.
+
+Adrian, 2026-11-02: "Class a never in the broker. Any cargo things that are cheap and non compiling are in class a, can run outside the broker."
+
+This overrides `cargoReadsCarried` (`bin/rightkit-gate.mjs:3980`) and BROKER-CONTRACT "Carried read-only cargo" (lines 107-113).
+
+[GC-A12] 2026-11-02: **`tsc` runs once, in Class A. The web build runs outside the broker.**
+- `right-release web-build` (vite and any web bundling) runs its steps directly, never as a carried broker call, so the gate runs it in the snapshot before the compile with no carrier.
+- A `tsc` step that only type-checks (`--noEmit`, or `compilerOptions.noEmit` in its tsconfig) is skipped there, because Class A already ran `tsc` for the commit.
+- A `tsc` that emits files still runs, directly.
+
+Adrian, 2026-11-02, in the broker owner's chat (checked with pulse `said`), approving: "Yes send them".
+
+[GC-A13] 2026-11-02: **An unexplained rebuild never fails a build. A daily job reports warmth instead.**
+- The broker no longer fails a job for `RR_UNEXPLAINED_COLD` or `RR_COLD_CAUSE_UNKNOWN` (rustright `b00220f`).
+- The gate no longer refuses a compile whose signed cause verdict is unexplained or unknown (RA-03, `snapshot-request.mjs`). It still requires the cause evidence to be present, signed and well formed, and records it.
+- A daily job, owned by Legion, reads the recorded freshness and cause evidence and reports warm-cache problems.
+
+Adrian, 2026-11-02, in the broker owner's chat (checked with pulse `said`): "Refusal, remove but I want a daily job checking the warmth etc and reporting issues."
+
 Every other clause is read around GC-A07. Adrian, 2026-11-02, relayed verbatim by the Dell HR chat: "ok, one thing we have established is we are getting rid of debug. dev is actual installer with rk qa/ it can have faster compile like fat or thin or whatever, since it is not release. and qa journey will be moved out of build. this decision is already locked. everything else has to be worked around this." To rkn the same day: "this goes in the contracts asap".
 
 ## 1. User requirements
@@ -434,6 +457,9 @@ Every operative requirement id of this contract, its subject, status (`operative
 | GC-A08 | Cargo tests compile in the broker (`--no-run`) and run outside it (2026-11-02) | operative | rightkit#1436 |
 | GC-A09 | Tests are isolated by injection (temp data root, MemoryBackend); no test-mode features in any crate or app (2026-11-02) | operative | rightkit#1436 |
 | GC-A10 | Journeys run on the live installed dev app with a crash-safe snapshot and restore; the installed guard allows a marked dev copy (2026-11-02) | operative | rightkit#1437 |
+| GC-A11 | Class A never runs in the broker; non-compiling cargo calls run directly with the pinned toolchain (2026-11-02) | operative | - |
+| GC-A12 | tsc runs once, in Class A; the web build runs outside the broker; a type-check-only tsc step is skipped (2026-11-02) | operative | - |
+| GC-A13 | Unexplained rebuilds never fail a build; cause evidence is recorded; a daily Legion job reports warmth (2026-11-02) | operative | - |
 | GC-T01 | Origin host | operative | B3 |
 | GC-T02 | Native build target | operative | - |
 | GC-T03 | Qualification runner | operative | - |

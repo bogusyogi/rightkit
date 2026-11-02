@@ -1,6 +1,0 @@
-{
-  "kind": "cache-key",
-  "description": "Inputs must not be an array.",
-  "expectCode": "RK_OWNERSHIP_INVALID_INPUTS",
-  "inputs": []
-}

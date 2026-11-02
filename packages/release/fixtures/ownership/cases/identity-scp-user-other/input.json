@@ -1,5 +1,0 @@
-{
-  "kind": "identity",
-  "description": "canonicalRepositoryIdentity(\"deploy@host.example:team/app\")",
-  "value": "deploy@host.example:team/app"
-}

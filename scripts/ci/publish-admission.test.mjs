@@ -10,8 +10,8 @@ import { resolveManagedRoots } from "../../packages/release/managed-roots.mjs";
 import { npmContentDigest, SWAP_HELPER_ARCHIVE_BIN, SWAP_HELPER_ARCHIVE_RECEIPT, exclusionsFor } from "../../packages/release/pack-digest.mjs";
 import { carriedCallNonce, qualificationNonce } from "../../packages/release/provenance-verify.mjs";
 import { expectedStageCommands } from "../../packages/release/stage-commands.mjs";
-import { makeSigner } from "../../packages/release/test-support/provenance-signer.mjs";
-import { tgzOf } from "../../packages/release/test-support/tgz.mjs";
+import { makeSigner } from "./test-support/provenance-signer.mjs";
+import { tgzOf } from "./test-support/tgz.mjs";
 import { ADMISSION_SCHEMA, QUALIFICATION_SCHEMA, admissionArtifactName, admit, bindPackedToQualification, dispatchHosted, gateVerdict, readQualificationInput, verifyAdmissionReceipt, verifyQualificationReceipts , unitScopeDirs } from "./publish-admission.mjs";
 import { main as rightkitDispatch } from "./rightkit-dispatch.mjs";
 

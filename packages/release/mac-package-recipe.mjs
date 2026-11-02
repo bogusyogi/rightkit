@@ -23,6 +23,7 @@ import { notarizeMacosArtifact } from "./macos-notarization.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 import { runMacCodesignCommands, signMacUpdaterFiles } from "./macos-signing-session.mjs";
 import { discoverNestedCode } from "./swift-mac-app.mjs";
+import { assertUpdaterMatchesShippedKey } from "./updater-shipped-key.mjs";
 
 /**
  * Typed error. Codes: MAC_PACKAGE_CONFIG_INVALID, MAC_PACKAGE_HOST_UNSUPPORTED, MAC_PACKAGE_INPUT_MISSING,
@@ -35,7 +36,7 @@ export class MacPackageRecipeError extends Error {
 
 export const MAC_PACKAGE_STEPS = Object.freeze(["universal", "sign-nested", "sign-app", "dmg", "sign-dmg", "notarize", "updater"]);
 const UNIVERSAL_ARCHS = ["x86_64", "arm64"];
-const MACPACKAGE_KEYS = ["universal", "dmg", "notarize", "updater", "nested", "entitlements"];
+const MACPACKAGE_KEYS = ["universal", "dmg", "notarize", "updater", "nested", "entitlements", "requiredEntitlements"];
 const DMG_KEYS = ["name", "background", "windowSize", "iconPositions"];
 const ICON_KEYS = ["app", "applications"];
 
@@ -98,7 +99,20 @@ export function validateMacPackageConfig(macPackage) {
     if (new Set(nested).size !== nested.length) throw invalid("nested globs must be unique");
   }
   if (macPackage.entitlements !== undefined && (typeof macPackage.entitlements !== "string" || !macPackage.entitlements.trim())) throw invalid("entitlements must be a path string");
-  return { universal, dmg: normalized, notarize, updater, nested, ...(macPackage.entitlements ? { entitlements: macPackage.entitlements } : {}) };
+  // rightkit#1443 (hrmac: R2 checked the production APNs entitlement in the signed app): `requiredEntitlements` maps a bundle-relative
+  // executable to entitlement keys and the exact value each must carry after signing (a string, or true for a boolean entitlement).
+  let requiredEntitlements = null;
+  if (macPackage.requiredEntitlements !== undefined) {
+    const re = macPackage.requiredEntitlements;
+    if (!re || typeof re !== "object" || Array.isArray(re) || !Object.keys(re).length) throw invalid("requiredEntitlements must map bundle-relative executables to {entitlement: value}");
+    for (const [file, keys] of Object.entries(re)) {
+      validateGlob(file, `requiredEntitlements key ${file}`);
+      if (!keys || typeof keys !== "object" || Array.isArray(keys) || !Object.keys(keys).length) throw invalid(`requiredEntitlements.${file} must be a non-empty {entitlement: value} object`);
+      for (const [k, v] of Object.entries(keys)) if (!(typeof v === "string" || v === true)) throw invalid(`requiredEntitlements.${file}.${k} must be a string or true`);
+    }
+    requiredEntitlements = re;
+  }
+  return { universal, dmg: normalized, notarize, updater, nested, ...(macPackage.entitlements ? { entitlements: macPackage.entitlements } : {}), ...(requiredEntitlements ? { requiredEntitlements } : {}) };
 }
 
 /**
@@ -160,6 +174,35 @@ const defaultInspect = (cmd, args) => {
  * listFiles(dir) -> bundle-relative posix paths, buildDmg(options), notarize(options), run(cmd, args, opts),
  * signUpdater(files, options), receiptPath, log(event).
  */
+/** Every required entitlement is present, with its exact value, in the signed executable (`codesign -d --entitlements :-`, an XML plist). */
+export function macRequiredEntitlementsCheck({ app, required, run = spawnSync, env = process.env }) {
+  const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const [file, keys] of Object.entries(required)) {
+    const target = path.join(app, ...file.split("/"));
+    const r = run("codesign", ["-d", "--entitlements", ":-", target], { env, encoding: "utf8" });
+    if (!r || r.error || r.status !== 0) throw new Error(`codesign -d --entitlements on ${file} failed (${r?.error?.message ?? `exit ${r?.status}`})`);
+    const plist = String(r.stdout ?? "");
+    for (const [k, v] of Object.entries(keys)) {
+      const want = v === true ? "<true\\s*/>" : `<string>${esc(String(v))}</string>`;
+      if (!new RegExp(`<key>${esc(k)}</key>\\s*${want}`).test(plist)) throw new Error(`${file} is signed without the required entitlement ${k} = ${JSON.stringify(v)}`);
+    }
+  }
+}
+
+/** Gatekeeper's verdict on the shipped app and DMG, as a user's Mac reaches it: staple validation and spctl assessment. Throws on any refusal. */
+export function macGatekeeperCheck({ app, dmg, run = spawnSync, env = process.env }) {
+  const checks = [
+    ["xcrun", ["stapler", "validate", app]],
+    ["xcrun", ["stapler", "validate", dmg]],
+    ["spctl", ["--assess", "--type", "execute", "-v", app]],
+    ["spctl", ["--assess", "--type", "open", "--context", "context:primary-signature", "-v", dmg]],
+  ];
+  for (const [cmd, args] of checks) {
+    const r = run(cmd, args, { env, encoding: "utf8" });
+    if (!r || r.error || r.status !== 0) throw new Error(`${cmd} ${args.join(" ")} refused (${r?.error?.message ?? `exit ${r?.status}`}): ${String(r?.stderr ?? r?.stdout ?? "").trim().split(/\r?\n/).slice(-2).join(" | ")}`);
+  }
+}
+
 export function runMacPackageRecipe({ appRoot, config = {}, target, deps = {} }) {
   let artifactPaths = null;
   const { recipe, app: declaredApp, dmgFile } = validateMacPackageTarget(target);
@@ -254,6 +297,10 @@ export function runMacPackageRecipe({ appRoot, config = {}, target, deps = {} })
     }
     try { signing.push(...signMacosEntries([{ file: app, hardenedRuntime: true, options: [], ...(entitlements ? { entitlements } : {}) }], { identity, ...signOptions })); }
     catch (error) { throw wrap("MAC_PACKAGE_SIGN_FAILED", "app signing", error); }
+    if (recipe.requiredEntitlements) {
+      try { (deps.entitlementsCheck ?? macRequiredEntitlementsCheck)({ app, required: recipe.requiredEntitlements, run, env }); }
+      catch (error) { throw wrap("MAC_PACKAGE_SIGN_FAILED", "required entitlements", error); }
+    }
     record("sign-app");
 
     // 4) branded DMG from the signed app.
@@ -280,6 +327,10 @@ export function runMacPackageRecipe({ appRoot, config = {}, target, deps = {} })
       try { receipt = notarize({ archive: dmg, app, receiptPath, env, run }); }
       catch (error) { throw wrap("MAC_PACKAGE_NOTARIZE_FAILED", "notarization", error); }
       if (!receipt || receipt.notarization?.status !== "Accepted") throw new MacPackageRecipeError("MAC_PACKAGE_NOTARIZE_FAILED", `macPackage notarization did not report Accepted for ${dmg}`);
+      // rightkit#1443 (hrmac: R2's verify-macos-release-artifacts.mjs did this; the gate had dropped it): what a user's Mac will check, checked
+      // here: the staple of the app and the DMG validates, and Gatekeeper accepts the app (execute) and the DMG (open, primary signature).
+      try { (deps.gatekeeper ?? macGatekeeperCheck)({ app, dmg, run, env }); }
+      catch (error) { throw wrap("MAC_PACKAGE_NOTARIZE_FAILED", "Gatekeeper and staple validation", error); }
       record("notarize");
     }
 
@@ -296,6 +347,8 @@ export function runMacPackageRecipe({ appRoot, config = {}, target, deps = {} })
       try { signUpdater([updater], { cwd: appRoot, env }); }
       catch (error) { throw wrap("MAC_PACKAGE_UPDATER_FAILED", "updater signing", error); }
       for (const file of updaterFiles) if (!fs.existsSync(file)) throw missing("updater artifact", file);
+      try { (deps.verifyUpdater ?? assertUpdaterMatchesShippedKey)({ appRoot, file: updater }); }
+      catch (error) { throw wrap("MAC_PACKAGE_UPDATER_FAILED", "updater signature against the shipped key", error); }
       record("updater");
     }
   } catch (error) {

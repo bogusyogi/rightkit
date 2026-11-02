@@ -1,5 +1,0 @@
-{
-  "kind": "identity",
-  "description": "canonicalRepositoryIdentity(\"ftp://host/repo\")",
-  "value": "ftp://host/repo"
-}

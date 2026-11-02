@@ -765,6 +765,12 @@ jobs:
         if: ${{ needs.plan.outputs.registry == 'crates' }}
         with:
           components: rustfmt, clippy
+          targets: aarch64-apple-darwin, x86_64-pc-windows-gnu, x86_64-unknown-linux-gnu
+      # Cross-target clippy (packages/release/cross-targets.mjs, Adrian 2026-11-02): the zig C toolchain for the other two OS targets.
+      - name: Provision the pinned zig for cross-target clippy
+        if: ${{ needs.plan.outputs.registry == 'crates' }}
+        shell: bash
+        run: node scripts/ci/provision-zig.mjs
       # Native Windows OpenSSL for the SQLCipher system-crypto dependent checks (rightkit-db, rightkit-credentials):
       # the same committed scripts rk-setup runs for shared CI, for crates runs on the Windows host only.
       - name: Select native Windows Perl for vendored OpenSSL
@@ -953,6 +959,12 @@ jobs:
         if: ${{ needs.plan.outputs.registry == 'crates' }}
         with:
           components: rustfmt, clippy
+          targets: aarch64-apple-darwin, x86_64-pc-windows-gnu, x86_64-unknown-linux-gnu
+      # Cross-target clippy (packages/release/cross-targets.mjs, Adrian 2026-11-02): the zig C toolchain for the other two OS targets.
+      - name: Provision the pinned zig for cross-target clippy
+        if: ${{ needs.plan.outputs.registry == 'crates' }}
+        shell: bash
+        run: node scripts/ci/provision-zig.mjs
       - name: Fetch the sealed artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:

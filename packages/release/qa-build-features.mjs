@@ -179,8 +179,17 @@ export function cargoManifestIssues(manifestText, label = "Cargo.toml", { allowD
     const shell = dependencies.get(name);
     if (shell && !shell.optional && shell.features.includes("dev-inspect")) issues.push(`${label}: dependency \`${name}\` lists \`dev-inspect\` unconditionally (developer inspection ships in release builds)`);
   }
-  const service = dependencies.get("rightkit-daemon");
-  if (service && !service.optional && service.features.includes("test-mode")) issues.push(`${label}: dependency \`rightkit-daemon\` lists \`test-mode\` unconditionally (test-mode capability ships in release builds)`);
+  // GC-A09: no `test-mode` feature exists anywhere (own `[features]` table or any dependency, optional or not,
+  // `<crate>/test-mode` forwards included): tests are isolated by injection (a temp data root, a MemoryBackend).
+  const isTestModeName = (name) => name === "test-mode" || name.endsWith("-test-mode");
+  for (const name of features.keys()) {
+    if (isTestModeName(name)) issues.push(`${label}: declares feature \`${name}\` (no test-mode feature may exist: inject a temp data root and a MemoryBackend instead)`);
+  }
+  for (const [alias, dep] of dependencies) {
+    for (const feature of dep.features) {
+      if (isTestModeName(feature)) issues.push(`${label}: dependency \`${alias}\` enables feature \`${feature}\` (no test-mode feature may exist: inject a temp data root and a MemoryBackend instead)`);
+    }
+  }
   const wdio = dependencies.get(FORBIDDEN_DEPENDENCY);
   if (wdio && !wdio.optional) issues.push(`${label}: dependency \`${FORBIDDEN_DEPENDENCY}\` is not optional`);
   const reached = new Set(); const stack = [...(features.get("default") ?? [])];

@@ -1,6 +1,6 @@
 {
   "schema": "rustright.managed-roots.fixtures.v1",
-  "note": "Generated from managed-roots.mjs for legacy cases; localappdata cases are the post-cutover Windows default. Both implementations must pass every case whose windowsControlDefault they support.",
+  "note": "Generated from managed-roots.mjs for legacy cases; localappdata is the Windows default (#54, Adrian 2026-11-02) and legacy is selectable only explicitly. Both implementations must pass every case.",
   "cases": [
     {
       "name": "darwin defaults",
@@ -212,7 +212,7 @@
         "configPath": "E:\\control\\config.json",
         "socket": null,
         "logs": "E:\\control\\logs",
-        "agentBin": "E:\\control\\agent-bin",
+        "agentBin": "D:\\.rightkit-managed\\agent-bin",
         "agentPolicy": "E:\\control\\agent-policy",
         "ownershipInstall": "E:\\control\\ownership-install",
         "signingAgent": "E:\\control\\signing-agent"
@@ -282,7 +282,7 @@
         "configPath": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\config.json",
         "socket": null,
         "logs": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\logs",
-        "agentBin": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\agent-bin",
+        "agentBin": "D:\\.rightkit-managed\\agent-bin",
         "agentPolicy": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\agent-policy",
         "ownershipInstall": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\ownership-install",
         "signingAgent": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\signing-agent"
@@ -304,7 +304,32 @@
         "configPath": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\config.json",
         "socket": null,
         "logs": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\logs",
-        "agentBin": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\agent-bin",
+        "agentBin": "D:\\.rightkit-managed\\agent-bin",
+        "agentPolicy": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\agent-policy",
+        "ownershipInstall": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\ownership-install",
+        "signingAgent": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\signing-agent"
+      }
+    },
+    {
+      "name": "win32 localappdata control root ignores the data-root env",
+      "input": {
+        "platform": "win32",
+        "home": "C:\\Users\\test",
+        "env": {
+          "RIGHTKIT_DATA_ROOT": "E:\\data",
+          "LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local"
+        },
+        "windowsControlDefault": "localappdata"
+      },
+      "expected": {
+        "controlRoot": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control",
+        "dataRoot": "E:\\data",
+        "legacyRoot": "D:\\.rightkit-managed",
+        "runtimeCurrent": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\runtime",
+        "configPath": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\config.json",
+        "socket": null,
+        "logs": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\logs",
+        "agentBin": "E:\\data\\agent-bin",
         "agentPolicy": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\agent-policy",
         "ownershipInstall": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\ownership-install",
         "signingAgent": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\signing-agent"
@@ -329,7 +354,7 @@
         "configPath": "E:\\control\\config.json",
         "socket": null,
         "logs": "E:\\control\\logs",
-        "agentBin": "E:\\control\\agent-bin",
+        "agentBin": "D:\\.rightkit-managed\\agent-bin",
         "agentPolicy": "E:\\control\\agent-policy",
         "ownershipInstall": "E:\\control\\ownership-install",
         "signingAgent": "E:\\control\\signing-agent"

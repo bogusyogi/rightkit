@@ -1,5 +1,0 @@
-{
-  "result": {
-    "error": "scanner failed to start: spawn /fixture/no-such-node ENOENT"
-  }
-}

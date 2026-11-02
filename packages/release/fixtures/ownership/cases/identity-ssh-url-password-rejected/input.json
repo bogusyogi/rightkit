@@ -1,5 +1,0 @@
-{
-  "kind": "identity",
-  "description": "canonicalRepositoryIdentity(\"ssh://user:pw@github.com/test/repo\")",
-  "value": "ssh://user:pw@github.com/test/repo"
-}

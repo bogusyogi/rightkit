@@ -961,7 +961,14 @@ function stageCargoBin(entry, ctx) {
   fs.chmodSync(temporary, 0o755);
   fs.renameSync(temporary, dest);
   carryMtime(ctx, dest, slices.map((slice) => slice.source));
-  return [{ kind: "cargo-bin", name: entry.name, path: rel(ctx, dest), sha256, sizeBytes: fs.statSync(dest).size, changed, sourceSha256: sha256, package: entry.package, bin: entry.bin, profile: entry.profile, features: entry.features, externalBin: !entry.dest, slices: slices.map((slice) => ({ triple: slice.triple, sha256: slice.sourceSha256 })) }];
+  // rightkit#1443.2: Tauri's universal build compiles each arch and resolves an externalBin per THIN triple, so each slice is also staged as
+  // `<name>-<thin triple>` beside the universal file (the pre-gate R2 build staged all three). Only for an externalBin (no `dest`).
+  const thin = entry.dest ? [] : slices.map((slice) => {
+    const thinDest = path.resolve(ctx.appRoot, ctx.stageDir, stagedName(entry.name, parseTargetTriple(slice.triple)));
+    const copied = copyInto(ctx, slice.source, thinDest, { executable: true });
+    return { kind: "cargo-bin", name: entry.name, path: rel(ctx, thinDest), ...copied, sourceSha256: slice.sourceSha256, package: entry.package, bin: entry.bin, profile: entry.profile, features: entry.features, externalBin: false, sliceOf: rel(ctx, dest), triple: slice.triple };
+  });
+  return [{ kind: "cargo-bin", name: entry.name, path: rel(ctx, dest), sha256, sizeBytes: fs.statSync(dest).size, changed, sourceSha256: sha256, package: entry.package, bin: entry.bin, profile: entry.profile, features: entry.features, externalBin: !entry.dest, slices: slices.map((slice) => ({ triple: slice.triple, sha256: slice.sourceSha256 })) }, ...thin];
 }
 
 function stageCargoSlice(entry, ctx, triple, { dest }) {

@@ -1,9 +1,0 @@
-{
-  "verdict": {
-    "admit": false,
-    "code": "RK_OWNERSHIP_UNVERIFIED",
-    "problems": [
-      "approval check failed"
-    ]
-  }
-}
