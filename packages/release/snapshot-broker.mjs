@@ -438,6 +438,10 @@ function carryBrokerCargoOnce({ words, cwd, env, section, workspace, checkoutWor
     // RK_BROKER_BUSY with no request reference: the connection never opened, so no byte reached the broker. That is the gate's own proof that this sub-handle was never sent (GB-21), recorded under
     // the ownership lock so the retry's own sub-handle, not this one, is what the stage waits on; a busy answer after a reference exists (a reconnect) proves nothing of the kind.
     if (outcome.status === "unverified" && outcome.code === "broker-busy" && ref === null) markCarriedUnsentRequest({ section, env, callHandle: made.carrier.ownership.handle, reason: "every broker connection was busy (RK_BROKER_BUSY): the connection never opened and no byte was sent" });
+    // A typed REJECTED result (admission paused, a cutover drain, ...) with no request reference: the broker refused the submit before it admitted anything, so nothing
+    // runs under this sub-handle and the broker will never list it as a member. Recorded unsent now, or a dead owner's record could never be reclaimed (HeardRight Mac,
+    // 2026-11-02: 42 paused refusals left a member-less sub-handle the broker answers UNKNOWN for).
+    else if (outcome.status === "unverified" && /^broker-refused-/.test(String(outcome.code)) && ref === null) markCarriedUnsentRequest({ section, env, callHandle: made.carrier.ownership.handle, reason: `the broker refused the submit before admitting it (${outcome.code}): nothing was spawned` });
     // GB-53: captured output that lost a frame to FRAME_OVER_CAP (or a result the broker replaced with RK_RESPONSE_OVER_CAP) is truncated: refused, never read as complete.
     if (outcome.status === "verified" && capture) {
       const drained = drainFrames(`${out.stdout}\n${out.stderr}`);
@@ -650,6 +654,10 @@ function* carryBrokerAdapterSteps({ adapter, words, cwd, env, section, record, e
     // RK_BROKER_BUSY with no request reference: the connection never opened, so no byte reached the broker. That is the gate's own proof that this sub-handle was never sent (GB-21), recorded under
     // the ownership lock so the retry's own sub-handle, not this one, is what the stage waits on; a busy answer after a reference exists (a reconnect) proves nothing of the kind.
     if (outcome.status === "unverified" && outcome.code === "broker-busy" && ref === null) markCarriedUnsentRequest({ section, env, callHandle: made.carrier.ownership.handle, reason: "every broker connection was busy (RK_BROKER_BUSY): the connection never opened and no byte was sent" });
+    // A typed REJECTED result (admission paused, a cutover drain, ...) with no request reference: the broker refused the submit before it admitted anything, so nothing
+    // runs under this sub-handle and the broker will never list it as a member. Recorded unsent now, or a dead owner's record could never be reclaimed (HeardRight Mac,
+    // 2026-11-02: 42 paused refusals left a member-less sub-handle the broker answers UNKNOWN for).
+    else if (outcome.status === "unverified" && /^broker-refused-/.test(String(outcome.code)) && ref === null) markCarriedUnsentRequest({ section, env, callHandle: made.carrier.ownership.handle, reason: `the broker refused the submit before admitting it (${outcome.code}): nothing was spawned` });
     // GB-53: captured output that lost a frame to FRAME_OVER_CAP (or a result the broker replaced with RK_RESPONSE_OVER_CAP) is truncated: refused, never read as complete.
     if (outcome.status === "verified" && capture) {
       const drained = drainFrames(`${out.stdout}\n${out.stderr}`);

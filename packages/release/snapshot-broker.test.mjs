@@ -150,6 +150,17 @@ test("data: a carried call that got no request reference carries the RustRight c
   assert.doesNotMatch(r.outcome.message, /said[^|]*request 3b3ff2fe/, "a bare request line is not a reason");
 });
 
+test("data: a carried call the paused broker refused (no request reference) records its sub-handle unsent at once, so a dead owner stays reclaimable (HeardRight Mac 2026-11-02)", { skip: POSIX }, (t) => {
+  const h = host(t);
+  const spawn = recording({ status: 125, stdout: "", stderr: "rustright: admission is paused; resume with rustright resume-admission\n" });
+  const r = h.carry(["build", "--locked"], { spawn, stdio: "capture" });
+  assert.equal(r.outcome.code, "broker-refused-paused");
+  const owner = h.fx.owner();
+  const sub = owner.broker.handles.at(-1);
+  assert.ok(owner.broker.unsent?.[sub], "the refused sub-handle is recorded unsent");
+  assert.match(owner.broker.unsent[sub].reason, /refused the submit before admitting it \(broker-refused-paused\)/);
+});
+
 test("data: [7.10] a refused wrapper call fails its unit even when the test swallows cargo's exit status; the unit that does not reach cargo passes; no refused call reaches the client", { skip: POSIX }, async (t) => {
   const h = host(t);
   fs.mkdirSync(path.join(h.fx.root, "outside"), { recursive: true }); fs.writeFileSync(path.join(h.fx.root, "outside", "Cargo.toml"), "[workspace]\n");

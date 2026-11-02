@@ -37,7 +37,7 @@ import { observedEnvOf, readRequestRef, verifySnapshotReceipt, writeSnapshotRequ
 import { SCAN_TOKEN_ENV, appendLedger, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
 import { brokerSection, carryBrokerAdapterAsync, verifyBrokerLedger } from "./snapshot-broker.mjs";
 import { ADMISSION_POLL_MS, CARRIED_CANCEL_GRACE_MS, QUEUED_CEILING_FACTOR, createBrokerLive, createRunClock, createStatusPoller, watchBrokerAdmission } from "./broker-admission.mjs";
-import { CANCEL_WAIT_ENV, operationDeadlineEnv } from "./broker-wire.mjs";
+import { CANCEL_WAIT_ENV, operationDeadlineEnv, refusalInCapturedOutput } from "./broker-wire.mjs";
 import { removeCarrier } from "./carrier-census.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
@@ -2755,6 +2755,14 @@ export async function runScans(plan, options = {}) {
           // The broker's signed account of that request: the receipt verifies against this host's pins and its snapshotEvidence names
           // this commit, this snapshot unchanged from START to exit, this ownership and the output directory. Anything less fails the row.
           if (carrier) {
+            // A typed broker refusal with no request reference (admission paused, a cutover drain): nothing was admitted under this scan's sub-handle, so it is
+            // recorded unsent at once, as a busy connection is; otherwise a dead owner's record could never be reclaimed (HeardRight Mac, 2026-11-02).
+            if (!fs.existsSync(path.join(carrier.refDir, "request.json"))) {
+              const refused = refusalInCapturedOutput(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`);
+              if (refused && typeof deps.snapshotBroker?.markBrokerUnsent === "function") {
+                try { deps.snapshotBroker.markBrokerUnsent(carrier.made.carrier.ownership.handle, `the broker refused the submit before admitting it (${refused.code}): nothing was spawned`); } catch { /* the reclaim then judges the sub-handle as before */ }
+              }
+            }
             try {
               const ref = readRequestRef(path.join(carrier.refDir, "request.json"));
               const receipt = await deps.snapshotBroker.receiptOf(ref.requestId);
