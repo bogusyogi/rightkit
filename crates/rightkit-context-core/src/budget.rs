@@ -34,7 +34,7 @@ impl CrossProviderBudget {
     /// per lane. `max_tokens` is the cross-provider total; the per-lane caps
     /// are derived from `default_lane_share` (defaulting to the full ceiling
     /// for the single consuming lane) but may be re-capped individually with
-    /// [`set_lane_cap`].
+    /// [`Self::set_lane_cap`].
     pub fn new(max_tokens: u32) -> Self {
         let consuming = BUDGET_LANE_KINDS
             .iter()

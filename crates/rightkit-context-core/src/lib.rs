@@ -27,7 +27,7 @@
 //!   * [`lane`]   — [`BudgetLaneKind`] (re-exported), [`LaneAllocation`],
 //!     [`LaneAccounting`], and the [`lane_from_block`] helper.
 //!   * [`budget`] — [`CrossProviderBudget`], the single global ceiling.
-//!   * [`reconcile`] — the receipt-side [`BudgetReconciliation`].
+//!   * [`reconcile`](mod@reconcile) — the receipt-side [`BudgetReconciliation`].
 //!
 //! The protocol-level types live in `membrane-protocol` so both Rust and
 //! TypeScript can round-trip them. This crate builds the reconciliation
