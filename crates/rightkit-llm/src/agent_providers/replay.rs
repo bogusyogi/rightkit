@@ -7,10 +7,10 @@
 //!
 //! Design (FM-187):
 //! - **Recorded**: fixtures are captured from live provider traffic when
-//!   `RIGHTKIT_RECORD_REPLAY=1` is set. [`OpenAiCompatClient`] calls
+//!   `RIGHTKIT_RECORD_REPLAY=1` is set. [`OpenAiCompatClient`](crate::agent_providers::client::OpenAiCompatClient) calls
 //!   [`maybe_record_deltas`] / [`maybe_record_turn`] after each successful
 //!   turn; the corpus is written as JSONL with a versioned, redacted header.
-//! - **Redacted**: every write passes through [`redact_value`] /
+//! - **Redacted**: every write passes through `redact_value` /
 //!   [`redact_json_value`] and [`redact_delta`]; API keys, bearer tokens, and
 //!   secret-carrying JSON keys are replaced with `[REDACTED]` before touching
 //!   disk. Headers set `redacted: true`; loaders reject `redacted: false`.

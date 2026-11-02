@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use rightkit_child_process::{
     sweep, AdoptedIdentity, OwnedChild, OwnedCommand, ReapOutcome, StderrTail,
 };
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::machine::MachineLock;
 use crate::provider::{SdCppClient, ValidatedCapabilities};

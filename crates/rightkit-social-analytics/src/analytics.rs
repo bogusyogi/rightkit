@@ -18,7 +18,7 @@
 //! - Nothing here ranks posts or recommends anything.
 use std::collections::BTreeMap;
 
-use rightkit_http::percent_encode;
+use rightkit_http::percent_encode_component as percent_encode;
 use rightkit_social_publish::calendar_time as time;
 use rightkit_social_publish::http::Reply;
 use rightkit_social_publish::protocol::PublishRemote;
