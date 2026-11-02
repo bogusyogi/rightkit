@@ -491,6 +491,7 @@
     "@phosphor-icons/react": "2.1.10",
     "@rightkit/app-update": "workspace:^",
     "@rightkit/legal": "workspace:^",
+    "@rightkit/legal-ui": "workspace:^",
     "@rightkit/license": "workspace:^",
     "@rightkit/logs": "workspace:^",
     "@rightkit/onboarding": "workspace:^",

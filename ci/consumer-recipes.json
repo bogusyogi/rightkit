@@ -905,7 +905,8 @@
           "@rightkit/platform-ui": "0.4.0",
           "@rightkit/react-shell": "0.7.2",
           "@rightkit/tauri-shell": "0.1.3",
-          "@rightkit/theme": "0.3.1"
+          "@rightkit/theme": "0.3.1",
+          "@rightkit/legal-ui": "0.4.1"
         },
         "declaredOnly": [
           "@phosphor-icons/react",
@@ -918,7 +919,7 @@
       "files": {
         "ci/consumers/npm/agent-ui-core/README.md": "46f02e8e9a374dd8de0c1e81c00ffaac36be2bce9dc42d86f39f812cd4727e60",
         "ci/consumers/npm/agent-ui-core/consumer.mjs": "381058b521739d663e08a4951ef94f140aa821709b13197f6b2438bad2c14e78",
-        "ci/consumers/npm/agent-ui-core/package.json": "ef2edd0b093114e0ea5cc45d64c54e620381dc013321d355bc716b25266b25b6",
+        "ci/consumers/npm/agent-ui-core/package.json": "d2af818269cd7c2f83f2252bfee2ae5104fcd13fa5e8e303c1dc8a24717c635b",
         "ci/consumers/npm/agent-ui-core/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
@@ -1388,8 +1389,14 @@
           "@eigenpal/docx-editor-react",
           "@phosphor-icons/react",
           "@rightkit/document-core",
+          "prosemirror-commands",
+          "prosemirror-dropcursor",
+          "prosemirror-history",
+          "prosemirror-keymap",
           "prosemirror-model",
           "prosemirror-state",
+          "prosemirror-tables",
+          "prosemirror-transform",
           "prosemirror-view"
         ]
       },
@@ -1545,7 +1552,8 @@
           "@rightkit/platform-ui": "0.4.0",
           "@rightkit/react-shell": "0.7.2",
           "@rightkit/settings-ui": "0.7.0",
-          "@rightkit/theme": "0.3.1"
+          "@rightkit/theme": "0.3.1",
+          "@rightkit/legal-ui": "0.4.1"
         },
         "declaredOnly": [
           "@tanstack/react-virtual",
@@ -1565,7 +1573,7 @@
       "files": {
         "ci/consumers/npm/mail-ui/README.md": "7277e2a628480d982fb3efb809167690d91ff3a8ac5c82b38e1075403494f7ac",
         "ci/consumers/npm/mail-ui/consumer.mjs": "3f70cdad582f03e1259dbe47b6d60dd72fedd4ac12bdaa04212b73c75bb3c86f",
-        "ci/consumers/npm/mail-ui/package.json": "e07d3eabd1c8bb7427c6fdc6ea228c2bc62eb6ac00912ce9a29908f7df446ee8",
+        "ci/consumers/npm/mail-ui/package.json": "08146c190f655f8afb6a93ce9d8c69a48929e06db3ca5b9bc9ae65e99d1048d6",
         "ci/consumers/npm/mail-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
@@ -1671,7 +1679,8 @@
           "@rightkit/platform-ui": "0.4.0",
           "@rightkit/react-shell": "0.7.2",
           "@rightkit/settings-ui": "0.7.0",
-          "@rightkit/tauri-shell": "0.1.3"
+          "@rightkit/tauri-shell": "0.1.3",
+          "@rightkit/theme": "0.3.1"
         },
         "declaredOnly": [
           "@tauri-apps/api",
@@ -1683,7 +1692,7 @@
       "files": {
         "ci/consumers/npm/media-gen-ui/README.md": "a95700534bf253dbb7f8cab40292e619580bee1d57a0883d9820b9340b6f8e86",
         "ci/consumers/npm/media-gen-ui/consumer.mjs": "38f8d6aa2a8e4d503e59ac88976cc135d75608ec7ea6e4bc8dd1beda8ee07fd6",
-        "ci/consumers/npm/media-gen-ui/package.json": "9297b2d04e964b78671516c14de2e3c5c3a844b6db4ef6186e146f0b781c17c4",
+        "ci/consumers/npm/media-gen-ui/package.json": "6bc1af09dda93af4ad5180bf12d2389878aaf2ee1e8248a3f4d8218dbd8b0dc1",
         "ci/consumers/npm/media-gen-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
@@ -1821,7 +1830,9 @@
           "@rightkit/react-shell": "0.7.2",
           "@rightkit/settings-ui": "0.7.0",
           "@rightkit/tauri": "0.3.0",
-          "@rightkit/tauri-shell": "0.1.3"
+          "@rightkit/tauri-shell": "0.1.3",
+          "@rightkit/theme": "0.3.1",
+          "@tauri-apps/plugin-dialog": "2.8.3"
         },
         "declaredOnly": [
           "@tauri-apps/api",
@@ -1832,7 +1843,7 @@
       "files": {
         "ci/consumers/npm/video-ui/README.md": "0978a36e561a06bfd485597d044de7d0b573698cfd96f6184e5ed09f40a29df6",
         "ci/consumers/npm/video-ui/consumer.mjs": "844803897a41278dd90868e5b75daa615dfe0f86a3020cdc824415b4ab557d35",
-        "ci/consumers/npm/video-ui/package.json": "a49507aea5c6fc3eddf225eae868cc582aa3767047e017ea7d7fe153c026fa20",
+        "ci/consumers/npm/video-ui/package.json": "9e8982ce38628fd3909c320e90567c3bea4e813b8450f51398fdc518ba52a9de",
         "ci/consumers/npm/video-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }

@@ -37,7 +37,9 @@
     "@rightkit/settings-ui": "workspace:^",
     "@rightkit/tauri": "workspace:^",
     "@rightkit/tauri-shell": "workspace:^",
+    "@rightkit/theme": "workspace:^",
     "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-dialog": "^2.8.3",
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.14.0"
   },
