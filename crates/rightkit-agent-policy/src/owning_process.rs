@@ -280,9 +280,7 @@ fn owning_process_kill_reason_for(command: &str, owner: &OwningProcess) -> Optio
 fn check_lifecycle_stage(stage: &[String]) -> Option<String> {
     if let Some(at) = command_position(stage, &is_lifecycle_binary) {
         let args = &stage[at + 1..];
-        let service_status_only = args
-            .iter()
-            .any(|a| clean(a).eq_ignore_ascii_case("status"));
+        let service_status_only = args.iter().any(|a| clean(a).eq_ignore_ascii_case("status"));
         for arg in args {
             let a = clean(arg).to_ascii_lowercase();
             if CLI_LIFECYCLE_VERBS.contains(&a.as_str()) && !(a == "service" && service_status_only)

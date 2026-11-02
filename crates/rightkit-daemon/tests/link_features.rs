@@ -73,7 +73,9 @@ fn only_remote_enables_the_server_stack() {
         let enabling: Vec<&str> = MANIFEST
             .lines()
             .filter(|l| l.contains(&format!("\"dep:{dep}\"")))
-            .filter(|l| !l.starts_with("agent_daemon_core = ") && !l.starts_with("agent_daemon_runtime = "))
+            .filter(|l| {
+                !l.starts_with("agent_daemon_core = ") && !l.starts_with("agent_daemon_runtime = ")
+            })
             .collect();
         assert_eq!(
             enabling.len(),
