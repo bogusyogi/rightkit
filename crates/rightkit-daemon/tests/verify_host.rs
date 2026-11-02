@@ -34,11 +34,20 @@ mod unix_tests {
 
     impl Proc {
         fn start(bin: &Path, args: &[&str]) -> Proc {
-            let mut child = Command::new(bin)
-                .args(args)
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap_or_else(|e| panic!("spawn {} (cargo builds examples): {e}", bin.display()));
+            // A binary this test just copied can be "Text file busy" (ETXTBSY) for a moment: another test thread that
+            // forks while the copy's write handle is open hands that handle to its child until the child execs. Retry
+            // briefly, as cargo does for the same race.
+            let mut attempt = 0;
+            let mut child = loop {
+                match Command::new(bin).args(args).stdout(Stdio::piped()).spawn() {
+                    Ok(child) => break child,
+                    Err(e) if e.raw_os_error() == Some(26) && attempt < 50 => {
+                        attempt += 1;
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    Err(e) => panic!("spawn {} (cargo builds examples): {e}", bin.display()),
+                }
+            };
             let out = child.stdout.take().unwrap();
             let (tx, rx) = mpsc::channel();
             std::thread::spawn(move || {
