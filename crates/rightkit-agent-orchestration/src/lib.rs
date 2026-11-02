@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![allow(clippy::result_large_err)] // errors carry structured diagnostic context (field, unit, evidence) by design
 
 /// Lowercase hex SHA-256 of `bytes`.
 pub(crate) fn hex_digest(bytes: &[u8]) -> String {
