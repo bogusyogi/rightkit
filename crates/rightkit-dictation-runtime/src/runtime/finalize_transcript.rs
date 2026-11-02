@@ -374,7 +374,7 @@ impl EngineRuntime {
                 return FinalizePhase1::Done(Err(message));
             }
         };
-        // Wake command authority arrives only from Sherpa through
+        // Wake command authority arrives only from KWS through
         // `pending_send_enter` or the worker's cancel event. Final main-ASR
         // text remains dictation; it cannot select STOP, SEND, or CANCEL.
         let mut ai_transform = take_final_ai_transform(&mut transcript).inspect(|intent| {

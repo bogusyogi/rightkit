@@ -46,7 +46,7 @@ pub(crate) struct ProbeResult {
     #[cfg(test)]
     pub(crate) measured_decode_duration: Duration,
     pub(crate) native_origin_sample: usize,
-    /// Sherpa graph output is a closed, canonical command set. Preserve that
+    /// KWS graph output is a closed, canonical command set. Preserve that
     /// typed decision instead of reclassifying its text through fuzzy ASR.
     pub(crate) native_control_intent: Option<rightkit_text_polish::text_pipeline::ControlIntent>,
     /// Absolute sample index into the FULL recording buffer where the trigger
@@ -364,10 +364,10 @@ pub(crate) fn probe_reset_stream_base(
 }
 
 /// CPU KWS transcribe with piece timestamps so trigger onset can be located
-/// without a second decode pass. Sherpa owns a continuous incremental stream.
+/// without a second decode pass. KWS owns a continuous incremental stream.
 /// Batch `condition_for_asr` cannot be applied to each delta independently —
 /// its DC removal, HPF state, and utterance-level gain decision restart every
-/// 20 ms, producing discontinuities at accept boundaries. Feed Sherpa raw
+/// 20 ms, producing discontinuities at accept boundaries. Feed KWS raw
 /// PCM, matching production replay. A stateful streaming conditioner would
 /// be legal, but 2026-10-01 saved-session replays measured no wake-recall
 /// gain from it: the observed first-command miss is encoder chunk-grid phase
@@ -1831,7 +1831,7 @@ impl AsrExecutor {
                             // command/trigger classification is completely unaffected.
                             let probe_model = &mut probe_model;
                             #[cfg(any(target_os = "macos", target_os = "windows"))]
-                            let sherpa_cascade = probe_model.requires_timed_control_probe();
+                            let kws_cascade = probe_model.requires_timed_control_probe();
                             #[cfg(any(target_os = "macos", target_os = "windows"))]
                             let probe_offset = incremental_probe_offset(
                                 probe_processed_total,
@@ -1841,7 +1841,7 @@ impl AsrExecutor {
                             #[cfg(any(target_os = "macos", target_os = "windows"))]
                             let probe_reset = request.session_id != probe_session_id
                                 || request.kws_stream_generation != probe_stream_generation
-                                || (!sherpa_cascade
+                                || (!kws_cascade
                                     && (request.stream_base_sample != probe_stream_base_sample
                                         || request.native_origin_sample
                                             != probe_native_origin_sample
@@ -1870,7 +1870,7 @@ impl AsrExecutor {
                                 None
                             };
                             #[cfg(any(target_os = "macos", target_os = "windows"))]
-                            let probe_audio_offset = if sherpa_cascade || probe_reset {
+                            let probe_audio_offset = if kws_cascade || probe_reset {
                                 0
                             } else {
                                 probe_offset.unwrap_or(0)
@@ -1891,7 +1891,7 @@ impl AsrExecutor {
                             ) = if let Some(error) = prepare_error {
                                 (Err(error), None, Some("probe_stream_reset_failed"), None)
                             } else {
-                                let timed_result = if sherpa_cascade {
+                                let timed_result = if kws_cascade {
                                     probe_native_origin_sample = request.command_start;
                                     probe_model
                                         .transcribe_scheduled_probe_result_with_wake_start(
@@ -1929,7 +1929,7 @@ impl AsrExecutor {
                                     Err(timed_err)
                                         if probe_model.requires_timed_control_probe() =>
                                     {
-                                        // Never fire a Sherpa control without its emission-frame
+                                        // Never fire a KWS control without its emission-frame
                                         // timing. A text-only retry would make final TDT decode
                                         // command audio that must have been cut first.
                                         (Err(timed_err), None, Some("timed_probe_failed"), None)
@@ -1945,7 +1945,7 @@ impl AsrExecutor {
                             if transcript.is_ok() {
                                 probe_processed_total = request.total_samples;
                             } else {
-                                // A failed timed KWS result can mean Sherpa found
+                                // A failed timed KWS result can mean KWS found
                                 // an implausibly long-lived keyword path. Drop all
                                 // stream identity so the next rolling request
                                 // rebuilds from its own snapshot start; retaining
@@ -2706,8 +2706,8 @@ pub(crate) struct ProbeResultDecision {
 /// Classify a probe before its text can reach command handling. Retired
 /// recording/stream results are rejected without touching current state. A
 /// current stream's old empty/prefix result is also only dropped: it carries
-/// no Sherpa latch and resetting it would discard the latest pending snapshot.
-/// Native completion/error results do require reset because Sherpa may already
+/// no KWS latch and resetting it would discard the latest pending snapshot.
+/// Native completion/error results do require reset because KWS may already
 /// have latched or invalidated its cascade before publishing the result.
 pub(crate) fn probe_result_decision(
     result: &ProbeResult,

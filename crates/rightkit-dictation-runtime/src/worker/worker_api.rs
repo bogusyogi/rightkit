@@ -84,8 +84,8 @@ pub(crate) const KWS_DIAGNOSTIC_SAMPLE_EVERY_PROBES: u64 = 50;
 pub(crate) const TAIL_PREFIX_GRACE_MS: u64 = 1_500;
 pub(crate) const TAIL_PREFIX_NEW_AUDIO_SAMPLES: usize = SAMPLE_RATE as usize / 20;
 pub(crate) const TAIL_WINDOW_SAMPLES: usize = SAMPLE_RATE as usize * 3;
-// Sherpa receives only new suffix audio during normal incremental decoding.
-// This two-second snapshot is reset/recovery backfill; native Sherpa separately
+// KWS receives only new suffix audio during normal incremental decoding.
+// This two-second snapshot is reset/recovery backfill; native KWS separately
 // enforces same maximum decoder-state horizon with overlapping stream epochs.
 pub(crate) const FAST_TAIL_WINDOW_SAMPLES: usize = SAMPLE_RATE as usize * 3;
 // Initial silence = accidental fire. Once voice has been heard, a long pause is
@@ -140,7 +140,7 @@ impl WorkerWaitSignal {
 }
 
 /// Numeric-only idle-wake evidence. It deliberately contains no waveform,
-/// transcript, candidate text, device name, or path. Sherpa's KWS C API does
+/// transcript, candidate text, device name, or path. The KWS cascade does
 /// not expose a confidence score for non-fires, so `score_available` remains
 /// false until its scorer API grows one.
 #[derive(Debug)]
@@ -504,10 +504,7 @@ impl ReplayCaptureController {
         pad_confirmation_timeout: bool,
     ) {
         if pad_confirmation_timeout {
-            audio.resize(
-                audio.len() + crate::sherpa_kws::CONFIRM_TIMEOUT_SAMPLES,
-                0.0,
-            );
+            audio.resize(audio.len() + crate::kws::CONFIRM_TIMEOUT_SAMPLES, 0.0);
         }
         let total_samples = audio.len();
         let driver =
@@ -1452,7 +1449,7 @@ pub(crate) fn reload_asr_if_changed(
     Ok(true)
 }
 
-/// Probe model is one fixed bundled Sherpa payload on macOS & Windows,
+/// Probe model is one fixed bundled KWS payload on macOS & Windows,
 /// deliberately outside backend/language settings reloads.
 pub(crate) fn reload_probe_asr_if_changed(
     model: &mut AsrRuntime,

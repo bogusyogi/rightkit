@@ -208,7 +208,7 @@ impl Worker {
                         .as_millis() as u64,
                 }));
                 // Only a result from the current recording and current KWS stream may
-                // reset state. A native completion may have latched Sherpa, while an
+                // reset state. A native completion may have latched KWS, while an
                 // empty/prefix result is safe to drop and keeps the latest snapshot
                 // queued. Results from an already-retired stream must never cascade
                 // resets into the fresh stream that replaced it.
@@ -263,7 +263,7 @@ impl Worker {
                 .as_mut()
                 .expect("current probe result has a session");
             let trimmed = text.trim();
-            // Only Sherpa's anchored full-phrase result may authorize STOP, SEND, or
+            // Only the KWS cascade's anchored full-phrase result may authorize STOP, SEND, or
             // CANCEL. Main-ASR text below can still keep Stage 2 armed, but it cannot
             // become an action through exact or fuzzy parsing.
             let control_intent = probe_result.native_control_intent;
@@ -285,7 +285,7 @@ impl Worker {
                     session_id: Some(&session.id),
                     probe_ms: probe_result.probe_ms,
                     recognized_text: trimmed,
-                    classifier_result: "control_complete_sherpa",
+                    classifier_result: "control_complete_kws",
                     speech_start_sample: probe_result.request.speech_start_sample,
                     command_start: probe_result.request.command_start,
                     command_samples: probe_result.request.audio.len(),

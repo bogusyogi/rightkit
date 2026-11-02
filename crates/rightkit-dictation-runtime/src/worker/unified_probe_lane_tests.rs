@@ -1154,7 +1154,7 @@ fn dead_probe_worker_is_reported_instead_of_hanging_reload() {
 /// model loading out of ordinary unit-test runs.
 #[cfg(target_os = "macos")]
 #[test]
-#[ignore = "requires native TDT + Sherpa model directories and a 16 kHz mono WAV"]
+#[ignore = "requires native TDT + KWS model directories and a 16 kHz mono WAV"]
 fn confirmed_control_executor_native_entrypoint_smoke() {
     // Fixture schema: model_dir (models parent), coreml_model_dir, kws_dir,
     // wav, onset, expected_text, expected_method. RightKit strips arbitrary
@@ -1191,7 +1191,7 @@ fn confirmed_control_executor_native_entrypoint_smoke() {
         .expect("fixture field onset must be an integer") as usize;
     std::env::set_var("RIGHTKIT_ASR_BACKEND", "parakeet-tdt");
     std::env::set_var("RIGHTKIT_COREML_MODEL_DIR", &coreml_model_dir);
-    std::env::set_var("RIGHTKIT_SHERPA_KWS_DIR", &kws_dir);
+    std::env::set_var("RIGHTKIT_KWS_DIR", &kws_dir);
     let wav = rightkit_audio::wav::read_wav_mono_f32(&wav_path).expect("read control WAV");
     assert_eq!(wav.sample_rate, SAMPLE_RATE);
     let audio: Vec<f32> = wav.samples;

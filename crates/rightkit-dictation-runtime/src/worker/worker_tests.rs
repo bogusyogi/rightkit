@@ -235,7 +235,7 @@ mod tests {
         // Replay appends a KWS confirmation tail; it must remain exact silence.
         assert_eq!(
             retained.len(),
-            2 + speech.len() + crate::sherpa_kws::CONFIRM_TIMEOUT_SAMPLES
+            2 + speech.len() + crate::kws::CONFIRM_TIMEOUT_SAMPLES
         );
         assert!(retained[2 + speech.len()..]
             .iter()
@@ -731,7 +731,7 @@ mod tests {
     }
 
     #[test]
-    fn candidate_stays_fast_only_while_sherpa_still_sees_wake_or_verb() {
+    fn candidate_stays_fast_only_while_kws_still_sees_wake_or_verb() {
         assert!(should_keep_control_candidate_armed(false, true));
         assert!(!should_keep_control_candidate_armed(false, false));
         assert!(!should_keep_control_candidate_armed(true, true));
@@ -847,7 +847,7 @@ mod tests {
     }
 
     #[test]
-    fn speech_below_command_pause_keeps_current_sherpa_stream() {
+    fn speech_below_command_pause_keeps_current_kws_stream() {
         let chunk = vec![0.1; 320];
         let mut last_voice_at =
             Instant::now() - Duration::from_millis(PAUSE_GATE_MS.saturating_sub(1));
@@ -1582,7 +1582,7 @@ mod trigger_virtual_time_gate2 {
         assert!(rows.iter().all(|row| row.audio_path.is_file()));
 
         std::env::set_var(
-            "RIGHTKIT_SHERPA_KWS_DIR",
+            "RIGHTKIT_KWS_DIR",
             std::env::var_os("RIGHTKIT_KWS_GATE2_MODEL_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| {
@@ -1794,7 +1794,7 @@ mod trigger_virtual_time_gate2 {
             .expect("a negative (dictation-only) corpus row");
 
         std::env::set_var(
-            "RIGHTKIT_SHERPA_KWS_DIR",
+            "RIGHTKIT_KWS_DIR",
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources/kws"),
         );
         std::env::set_var("RIGHTKIT_APP_DATA_DIR", output_root.join("app-data"));

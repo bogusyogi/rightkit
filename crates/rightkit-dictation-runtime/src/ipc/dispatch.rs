@@ -466,7 +466,7 @@ pub(crate) fn handle(
                 &trace_id,
                 Some(EnginePayload::WakeListenStarted {
                     status: "started".into(),
-                    model: model.or_else(|| Some("sherpa-onnx-hey-zephyr".into())),
+                    model: model.or_else(|| Some("kws-hey-zephyr".into())),
                     threshold: Some(threshold),
                     fake: None,
                 }),

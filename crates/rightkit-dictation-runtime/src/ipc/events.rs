@@ -33,7 +33,7 @@ pub(crate) fn spawn_worker_event_pump(
                         Some(EnginePayload::WakeFired {
                             ts,
                             fire_count: Some(fire_count),
-                            model: Some("sherpa-onnx-hey-zephyr".into()),
+                            model: Some("kws-hey-zephyr".into()),
                             threshold: Some(threshold),
                             score: None,
                         }),
