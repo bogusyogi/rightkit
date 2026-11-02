@@ -26,7 +26,7 @@ impl ConfigLoader {
         ConfigLoader
     }
 
-    /// Parse a single TOML string into a [`CodeRightConfig`].
+    /// Parse a single TOML string into a `CodeRightConfig`.
     pub fn load_str(&self, toml_str: &str) -> Result<HostConfig, ConfigError> {
         toml::from_str(toml_str).map_err(|e| ConfigError::Toml(e.to_string()))
     }
@@ -52,7 +52,7 @@ impl ConfigLoader {
     ///   2. `<workspace>/<state-dir>/config.toml`
     ///
     /// Missing files are skipped. An invalid file is moved aside with its bytes kept and
-    /// reported on stderr (see [`Self::load_layer_file`]); it never silently falls back.
+    /// reported on stderr (see `Self::load_layer_file`); it never silently falls back.
     pub fn load_files_for_workspace(&self, workspace: &std::path::Path) -> HostConfig {
         let mut layers = vec![];
 
