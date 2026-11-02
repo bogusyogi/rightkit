@@ -40,11 +40,7 @@ impl CrossProviderBudget {
             .iter()
             .filter(|lane| lane.consumes_tokens())
             .count() as u32;
-        let default_lane_share = if consuming > 0 {
-            max_tokens / consuming
-        } else {
-            0
-        };
+        let default_lane_share = max_tokens.checked_div(consuming).unwrap_or(0);
         let mut lanes = BTreeMap::new();
         for lane in BUDGET_LANE_KINDS {
             let max_for_lane = if lane.consumes_tokens() {

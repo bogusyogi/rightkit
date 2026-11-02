@@ -25,7 +25,7 @@
 //! ## Layout
 //!
 //!   * [`lane`]   — [`BudgetLaneKind`] (re-exported), [`LaneAllocation`],
-//!                  [`LaneAccounting`], and the [`lane_from_block`] helper.
+//!     [`LaneAccounting`], and the [`lane_from_block`] helper.
 //!   * [`budget`] — [`CrossProviderBudget`], the single global ceiling.
 //!   * [`reconcile`] — the receipt-side [`BudgetReconciliation`].
 //!
