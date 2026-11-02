@@ -17,7 +17,6 @@ path = "src/lib.rs"
 default = []
 test-mode = ["rightkit-daemon/test-mode", "rightkit-dictation-core/test-mode", "rightkit-dictation-runtime/test-mode", "rightkit-dictation-inference/test-mode"]
 cuda-bench = ["rightkit-dictation-inference/cuda-bench"]
-rust-kws = ["rightkit-dictation-inference/rust-kws", "rightkit-dictation-runtime/rust-kws"]
 
 [dependencies]
 rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }

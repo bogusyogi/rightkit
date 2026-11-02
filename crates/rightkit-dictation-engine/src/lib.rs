@@ -26,7 +26,7 @@ pub use rightkit_dictation_command_host::{
 };
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-pub use rightkit_dictation_inference::sherpa_kws;
+pub use rightkit_dictation_inference::kws;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub use rightkit_dictation_inference::{asr, trigger_audio_cut};
 #[cfg(target_os = "macos")]

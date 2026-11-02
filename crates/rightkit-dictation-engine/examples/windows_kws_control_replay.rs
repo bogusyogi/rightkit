@@ -1,13 +1,11 @@
 //! Native Windows replay of production KWS confirmation & control cleanup.
 //! Input JSON: {"rows":[{"id":"...","path":"...","expected":"zephyr send"}]}
-//! Run through RightKit: cargo run --release --example windows_kws_control_replay -- INPUT.json MODELS_DIR [--kws-only|--asr-only] [--feed-20ms] [--backend sherpa|rust]
-//! `--backend` picks the KWS runtime (default: `RIGHTKIT_KWS_BACKEND` in test-mode builds, else
-//! Sherpa); every output line carries `"backend"`, so two runs diff row by row.
+//! Run through RightKit: cargo run --release --example windows_kws_control_replay -- INPUT.json MODELS_DIR [--kws-only|--asr-only] [--feed-20ms]
 
 #[cfg(target_os = "windows")]
 fn main() -> Result<(), String> {
     use rightkit_dictation_engine::asr::{AsrEp, AsrRuntime};
-    use rightkit_dictation_engine::sherpa_kws::{KwsBackend, SherpaKws};
+    use rightkit_dictation_engine::kws::Kws;
     use rightkit_dictation_inference::control_cleanup::cleanup_confirmed_control_with_exact_retry;
     use rightkit_text_polish::text_pipeline::ControlIntent;
     use serde::Deserialize;
@@ -44,20 +42,6 @@ fn main() -> Result<(), String> {
     let input = args.next().ok_or("usage: INPUT.json MODELS_DIR")?;
     let models_dir = PathBuf::from(args.next().ok_or("usage: INPUT.json MODELS_DIR")?);
     let flags: Vec<String> = args.collect();
-    let backend = match flags
-        .iter()
-        .position(|flag| flag == "--backend")
-        .map(|index| flags.get(index + 1).map(String::as_str))
-    {
-        None => KwsBackend::from_env(),
-        Some(Some("sherpa")) => KwsBackend::Sherpa,
-        Some(Some("rust")) => KwsBackend::Rust,
-        Some(_) => return Err("--backend must be sherpa or rust".into()),
-    };
-    let backend_label = match backend {
-        KwsBackend::Sherpa => "sherpa",
-        KwsBackend::Rust => "rust",
-    };
     let kws_only = flags.iter().any(|flag| flag == "--kws-only");
     let asr_only = flags.iter().any(|flag| flag == "--asr-only");
     // Diagnostic comparison: use exact alignment through production cleanup's
@@ -136,8 +120,8 @@ fn main() -> Result<(), String> {
         }
         return Ok(());
     }
-    // ORT is bound above, so the Rust backend's sessions and Sherpa's preload share one runtime.
-    let mut kws = SherpaKws::load_with_backend(&root.join("kws"), backend)?;
+    // ORT is bound above, so the spotter's sessions run on it.
+    let mut kws = Kws::load(&root.join("kws"))?;
     let mut asr = if kws_only {
         None
     } else {
@@ -146,7 +130,7 @@ fn main() -> Result<(), String> {
     };
     println!(
         "{}",
-        json!({"event":"loaded","backend":backend_label,"cleanup_supported":asr.as_ref().is_some_and(|runtime| runtime.supports_control_cleanup()),"kws_only":kws_only})
+        json!({"event":"loaded","cleanup_supported":asr.as_ref().is_some_and(|runtime| runtime.supports_control_cleanup()),"kws_only":kws_only})
     );
     let mut fresh_attempts = 0usize;
     let mut fallback_attempts = 0usize;
@@ -341,7 +325,7 @@ fn main() -> Result<(), String> {
         println!(
             "{}",
             json!({
-                "id":row.id,"backend":backend_label,"expected":row.expected,"streamed":streamed,
+                "id":row.id,"expected":row.expected,"streamed":streamed,
                 "onset_sample":onset,"stream_ms":stream_ms,"steps":steps,
                 "fresh":fresh_text,"fresh_onset_sample":fresh_onset,"fresh_ms":fresh_ms,
                 "fresh_invoked":fresh_invoked,"fresh_result_empty":fresh_result_empty,
@@ -367,7 +351,6 @@ fn main() -> Result<(), String> {
         "{}",
         json!({
             "event":"replay_summary",
-            "backend":backend_label,
             "fresh_attempts":fresh_attempts,
             "fallback_attempts":fallback_attempts,
         })

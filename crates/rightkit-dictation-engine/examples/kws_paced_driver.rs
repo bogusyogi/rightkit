@@ -1,7 +1,7 @@
 //! Production-cadence KWS load generator for concurrent ASR benchmarks, and the
-//! per-backend CPU duty / memory soak for Rust KWS qualification.
+//! CPU duty / memory soak for Rust KWS qualification.
 //!
-//! Feeds a looped WAV through `SherpaKws::transcribe_cascade_result_with_wake_start`
+//! Feeds a looped WAV through `Kws::transcribe_cascade_result_with_wake_start`
 //! at a fixed wall-clock cadence under the worker's cursor contract (rolling 3 s
 //! snapshot at absolute sample positions), so each call decodes only the new audio.
 //! (`transcribe_result` on successive chunks is a duplicate snapshot after the
@@ -9,12 +9,12 @@
 //! feed continues as a new session from that sample, as a new recording would.
 //!
 //! Usage: kws_paced_driver <model-dir> <wav> <duration-seconds> [cadence-ms]
-//!          [--backend sherpa|rust] [--ort ONNXRUNTIME_LIB] [--allow-known-bad-ort]
+//!          [--ort ONNXRUNTIME_LIB] [--allow-known-bad-ort]
 //!          [--out REPORT.json]
-//! Without `--backend`, `RIGHTKIT_KWS_BACKEND` decides (test-mode builds). Runbook:
+//! Runbook:
 //! docs/RUNBOOK_RUST_KWS_QUALIFICATION.md.
 
-use rightkit_dictation_engine::sherpa_kws::{KwsBackend, SherpaKws};
+use rightkit_dictation_engine::kws::Kws;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -23,12 +23,11 @@ const SAMPLE_RATE: usize = 16_000;
 /// The worker's rolling probe snapshot: the last three seconds of PCM.
 const SNAPSHOT_SAMPLES: usize = SAMPLE_RATE * 3;
 const USAGE: &str = "usage: kws_paced_driver <model-dir> <wav> <duration-seconds> [cadence-ms] \
-[--backend sherpa|rust] [--ort ONNXRUNTIME_LIB] [--allow-known-bad-ort] [--out REPORT.json]";
+[--ort ONNXRUNTIME_LIB] [--allow-known-bad-ort] [--out REPORT.json]";
 
 #[derive(Serialize)]
 struct Report {
     schema: &'static str,
-    backend: &'static str,
     wav: PathBuf,
     cadence_ms: u64,
     duration_s: f64,
@@ -61,15 +60,7 @@ fn read_wav(path: &Path) -> Result<Vec<f32>, String> {
     Ok(wav.samples)
 }
 
-fn backend_label(backend: KwsBackend) -> &'static str {
-    match backend {
-        KwsBackend::Sherpa => "sherpa",
-        KwsBackend::Rust => "rust",
-    }
-}
-
-/// The ONNX Runtime beside the Sherpa library (one ORT image per process), else the
-/// developer override, else the staged runtime, else the committed source.
+/// The developer override, else the staged runtime, else the committed source.
 fn default_ort_runtime() -> Option<PathBuf> {
     let name = if cfg!(target_os = "windows") {
         "onnxruntime.dll"
@@ -79,10 +70,9 @@ fn default_ort_runtime() -> Option<PathBuf> {
         "libonnxruntime.so"
     };
     let src_tauri = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri");
-    std::env::var_os("RIGHTKIT_SHERPA_LIBRARY_PATH")
-        .map(|sherpa| PathBuf::from(sherpa).with_file_name(name))
+    std::env::var_os("ORT_DYLIB_PATH")
+        .map(PathBuf::from)
         .into_iter()
-        .chain(std::env::var_os("ORT_DYLIB_PATH").map(PathBuf::from))
         .chain([
             src_tauri.join("resources/runtime").join(name),
             src_tauri.join("native-sources").join(name),
@@ -116,7 +106,6 @@ fn percentile(sorted: &[f64], quantile: f64) -> f64 {
 
 fn main() -> Result<(), String> {
     let mut positional = Vec::new();
-    let mut backend = None;
     let mut ort = None;
     let mut allow_known_bad_ort = false;
     let mut out = None;
@@ -124,15 +113,6 @@ fn main() -> Result<(), String> {
     while let Some(arg) = args.next() {
         let mut value = |flag: &str| args.next().ok_or_else(|| format!("{flag} needs a value"));
         match arg.as_str() {
-            "--backend" => {
-                backend = Some(match value("--backend")?.as_str() {
-                    "sherpa" => KwsBackend::Sherpa,
-                    "rust" => KwsBackend::Rust,
-                    other => {
-                        return Err(format!("--backend must be sherpa or rust, got {other:?}"))
-                    }
-                })
-            }
             "--ort" => ort = Some(PathBuf::from(value("--ort")?)),
             "--allow-known-bad-ort" => allow_known_bad_ort = true,
             "--out" => out = Some(PathBuf::from(value("--out")?)),
@@ -166,10 +146,9 @@ fn main() -> Result<(), String> {
     if audio.is_empty() {
         return Err("input WAV is empty".into());
     }
-    let backend = backend.unwrap_or_else(KwsBackend::from_env);
     bind_ort(ort.as_deref(), allow_known_bad_ort)?;
     let load_started = Instant::now();
-    let mut kws = SherpaKws::load_with_backend(Path::new(&positional[0]), backend)?;
+    let mut kws = Kws::load(Path::new(&positional[0]))?;
     let load_ms = load_started.elapsed().as_secs_f64() * 1_000.0;
     let memory_after_load = proc_stats::memory();
     let cpu_started = proc_stats::cpu();
@@ -220,7 +199,6 @@ fn main() -> Result<(), String> {
     call_ms.sort_by(f64::total_cmp);
     let report = Report {
         schema: "heardright.kws_paced_driver.v1",
-        backend: backend_label(kws.backend()),
         wav: wav_path,
         cadence_ms: cadence.as_millis() as u64,
         duration_s: wall,
@@ -245,9 +223,8 @@ fn main() -> Result<(), String> {
         )
     };
     println!(
-        "backend={} calls={} detections={} compute_ms={:.3} duty_pct={:.3} p50_ms={:.3} p95_ms={:.3} \
+        "calls={} detections={} compute_ms={:.3} duty_pct={:.3} p50_ms={:.3} p95_ms={:.3} \
 max_ms={:.3} cpu_pct={} resident_mb_load={} resident_mb_end={} footprint_mb_end={}",
-        report.backend,
         report.calls,
         report.detections,
         report.compute_ms,
@@ -271,7 +248,7 @@ max_ms={:.3} cpu_pct={} resident_mb_load={} resident_mb_end={} footprint_mb_end=
     Ok(())
 }
 
-/// Process CPU and memory counters (all threads). Same counters as `sherpa_kws_runtime_ab`.
+/// Process CPU and memory counters (all threads). Same counters as the KWS runtime soak tests.
 mod proc_stats {
     use serde::Serialize;
 

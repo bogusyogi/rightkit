@@ -16,7 +16,7 @@
 //! `windows-private`. `threadsN` sets both intra/inter to N. `spin-off` sets
 //! both spinning controls to 0. `windows-private` combines 1/1, spinning off,
 //! and an independent session pool. Startup modes are `lazy`, `preinit`, and
-//! `kws-first`; the last loads real Sherpa KWS from `RIGHTKIT_SHERPA_KWS_DIR` before
+//! `kws-first`; the last loads real KWS from `RIGHTKIT_KWS_DIR` before
 //! constructing VAD and optionally decodes a short silence window. Explicit env controls are also accepted:
 //! `RIGHTKIT_VAD_ORT_THREADS`, `RIGHTKIT_VAD_ORT_INTRA_THREADS`,
 //! `RIGHTKIT_VAD_ORT_INTER_THREADS`, `RIGHTKIT_VAD_ORT_INTRA_SPINNING`,
@@ -212,11 +212,10 @@ mod macos {
         };
         let mut kws_guard = None;
         let kws_init_ms = if startup == "kws-first" {
-            let kws_dir = std::env::var_os("RIGHTKIT_SHERPA_KWS_DIR")
-                .ok_or("--startup kws-first requires RIGHTKIT_SHERPA_KWS_DIR")?;
+            let kws_dir = std::env::var_os("RIGHTKIT_KWS_DIR")
+                .ok_or("--startup kws-first requires RIGHTKIT_KWS_DIR")?;
             let started = Instant::now();
-            let mut kws =
-                rightkit_dictation_engine::sherpa_kws::SherpaKws::load(Path::new(&kws_dir))?;
+            let mut kws = rightkit_dictation_engine::kws::Kws::load(Path::new(&kws_dir))?;
             if kws_silence_ms > 0 {
                 let silence_samples = (kws_silence_ms as usize * 16_000 / 1_000).max(1);
                 let silence = vec![0.0f32; silence_samples];
