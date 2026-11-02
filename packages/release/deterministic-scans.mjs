@@ -1253,7 +1253,8 @@ export function planScans({
     // inside its build directories; an untraced or out-of-bounds unit refuses Class A, naming it. Runs the gate's own command, directly (GC-A11).
     // It runs in its workspace (cwd), so a unit's scope keeps it only for the Cargo workspaces of its own closure (app-closure CARGO_WORKSPACE_SCAN),
     // like metadata, deny and audit: an npm-only unit traces nothing.
-    for (const ws of touchedWs) add({ id: `build-helpers${wsIdSuffix(ws)}`, class: A, tool: "node", args: [BUILD_HELPERS_COMMAND, "check", "--manifest-path", "Cargo.toml", ...(platform === "linux" ? ["--trace-missing"] : [])], ...(ws !== "." ? { cwd: ws } : {}), root: "content" });
+    // Build helpers are vetted only on broker hosts (Mac, Dell); a Linux host or CI runner is a throwaway container (Adrian, 2026-11-03).
+    if (platform === "darwin" || platform === "win32") for (const ws of touchedWs) add({ id: `build-helpers${wsIdSuffix(ws)}`, class: A, tool: "node", args: [BUILD_HELPERS_COMMAND, "check", "--manifest-path", "Cargo.toml"], ...(ws !== "." ? { cwd: ws } : {}), root: "content" });
     // Locked package listings are observations in RustRight (#1216). They run through the selected executor
     // from the checked Cargo inputs, just like metadata; an executor refusal remains a failed scan.
     for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, ...cargoReadIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });

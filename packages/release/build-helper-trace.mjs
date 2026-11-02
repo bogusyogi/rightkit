@@ -75,12 +75,12 @@ export function readHostList(file, { readFile = (f) => fs.readFileSync(f, "utf8"
 
 /** Record one trace verdict in the list (atomic write). */
 /** Tracers whose verdicts count: each follows the build's whole process tree. fs_usage (name-filtered) verdicts recorded before do not count. */
-export const TRUSTED_TRACERS = Object.freeze(["eslogger", "strace-ff", "etw"]);
-export const TRACER_OF = Object.freeze({ darwin: "eslogger", linux: "strace-ff", win32: "etw" });
+export const TRUSTED_TRACERS = Object.freeze(["eslogger", "etw"]);
+export const TRACER_OF = Object.freeze({ darwin: "eslogger", win32: "etw" });
 
 export function recordTrace(file, unit, verdict, { now = () => new Date().toISOString(), fsApi = fs, tracer = TRACER_OF[process.platform] } = {}) {
   const list = readHostList(file, { readFile: (f) => fsApi.readFileSync(f, "utf8"), exists: (f) => fsApi.existsSync(f) });
-  list.units[unit.key] = { crate: unit.crate, version: unit.version, checksum: unit.checksum, features: unit.features, target: unit.target, toolchain: unit.toolchain, role: unit.role, verdict: verdict.ok ? "pass" : "fail", outside: verdict.outside ?? [], tracer, tracedAt: now() };
+  list.units[unit.key] = { crate: unit.crate, version: unit.version, checksum: unit.checksum, features: unit.features, target: unit.target, toolchain: unit.toolchain, role: unit.role, verdict: verdict.ok ? "pass" : verdict.unbuildable ? "unbuildable" : "fail", outside: verdict.outside ?? [], tracer, tracedAt: now() };
   fsApi.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.tmp-${process.pid}`;
   fsApi.writeFileSync(tmp, `${JSON.stringify(list, null, 2)}\n`);
@@ -105,6 +105,8 @@ export function checkBuildHelpers(units, list) {
   for (const u of units) {
     const entry = byKey.get(u.key);
     if (!entry || !u.checksum || !TRUSTED_TRACERS.includes(entry.tracer)) untraced.push(u);
+    // Unbuildable on this host for its target: the gate builds nothing that runs it here, so it is neither refused nor traced again.
+    else if (entry.verdict === "unbuildable") continue;
     else if (entry.verdict !== "pass") failed.push({ unit: u, outside: entry.outside ?? [] });
   }
   return { ok: untraced.length === 0 && failed.length === 0, untraced, failed };
@@ -153,31 +155,6 @@ export function parseFsUsageWrites(text) {
     if (!writes) continue;
     const paths = line.match(/\/[^\s]+/g);
     if (paths?.length) out.add(paths.at(-1));
-  }
-  return [...out];
-}
-
-/**
- * The written paths of Linux `strace -f -e trace=<file calls>` output: successful calls that create, write, rename, link or remove a file.
- * An open counts when its flags include O_WRONLY, O_RDWR, O_CREAT, O_TRUNC or O_APPEND; every other listed call mutates by definition.
- * A failed call (`= -1`) wrote nothing. Every quoted path of a mutating call is taken (rename names both); a relative path resolves
- * against `cwd` (the traced cargo's directory; a build script that changes directory is resolved approximately, a recorded limit).
- */
-export function parseStraceWrites(text, { cwd = "/" } = {}) {
-  const OPEN = /\b(open|openat|openat2)\((?:[^"]*?)"((?:[^"\\]|\\.)*)"[^)]*?\b(O_[A-Z_|]+)/;
-  const MUTATING = /\b(creat|rename|renameat|renameat2|unlink|unlinkat|mkdir|mkdirat|rmdir|link|linkat|symlink|symlinkat|truncate|chmod|fchmodat|chown|fchownat|lchown|utimensat|utimes)\(/;
-  const out = new Set();
-  for (const line of String(text).split(/\r?\n/)) {
-    if (/=\s*-1\s/.test(line) || /<unfinished \.\.\.>/.test(line)) continue;
-    // With `strace -y`, a directory fd prints its real path (`AT_FDCWD</abs/cwd>`, `5</abs/dir>`): a relative path resolves against that,
-    // never against a guessed folder (rustc writes `full.rmeta` relative to its own working directory).
-    const dirOf = new Map([...line.matchAll(/(?:AT_FDCWD|\d+)<([^>]+)>,\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => [m[2], m[1]]));
-    const resolveIt = (p) => (path.posix.isAbsolute(p) ? p : path.posix.resolve(dirOf.get(p) ?? cwd, p));
-    let paths = [];
-    const open = OPEN.exec(line);
-    if (open) { if (/O_WRONLY|O_RDWR|O_CREAT|O_TRUNC|O_APPEND/.test(open[3])) paths = [open[2]]; }
-    else if (MUTATING.test(line)) paths = [...line.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
-    for (const p of paths) if (p) out.add(resolveIt(p));
   }
   return [...out];
 }
@@ -270,13 +247,6 @@ export function parseEsloggerWrites(text, { rootPid }) {
   return [...out];
 }
 
-/** The strace -ff output files (`<prefix>.<pid>`, one per process: no call is ever split across lines). */
-export function readStraceFiles(prefix, { fsApi = fs } = {}) {
-  const dir = path.dirname(prefix); const base = path.basename(prefix);
-  return fsApi.readdirSync(dir).filter((n) => n.startsWith(`${base}.`)).map((n) => fsApi.readFileSync(path.join(dir, n), "utf8")).join("\n");
-}
-
-
 /** Calls `fn(record)` for every record of `file` separated by `sep`, reading 8 MiB at a time (a whole-run trace can pass Node's string limit). */
 export function forEachRecord(file, sep, fn, { fsApi = fs } = {}) {
   const fd = fsApi.openSync(file, "r"); const buf = Buffer.alloc(8 << 20); let rest = "";
@@ -329,22 +299,45 @@ export function etwWritesByRoot(file, roots, devices = {}) {
   const id = (ev) => Number(/<EventID>(\d+)<\/EventID>/.exec(ev)?.[1]);
   const pidOf = (ev) => Number(/ProcessID="(\d+)"/.exec(ev)?.[1]);
   const provider = (ev) => /Provider Name="([^"]+)"/.exec(ev)?.[1] ?? "";
-  const parent = new Map();
+  // Windows reuses a process id within seconds, so a pid belongs to a build only for one lifetime: from its ProcessStart (1) to its
+  // ProcessStop (2), in recording order. A build's root is the start of a root pid whose parent is the build runner: the parent most of
+  // the root pids were started by (a pid-only match took PowerShell, Pulse and sccache processes that later reused a build's pid).
+  const parentsOfRoots = new Map();
   forEachRecord(file, "</Event>", (ev) => {
-    if (provider(ev) === "Microsoft-Windows-Kernel-Process" && id(ev) === 1) parent.set(Number(field(ev, "ProcessID")), Number(field(ev, "ParentProcessID")));
+    if (provider(ev) !== "Microsoft-Windows-Kernel-Process" || id(ev) !== 1) return;
+    const pid = Number(field(ev, "ProcessID")); if (!roots.has(pid)) return;
+    const ppid = Number(field(ev, "ParentProcessID")); parentsOfRoots.set(ppid, (parentsOfRoots.get(ppid) ?? 0) + 1);
   });
-  const rootOf = rootFinder(parent, roots); const out = new Map([...roots].map((r) => [r, new Set()]));
+  const runner = [...parentsOfRoots].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const out = new Map([...roots].map((r) => [r, new Set()]));
+  const live = new Map();
   const toDos = (p) => { if (!p) return null; for (const [dev, letter] of Object.entries(devices)) if (p.toLowerCase().startsWith(`${dev.toLowerCase()}\\`)) return letter + p.slice(dev.length); return p; };
+  // FileKey -> path for files open on the host. Every kept string is a copy: a regex match is a slice of its 8 MiB read chunk and keeps the
+  // whole chunk alive (holding names that way ran the Dell out of heap).
+  const own = (s) => (s == null ? s : Buffer.from(s, "utf8").toString("utf8"));
   const names = new Map();
   forEachRecord(file, "</Event>", (ev) => {
-    if (provider(ev) !== "Microsoft-Windows-Kernel-File") return;
-    const n = id(ev); const fileObject = field(ev, "FileObject");
-    if (n === 12) names.set(fileObject, field(ev, "FileName"));
-    const root = rootOf(pidOf(ev)); if (root === null) return;
-    const add = (p) => { const d = toDos(p); if (d) out.get(root).add(d); };
+    const prov = provider(ev); const n = id(ev);
+    if (prov === "Microsoft-Windows-Kernel-Process") {
+      const pid = Number(field(ev, "ProcessID"));
+      if (n === 1) {
+        const ppid = Number(field(ev, "ParentProcessID"));
+        if (roots.has(pid) && ppid === runner) live.set(pid, pid);
+        else if (live.has(ppid)) live.set(pid, live.get(ppid));
+        else live.delete(pid);
+      } else if (n === 2) live.delete(pid);
+      return;
+    }
+    if (prov !== "Microsoft-Windows-Kernel-File") return;
+    // A write names its file by FileKey, which NameCreate (10) maps to the path until NameDelete (11), from whatever process logs them. The
+    // session records no close, and FileObject addresses are reused, so mapping a write by FileObject named files the build only read.
+    if (n === 10) { names.set(own(field(ev, "FileKey")), own(field(ev, "FileName"))); return; }
+    if (n === 11) { names.delete(field(ev, "FileKey")); return; }
+    const root = live.get(pidOf(ev)); if (root === undefined) return;
+    const add = (p) => { const d = toDos(p); if (d) out.get(root).add(own(d)); };
     if (n === 12) { const disposition = (Number(field(ev, "CreateOptions") ?? 0) >>> 24) & 0xff; if (disposition !== 1) add(field(ev, "FileName")); }
     else if (n === 30) add(field(ev, "FileName"));
-    else if (n === 16) add(names.get(fileObject));
+    else if (n === 16) add(names.get(field(ev, "FileKey")));
     else if (n === 26 || n === 27) add(field(ev, "FilePath") ?? field(ev, "FileName"));
   });
   return new Map([...out].map(([r, s]) => [r, [...s]]));

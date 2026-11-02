@@ -370,7 +370,7 @@ export function verifyNpmRegistryBytes({ name, version, sha1 }, deps = {}) {
   }
 }
 
-function readKeychainToken(run) {
+export function readKeychainToken(run = spawnSync) {
   if (process.platform !== "darwin") throw new Error(`npm publish token lookup is implemented for the macOS Keychain (${NPM_KEYCHAIN_SERVICE}) only`);
   const result = run("security", ["find-generic-password", "-s", NPM_KEYCHAIN_SERVICE, "-w"], { encoding: "utf8", windowsHide: true });
   const token = (result.stdout ?? "").trim();

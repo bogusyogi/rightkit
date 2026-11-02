@@ -181,6 +181,9 @@ if (first === "--version" || first === "-v") {
   // Local qualification (default): both native hosts qualify the crates through the RustRight broker and a candidate is cut.
   // It uploads nothing; the approval commit and publish-reviewed.yml publish the pinned bytes (docs/CI.md "Local qualification").
   run("local-qualify.mjs", args.slice(1));
+} else if (first === "publish-local") {
+  // The local route (rightkit#1471): Class A on the exact pushed commit, then the Keychain token publishes that commit's bytes.
+  run("publish-local-npm.mjs", args.slice(1));
 } else if (first === "publish") {
   const rest = args.slice(1);
   // RightKit crates and @rightkit packages reach a registry from CI only: publish.yml qualification, the approval
@@ -352,6 +355,9 @@ Commands:
   release                                             Compatibility alias for build
   publish                                             Compatibility alias for upload
   check-release-dependencies [--platform mac|win|linux | --all-targets]  Check app-forbidden release crates
+  publish-local npm --package @rightkit/<name> --commit <sha>
+                                                      Mac: Class A on the pushed commit, pack it, publish with the
+                                                      Keychain token (npm-rightkit-publish), verify the registry shasum
   publish npm --package @rightkit/<name> [--dry-run]  Gate preflight for npm publish
   publish npm --package @rightkit/<name> --publish --tarball <gated.tgz>
                                                       Publish the gated tarball with the Keychain token

@@ -1,8 +1,50 @@
 # Publishing credentials for RightKit
 
-**Settled on 11 October 2026 by Adrian. Do not reopen, do not ask him for these tokens again.**
+## How RightKit publishes today
 
-RightKit (`bogusyogi/rightkit`, private) publishes its npm packages and crates, which stay public, automatically from git through CI after a local compile through the gate and CI qualification (docs/GATE-CONTRACT.md §1). The credentials stay GitHub secrets on the repository; the credential table below needs rework to match.
+Adrian, 2026-11-03 (rightkit#1471): "i want you to publish it from local. the npm and crates are both local. we will do a provenance skip
+fuck your ci. feel free to push but no ci". RightKit's npm packages and crates publish from the Mac. Pushes to `main` carry `[skip ci]`.
+npm provenance is off for owned packages (rightkit#1472). This replaces the CI-only route described further down and in `docs/CI.md`.
+
+| Registry | Credential | Where it lives | Created by | Used by |
+|---|---|---|---|---|
+| npm (`@rightkit/*`) | Granular access token, `@rightkit` scope, publish rights, 2FA bypass | macOS Keychain, generic password `npm-rightkit-publish` (login keychain, account `adrdsouza`) | Adrian | `right-release publish-local npm` |
+| crates.io | Registry token | macOS Keychain, through cargo's credential provider (`~/.cargo/config.toml`: `global-credential-providers = ["cargo:macos-keychain"]`; service `cargo-registry:https://github.com/rust-lang/crates.io-index`) | Adrian (`cargo login`) | `cargo publish` on the Mac |
+
+Neither token is ever printed, passed on a command line or written to a file. The publisher reads the npm token inside its own process
+and hands it to npm through a private temporary config; cargo reads its token from the Keychain itself.
+
+### Who does what
+
+- **Adrian** approves each release in chat: package, version and commit. He types nothing in a terminal; the npm token's 2FA bypass is what
+  makes that possible. A plain `npm publish` under his own npm login needs his one-time code (his account requires 2FA for writes), so it
+  is not the route.
+- **The agent** builds the release commit, runs preflight and Class A on it, asks for approval with that output, pushes with `[skip ci]`,
+  then runs the publisher.
+
+### npm, step by step
+
+```bash
+node packages/release/cli/right-release.mjs publish-local npm --package @rightkit/<name> --commit <sha>
+```
+
+It refuses unless the commit is on `origin/main`, runs the gate's Class A for the package on that exact commit, and refuses a version
+already on npm. It then exports the package folder from the commit, packs it, publishes with `--provenance=false`, and fails unless the
+registry's shasum equals the packed tarball's. Check that the token still works, without publishing (prints the username and a count):
+
+```bash
+node packages/release/cli/right-release.mjs publish npm --check-auth
+```
+
+### Crates
+
+The crates.io token is in place, and the local cargo route comes next (`publish-local cargo`, same steps: pushed commit, gate on that
+commit, then `cargo publish` in dependency order, then a registry read-back). Until it lands, crates are published by hand on the Mac
+after the gate, with Adrian's approval for each one.
+
+## The CI route (not in use since 2026-11-03)
+
+The rest of this file describes the CI route's GitHub secrets. They stay in place but no current publish reads them.
 
 ## Where the credentials are
 
