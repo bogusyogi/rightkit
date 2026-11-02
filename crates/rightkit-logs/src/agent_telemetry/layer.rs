@@ -3,5 +3,6 @@
 /// a second call is a harmless no-op because a global subscriber already
 /// exists.
 pub fn init() {
-    crate::install_stderr_tracing("info");
+    // A second call is a harmless no-op: a global subscriber already exists.
+    let _ = crate::install_stderr_tracing("info");
 }

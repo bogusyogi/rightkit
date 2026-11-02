@@ -1,3 +1,27 @@
+// Console input-mode helpers (Windows only; the module is compiled on every host for read_visible_row's fallback).
+#[cfg(windows)]
+const ENABLE_VIRTUAL_TERMINAL_INPUT: u32 = 0x0200;
+
+#[cfg(windows)]
+#[derive(Clone, Copy)]
+pub(super) enum VirtualTerminalInput {
+    Enabled,
+    Disabled,
+}
+
+#[cfg(windows)]
+pub(super) fn input_record_mode(mode: u32) -> u32 {
+    mode & !ENABLE_VIRTUAL_TERMINAL_INPUT
+}
+
+#[cfg(windows)]
+pub(super) fn restored_input_mode(mode: u32, original: VirtualTerminalInput) -> u32 {
+    match original {
+        VirtualTerminalInput::Enabled => mode | ENABLE_VIRTUAL_TERMINAL_INPUT,
+        VirtualTerminalInput::Disabled => input_record_mode(mode),
+    }
+}
+
 #[cfg(windows)]
 static ORIGINAL_VT_INPUT: std::sync::Mutex<Vec<VirtualTerminalInput>> =
     std::sync::Mutex::new(Vec::new());

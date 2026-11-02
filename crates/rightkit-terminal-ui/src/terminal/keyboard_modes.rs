@@ -71,7 +71,7 @@ fn parse_bool_env(value: Option<&str>) -> Option<bool> {
 /// Adapted seam for the donor's `clipboard_paste::is_probably_wsl` (the only
 /// use of that clipboard module this port needs): detect WSL via its env
 /// markers, falling back to the kernel release string.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 fn is_probably_wsl() -> bool {
     if std::env::var_os("WSL_DISTRO_NAME").is_some() || std::env::var_os("WSL_INTEROP").is_some() {
         return true;

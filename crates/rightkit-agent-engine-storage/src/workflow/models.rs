@@ -690,7 +690,7 @@ pub struct JournalAppend<'a> {
     pub created_at: &'a str,
 }
 
-/// Returned by [`WorkflowJournalWriter::append_with_projection`].
+/// Returned by `WorkflowJournalWriter::append_with_projection`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JournalAppendOutcome {
     pub seq: i64,
