@@ -992,7 +992,10 @@ export function planScans({
   const cargoWs = cleanDir(cargoDir);
   if (!plainDir(cargoWs)) throw new TypeError("planScans: cargoDir must be a plain repository-relative directory");
   // Every compile lands in the one output directory (oneOutput, cross-targets.mjs): release profile, the host's target unless another is named.
-  const cargoBase = (ws, args, { raw = false } = {}) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...oneOutput(raw ? args : everyFailure(args), { platform, arch: nativeArch })], ...(ws !== "." ? { cwd: ws } : {}), ...(targetDirs?.[ws] ? { env: { CARGO_TARGET_DIR: targetDirs[ws] } } : {}) });
+  // A refused argv (RK_PROFILE_REFUSED, RK_TEST_MODE_REFUSED) becomes a scan that fails with the refusal: in scope it fails the run, out of
+  // scope it is dropped with the rest, and it never aborts planning for the whole repository.
+  const refusedScan = (error) => ({ tool: "node", args: ["-e", `console.error(${JSON.stringify(String(error.message))}); process.exit(1)`] });
+  const cargoBase = (ws, args, { raw = false } = {}) => { let argv; try { argv = oneOutput(raw ? args : everyFailure(args), { platform, arch: nativeArch }); } catch (error) { return { ...refusedScan(error), ...(ws !== "." ? { cwd: ws } : {}) }; } return { tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...argv], ...(ws !== "." ? { cwd: ws } : {}), ...(targetDirs?.[ws] ? { env: { CARGO_TARGET_DIR: targetDirs[ws] } } : {}) }; };
   // Class B (compiles): started from the primary checkout on a broker host, the snapshot carrier names the source.
   const cargoIn = (ws, ...args) => ({ ...cargoBase(ws, args), ...(cargoLiveRoot ? { root: "cargoLive" } : {}) });
   // A Rust test scan on a BROKER host (cargoLiveRoot set; GATE-CONTRACT GC-A08): the broker compiles with the plain test command plus --locked and

@@ -88,7 +88,7 @@
         ],
         [
           "--features",
-          "client-testing,update-auth"
+          "update-auth"
         ]
       ],
       "allowIgnored": "tests/dalek_parity.rs::record_dalek_parity_vectors is an opt-in dependency-migration vector generator, not validation; recorded_outcomes_are_unchanged validates the checked-in parity vectors every run (1 ignored per default run)",
@@ -109,13 +109,19 @@
           "engine"
         ]
       ],
-      "checkFeatureSets": []
+      "checkFeatureSets": [
+        []
+      ]
     },
     "rightkit-tts-qwen": {
-      "checkFeatureSets": []
+      "checkFeatureSets": [
+        []
+      ]
     },
     "rightkit-tts-qwen-sys": {
-      "checkFeatureSets": []
+      "checkFeatureSets": [
+        []
+      ]
     },
     "rightkit-qa": {
       "checkFeatureSets": [
@@ -235,10 +241,6 @@
         [],
         [
           "--features",
-          "isolated-test-keychain"
-        ],
-        [
-          "--features",
           "os-auth"
         ],
         [
@@ -253,7 +255,7 @@
       "checkFeatureSets": [
         [
           "--features",
-          "db-adapter,os-auth,settings-probe,isolated-test-keychain,rightkit-db/sqlcipher"
+          "db-adapter,os-auth,settings-probe,rightkit-db/sqlcipher"
         ],
         [
           "--features",
@@ -296,10 +298,6 @@
         [],
         [
           "--features",
-          "test-mode"
-        ],
-        [
-          "--features",
           "remote"
         ],
         [
@@ -325,10 +323,6 @@
         [
           "--features",
           "log-bridge"
-        ],
-        [
-          "--features",
-          "testing"
         ]
       ],
       "quietTests": true
@@ -360,10 +354,7 @@
     },
     "rightkit-models": {
       "featureSets": [
-        [
-          "--features",
-          "test-mode"
-        ]
+        []
       ],
       "checkFeatureSets": [
         [],
