@@ -19,16 +19,13 @@ pub const APP_ID: &str = "heardright";
 // automatic at the boundary: removing compatibility requires an explicit release.
 pub const LEGACY_COMPAT_THROUGH: &str = "0.1.223";
 
-pub fn legacy_compatibility_required() -> bool {
-    let version = serde_json::from_str::<serde_json::Value>(include_str!("../../package.json"))
-        .ok()
-        .and_then(|v| v["version"].as_str().map(str::to_owned));
+/// Whether the host app at `app_version` (its own release version, e.g. HeardRight's
+/// `package.json` version) still needs the legacy aliases. An unparsable version keeps them.
+pub fn legacy_compatibility_required(app_version: &str) -> bool {
     fn parts(version: &str) -> Option<Vec<u64>> {
         version.split('.').map(|v| v.parse().ok()).collect()
     }
-    version
-        .as_deref()
-        .and_then(parts)
+    parts(app_version)
         .zip(parts(LEGACY_COMPAT_THROUGH))
         .map(|(version, cutoff)| version <= cutoff)
         .unwrap_or(true)
@@ -939,3 +936,22 @@ mod tests {
 #[cfg(test)]
 #[path = "shared_activation_tests.rs"]
 mod activation_tests;
+
+#[cfg(test)]
+mod legacy_compatibility_tests {
+    use super::legacy_compatibility_required;
+
+    #[test]
+    fn versions_through_the_cutoff_keep_legacy_aliases() {
+        assert!(legacy_compatibility_required("0.1.222"));
+        assert!(legacy_compatibility_required("0.1.223"));
+        assert!(!legacy_compatibility_required("0.1.224"));
+        assert!(!legacy_compatibility_required("0.2.0"));
+    }
+
+    #[test]
+    fn an_unparsable_version_keeps_legacy_aliases() {
+        assert!(legacy_compatibility_required(""));
+        assert!(legacy_compatibility_required("0.1.x"));
+    }
+}
