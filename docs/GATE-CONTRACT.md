@@ -30,7 +30,20 @@
 - **Release carries no QA control server.**
 - **The dev build adds only the `qa-native` feature to the release profile.** The units that feature changes are new to the broker, never unexplained rebuilds.
 
-Every other clause is read around this one. Adrian, 2026-11-02, relayed verbatim by the Dell HR chat: "ok, one thing we have established is we are getting rid of debug. dev is actual installer with rk qa/ it can have faster compile like fat or thin or whatever, since it is not release. and qa journey will be moved out of build. this decision is already locked. everything else has to be worked around this." To rkn the same day: "this goes in the contracts asap".
+[GC-A08] 2026-11-02: **Cargo tests run outside the broker.** The broker compiles test binaries (`cargo test --no-run`). The gate then runs those binaries outside the broker. A broker job never executes tests. Adrian, in the Dell HR chat: "Cargo test compiles on broker but runs outside it, correct? It uses throwaway, including a throwaway db, doesn't it?", then "I specifically asked that tests not run inside the broker." The broker's two-pass test jobs (rustright `bdc309d`) conflict with this rule. BROKER-CONTRACT states it from the broker side.
+
+[GC-A09] 2026-11-02: **Tests are isolated by injection, in every app.** A test passes in its own data root (rightkit-fs `app_dirs`) and its own credential store (rightkit-credentials). In practice that is a temp root and a `MemoryBackend`. No `test-mode` feature exists to redirect them: test-mode features are removed from every RightKit crate and every app. Adrian, answering HRwin's item 1 (injection instead of test-mode): "Yes to 1 but that's not just a hr thing fucking is it? It goes in rk and applies across all my fucking apps." Issue: rightkit#1436.
+
+[GC-A10] 2026-11-02: **QA journeys run on the live installed dev app, with a crash-safe snapshot and restore.** rightkit-qa runs these steps:
+1. quit the app;
+2. snapshot its data folder, and the credential items a journey changes (through the control server);
+3. write a restore marker;
+4. run the journey;
+5. restore.
+
+A crash restores the snapshot at the next start. In this mode rightkit-qa's installed-app guard (`crates/rightkit-qa/src/config.rs:136-139`) allows the installed dev copy, and only a copy that carries the QA control marker. Adrian, answering HRwin's item 2: "no. I prefer the snapshot and restore. I disagree with what others do here." Issue: rightkit#1437. The numbering of items 1 and 2 is HRwin's proposal, as HRwin relayed it; Adrian's words are verbatim.
+
+Every other clause is read around GC-A07. Adrian, 2026-11-02, relayed verbatim by the Dell HR chat: "ok, one thing we have established is we are getting rid of debug. dev is actual installer with rk qa/ it can have faster compile like fat or thin or whatever, since it is not release. and qa journey will be moved out of build. this decision is already locked. everything else has to be worked around this." To rkn the same day: "this goes in the contracts asap".
 
 ## 1. User requirements
 
@@ -413,6 +426,9 @@ Every operative requirement id of this contract, its subject, status (`operative
 | GC-A05 | The broker runs no gate and no RightKit code; Class A, its verdict reuse and the admission check are the gate's (2026-10-29) | operative | D2, B19 |
 | GC-A06 | A gate candidate runs on the real broker of every managed host before apps (2026-10-30) | operative | BR30, B13, B36 |
 | GC-A07 | Dev is the installed app with rk qa, built on the release Cargo profile (one unit set and cache; hard constraint); no debug or QA copy is built; QA journeys run after the build against the installed dev copy; the control server only in dev, never in release (2026-11-02) | operative, overrides GC-I10 | - |
+| GC-A08 | Cargo tests compile in the broker (`--no-run`) and run outside it (2026-11-02) | operative | rightkit#1436 |
+| GC-A09 | Tests are isolated by injection (temp data root, MemoryBackend); no test-mode features in any crate or app (2026-11-02) | operative | rightkit#1436 |
+| GC-A10 | Journeys run on the live installed dev app with a crash-safe snapshot and restore; the installed guard allows a marked dev copy (2026-11-02) | operative | rightkit#1437 |
 | GC-T01 | Origin host | operative | B3 |
 | GC-T02 | Native build target | operative | - |
 | GC-T03 | Qualification runner | operative | - |
