@@ -3,8 +3,9 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
-## 0.3.4 (unreleased)
+## 0.4.0 (unreleased)
 
+- New `kws` module: the Rust streaming keyword spotter (a port of the Sherpa-ONNX 1.13.4 keyword spotter), used by the dictation engine as its only keyword-spotting backend. This is why the version is 0.4.0; the module is described in the 0.3.1 staging entry below.
 - New `onnx-tdt` feature and `onnx_tdt` module, moved from HeardRight `heardright-onnx-asr`: ONNX Runtime execution for Parakeet TDT (mel, encoder and decoder-joint sessions, per-stage threading, DirectML adapter preference, batched decoder runs).
 - `parakeet_core`: cached vocabulary index and bias cache (`bias::VocabIndex`, `bias::ContextBiasCache`, `ContextBias::from_phrases_uncached`, `history_window`), `command_alignment` (spoken-command locator frames, fast-pass encoder hand-off) and `TDT_WINDOW_SEC`, from HeardRight `heardright-parakeet-core`.
 - `test-mode` feature for this crate's test-only `RIGHTKIT_*` switches. Existing API unchanged.
