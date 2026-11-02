@@ -1,8 +1,8 @@
 use rightkit_app_manager::apps::*;
-use rightkit_app_manager::{
-    Accounting, Capability, EntryKind, FileIdentity, FileMetadata, Metric, ScanReport,
-    ScannedEntry, VolumeIdentity,
+use rightkit_disk_cleanup::{
+    Accounting, EntryKind, FileIdentity, FileMetadata, ScanReport, ScannedEntry, VolumeIdentity,
 };
+use rightkit_system_monitor::{Capability, Metric};
 use std::path::PathBuf;
 
 fn identity(bundle_id: Option<&str>) -> AppIdentity {
