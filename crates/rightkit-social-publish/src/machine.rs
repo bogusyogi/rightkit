@@ -123,6 +123,9 @@ pub struct Drive {
     pub refresh: Option<String>,
     /// The access JWT minted by a refresh during this command; it replaces `token` for the rest of it.
     pub access: std::sync::Mutex<Option<String>>,
+    /// The host app's endpoint settings: URLs discovered mid-job (Bluesky's PLC directory and PDS) pass the same
+    /// loopback rule as the base URL.
+    pub endpoints: http::EndpointSettings,
 }
 
 type Outcome = (&'static str, Option<String>);
@@ -951,7 +954,7 @@ fn bluesky_resolved_send(job: &PublishJob, d: &Drive, directory: &str) -> Sent {
         message,
         calls,
     };
-    let directory = match http::base_url(bluesky::PLATFORM, Some(directory)) {
+    let directory = match http::base_url(&d.endpoints, bluesky::PLATFORM, Some(directory)) {
         Ok(url) => url,
         Err((code, message)) => return refuse(code, message, 0),
     };
@@ -1034,13 +1037,13 @@ fn bluesky_resolved_send(job: &PublishJob, d: &Drive, directory: &str) -> Sent {
             calls,
         );
     };
-    let pds = match http::base_url(bluesky::PLATFORM, Some(pds)) {
+    let pds = match http::base_url(&d.endpoints, bluesky::PLATFORM, Some(pds)) {
         Ok(url) => url,
         Err((code, message)) => return refuse(code, message, calls),
     };
     if job.phase == "create" {
         let handle = bluesky::job_handle(&job.payload.settings).unwrap_or_default();
-        if !doc.handles.iter().any(|h| *h == handle) {
+        if !doc.handles.contains(&handle) {
             return refuse(
                 "handle_mismatch",
                 format!("the DID document does not claim the handle {handle}; nothing was posted"),

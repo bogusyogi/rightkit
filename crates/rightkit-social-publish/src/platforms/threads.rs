@@ -88,7 +88,7 @@ fn url_extension(url: &str) -> Option<String> {
     let path = rest.split(['?', '#']).next().unwrap_or("");
     let mut segments = path.split('/');
     segments.next();
-    let (_, ext) = segments.last()?.rsplit_once('.')?;
+    let (_, ext) = segments.next_back()?.rsplit_once('.')?;
     (!ext.is_empty()).then(|| ext.to_ascii_lowercase())
 }
 
@@ -370,7 +370,7 @@ pub fn prepare(
     Ok(prepared)
 }
 
-/// [`prepare`] that also accepts a carousel (two to twenty media items).
+/// `prepare` that also accepts a carousel (two to twenty media items).
 pub fn prepare_any(
     payload: &crate::wire::PublishPayload,
     remote_account: &str,

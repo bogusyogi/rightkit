@@ -183,7 +183,7 @@ fn url_extension(url: &str) -> Option<String> {
     let path = rest.split(['?', '#']).next().unwrap_or("");
     let mut segments = path.split('/');
     segments.next();
-    let (_, ext) = segments.last()?.rsplit_once('.')?;
+    let (_, ext) = segments.next_back()?.rsplit_once('.')?;
     (!ext.is_empty()).then(|| ext.to_ascii_lowercase())
 }
 

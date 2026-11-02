@@ -181,7 +181,7 @@ pub fn api_version() -> Result<&'static str, Fail> {
     let Some(pinned) = api_versions::pinned(PLATFORM) else {
         return Err((
             "api_version_missing",
-            "no LinkedIn API version is pinned in the version registry (crates/engine/src/api_versions.rs); nothing was posted"
+            "no LinkedIn API version is pinned in the version registry (rightkit-social-publish src/api_versions.rs); nothing was posted"
                 .to_string(),
         ));
     };
@@ -190,7 +190,7 @@ pub fn api_version() -> Result<&'static str, Fail> {
         return Err((
             "api_version_missing",
             format!(
-                "the pinned LinkedIn API version {version:?} in the version registry (crates/engine/src/api_versions.rs) is not YYYYMM; nothing was posted"
+                "the pinned LinkedIn API version {version:?} in the version registry (rightkit-social-publish src/api_versions.rs) is not YYYYMM; nothing was posted"
             ),
         ));
     }
@@ -270,7 +270,7 @@ fn url_extension(url: &str) -> Option<String> {
     let path = rest.split(['?', '#']).next().unwrap_or("");
     let mut segments = path.split('/');
     segments.next();
-    let (_, ext) = segments.last()?.rsplit_once('.')?;
+    let (_, ext) = segments.next_back()?.rsplit_once('.')?;
     (!ext.is_empty()).then(|| ext.to_ascii_lowercase())
 }
 
@@ -510,7 +510,7 @@ pub fn prepare(
     build(payload, remote_account, Mode::NoMedia)
 }
 
-/// [`prepare`] for a payload whose images are uploaded: `images` holds one image URN per media item, in entry
+/// `prepare` for a payload whose images are uploaded: `images` holds one image URN per media item, in entry
 /// order. A count that differs from the payload's media is `media_missing`, so an image is never dropped.
 pub fn prepare_with(
     payload: &crate::wire::PublishPayload,
@@ -1261,8 +1261,8 @@ mod tests {
         let message = version_rejection(426, "gone");
         let pinned = api_versions::pinned(PLATFORM).expect("pinned");
         assert!(message.contains(pinned.version));
-        assert!(message.contains("api_versions.rs"));
-        assert!(message.contains("never changes the version"));
+        assert!(message.contains("rightkit-social-publish api_versions"));
+        assert!(message.contains("never changed automatically"));
     }
 
     fn image_item(hash: &str, url: Option<&str>) -> crate::wire::PublishMedia {

@@ -14,7 +14,7 @@
 //!      `Before` (retried; a retry starts a fresh init, and the abandoned publish id never publishes anything).
 //!    - `PULL_FROM_URL`: the init carries `video_url`; nothing is fetched here. UNVERIFIED: the platform
 //!      requires the URL's domain or prefix to be verified for the app, which only a real run shows.
-//!    The publish id is stored in `remote.container_id`.
+//!      The publish id is stored in `remote.container_id`.
 //! 2. `poll_status`. `POST <base>/v2/post/publish/status/fetch/` with `{publish_id}`. The answer is normalised
 //!    to the container shape the machine reads: `{id, status_code, tiktok_status, fail_reason, post_id}` with
 //!    `status_code` `FINISHED` (`PUBLISH_COMPLETE`), `ERROR` (`FAILED`) or `IN_PROGRESS` (everything else).
