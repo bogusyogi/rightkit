@@ -161,7 +161,7 @@ pub trait BlueprintSource: Send + Sync {
 }
 
 /// All typed sources available to one provider context.  Missing entries are
-/// explicit and are reported as [`ProviderError::MissingSource`] by callers.
+/// explicit and are reported as [`ProviderError::MissingSource`](crate::ProviderError::MissingSource) by callers.
 #[derive(Clone, Default)]
 pub struct SourceSet {
     pub skills: Option<Arc<dyn SkillCatalogSource>>,

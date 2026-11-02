@@ -9,17 +9,17 @@
 //! Lane → delivery surface mapping (the contract):
 //!
 //!   * [`BudgetLaneKind::Native`]         — host loaded the content with a
-//!                                          matching host receipt (MBR-010).
-//!                                          Zero bytes; zero tokens.
+//!     matching host receipt (MBR-010).
+//!     Zero bytes; zero tokens.
 //!   * [`BudgetLaneKind::Rendered`]       — the renderer serialized inline
-//!                                          text. `renderedTokens` is the
-//!                                          token count consumed.
+//!     text. `renderedTokens` is the
+//!     token count consumed.
 //!   * [`BudgetLaneKind::ResolverBacked`] — only a resolver reference, the
-//!                                          agent retrieves on demand. Zero
-//!                                          tokens consumed; `deliveredChars`
-//!                                          tracks the reference header.
+//!     agent retrieves on demand. Zero
+//!     tokens consumed; `deliveredChars`
+//!     tracks the reference header.
 //!   * [`BudgetLaneKind::MetadataOnly`]   — metadata without content. Zero
-//!                                          tokens; zero bytes.
+//!     tokens; zero bytes.
 //!
 //! The lanes are mutually exclusive per block. The cross-provider budget
 //! totals are the sum of the per-lane totals — never a separate counter.

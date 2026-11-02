@@ -10,14 +10,14 @@
 //! ([`rightkit_context_protocol::BudgetLaneKind`]):
 //!
 //!   * [`BudgetLaneKind::Native`]         — host-loaded content with a
-//!                                          matching host receipt (MBR-010).
-//!                                          Zero bytes; zero tokens.
+//!     matching host receipt (MBR-010).
+//!     Zero bytes; zero tokens.
 //!   * [`BudgetLaneKind::Rendered`]       — inline text the renderer
-//!                                          serialized into the prompt.
+//!     serialized into the prompt.
 //!   * [`BudgetLaneKind::ResolverBacked`] — resolver reference only; agent
-//!                                          retrieves on demand. Zero tokens.
+//!     retrieves on demand. Zero tokens.
 //!   * [`BudgetLaneKind::MetadataOnly`]   — metadata without content. Zero
-//!                                          tokens; zero bytes.
+//!     tokens; zero bytes.
 //!
 //! Lanes are mutually exclusive per block. The cross-provider total is the
 //! sum of the per-lane totals — never a separate counter.
@@ -25,9 +25,9 @@
 //! ## Layout
 //!
 //!   * [`lane`]   — [`BudgetLaneKind`] (re-exported), [`LaneAllocation`],
-//!                  [`LaneAccounting`], and the [`lane_from_block`] helper.
+//!     [`LaneAccounting`], and the [`lane_from_block`] helper.
 //!   * [`budget`] — [`CrossProviderBudget`], the single global ceiling.
-//!   * [`reconcile`] — the receipt-side [`BudgetReconciliation`].
+//!   * [`reconcile`](mod@reconcile) — the receipt-side [`BudgetReconciliation`].
 //!
 //! The protocol-level types live in `membrane-protocol` so both Rust and
 //! TypeScript can round-trip them. This crate builds the reconciliation

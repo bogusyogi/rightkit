@@ -34,17 +34,13 @@ impl CrossProviderBudget {
     /// per lane. `max_tokens` is the cross-provider total; the per-lane caps
     /// are derived from `default_lane_share` (defaulting to the full ceiling
     /// for the single consuming lane) but may be re-capped individually with
-    /// [`set_lane_cap`].
+    /// [`Self::set_lane_cap`].
     pub fn new(max_tokens: u32) -> Self {
         let consuming = BUDGET_LANE_KINDS
             .iter()
             .filter(|lane| lane.consumes_tokens())
             .count() as u32;
-        let default_lane_share = if consuming > 0 {
-            max_tokens / consuming
-        } else {
-            0
-        };
+        let default_lane_share = max_tokens.checked_div(consuming).unwrap_or(0);
         let mut lanes = BTreeMap::new();
         for lane in BUDGET_LANE_KINDS {
             let max_for_lane = if lane.consumes_tokens() {

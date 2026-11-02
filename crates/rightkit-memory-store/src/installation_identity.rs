@@ -637,3 +637,231 @@ pub fn rotate_installation(
     atomic_replace(path, &encoded(&rotated)?)?;
     Ok(rotated)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ID_A: &str = "123e4567-e89b-42d3-a456-426614174000";
+    const ID_B: &str = "9b2f6c1e-5a7d-4c3b-8e1f-0a1b2c3d4e5f";
+    const STAMP: &str = "2026-01-02T03:04:05Z";
+
+    fn identity() -> InstallationIdentity {
+        InstallationIdentity {
+            schema_version: IDENTITY_SCHEMA_VERSION,
+            installation_id: ID_A.to_string(),
+            created_at: STAMP.to_string(),
+            startup_generation: 3,
+            lineage: vec![ID_B.to_string()],
+            current_service_instance_id: Some(ID_B.to_string()),
+            current_claimed_at: Some(STAMP.to_string()),
+        }
+    }
+
+    fn claim() -> StartupClaim {
+        StartupClaim {
+            schema_version: CLAIM_SCHEMA_VERSION,
+            installation_id: ID_A.to_string(),
+            startup_generation: 3,
+            service_instance_id: ID_B.to_string(),
+            claimed_at: STAMP.to_string(),
+        }
+    }
+
+    fn unique_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "rightkit-memory-store-identity-test-{}-{tag}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn uuid4_validation_accepts_only_lowercase_v4_with_rfc_variant() {
+        assert!(valid_uuid4(ID_A));
+        assert!(valid_uuid4(ID_B));
+        assert!(!valid_uuid4(&ID_A.to_uppercase()));
+        assert!(
+            !valid_uuid4("123e4567-e89b-12d3-a456-426614174000"),
+            "version 1"
+        );
+        assert!(
+            !valid_uuid4("123e4567-e89b-42d3-c456-426614174000"),
+            "variant c"
+        );
+        assert!(
+            !valid_uuid4("123e4567e89b-42d3-a456-4266141740000"),
+            "dash misplaced"
+        );
+        assert!(
+            !valid_uuid4("123e4567-e89b-42d3-a456-42661417400"),
+            "too short"
+        );
+        assert!(
+            !valid_uuid4("123e4567-e89b-42d3-a456-42661417400g"),
+            "non-hex"
+        );
+        assert!(!valid_uuid4(""));
+    }
+
+    #[test]
+    fn timestamp_validation_checks_calendar_ranges_and_leap_years() {
+        for ok in [
+            "2026-02-28T23:59:59Z",
+            "2024-02-29T00:00:00Z",
+            "2000-02-29T00:00:00Z",
+            "2026-12-31T00:00:00.123Z",
+        ] {
+            assert!(valid_timestamp(ok), "{ok} should be valid");
+        }
+        for bad in [
+            "2023-02-29T00:00:00Z",
+            "1900-02-29T00:00:00Z",
+            "2026-04-31T00:00:00Z",
+            "2026-13-01T00:00:00Z",
+            "2026-00-10T00:00:00Z",
+            "2026-01-00T00:00:00Z",
+            "2026-01-01T24:00:00Z",
+            "2026-01-01T00:60:00Z",
+            "2026-01-01T00:00:60Z",
+            "0000-01-01T00:00:00Z",
+            "2026-01-01T00:00:00",
+            "2026-01-01 00:00:00Z",
+            "2026-01-01T00:00:00.Z",
+            "2026-01-01T00:00:00.1xZ",
+            "2026-01-01T00:00:00+00:00",
+            "",
+        ] {
+            assert!(!valid_timestamp(bad), "{bad:?} should be invalid");
+        }
+    }
+
+    #[test]
+    fn now_iso_output_passes_the_identity_timestamp_validator() {
+        assert!(valid_timestamp(&crate::time::now_iso()));
+    }
+
+    #[test]
+    fn validate_identity_accepts_complete_and_unclaimed_identities() {
+        assert!(validate_identity(&identity()).is_ok());
+        let mut unclaimed = identity();
+        unclaimed.current_service_instance_id = None;
+        unclaimed.current_claimed_at = None;
+        assert!(validate_identity(&unclaimed).is_ok());
+    }
+
+    #[test]
+    fn validate_identity_rejects_bad_schema_ids_lineage_and_partial_claims() {
+        let mut wrong_schema = identity();
+        wrong_schema.schema_version = 1;
+        assert!(matches!(
+            validate_identity(&wrong_schema),
+            Err(InstallationIdentityError::Invalid(message)) if message.contains("schema_version")
+        ));
+
+        let mut bad_id = identity();
+        bad_id.installation_id = "not-a-uuid".to_string();
+        assert!(validate_identity(&bad_id).is_err());
+
+        let mut bad_lineage = identity();
+        bad_lineage.lineage.push("nope".to_string());
+        assert!(matches!(
+            validate_identity(&bad_lineage),
+            Err(InstallationIdentityError::Invalid(message)) if message.contains("lineage")
+        ));
+
+        let mut partial = identity();
+        partial.current_claimed_at = None;
+        assert!(matches!(
+            validate_identity(&partial),
+            Err(InstallationIdentityError::Invalid(message)) if message.contains("partial")
+        ));
+    }
+
+    #[test]
+    fn validate_claim_requires_positive_generation_and_valid_fields() {
+        assert!(validate_claim(&claim()).is_ok());
+        let mut zero = claim();
+        zero.startup_generation = 0;
+        assert!(validate_claim(&zero).is_err());
+        let mut bad_time = claim();
+        bad_time.claimed_at = "yesterday".to_string();
+        assert!(validate_claim(&bad_time).is_err());
+        let mut bad_version = claim();
+        bad_version.schema_version = 99;
+        assert!(validate_claim(&bad_version).is_err());
+    }
+
+    #[test]
+    fn active_claim_must_match_the_identitys_current_lease() {
+        assert!(validate_active_startup_claim(&identity(), &claim()).is_ok());
+
+        let mut stale_generation = claim();
+        stale_generation.startup_generation = 2;
+        assert!(validate_active_startup_claim(&identity(), &stale_generation).is_err());
+
+        let mut other_service = claim();
+        other_service.service_instance_id = ID_A.to_string();
+        assert!(validate_active_startup_claim(&identity(), &other_service).is_err());
+
+        let mut other_time = claim();
+        other_time.claimed_at = "2026-01-02T03:04:06Z".to_string();
+        assert!(validate_active_startup_claim(&identity(), &other_time).is_err());
+
+        let mut unclaimed = identity();
+        unclaimed.current_service_instance_id = None;
+        unclaimed.current_claimed_at = None;
+        assert!(validate_active_startup_claim(&unclaimed, &claim()).is_err());
+    }
+
+    #[test]
+    fn default_paths_are_derived_from_workspace_root() {
+        let root = Path::new("workspace-root");
+        let paths = InstallationPaths::defaults_for_workspace(root);
+        assert_eq!(
+            paths.identity,
+            root.join("tools/.cache/memory/installation.json")
+        );
+        assert_eq!(paths.mirror, root.join("memory-mirror"));
+    }
+
+    #[test]
+    fn load_or_create_installation_persists_a_fresh_identity_once() {
+        let dir = unique_dir("create");
+        let path = dir.join("nested/installation.json");
+
+        let created = load_or_create_installation(&path).unwrap();
+        assert!(valid_uuid4(&created.installation_id));
+        assert_eq!(created.schema_version, IDENTITY_SCHEMA_VERSION);
+        assert_eq!(created.startup_generation, 0);
+        assert!(created.lineage.is_empty());
+        assert!(created.current_service_instance_id.is_none());
+        assert!(path.exists());
+
+        let reloaded = load_or_create_installation(&path).unwrap();
+        assert_eq!(reloaded, created);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_or_create_installation_rejects_a_corrupt_identity_file() {
+        let dir = unique_dir("corrupt");
+        let path = dir.join("installation.json");
+        fs::write(&path, b"{ not json").unwrap();
+        assert!(matches!(
+            load_or_create_installation(&path),
+            Err(InstallationIdentityError::InvalidIdentity(_))
+        ));
+
+        let mut invalid = identity();
+        invalid.installation_id = "bad".to_string();
+        fs::write(&path, serde_json::to_vec(&invalid).unwrap()).unwrap();
+        assert!(matches!(
+            load_or_create_installation(&path),
+            Err(InstallationIdentityError::InvalidIdentity(_))
+        ));
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

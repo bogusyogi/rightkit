@@ -403,7 +403,7 @@ impl EndorsementBatchExt for EndorsementBatch {
         }
     }
 
-    pub fn verify(&self, now_ms: u64) -> Result<(), LinkError> {
+    fn verify(&self, now_ms: u64) -> Result<(), LinkError> {
         if (self.bodies.is_empty() && self.grants.is_empty())
             || self.bodies.len() > CIRCLE_MAX_MEMBERS
             || self.grants.len() > 1

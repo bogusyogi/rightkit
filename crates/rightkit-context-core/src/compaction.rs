@@ -406,6 +406,7 @@ pub struct CompactionFederationDecision {
 pub const COMPACTION_FEDERATION_V1_SCHEMA: &str = "compaction-federation-v1";
 
 /// Issue the canonical server decision for one explicit compaction selection.
+#[allow(clippy::too_many_arguments)]
 pub fn issue_compaction_federation_decision(
     identity: impl Into<String>,
     fence: impl Into<String>,

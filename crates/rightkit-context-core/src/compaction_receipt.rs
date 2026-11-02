@@ -8,23 +8,14 @@ use serde::{Deserialize, Serialize};
 
 pub const COMPACTION_RECEIPT_SCHEMA_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CompactionSourceCursor {
     pub session_id: String,
     pub last_seq: u64,
 }
 
-impl Default for CompactionSourceCursor {
-    fn default() -> Self {
-        Self {
-            session_id: String::new(),
-            last_seq: 0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CacheImpactV1 {
     pub cache_hit: bool,
@@ -32,17 +23,6 @@ pub struct CacheImpactV1 {
     pub cache_key: Option<String>,
     pub reused_tokens: u32,
     pub invalidated: bool,
-}
-
-impl Default for CacheImpactV1 {
-    fn default() -> Self {
-        Self {
-            cache_hit: false,
-            cache_key: None,
-            reused_tokens: 0,
-            invalidated: false,
-        }
-    }
 }
 
 /// Exact accounting emitted with each compacted read-time projection.
