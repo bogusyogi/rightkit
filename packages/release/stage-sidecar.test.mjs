@@ -2798,20 +2798,20 @@ test("a second stageSidecars for the same target, with the receipt and every fil
   const writesAfterFirst = [...log.writes]; const copiesAfterFirst = [...log.copies]; const chmodsAfterFirst = [...log.chmods];
   const boom = () => { throw new Error("no process may run for a staging that is already current"); };
   // Current: the same receipt comes back, nothing is run, copied, written or chmod-ed.
-  const again = await stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest, deps: deps({ fs, run: boom, fetch: boom, now: () => "2099-01-01T00:00:00.000Z" }) });
+  const again = await stageSidecars({ ifStale: true, appRoot: APP, target: UNIVERSAL, manifest, deps: deps({ fs, run: boom, fetch: boom, now: () => "2099-01-01T00:00:00.000Z" }) });
   assert.equal(again.unchanged, true);
   assert.deepEqual(again.receipt, first.receipt);
   assert.deepEqual(log.writes, writesAfterFirst); assert.deepEqual(log.copies, copiesAfterFirst); assert.deepEqual(log.chmods, chmodsAfterFirst);
   // Another target is not current (the receipt names another target): it stages, and rewrites the receipt.
-  const other = await stageSidecars({ appRoot: APP, target: MAC, manifest, deps: deps({ fs }) });
+  const other = await stageSidecars({ ifStale: true, appRoot: APP, target: MAC, manifest, deps: deps({ fs }) });
   assert.notEqual(other.unchanged, true); assert.equal(other.receipt.target, MAC);
   // A file that no longer has its recorded digest is not current.
   fs.writeFileSync(at("src-tauri", "resources", "m.bin"), "tampered");
-  const repaired = await stageSidecars({ appRoot: APP, target: MAC, manifest, deps: deps({ fs }) });
+  const repaired = await stageSidecars({ ifStale: true, appRoot: APP, target: MAC, manifest, deps: deps({ fs }) });
   assert.notEqual(repaired.unchanged, true);
   assert.equal(fs.readFileSync(at("src-tauri", "resources", "m.bin")).toString(), "model");
   // A manifest that skips a row the receipt staged (another skipped list) is not current.
   const skipping = [{ ...manifest[0], platforms: ["win"] }];
-  const skipped = await stageSidecars({ appRoot: APP, target: MAC, manifest: skipping, deps: deps({ fs }) });
+  const skipped = await stageSidecars({ ifStale: true, appRoot: APP, target: MAC, manifest: skipping, deps: deps({ fs }) });
   assert.notEqual(skipped.unchanged, true);
 });

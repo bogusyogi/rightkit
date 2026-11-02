@@ -1936,7 +1936,7 @@ export function planSidecarStaging({ manifest, target, env = process.env } = {})
  * fs (existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, renameSync, chmodSync, statSync, readdirSync, rmSync), run, fetch (https downloads of `remote`), fetchBytes, extractMember, loadMediaCatalog, loadNativeCatalog, makeTempDir, removeDir, now, pid, log (progress), warn (warnings; defaults to log), env.
  * The API is quiet by default; the `right-release stage-sidecar` command passes `warn` so the CLI prints warnings on stderr.
  */
-export async function stageSidecars({ appRoot, manifest, target, cacheRoot, deps = {} } = {}) {
+export async function stageSidecars({ appRoot, manifest, target, cacheRoot, ifStale = false, deps = {} } = {}) {
   if (typeof appRoot !== "string" || !path.isAbsolute(appRoot)) fail("STAGE_SIDECAR_CONFIG_INVALID", "appRoot must be an absolute path");
   if (cacheRoot !== undefined && (typeof cacheRoot !== "string" || !path.isAbsolute(cacheRoot))) fail("STAGE_SIDECAR_CONFIG_INVALID", "cacheRoot must be an absolute path");
   const env = deps.env ?? process.env;
@@ -1971,7 +1971,9 @@ export async function stageSidecars({ appRoot, manifest, target, cacheRoot, deps
   // Already staged: when the receipt at the plan's receipt path is for this manifest and target and every file it names is on disk with its recorded sha256, nothing is built,
   // downloaded, copied or written (the gate staged the package triple first, rightkit-gate stageSidecarsOnce, so a recipe's own prepare step changes nothing). Judged before the
   // nested-broker refusal, which guards only a step that would build.
-  const current = currentStageReceipt(plan, ctx);
+  // Opt-in (`ifStale`, `stage-sidecar --if-stale`): only a Mac package recipe's own prepare step asks for it. The check is structural (no source hash), so every
+  // other caller, the gate's staging step included, builds as before.
+  const current = ifStale ? currentStageReceipt(plan, ctx) : null;
   if (current) return { receipt: current, receiptPath: path.resolve(appRoot, plan.receiptPath), files: current.files, externalBinNames: current.files.filter((file) => file.externalBin).map((file) => file.name), unchanged: true };
   assertNotNested(plan, env);
   await claimNativeOutputs(plan, ctx);

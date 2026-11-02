@@ -493,7 +493,7 @@ function ledgerCall(fx, { n, argv = ["test", "-p", "a", "--locked"], inputs, tam
   const made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: inputs, handle: fx.handle, callHandle: `${fx.handle}#${n}`, primaryCwd: fx.checkout, argv, nonce: String(n).repeat(64) });
   const requestId = `0000000${n}-1111-4111-8111-111111111111`;
   const receipt = signedReceipt(fx, { id: requestId, carrier: made.carrier, argv, workspace: fx.checkout, tamper, ...(adapter ? { adapter, children: [] } : {}) });
-  const entry = { ...(adapter ? { adapter, nestedChildren: [] } : {}), mode: "broker", status: "verified", nonce: String(n).repeat(64), requestId, argv, workspace: fx.checkout, checkoutCwd: fx.checkout, cwd: fx.checkout, ownershipHandle: `${fx.handle}#${n}`, adapterEnv: {}, observedEnv: {} };
+  const entry = { ...(adapter ? { adapter, nestedChildren: [] } : {}), mode: "broker", status: "verified", nonce: String(n).repeat(64), requestId, argv, workspace: fx.checkout, checkoutCwd: fx.checkout, cwd: adapter ? fx.snapshot : fx.checkout /* an adapter step runs from the snapshot, its checkout counterpart is the workspace */, ownershipHandle: `${fx.handle}#${n}`, adapterEnv: {}, observedEnv: {} };
   return { entry, receipt };
 }
 const ledgerBroker = (fx, calls) => ({ handle: fx.handle, commit: fx.sb.commit, snapshot: fx.sb.snapshot, checkout: fx.checkout, outputRoots: [fx.wsRoot], pins: fx.pins, platform: process.platform, receiptOf: async (id) => calls.find((c) => c.entry.requestId === id).receipt });

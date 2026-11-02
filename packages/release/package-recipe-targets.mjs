@@ -311,7 +311,7 @@ export function expandMacPackageTarget(target, { appRoot, config = {}, env = pro
   const sidecars = stageSidecarsSpec(spec.stageSidecars);
   if (sidecars) {
     // First prepare step: stage the declared sidecars for this triple (universal: both slices, lipo, <name>-universal-apple-darwin).
-    extras.prepare = [{ cmd: "right-release", args: ["stage-sidecar", "--target", triple, ...(sidecars.config ? ["--config", sidecars.config] : [])] }, ...extras.prepare];
+    extras.prepare = [{ cmd: "right-release", args: ["stage-sidecar", "--target", triple, "--if-stale", ...(sidecars.config ? ["--config", sidecars.config] : [])] }, ...extras.prepare];
   }
   let helpers;
   if (spec.nativeHelpers !== undefined) {

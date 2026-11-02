@@ -101,7 +101,8 @@ test("stage-sidecar defaults to right-release.config.json when the app directory
 });
 
 test("stage-sidecar CLI arguments", () => {
-  assert.deepEqual(parseStageSidecarArgs(["--target", "aarch64-apple-darwin", "--json"]), { config: "right-release.config.mjs", target: "aarch64-apple-darwin", json: true, check: false });
+  assert.deepEqual(parseStageSidecarArgs(["--target", "aarch64-apple-darwin", "--json"]), { config: "right-release.config.mjs", target: "aarch64-apple-darwin", json: true, check: false, ifStale: false });
+  assert.equal(parseStageSidecarArgs(["--target", "universal-apple-darwin", "--if-stale"]).ifStale, true, "only a Mac package recipe's prepare step asks for the no-op");
   assert.throws(() => parseStageSidecarArgs(["--target"]), /needs a value/);
   assert.throws(() => parseStageSidecarArgs(["--bogus"]), /unknown/);
 });
@@ -413,14 +414,14 @@ test("macPackage.stageSidecars stages for the build triple first and verifies th
   const out = expandMacPackageTarget(macTarget({ macPackage: { stageSidecars: true, prepare: [{ cmd: "node", args: ["scripts/a.mjs"] }] } }), { appRoot });
   const plan = planOf(out.prePackage);
   assert.deepEqual(plan.steps.map((step) => `${step.phase}:${step.cmd}`), ["prepare:right-release", "prepare:node", "build:pnpm"]);
-  assert.deepEqual(plan.steps[0].args, ["stage-sidecar", "--target", "universal-apple-darwin"]);
+  assert.deepEqual(plan.steps[0].args, ["stage-sidecar", "--target", "universal-apple-darwin", "--if-stale"]);
   assert.deepEqual(plan.verifySidecars, { receipt: "src-tauri/binaries/stage-sidecar.json", target: "universal-apple-darwin" });
   const custom = planOf(expandMacPackageTarget(macTarget({ macPackage: { stageSidecars: { config: "release/right-release.config.mjs", receipt: "src-tauri/stage/receipt.json" } } }), { appRoot }).prePackage);
-  assert.deepEqual(custom.steps[0].args, ["stage-sidecar", "--target", "universal-apple-darwin", "--config", "release/right-release.config.mjs"]);
+  assert.deepEqual(custom.steps[0].args, ["stage-sidecar", "--target", "universal-apple-darwin", "--if-stale", "--config", "release/right-release.config.mjs"]);
   assert.equal(custom.verifySidecars.receipt, "src-tauri/stage/receipt.json");
   // A thin build stages its own triple and has nothing universal to verify.
   const thin = planOf(expandMacPackageTarget(macTarget({ macPackage: { triple: "aarch64-apple-darwin", stageSidecars: true }, notarize: { app: "src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Demo.app", file: "dist/Demo.dmg" } }), { appRoot }).prePackage);
-  assert.deepEqual(thin.steps[0].args, ["stage-sidecar", "--target", "aarch64-apple-darwin"]);
+  assert.deepEqual(thin.steps[0].args, ["stage-sidecar", "--target", "aarch64-apple-darwin", "--if-stale"]);
   assert.equal(thin.verifySidecars, undefined);
   assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { stageSidecars: { receipt: "../x.json" } } }), { appRoot }), /receipt/);
   assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { stageSidecars: { nope: 1 } } }), { appRoot }), /unknown key/);

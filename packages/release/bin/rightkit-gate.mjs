@@ -1954,8 +1954,10 @@ async function restagedSidecars({ o, ds, prior, now }) {
  * The --target the package stage stages sidecars for: `package` on a Mac host, which right-release stage-sidecar resolves itself from the
  * snapshot's config (the Mac package recipe's own triple, e.g. universal-apple-darwin), so this gate never imports app code; null elsewhere (host).
  */
-export async function packageSidecarTarget({ o }) {
-  return o.platform === "darwin" ? "package" : null;
+export async function packageSidecarTarget({ o, ds, configs = [] }) {
+  if (o.platform !== "darwin" || !ds) return null;
+  // Read as text, never imported (as committedSidecarConfigs does): only a config whose Mac package recipe stages sidecars gets a package-triple staging.
+  return configs.some((config) => { try { return /\bstageSidecars\b/.test(o.readFile(path.join(ds.path, config))); } catch { return false; } }) ? "package" : null;
 }
 
 /** The release configs of `commit` (under `appDir`) that declare `sidecars`, read from `base` (the snapshot on the snapshot route): the commit's config decides, never the checkout's. */
@@ -2008,7 +2010,7 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     const configDir = path.posix.dirname(String(config).replaceAll("\\", "/"));
     const underApp = (rel) => (configDir === "." ? rel : `${configDir}/${rel}`).replaceAll("\\", "/");
     const receiptAbs = typeof result.receiptPath === "string" ? path.relative(ds.path, result.receiptPath).split(path.sep).join("/") : null;
-    const problems = [...walked.problems, ...attributionProblems({ before, after: walked.entries, reported: [...reportedPaths(result)].map(underApp), receipt: receiptAbs, removable: before.filter((e) => e.kind === "staged" && e.producer?.stage === "sidecar" && e.producer?.step === config).map((e) => e.path) /* only THIS config's earlier staged files (Oracle: another config's build must never delete them unreported) */.map((e) => e.path) })];
+    const problems = [...walked.problems, ...attributionProblems({ before, after: walked.entries, reported: [...reportedPaths(result)].map(underApp), receipt: receiptAbs, removable: before.filter((e) => e.kind === "staged" && e.producer?.stage === "sidecar" && e.producer?.step === config).map((e) => e.path) /* only THIS config's earlier staged files (Oracle: another config's build must never delete them unreported) */ })];
     if (problems.length) { for (const p of problems.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [${stage}] stage-sidecar ${config}: ${p}`); return false; }
     const priorPaths = new Set(before.map((e) => e.path));
     const priorByPath = new Map(before.map((e) => [e.path, e]));

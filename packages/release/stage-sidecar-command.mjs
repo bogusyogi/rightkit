@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `right-release stage-sidecar [--config right-release.config.json] [--target <triple>] [--check] [--json]` (bogusyogi/rightkit#345):
+// `right-release stage-sidecar [--config right-release.config.json] [--target <triple>|package] [--if-stale] [--check] [--json]` (bogusyogi/rightkit#345):
 // stages the config's declarative `sidecars` into src-tauri/binaries with Tauri externalBin naming. `--check` validates
 // the manifest and prints the plan without building, downloading, copying or deleting anything (for template gates).
 import path from "node:path";
@@ -9,7 +9,7 @@ import { planSidecarStaging, resolveTargetTriple, stageSidecars } from "./stage-
 import { readSourceSplit } from "./source-split.mjs";
 
 export function parseStageSidecarArgs(argv, cwd = process.cwd()) {
-  const opts = { config: defaultReleaseConfigFile(cwd), target: undefined, json: false, check: false };
+  const opts = { config: defaultReleaseConfigFile(cwd), target: undefined, json: false, check: false, ifStale: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--config" || arg === "--target") {
@@ -19,6 +19,7 @@ export function parseStageSidecarArgs(argv, cwd = process.cwd()) {
       i += 1;
     } else if (arg === "--json") opts.json = true;
     else if (arg === "--check") opts.check = true;
+    else if (arg === "--if-stale") opts.ifStale = true;
     else throw new Error(`unknown stage-sidecar argument: ${arg}`);
   }
   return opts;
@@ -73,7 +74,7 @@ async function main() {
   }
   const target = resolveTargetTriple({ target: wanted, cwd: appRoot });
   // Warnings (a never-run row, a catalog row that is not staged) go to stderr; stdout stays the staged-file list or the --json document.
-  const result = await stageSidecars({ appRoot, manifest: config.sidecars, target, ...(split ? { cacheRoot: split.checkoutAppRoot } : {}), deps: { warn: (line) => console.error(line) } });
+  const result = await stageSidecars({ appRoot, manifest: config.sidecars, target, ifStale: opts.ifStale, ...(split ? { cacheRoot: split.checkoutAppRoot } : {}), deps: { warn: (line) => console.error(line) } });
   if (opts.json) console.log(JSON.stringify(result, null, 2));
   else {
     for (const file of result.files ?? []) console.log(`right-release stage-sidecar: staged ${typeof file === "string" ? file : file.path ?? JSON.stringify(file)}`);

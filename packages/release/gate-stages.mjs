@@ -250,7 +250,7 @@ export function compiledBinaries(builtBins = {}, { platform = process.platform, 
   for (const dir of Object.keys(builtBins ?? {}).filter((d) => typeof d === "string" && d).sort()) {
     // { profile, bins }: profile is the directory under `dir` Cargo wrote them to (`debug`, or `<triple>/debug` for a --target build); a bare array is `debug`.
     const entry = Array.isArray(builtBins[dir]) ? { profile: COMPILE_PROFILE_DIR, bins: builtBins[dir] } : builtBins[dir] ?? {};
-    if (typeof entry.profile !== "string" || !/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)?$/.test(entry.profile)) continue;
+    if (typeof entry.profile !== "string" || !/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)?$/.test(entry.profile) || entry.profile.split("/").some((c) => c === "." || c === "..")) continue;
     for (const bin of [...new Set(entry.bins ?? [])].sort()) {
       const name = `${bin}${platform === "win32" ? ".exe" : ""}`;
       const rel = `${entry.profile}/${name}`;
