@@ -390,7 +390,8 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
       if (catalogSpec) entry.catalogSpec = catalogSpec;
       if (rawProbe !== undefined && typeof rawProbe !== "boolean") errors.push(`${where}: probe must be a boolean`);
       if (rawProbe === true) entry.probe = true;
-      const sources = parseFfmpegSources(rawSources, where, errors, { universal: t.arch === "universal" });
+      // A row the platform filter skips (a Windows ffmpeg in a Mac universal staging) is not judged for universal slices, as the prebuilt rows are not (HeardRight Mac package, 2026-11-02).
+      const sources = parseFfmpegSources(rawSources, where, errors, { universal: !skipped && t.arch === "universal" });
       if (sources) entry.sources = sources;
       // `resourceDir` stages flat files (<resourceDir>/ffmpeg[.exe]); `bundleDir` is the key of the externalBin layout, so the two never combine.
       const resourceDir = rawResourceDir === undefined ? undefined : relativePath(rawResourceDir, `${where}: resourceDir`, errors);

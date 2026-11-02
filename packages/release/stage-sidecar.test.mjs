@@ -1024,6 +1024,8 @@ test("ffmpeg sources and probe are validated; a universal target needs per-arch 
     assert.ok(error.message.includes(needle), `missing: ${needle}\n${error.message}`);
   }
   assert.throws(() => validateSidecarManifest([{ ...base, sources: { ffmpeg: source } }], { target: UNIVERSAL }), /needs \{ aarch64, x86_64 \} sources for universal-apple-darwin/);
+  // A row the platform filter skips (HeardRight's Windows ffmpeg) is not judged for universal slices: its single Windows source is valid (Mac package, 2026-11-02).
+  assert.doesNotThrow(() => validateSidecarManifest([{ ...base, platforms: ["win"], sources: { ffmpeg: source } }], { target: UNIVERSAL }));
 });
 
 test("ffmpeg probe (opt-in) checks the LGPL configuration and the encoder list, and skips a binary built for another target", async () => {

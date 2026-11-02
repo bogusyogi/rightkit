@@ -2,6 +2,7 @@
 
 ## 0.6.24 (unpublished)
 
+- **A sidecar row the platform filter skips is not judged for universal slices (HeardRight Mac package, 2026-11-02):** staging `universal-apple-darwin` refused HeardRight's Windows-only ffmpeg row (`platforms: ["win"]`, one Windows source) with "sources.ffmpeg needs { aarch64, x86_64 } sources for universal-apple-darwin". `parseFfmpegSources` now applies the universal rule only to a row that is not skipped, as the prebuilt rows already did.
 - **The admission host-tools row probes cargo and rustc from the app's primary checkout counterpart on a door split (HeardRight Dell package, 2026-11-02):** `right-release build` probed `cargo --version` and `rustc -vV` with the snapshot as its working directory, and the Windows managed cargo shim refuses a directory outside the primary checkout (`RK_NOT_PRIMARY_CHECKOUT`). On a door split the probes now run from `releaseSource.checkoutAppRoot`, which selects the same rust-toolchain.
 
 ## 0.6.23
