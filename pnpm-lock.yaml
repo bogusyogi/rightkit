@@ -328,6 +328,9 @@ importers:
       '@rightkit/legal':
         specifier: workspace:^
         version: link:../legal
+      '@rightkit/legal-ui':
+        specifier: workspace:^
+        version: link:../legal-ui
       '@rightkit/license':
         specifier: workspace:^
         version: link:../license
@@ -1295,6 +1298,9 @@ importers:
       '@rightkit/legal':
         specifier: workspace:^
         version: link:../legal
+      '@rightkit/legal-ui':
+        specifier: workspace:^
+        version: link:../legal-ui
       '@rightkit/license':
         specifier: workspace:^
         version: link:../license
@@ -1540,6 +1546,9 @@ importers:
       '@rightkit/tauri-shell':
         specifier: workspace:^
         version: link:../tauri-shell
+      '@rightkit/theme':
+        specifier: workspace:^
+        version: link:../theme
       '@tauri-apps/api':
         specifier: ^2.12.4
         version: 2.12.4
@@ -2087,9 +2096,15 @@ importers:
       '@rightkit/tauri-shell':
         specifier: workspace:^
         version: link:../tauri-shell
+      '@rightkit/theme':
+        specifier: workspace:^
+        version: link:../theme
       '@tauri-apps/api':
         specifier: ^2.12.4
         version: 2.12.4
+      '@tauri-apps/plugin-dialog':
+        specifier: ^2.8.3
+        version: 2.8.4
       '@tauri-apps/plugin-process':
         specifier: ^2.4.0
         version: 2.4.0
