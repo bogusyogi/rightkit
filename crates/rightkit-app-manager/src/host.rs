@@ -36,14 +36,17 @@ pub fn set_privileged_helper_enabled(enabled: bool) {
     HELPER_ENABLED.store(enabled, Ordering::Relaxed);
 }
 
+#[cfg(unix)]
 pub(crate) fn state_directory() -> Option<PathBuf> {
     STATE_DIRECTORY.get().cloned()
 }
 
+#[cfg(unix)]
 pub(crate) fn privileged_helper_enabled() -> bool {
     HELPER_ENABLED.load(Ordering::Relaxed)
 }
 
+#[cfg(unix)]
 pub(crate) fn display_name() -> String {
     IDENTITY
         .get()
@@ -52,22 +55,26 @@ pub(crate) fn display_name() -> String {
         .unwrap_or_else(|| "This app".to_owned())
 }
 
+#[cfg(unix)]
 fn prefix_match(text: &str, prefix: &str) -> bool {
     !prefix.is_empty() && text.to_lowercase().starts_with(&prefix.to_lowercase())
 }
 
+#[cfg(unix)]
 pub(crate) fn is_host_bundle_id(bundle_id: &str) -> bool {
     IDENTITY
         .get()
         .is_some_and(|id| prefix_match(bundle_id, &id.bundle_id_prefix))
 }
 
+#[cfg(unix)]
 pub(crate) fn is_host_name(name: &str) -> bool {
     IDENTITY
         .get()
         .is_some_and(|id| prefix_match(name, &id.name_prefix))
 }
 
+#[cfg(unix)]
 /// The account's home folder: `HOME` (`USERPROFILE` on Windows); on Unix the password database's
 /// home when `HOME` is unset or `/`.
 pub(crate) fn account_home() -> PathBuf {

@@ -14,9 +14,16 @@ fn check(ok: bool, what: &str) -> bool {
 fn main() {
     let mut all = true;
     all &= check(!shared::APP_ID.is_empty(), "store owner id is set");
+    #[cfg(not(target_os = "macos"))]
+    {
+        all &= check(
+            model_paths::WINDOWS_TDT_CURRENT_SUBDIR != model_paths::WINDOWS_TDT_PREVIOUS_SUBDIR,
+            "current and previous Windows TDT directories differ",
+        );
+    }
     all &= check(
-        model_paths::WINDOWS_TDT_CURRENT_SUBDIR != model_paths::WINDOWS_TDT_PREVIOUS_SUBDIR,
-        "current and previous Windows TDT directories differ",
+        model_paths::MACOS_TDT_CURRENT_SUBDIR != model_paths::MACOS_TDT_PREVIOUS_SUBDIR,
+        "current and previous macOS TDT directories differ",
     );
     all &= check(
         ane_cache_prune::configure_bundle_identifier("com.example.consumer")
