@@ -66,3 +66,54 @@ impl fmt::Display for ClientError {
 }
 
 impl std::error::Error for ClientError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_variant_has_its_code_and_message() {
+        let cases = [
+            (
+                ClientError::NotRunning { reason: "r".into() },
+                "not_running",
+                "membrane resident not running: r",
+            ),
+            (
+                ClientError::Timeout {
+                    message: "t".into(),
+                },
+                "deadline_exceeded",
+                "membrane resident deadline exceeded: t",
+            ),
+            (
+                ClientError::Transport {
+                    message: "x".into(),
+                },
+                "transport_failed",
+                "membrane resident transport failed: x",
+            ),
+            (
+                ClientError::Refused {
+                    code: "busy".into(),
+                    message: "later".into(),
+                    retryable: true,
+                },
+                "busy",
+                "membrane resident refused (busy): later",
+            ),
+            (
+                ClientError::Protocol {
+                    message: "p".into(),
+                },
+                "protocol_error",
+                "membrane resident protocol error: p",
+            ),
+        ];
+        for (error, code, text) in cases {
+            assert_eq!(error.code(), code);
+            assert_eq!(error.to_string(), text);
+            assert_eq!(error.is_not_running(), code == "not_running");
+        }
+    }
+}
