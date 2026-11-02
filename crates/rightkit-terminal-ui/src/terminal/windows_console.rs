@@ -71,6 +71,7 @@ pub(super) fn set_input_record_mode() -> std::io::Result<()> {
 }
 
 #[cfg(windows)]
+#[allow(dead_code)] // the host's input-mode handshake; no in-crate caller yet
 pub(super) fn ensure_input_record_mode() -> std::io::Result<()> {
     use windows_sys::Win32::System::Console::SetConsoleMode;
 

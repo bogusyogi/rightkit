@@ -250,6 +250,7 @@ mod imp {
         cache.get_or_init_with(query_default_colors)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // only the cfg(test) wrapper calls it
     pub(super) fn set_default_colors_from_startup_probe(
         colors: Option<crate::transcript::terminal_palette::DefaultColors>,
     ) {

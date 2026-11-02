@@ -289,6 +289,20 @@ mod db_permission_tests {
     }
 }
 
+/// Whether two database paths name the same location once symlinked directories are resolved (the file itself
+/// may not exist yet). SQLite reports the resolved path, so a plain comparison misreads macOS's /var -> /private/var.
+fn same_location(a: &Path, b: &Path) -> bool {
+    let resolve = |p: &Path| -> std::path::PathBuf {
+        std::fs::canonicalize(p).unwrap_or_else(|_| match (p.parent(), p.file_name()) {
+            (Some(dir), Some(name)) => std::fs::canonicalize(dir)
+                .map(|dir| dir.join(name))
+                .unwrap_or_else(|_| p.to_path_buf()),
+            _ => p.to_path_buf(),
+        })
+    };
+    a == b || resolve(a) == resolve(b)
+}
+
 impl Storage {
     /// Persist the daemon-wide PL-009 observation ledger as one atomically
     /// replaced snapshot. Schema creation is idempotent for older databases.
@@ -344,7 +358,8 @@ impl Storage {
             .with_journal_env("RIGHTKIT_SQLITE_JOURNAL_MODE")
             .with_per_host_fallback(true);
         read_options.foreign_keys = true;
-        if effective_path != path {
+        // SQLite reports the resolved path (macOS: /var is /private/var). Only a real per-host fallback moves the readers.
+        if !same_location(effective_path, path) {
             read_options.journal = rightkit_db::JournalSelect::Truncate;
         }
         let read_pool = StoragePool::from_options(read_options, 4)?;
@@ -697,6 +712,32 @@ mod tests {
         drop(s);
         let s2 = Storage::open(&path).unwrap();
         assert!(s2.list_sessions().unwrap().is_empty());
+    }
+
+    /// macOS hands out temp paths under /var, a symlink to /private/var; SQLite reports the resolved path. The read pool
+    /// must still open the writer's database, not a second per-host one (publish run 41376035022, xcode-27).
+    #[cfg(unix)]
+    #[test]
+    fn readers_open_the_writers_database_through_a_symlinked_directory() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let s = Storage::open(link.join("db.sqlite")).unwrap();
+        let reader = s
+            .read_pool()
+            .expect("on-disk stores have a read pool")
+            .get()
+            .unwrap();
+        let events: i64 = reader
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'events'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(events, 1, "the reader sees the writer's schema");
     }
 
     #[test]
