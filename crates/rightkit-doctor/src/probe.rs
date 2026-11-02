@@ -196,8 +196,12 @@ pub fn clipboard_candidates() -> &'static [(&'static str, &'static [&'static str
 /// Best effort: pipe `text` to the first clipboard tool that accepts it and return its name.
 /// `Err` carries the last failure; callers note it on stderr and keep their exit code.
 pub fn copy_to_clipboard(text: &str) -> Result<String, String> {
+    copy_with(clipboard_candidates(), text)
+}
+
+fn copy_with(candidates: &[(&str, &[&str])], text: &str) -> Result<String, String> {
     let mut last = String::from("no clipboard candidates configured for this target");
-    for (bin, args) in clipboard_candidates() {
+    for (bin, args) in candidates {
         let mut command = Command::new(bin);
         hidden(&mut command);
         let mut child = match command
@@ -275,13 +279,13 @@ mod tests {
 
     #[test]
     fn clipboard_without_a_tool_reports_the_last_failure() {
-        if clipboard_candidates()
-            .iter()
-            .any(|(bin, _)| command_path(bin).is_some())
-        {
-            eprintln!("SKIP: a clipboard tool is installed; not touching the user's clipboard");
-            return;
-        }
-        assert!(copy_to_clipboard("x").is_err());
+        // Tools that cannot exist, on every host: the user's clipboard is never touched and the failure path always runs.
+        let missing: &[(&str, &[&str])] = &[
+            ("rightkit-doctor-no-such-clipboard-a", &[]),
+            ("rightkit-doctor-no-such-clipboard-b", &["--input"]),
+        ];
+        let err = copy_with(missing, "x").unwrap_err();
+        assert!(err.starts_with("rightkit-doctor-no-such-clipboard-b: spawn error"), "{err}");
+        assert!(copy_with(&[], "x").unwrap_err().contains("no clipboard candidates"));
     }
 }
