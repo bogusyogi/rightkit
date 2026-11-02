@@ -1,4 +1,4 @@
-// Sibling fragment of stall_guardrail.rs — included via `include!()`. Pure
+// Sibling fragment of stall_guardrail.rs — included by the parent module. Pure
 // helpers: turn a stall-guardrail outcome into the model-facing string the
 // engine injects at the right integration point.
 
