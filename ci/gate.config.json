@@ -471,6 +471,9 @@
     },
     "rightkit-evidence-effects": {
       "allowIgnored": "src/gradle_sandbox.rs::gradle_bind_only_worker is #[ignore] on purpose: it is the helper process body that gradle_bind_only_native_confinement spawns, not a test of its own; gradle_bind_only_native_confinement is #[ignore] because it needs real macOS Seatbelt UDP-bind admission and process-tree controls on a workstation (2 ignored on macOS; every other test runs and asserts)"
+    },
+    "rightkit-agent-policy": {
+      "allowIgnored": "src/injection_harness_tests.rs: four #[ignore] cases document payloads only ThreatScanScope::Strict catches (strict-memory-persistence and strict-backdoor-install, two each); the context/tool-result paths under test use ThreatScanScope::Context, so these rows record the known gap, not a pass (every other case runs and asserts)"
     }
   },
   "fixtures": [

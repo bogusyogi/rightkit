@@ -100,12 +100,12 @@ pub async fn delete_filter(
 /// the given label actions.
 ///
 /// # Block-sender pattern
-/// ```ignore
+/// ```text
 /// create_filter(id, secret, token, "spam@example.com", &["TRASH"], &["INBOX"]).await?;
 /// ```
 ///
 /// # Plain label rule
-/// ```ignore
+/// ```text
 /// create_filter(id, secret, token, "news@example.com", &["Label_42"], &[]).await?;
 /// ```
 pub async fn create_filter(
