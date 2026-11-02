@@ -53,8 +53,7 @@ fn git(dir: &std::path::Path, args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-fn git_identity(manifest: &std::path::Path) -> Option<(String, String)> {
-    let engine = manifest.join("../..");
+fn git_identity(engine: &std::path::Path) -> Option<(String, String)> {
     let commit = git(&engine, &["rev-parse", "HEAD"])?;
     let tree_id = git(&engine, &["rev-parse", "HEAD:./"])?;
     if let Some(head) = git(&engine, &["rev-parse", "--git-path", "HEAD"]) {
@@ -69,12 +68,17 @@ fn git_identity(manifest: &std::path::Path) -> Option<(String, String)> {
 // same `sourceTreeSha256` git gives in the primary checkout, so one commit has one identity on
 // both build paths. The file is looked for upward from this crate so the engine may sit at any
 // depth; the first one found wins.
-fn snapshot_identity(manifest: &std::path::Path) -> Option<(String, String)> {
-    let engine = manifest.join("../..");
-    let mut dir = engine.canonicalize().ok()?;
-    // Path of the engine relative to the directory holding the file, as the broker keys it.
-    let mut components: Vec<String> = Vec::new();
-    loop {
+fn snapshot_identity(engine: &std::path::Path) -> Option<(String, String)> {
+    let engine = engine.canonicalize().ok()?;
+    let names: Vec<std::path::Component> = engine.components().collect();
+    // Deepest directory first: the engine itself, then each directory holding it.
+    for depth in (1..=names.len()).rev() {
+        let dir: PathBuf = names[..depth].iter().collect();
+        // Path of the engine relative to the directory holding the file, as the broker keys it.
+        let components: Vec<String> = names[depth..]
+            .iter()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
         let candidate = dir.join(".rightkit-source-identity.json");
         if let Ok(bytes) = fs::read(&candidate) {
             println!("cargo:rerun-if-changed={}", candidate.display());
@@ -91,10 +95,8 @@ fn snapshot_identity(manifest: &std::path::Path) -> Option<(String, String)> {
             let tree = rightkit_fs::digest::sha256_bytes(tree_id.as_bytes());
             return Some((commit.to_string(), tree));
         }
-        let name = dir.file_name()?.to_string_lossy().into_owned();
-        components.insert(0, name);
-        dir = dir.parent()?.to_path_buf();
     }
+    None
 }
 
 // Last resort when neither git, the broker snapshot file nor the environment supplies an identity
@@ -102,7 +104,7 @@ fn snapshot_identity(manifest: &std::path::Path) -> Option<(String, String)> {
 // `sha256:<64 hex>` generation and never ships "unknown". It is stable for identical source bytes
 // but is not the git tree digest, so it differs from a primary-checkout build of the same commit;
 // the build says so (cargo warning) and the binary reports `release_identity_source: content`.
-fn content_identity(manifest: &std::path::Path) -> Option<String> {
+fn content_identity(engine: &std::path::Path) -> Option<String> {
     fn walk(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<(String, String)>) {
         let Ok(read) = fs::read_dir(dir) else { return };
         for entry in read.flatten() {
@@ -126,7 +128,7 @@ fn content_identity(manifest: &std::path::Path) -> Option<String> {
             }
         }
     }
-    let engine = manifest.join("../..").canonicalize().ok()?;
+    let engine = engine.canonicalize().ok()?;
     let mut files = Vec::new();
     for top in ["Cargo.toml", "Cargo.lock"] {
         let path = engine.join(top);
@@ -135,9 +137,15 @@ fn content_identity(manifest: &std::path::Path) -> Option<String> {
             files.push((top.to_string(), rightkit_fs::digest::sha256_bytes(&bytes)));
         }
     }
+    // An engine checkout hashes its crates; this crate alone (a registry build) hashes itself.
     let crates = engine.join("crates");
-    println!("cargo:rerun-if-changed={}", crates.display());
-    walk(&crates, &engine, &mut files);
+    let sources = if crates.is_dir() {
+        crates
+    } else {
+        engine.clone()
+    };
+    println!("cargo:rerun-if-changed={}", sources.display());
+    walk(&sources, &engine, &mut files);
     if files.is_empty() {
         return None;
     }
@@ -161,28 +169,44 @@ fn env_identity() -> Option<(String, String)> {
     (lowercase_hex(&commit, 40) && lowercase_hex(&tree, 64)).then_some((commit, tree))
 }
 
+// The engine root: RIGHTKIT_CONTEXT_ENGINE_ROOT when the host names it, else the directory holding
+// `crates/` when this crate sits in an engine checkout or snapshot (`<engine>/crates/<this crate>`).
+// A registry build has neither and identifies itself from its own sources.
+fn engine_root(manifest: &std::path::Path) -> Option<PathBuf> {
+    println!("cargo:rerun-if-env-changed=RIGHTKIT_CONTEXT_ENGINE_ROOT");
+    if let Some(root) = env::var_os("RIGHTKIT_CONTEXT_ENGINE_ROOT").filter(|v| !v.is_empty()) {
+        return Some(PathBuf::from(root));
+    }
+    let names: Vec<std::path::Component> = manifest.components().collect();
+    let holder = names.len().checked_sub(2)?;
+    (names[holder].as_os_str() == "crates").then(|| names[..holder].iter().collect())
+}
+
 fn main() {
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory"));
-    let identity = manifest.join("../../dist/release-identity.json");
-    let mut watch = identity.clone();
-    while !watch.exists() {
-        let Some(parent) = watch.parent() else {
-            break;
+    let engine = engine_root(&manifest);
+    let identity = engine.as_ref().map(|root| {
+        let dist = root.join("dist");
+        let identity = dist.join("release-identity.json");
+        // Watch the file when it exists, else the directory it would appear in, else the root.
+        let watch = if identity.exists() {
+            identity.clone()
+        } else if dist.is_dir() {
+            dist
+        } else {
+            root.clone()
         };
-        if parent == watch {
-            break;
-        }
-        watch = parent.to_path_buf();
-    }
-    println!("cargo:rerun-if-changed={}", watch.display());
+        println!("cargo:rerun-if-changed={}", watch.display());
+        identity
+    });
 
-    let Ok(bytes) = fs::read(&identity) else {
+    let Some(Ok(bytes)) = identity.as_ref().map(fs::read) else {
         // No release-identity file (every build inside the host app): derive the identity from git, so the
         // binary never ships "sha256:unknown". The commit is HEAD; the tree digest is the SHA-256 of
         // membrane/engine's git tree id. Without git, the build still works and says so.
-        let (found, kind) = match git_identity(&manifest) {
+        let (found, kind) = match engine.as_deref().and_then(git_identity) {
             Some(found) => (Some(found), "git"),
-            None => match snapshot_identity(&manifest) {
+            None => match engine.as_deref().and_then(snapshot_identity) {
                 Some(found) => (Some(found), "snapshot"),
                 None => match env_identity() {
                     Some(found) => (Some(found), "env"),
@@ -196,7 +220,7 @@ fn main() {
                 println!("cargo:rustc-env=RIGHTKIT_CONTEXT_SOURCE_TREE_SHA256={tree}");
                 emit(&commit, &tree, kind);
             }
-            None => match content_identity(&manifest) {
+            None => match content_identity(engine.as_deref().unwrap_or(&manifest)) {
                 Some(tree) => {
                     println!(
                         "cargo:warning=release identity: no git, no .rightkit-source-identity.json and no RIGHTKIT_CONTEXT_SOURCE_* environment; this build derives releaseGeneration from a digest of the engine sources (release_identity_source=content), which differs from a git-derived build of the same commit."
@@ -206,8 +230,7 @@ fn main() {
                 }
                 None => {
                     println!(
-                        "cargo:warning=release identity missing at {}, git is unavailable, no .rightkit-source-identity.json was found above the engine and the engine sources could not be read; this build reports releaseGeneration sha256:unknown.",
-                        identity.display()
+                        "cargo:warning=release identity missing, git is unavailable, no .rightkit-source-identity.json was found above the engine and the engine sources could not be read; this build reports releaseGeneration sha256:unknown."
                     );
                     emit("", "", "unknown");
                 }
