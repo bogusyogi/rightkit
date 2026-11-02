@@ -1919,7 +1919,7 @@
       "pkId": "PK03",
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
-        "Cargo.toml": "e7deb787c4c1f6fe3982bacc3f13ebcd7e0d1b923553f3b05fd236108c2f611a",
+        "Cargo.toml": "ee49976c46a7987100e8511dd2ff9c38f5f1e5106e1e7e996bb1aff02765c66e",
         "prepare_signed_helper.py": "5416b80b5b81ef50528033bbc9b91131a73c421a66764b3390331dd80fa0cd6c",
         "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
         "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
