@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T17:26:24Z",
-  "rightkitHead": "e213870",
+  "generatedAt": "2026-11-02T10:38:02Z",
+  "rightkitHead": "adae3ff",
   "legend": [
     {
       "state": "adopted",
@@ -6808,9 +6808,9 @@
         "release-tooling"
       ],
       "private": false,
-      "source": "0.6.18",
+      "source": "0.6.24",
       "registry": "0.6.13",
-      "staged": "0.6.18",
+      "staged": "0.6.24",
       "dir": "packages/release",
       "toMoveFrom": {},
       "cells": {
@@ -16536,9 +16536,9 @@
         "desktop-qa"
       ],
       "private": false,
-      "source": "0.10.1",
+      "source": "0.10.2",
       "registry": "0.9.1",
-      "staged": "0.10.1",
+      "staged": "0.10.2",
       "dir": "crates/rightkit-qa",
       "toMoveFrom": {},
       "cells": {

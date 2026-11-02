@@ -155,7 +155,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-playback` | crates.io | 0.3.0 | 0.3.0 | 1 | coderight | 1 vendored copy |
 | `rightkit-policy-rules` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-privileged-helper` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-qa` | crates.io | 0.10.1 | 0.9.1 | 1 | coderight | 1 vendored copy; 1 ahead of published |
+| `rightkit-qa` | crates.io | 0.10.2 | 0.9.1 | 1 | coderight | 1 vendored copy; 1 ahead of published |
 | `rightkit-qa-driver` | crates.io | 0.7.0 | 0.7.0 | 1 | coderight | 1 vendored copy |
 | `rightkit-record` | crates.io | 0.3.3 | 0.3.3 | 1 | coderight | 1 vendored copy |
 | `rightkit-reframe` | crates.io | 0.1.0 | none recorded | 1 | coderight | 1 vendored copy |
@@ -234,7 +234,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/qa` | npm | 0.6.2 | 0.6.1 | 1 | coderight | 1 vendored copy |
 | `@rightkit/qa-chrome` | npm | 0.1.12 | 0.1.12 | 1 | coderight | 1 vendored copy |
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 1 | coderight | 1 vendored copy |
-| `@rightkit/release` | npm | 0.6.18 | 0.6.13 | 1 | coderight | 1 vendored copy; 1 stale |
+| `@rightkit/release` | npm | 0.6.24 | 0.6.13 | 1 | coderight | 1 vendored copy; 1 stale |
 | `@rightkit/settings-ui` | npm | 0.7.0 | 0.7.0 | 1 | coderight | 1 vendored copy |
 | `@rightkit/social-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded | 0 | none | 1 vendored copy |
