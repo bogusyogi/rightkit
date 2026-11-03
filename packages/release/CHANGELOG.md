@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.36 (unpublished)
+## 0.6.37 (unpublished)
+
+- **A unit publish runs its Rust tests again on a broker host (GATE-CONTRACT GC-A08).** The broker compiles a test build and never runs it (`rustright: compiled, ready for testing`), so `rightkit-gate --to compile --unit cargo:<crate>` (local-publish) counted zero executed tests for every crate and refused it ("executed no test"); no crate could publish. local-publish now reads the test executables from the compile's JSON listing, requires each to sit inside the compile's output directory (the carried receipt's, else cargo metadata's target directory), runs them outside the broker with the arguments after `--` (a `--test-threads=1` step runs one executable at a time, as cargo does), sums their libtest results, and still counts the `SKIP` markers their output prints, so a skipped proof refuses a unit that is not asset-gated, as before. A host whose test command runs the tests itself is unchanged. Not yet equal to the class B rows: the broker's signed test-executable list is not checked on this path, and doctests are not run by the broker's test build.
+
+## 0.6.36 — 2026-11-03
 
 - **Class A no longer runs the build-helper trace check (rightkit#1450 removed; Adrian, 2026-11-03).** The Mac tracer blamed other processes' writes and truncated paths on the traced crate (false FAILs), and an orphaned root eslogger from one session wrote 648 GiB and filled /Volumes/D (rightkit#1494). Apps waited on traces for hours. No host blocks Class A on build-helper traces; build-script writes are to be confined by the RustRight broker at build time instead.
 - **`right-release publish-local npm` packs a package whose prepack builds (rightkit#1493).** It exported only `packages/<name>` with no `node_modules`, so a prepack `tsc` exited 127 (@rightkit/agent-ui-hooks, html-editor, markdown-editor, terminal-ui). It now exports the commit's whole tree into /Volumes/D/scratch, installs the package and its workspace dependencies with `pnpm install --frozen-lockfile --offline --ignore-scripts --ignore-pnpmfile` from the checkout's own pnpm store, builds those workspace dependencies in dependency order (their `dist/` is not in git), and packs there. The checkout and the gate's snapshot are never written.

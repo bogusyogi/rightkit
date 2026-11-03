@@ -43,6 +43,35 @@ export const LOCAL_HOST_POLICIES = Object.freeze({ darwin: "darwin-only", win32:
 const localHostPolicyReason = (platform) => (platform === "win32" ? LOCAL_WIN32_HOST_POLICY_REASON : platform === "linux" ? LOCAL_LINUX_HOST_POLICY_REASON : LOCAL_HOST_POLICY_REASON);
 const STEP_TIMEOUT_MS = 30 * 60 * 1000;
 
+/** The broker's reply to a `cargo test` it compiled and did not run (GATE-CONTRACT GC-A08). */
+export const BROKER_COMPILED_ONLY = /^rustright: compiled, ready for testing\b/m;
+
+/**
+ * Run the test executables a broker-compiled `cargo test` step listed, outside the broker (GC-A08), with the run arguments after its `--`.
+ * The listing must have finished and name at least one test executable; every executable must sit inside the compile's output directory
+ * (the carried receipt's, else cargo metadata's target directory). Returns runTestBinaries' { status, code?, detail?, results }.
+ */
+export async function runCompiledTests({ unit, step, result, cwd, env, scans }) {
+  const ds = scans ?? await import("./deterministic-scans.mjs");
+  const { resolveTargetRoot } = await import("./cargo-target.mjs");
+  const listing = ds.parseTestListing(`${result.stdout ?? ""}`);
+  if (listing.buildFinished !== true) return { status: "fail", code: "TEST_LISTING", detail: `${unit}: the compile has no successful build-finished record`, results: null };
+  if (listing.binaries.length === 0) return { status: "fail", code: "NO_TEST_EXECUTABLES", detail: `${unit}: the compile listed no test executable (${listing.artifacts} artifact record(s))`, results: null };
+  const outputDir = typeof result.outputDir === "string" ? result.outputDir : resolveTargetRoot(path.join(cwd, "Cargo.toml"), { env });
+  const contained = ds.containTestExecutables(listing.binaries, { boundDirs: [outputDir] });
+  if (contained.problems.length) return { status: "fail", code: "TEST_EXECUTABLE_OUTSIDE_OUTPUT", detail: `${unit}: ${contained.problems.slice(0, 5).join("; ")}; nothing was run`, results: null };
+  const sep = step.args.indexOf("--");
+  const runArgs = sep >= 0 ? step.args.slice(sep + 1) : [];
+  const scan = { id: `test:${unit}`, runOutside: { args: runArgs } };
+  // Each executable's output is kept so the caller's ResultScanner still counts SKIP markers (an asset-gated proof that returned early).
+  const outputs = [];
+  const spawn = async (...a) => { const r = await ds.defaultSpawnAsync(...a); outputs.push(r); return r; };
+  // A serial step stays serial across executables, as `cargo test -- --test-threads=1` runs them one after another.
+  const concurrency = runArgs.includes("--test-threads=1") ? 1 : undefined;
+  const ran = await ds.runTestBinaries({ scan, binaries: contained.accepted, spawn, env, limitMs: STEP_TIMEOUT_MS, ...(concurrency ? { concurrency } : {}) });
+  return { ...ran, outputs };
+}
+
 export class LocalPublishError extends Error {
   constructor(message) { super(message); this.name = "LocalPublishError"; }
 }
@@ -698,6 +727,20 @@ async function* publishUnitStages(parsed, deps, batch) {
       refuse(`${plan.id} step failed (${result.error?.message ?? `exit ${result.status}`}): ${commandText}\nstdout:\n${result.stdout ?? ""}\nstderr:\n${result.stderr ?? ""}`);
     }
     row.ok = true;
+    // GATE-CONTRACT GC-A08: a broker compiles a `cargo test` and never runs it. Its reply names that; the executables its JSON listing
+    // names are then run here, outside the broker, exactly as the gate's class B test rows run them (runCompiledTests).
+    if (row.isTest && step.command === "cargo" && BROKER_COMPILED_ONLY.test(`${result.stderr ?? ""}\n${result.stdout ?? ""}`)) {
+      const ran = await (deps.runCompiledTests ?? runCompiledTests)({ unit, step, result, cwd: stepCwd, env: step.env ? { ...env, ...step.env } : env });
+      if (ran.status !== "pass") { steps.push(row); refuse(`${plan.id} tests not run or failed (${ran.code}): ${ran.detail}`); }
+      // SKIP markers come from the executables' own output, read the way the old in-cargo run was read.
+      // An output cut at the kept tail could hide an early SKIP line; such a run proves nothing.
+      if ((ran.outputs ?? []).some((o) => o?.truncated === true)) { steps.push(row); refuse(`${plan.id}: a test executable's output exceeded the kept tail, so its SKIP markers cannot be counted`); }
+      const marks = new ResultScanner(); for (const o of ran.outputs ?? []) { marks.push(`${o?.stdout ?? ""}\n`); marks.push(`${o?.stderr ?? ""}\n`); }
+      const scanned = marks.finish();
+      Object.assign(row, { executed: ran.results.pass, failed: ran.results.fail, ignored: ran.results.skipped, skipped: scanned.skipped, binaries: ran.results.binaries });
+      steps.push(row);
+      continue;
+    }
     if (row.isTest) {
       const out = new ResultScanner(); const err = new ResultScanner();
       out.push(result.stdout ?? ""); err.push(result.stderr ?? "");
