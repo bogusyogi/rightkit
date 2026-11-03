@@ -24,10 +24,12 @@ fn qa_background_selector_is_compiled_out_of_product_releases() {
     let lifecycle = std::fs::read_to_string(root.join("src/lifecycle.rs"))
         .unwrap()
         .replace("\r\n", "\n");
-    assert!(lifecycle
-        .contains("#[cfg(not(feature = \"qa-probes\"))]\npub fn qa_background() -> bool {\n    false\n}"));
-    assert!(lifecycle
-        .contains("#[cfg(not(feature = \"qa-probes\"))]\npub fn qa_hidden() -> bool {\n    false\n}"));
+    assert!(lifecycle.contains(
+        "#[cfg(not(feature = \"qa-probes\"))]\npub fn qa_background() -> bool {\n    false\n}"
+    ));
+    assert!(lifecycle.contains(
+        "#[cfg(not(feature = \"qa-probes\"))]\npub fn qa_hidden() -> bool {\n    false\n}"
+    ));
     let notify = std::fs::read_to_string(root.join("src/notify.rs")).unwrap();
     assert!(!notify.contains("RIGHTKIT_QA_BACKGROUND"));
     assert!(notify.contains("crate::lifecycle::qa_background()"));
