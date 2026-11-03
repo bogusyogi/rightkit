@@ -121,6 +121,9 @@ export function walkSnapshot({ dir, tracked, dependencyRoots = new Set(), run = 
   return { entries, problems };
 }
 
+/** tauri-build's generated schema files, `<app crate>/gen/schemas/<name>.json`. */
+export const TAURI_GEN_SCHEMA = /(?:^|\/)gen\/schemas\/[^/]+\.json$/;
+
 /** What changed between two entry lists: `{ added, changed, removed }` as paths. */
 export function diffEntries(before, after) {
   const b = new Map(before.map((e) => [e.path, e])); const a = new Map(after.map((e) => [e.path, e]));
@@ -144,7 +147,9 @@ export function attributionProblems({ before, after, reported, receipt, removabl
   // the staged sidecar outputs of the step's own earlier staging, which a `wipeStageDir` re-stage deletes); nothing else may be removed.
   const removableSet = new Set(removable);
   const problems = [];
-  for (const p of [...d.added, ...d.changed]) if (!allowed.has(p)) problems.push(`${p} was written by the staging step but it did not report it`);
+  // tauri-build writes its capability and ACL schemas to `<app crate>/gen/schemas/*.json` on every build of a Tauri crate; the folder is
+  // ignored by the app's own rules (checked in the walk) and is that build script's fixed output, not an unattributed write (Pulse, 2026-11-03).
+  for (const p of [...d.added, ...d.changed]) if (!allowed.has(p) && !TAURI_GEN_SCHEMA.test(p)) problems.push(`${p} was written by the staging step but it did not report it`);
   for (const p of d.removed) if (!removableSet.has(p)) problems.push(`${p} was removed by the staging step`);
   const present = new Set(after.map((e) => e.path));
   for (const p of allowed) if (!present.has(p)) problems.push(`${p} was reported by the staging step but is not in the snapshot as a ledger entry`);
