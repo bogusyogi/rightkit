@@ -774,9 +774,10 @@ async function* publishUnitStages(parsed, deps, batch) {
     }
     steps.push(row);
   }
-  const verdict = judgeUnit({ name: unit, steps: steps.map((s) => ({ ...s, unit: plan.id })), allowIgnored: ignoredAllowed ? [unit] : [], allowMissingAssets: isAssetGated ? [unit] : [] });
+  const verdict = judgeUnit({ name: unit, steps: steps.map((s) => ({ ...s, unit: plan.id })), allowNoTests: kind === "cargo", allowIgnored: ignoredAllowed ? [unit] : [], allowMissingAssets: isAssetGated ? [unit] : [] });
   if (verdict.status === "fail" || steps.some((s) => s.failed > 0)) refuse(`${plan.id} not qualified: ${verdict.problems.join("; ") || "failed tests reported"}`);
-  if (!(verdict.executed > 0)) refuse(`${plan.id} executed no test`);
+  // End-to-end tests only (Adrian, 2026-11-03): a crate with no test of its own publishes; an npm unit still needs its test script to run.
+  if (kind !== "cargo" && !(verdict.executed > 0)) refuse(`${plan.id} executed no test`);
   log(`[right-release] ${plan.id}: ${verdict.executed} passed, 0 failed, ${verdict.skipped} skipped, ${verdict.ignored} ignored${isAssetGated ? " (asset-gated: RIGHTKIT_REQUIRE_ASSETS=0, skips recorded)" : ""}`);
   const packageEnv = yield { stage: "compile", kind, name: unit, version, commit: head, brokerRequests: brokerRequests.splice(0) };
   if (packageEnv) Object.assign(env, testEnv({ env: packageEnv }, isAssetGated));

@@ -2,6 +2,7 @@
 
 ## 0.6.40 (unpublished)
 
+- **A crate with no test of its own publishes (end-to-end tests only, Adrian 2026-11-03).** 0.6.38 let a zero-test Rust row pass in the gate, but the unit publish (`--to compile --unit cargo:<crate>`) still refused "executed no test". `judgeUnit` takes `allowNoTests` (cargo units): a test command that ran nothing and reported no failure, skip or ignore qualifies. npm units are unchanged.
 - **Staging accepts tauri-build's generated schemas.** A sidecar staging step that builds a Tauri crate makes tauri-build write `<app crate>/gen/schemas/*.json` (ignored by the app), and the attribution check refused it as an unreported write (Pulse on the Dell, 2026-11-03: "hub/src-tauri/gen/schemas/... was written by the staging step but it did not report it"). Those files are now accepted; any other unreported write still fails.
 - **No `test:scripts-ci` row when `scripts/ci` has no `*.test.mjs`.** A repo that deleted its scripts/ci unit tests under the end-to-end-only ruling (Legion, 2026-11-03) got a row running `node --test scripts/ci/*.test.mjs`, which matched nothing and failed "executed no test".
 - **An empty advisory ignore list needs no ledger.** The app advisory-exceptions scan read the @rightkit/config template's commented example inside `ignore = [ ... ]` as an entry and demanded `.rightkit/advisory-exceptions.json` (CutRight, 2026-11-03). TOML comments are now dropped before the check.
