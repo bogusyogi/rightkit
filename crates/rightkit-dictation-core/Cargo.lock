@@ -724,7 +724,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "getrandom",
  "secret-service",
@@ -737,7 +737,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "getrandom",
  "rightkit-child-process",
@@ -751,7 +751,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "rightkit-credentials",
  "rightkit-fs",
@@ -774,7 +774,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "getrandom",
  "libc",
@@ -787,7 +787,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc",
  "serde",
@@ -797,7 +797,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-speech-client"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "rightkit-daemon",
  "rightkit-sidecar",
@@ -808,11 +808,11 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "rightkit-transcript"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -821,7 +821,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript-library"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "http",
  "serde",

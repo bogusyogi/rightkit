@@ -892,7 +892,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-embed"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "objc2",
  "objc2-core-ml",
@@ -931,7 +931,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "half",
  "ort",
@@ -943,7 +943,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "rusqlite"
