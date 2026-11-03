@@ -285,7 +285,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crash"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",
@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "getrandom",
  "rightkit-child-process",
@@ -330,7 +330,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-crash",
@@ -348,7 +348,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "getrandom",
  "libc",
@@ -361,7 +361,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc",
  "serde",

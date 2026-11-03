@@ -1059,7 +1059,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-context-protocol",
  "serde",
@@ -1069,7 +1069,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",
@@ -1091,7 +1091,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-embed"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "objc2",
  "objc2-core-ml",
@@ -1107,7 +1107,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-file-watch"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "notify",
  "rightkit-child-process",
@@ -1126,7 +1126,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -1139,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "half",
  "ort",
@@ -1207,7 +1207,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-repo-graph-grammars"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cc",
  "tree-sitter-language",

@@ -307,7 +307,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rightkit-automation"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "core-foundation",
  "core-graphics",
@@ -330,7 +330,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "getrandom",
  "rightkit-child-process",
@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc",
  "serde",

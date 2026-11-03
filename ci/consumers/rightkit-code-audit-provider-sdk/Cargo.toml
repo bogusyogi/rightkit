@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-code-audit-provider-sdk = { version = "=0.1.0" }
+rightkit-code-audit-provider-sdk = { version = "=0.1.1" }
 

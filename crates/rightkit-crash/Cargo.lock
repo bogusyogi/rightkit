@@ -273,7 +273,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crash"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",
@@ -294,7 +294,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "getrandom 0.4.3",
  "libc",

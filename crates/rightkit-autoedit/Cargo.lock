@@ -1771,7 +1771,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -1781,7 +1781,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "hound",
  "rightkit-ffmpeg",
@@ -1792,7 +1792,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-autoedit"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blake3",
  "chrono",
@@ -1809,7 +1809,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-cache"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -1818,7 +1818,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-captions"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "rightkit-timeline",
@@ -1838,7 +1838,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "getrandom",
  "rightkit-child-process",
@@ -1863,7 +1863,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-engine-host"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-app-settings",
  "rightkit-cache",
@@ -1901,7 +1901,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-db",
@@ -1914,7 +1914,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc",
  "serde",
@@ -1924,7 +1924,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-timeline"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-ffmpeg",
  "rightkit-fs",
@@ -1935,7 +1935,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1944,7 +1944,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-typeset"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "thiserror",
  "typst",
@@ -1954,7 +1954,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-video-project"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "rightkit-audio",

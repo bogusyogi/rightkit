@@ -1879,7 +1879,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -1889,7 +1889,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "hound",
  "rightkit-ffmpeg",
@@ -1900,7 +1900,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-cache"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -1909,7 +1909,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-captions"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "rightkit-timeline",
@@ -1929,7 +1929,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -1954,7 +1954,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-engine-host"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-app-settings",
  "rightkit-cache",
@@ -2002,7 +2002,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-db",
@@ -2015,7 +2015,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-motion"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "chrono",
  "image",
@@ -2033,7 +2033,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc",
  "serde",
@@ -2043,7 +2043,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-timeline"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-ffmpeg",
  "rightkit-fs",
@@ -2054,7 +2054,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2063,7 +2063,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-typeset"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "thiserror",
  "typst",
@@ -2073,7 +2073,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-video-project"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "rightkit-audio",
@@ -2209,7 +2209,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3468,7 +3468,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

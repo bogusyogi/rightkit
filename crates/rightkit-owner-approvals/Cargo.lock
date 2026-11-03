@@ -768,7 +768,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",
@@ -781,7 +781,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "serde_json",
@@ -789,7 +789,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-device-link-types"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-crypto",
  "serde",
@@ -806,7 +806,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -819,7 +819,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-owner-approvals"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "rightkit-app-host",

@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-video-project = { version = "=0.1.0" }
-rightkit-timeline = { version = "=0.1.0" }
+rightkit-video-project = { version = "=0.1.1" }
+rightkit-timeline = { version = "=0.1.1" }

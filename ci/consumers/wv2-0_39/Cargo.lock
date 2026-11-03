@@ -2573,7 +2573,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "windows",
 ]
@@ -2588,7 +2588,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -2611,7 +2611,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-sidecar",
@@ -2642,7 +2642,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc",
  "serde",

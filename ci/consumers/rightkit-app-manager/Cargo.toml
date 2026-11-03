@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-app-manager = { version = "=0.1.0" }
+rightkit-app-manager = { version = "=0.1.1" }
 

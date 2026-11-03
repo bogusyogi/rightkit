@@ -204,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-adapt"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-agent-engine-storage",
  "rightkit-crypto",
@@ -216,7 +216,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-time",
  "serde",
@@ -226,7 +226,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-storage"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-agent-engine-protocol",
  "rightkit-crypto",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "serde_json",
@@ -272,11 +272,11 @@ dependencies = [
 
 [[package]]
 name = "rightkit-search"
-version = "0.4.1"
+version = "0.4.2"
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "rusqlite"

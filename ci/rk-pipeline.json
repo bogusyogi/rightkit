@@ -83,35 +83,35 @@
         "reason": "ci/asset-gated.json: its tests need FFmpeg and ffprobe development builds the publish workflow does not provision; those tests skip hosted and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-motion": {
-        "version": "0.2.1",
+        "version": "0.2.2",
         "allow": [
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: the #[ignore]d tests/encode_e2e.rs needs an ffmpeg binary and encoders the publish workflow does not provision; a missing ffmpeg prints SKIP hosted."
       },
       "rightkit-asr": {
-        "version": "0.4.0",
+        "version": "0.4.1",
         "allow": [
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: Whisper library (RIGHTKIT_WHISPER_LIB), ASR models and audio fixtures; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-automation": {
-        "version": "0.6.4",
+        "version": "0.6.5",
         "allow": [
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: desktop session for the end-to-end tests (e2e_mac, e2e_win); the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-browser": {
-        "version": "0.3.7",
+        "version": "0.3.8",
         "allow": [
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: Chrome for Testing for the end-to-end tests; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-onnx": {
-        "version": "0.2.9",
+        "version": "0.2.10",
         "allow": [
           "allow_missing_assets"
         ],
@@ -140,28 +140,28 @@
         "reason": "ci/asset-gated.json npm: one tooling test is skipped on win32 by design (POSIX shebang scanner fixture); the package's remaining tests and both hosts' verify still qualify it."
       },
       "rightkit-color": {
-        "version": "0.1.0",
+        "version": "0.1.1",
         "allow": [
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: editing FFmpeg and ffprobe (RIGHTKIT_FFMPEG, RIGHTKIT_FFPROBE) for tests/ffmpeg.rs; a missing build prints SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes it fail; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-video-project": {
-        "version": "0.1.0",
+        "version": "0.1.1",
         "allow": [
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: editing FFmpeg and ffprobe (RIGHTKIT_FFMPEG, RIGHTKIT_FFPROBE) and a talking-head clip (RIGHTKIT_TALKING_HEAD_CLIP) for tests/ingest.rs, tests/render_polish.rs and tests/audio_processing_real.rs; missing assets print SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes them fail; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-autoedit": {
-        "version": "0.1.1",
+        "version": "0.1.2",
         "allow": [
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: editing FFmpeg (RIGHTKIT_FFMPEG) and a font (RIGHTKIT_FONT) for the variants compare render in tests/variants_variants.rs; a missing build prints SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes it fail; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-reframe": {
-        "version": "0.1.0",
+        "version": "0.1.1",
         "allow": [
           "allow_missing_assets"
         ],
@@ -175,7 +175,7 @@
         "reason": "ci/asset-gated.json: editing FFmpeg and ffprobe (RIGHTKIT_FFMPEG, RIGHTKIT_FFPROBE), a talking-head clip (RIGHTKIT_TALKING_HEAD_CLIP) and a font (RIGHTKIT_FONT) for tests/render.rs; missing assets print SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes it fail. tests/llm.rs has one #[ignore]d live-LLM test.; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-evidence-effects": {
-        "version": "0.1.0",
+        "version": "0.1.1",
         "allow": [
           "allow_missing_assets"
         ],

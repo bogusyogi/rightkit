@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-agent-transcript = { version = "=0.1.0" }
+rightkit-agent-transcript = { version = "=0.1.1" }
 

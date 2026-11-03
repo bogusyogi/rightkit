@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-google-identity = { version = "=0.2.0" }
+rightkit-google-identity = { version = "=0.2.1" }

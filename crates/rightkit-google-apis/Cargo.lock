@@ -1252,7 +1252,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",
@@ -1265,7 +1265,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "serde_json",
@@ -1280,7 +1280,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-google-apis"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "futures",
@@ -1315,7 +1315,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-oauth"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-credentials",
@@ -1327,7 +1327,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "ring"

@@ -117,7 +117,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-context-protocol",
  "serde",
@@ -127,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",
@@ -147,7 +147,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "getrandom",
  "libc",

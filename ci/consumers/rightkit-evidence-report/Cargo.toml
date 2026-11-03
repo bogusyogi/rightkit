@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-evidence-report = { version = "=0.1.0" }
+rightkit-evidence-report = { version = "=0.1.1" }
 

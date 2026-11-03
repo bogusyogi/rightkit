@@ -784,7 +784,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media-fetch"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-ffmpeg",
@@ -800,14 +800,14 @@ dependencies = [
 
 [[package]]
 name = "rightkit-search"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "rusqlite",
 ]
 
 [[package]]
 name = "rightkit-transcript"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -816,7 +816,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-web-extract"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "libloading",
  "regex",

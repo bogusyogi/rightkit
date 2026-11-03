@@ -873,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-time",
  "serde",
@@ -883,7 +883,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-policy"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "globset",
  "libc",
@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-bot-messaging"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "rightkit-agent-engine-protocol",
@@ -917,7 +917,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "serde_json",
@@ -950,7 +950,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "ring"

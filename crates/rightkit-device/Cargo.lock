@@ -903,7 +903,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",
@@ -916,7 +916,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-device"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-credentials",
@@ -935,7 +935,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "base64",
  "ed25519-dalek",

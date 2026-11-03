@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-playback = { version = "=0.3.0", features = ["tauri"] }
+rightkit-playback = { version = "=0.3.1", features = ["tauri"] }
 tauri = { version = "2", default-features = false, features = ["test"] }

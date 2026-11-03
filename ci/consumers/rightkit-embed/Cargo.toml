@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-embed = { version = "=0.6.2" }
+rightkit-embed = { version = "=0.6.3" }
 rightkit-db = { version = "0.5", features = ["bundled"] }

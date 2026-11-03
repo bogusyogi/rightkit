@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-vad = { version = "=0.1.2" }
+rightkit-vad = { version = "=0.1.3" }

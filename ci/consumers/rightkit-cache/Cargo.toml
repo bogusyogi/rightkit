@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-cache = { version = "=0.2.3" }
+rightkit-cache = { version = "=0.2.4" }

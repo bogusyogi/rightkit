@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-local-gen = { version = "=0.1.0" }
+rightkit-local-gen = { version = "=0.1.1" }
 

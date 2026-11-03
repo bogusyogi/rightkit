@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-llm = { version = "=0.3.2" }
+rightkit-llm = { version = "=0.3.3" }

@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-hotkeys = { version = "=0.1.2" }
+rightkit-hotkeys = { version = "=0.1.3" }

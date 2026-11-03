@@ -287,7 +287,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-bench"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-db",
  "scraper",

@@ -706,7 +706,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media-fetch"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-ffmpeg",
@@ -722,7 +722,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-web-extract"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "libloading",
  "regex",

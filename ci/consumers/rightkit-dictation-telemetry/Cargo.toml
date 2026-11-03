@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-dictation-telemetry = { version = "=0.1.0" }
+rightkit-dictation-telemetry = { version = "=0.1.1" }

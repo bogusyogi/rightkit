@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-android = { version = "=0.3.0" }
+rightkit-android = { version = "=0.3.1" }

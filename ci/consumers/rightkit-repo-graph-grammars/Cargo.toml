@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-repo-graph-grammars = { version = "=0.1.0" }
+rightkit-repo-graph-grammars = { version = "=0.1.1" }
 

@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-timeline"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-ffmpeg",
  "rightkit-fs",

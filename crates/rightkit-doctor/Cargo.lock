@@ -264,7 +264,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "serde_json",
@@ -272,7 +272,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "getrandom",
  "rightkit-child-process",
@@ -297,7 +297,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-doctor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-crypto",
  "rightkit-engine-host",
@@ -307,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-engine-host"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-daemon",
  "rightkit-job-queue",
@@ -326,7 +326,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-db",
@@ -339,7 +339,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc",
  "serde",

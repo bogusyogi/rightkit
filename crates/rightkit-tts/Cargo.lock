@@ -341,7 +341,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "ort",
  "serde",
@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -361,7 +361,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tts"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "libc",
  "rightkit-child-process",
@@ -376,7 +376,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tts-qwen"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "getrandom",
  "hound",
@@ -389,7 +389,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tts-qwen-sys"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "cmake",
 ]

@@ -965,7 +965,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1202,7 +1202,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1891,7 +1891,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -2674,7 +2674,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 3.5.0",
+ "proc-macro-crate 1.3.1",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -3450,7 +3450,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -3468,7 +3468,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crash"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",
@@ -3479,7 +3479,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "block2",
  "getrandom 0.4.3",
@@ -3496,7 +3496,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -3529,7 +3529,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-sidecar",
@@ -3540,7 +3540,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -3554,7 +3554,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -3569,7 +3569,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "dirs 7.0.0",
  "flate2",
@@ -3586,7 +3586,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-overlay"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "windows-sys 0.61.2",
@@ -3594,7 +3594,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-pdf"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "block2",
  "lopdf",
@@ -3610,7 +3610,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc",
  "serde",
@@ -3695,7 +3695,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3752,7 +3752,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4715,7 +4715,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5623,7 +5623,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6117,7 +6117,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d6f32a0ff4a9f6f01231eb2059cc85479330739333e0e58cadf03b6af2cca10"
 dependencies = [
  "cfg-if",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-text-polish = { version = "=0.1.0" }
+rightkit-text-polish = { version = "=0.1.1" }

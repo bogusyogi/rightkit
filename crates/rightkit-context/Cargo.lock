@@ -570,7 +570,7 @@ checksum = "ad5208a115eaba24916f7456929832e310a81518c641f93fee4f89aa93aa3675"
 dependencies = [
  "cfg-if",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -618,7 +618,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2328,7 +2328,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rightkit-adapt-taste"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "regex",
  "rightkit-agent-transcript",
@@ -2341,7 +2341,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-transcript"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "regex",
  "rightkit-fs",
@@ -2377,7 +2377,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-context-protocol",
  "rightkit-daemon",
@@ -2386,7 +2386,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-context-protocol",
  "serde",
@@ -2415,7 +2415,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",
@@ -2426,7 +2426,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-provider-sdk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "rightkit-context-protocol",
@@ -2481,7 +2481,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crash"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",
@@ -2492,7 +2492,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -2517,7 +2517,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-embed"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "objc2",
  "objc2-core-ml",
@@ -2533,7 +2533,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-file-watch"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "notify",
  "rightkit-child-process",
@@ -2552,7 +2552,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hooks"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -2560,7 +2560,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -2587,7 +2587,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-memory-store"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "rightkit-context-protocol",
@@ -2602,7 +2602,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "half",
  "ort",
@@ -2670,7 +2670,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-repo-graph-grammars"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -2678,7 +2678,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc",
  "serde",
@@ -2688,7 +2688,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sync"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -2698,7 +2698,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "ring"
@@ -2744,7 +2744,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2947,10 +2947,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3534,7 +3534,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

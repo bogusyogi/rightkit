@@ -575,7 +575,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1640,7 +1640,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-db",
  "rightkit-fs",
@@ -1659,7 +1659,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-compose"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "image",
  "rightkit-crypto",
@@ -1672,7 +1672,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",
@@ -1685,7 +1685,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "serde_json",
@@ -1693,7 +1693,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -1718,7 +1718,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-device"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-license",
@@ -1757,7 +1757,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-daemon",
@@ -1772,7 +1772,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -1782,7 +1782,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-local-gen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "image",
  "rand",
@@ -1804,7 +1804,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -1846,7 +1846,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "dirs",
  "flate2",
@@ -1863,7 +1863,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "half",
  "ort",
@@ -1889,14 +1889,14 @@ dependencies = [
 
 [[package]]
 name = "rightkit-search"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "rusqlite",
 ]
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc",
  "serde",
@@ -1906,7 +1906,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-spend"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-db",
  "thiserror",
@@ -1914,11 +1914,11 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "rightkit-tts"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -1974,7 +1974,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2031,7 +2031,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2331,7 +2331,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2791,7 +2791,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

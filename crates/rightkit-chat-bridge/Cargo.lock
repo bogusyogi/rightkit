@@ -296,7 +296,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rightkit-ai-accounts"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-app-host",
  "rightkit-child-process",
@@ -317,7 +317,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -327,7 +327,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-chat-bridge"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "rightkit-ai-accounts",
@@ -361,7 +361,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "serde_json",
@@ -369,7 +369,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -394,7 +394,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-device-link-types"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-crypto",
  "serde",
@@ -411,7 +411,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hooks"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -419,7 +419,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -432,7 +432,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc",
  "serde",
@@ -442,7 +442,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "ring"

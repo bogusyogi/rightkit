@@ -354,7 +354,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rightkit-app-manager"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "rightkit-child-process",
@@ -369,7 +369,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -387,7 +387,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-disk-cleanup"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "rightkit-app-settings",
@@ -412,7 +412,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fsindex"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "libc",
  "memchr",
@@ -432,11 +432,11 @@ dependencies = [
 
 [[package]]
 name = "rightkit-search"
-version = "0.4.1"
+version = "0.4.2"
 
 [[package]]
 name = "rightkit-system-monitor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "rightkit-app-settings",
@@ -450,7 +450,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "ring"

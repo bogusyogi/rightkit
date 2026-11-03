@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-social-publish = { version = "=0.1.1" }
+rightkit-social-publish = { version = "=0.1.2" }
 serde_json = "1"

@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-tts = { version = "=0.2.3" }
+rightkit-tts = { version = "=0.2.4" }
 serde_json = "1"

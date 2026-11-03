@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-policy-rules = { version = "=0.1.0" }
+rightkit-policy-rules = { version = "=0.1.1" }
 

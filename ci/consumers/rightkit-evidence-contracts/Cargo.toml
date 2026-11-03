@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-evidence-contracts = { version = "=0.1.0" }
+rightkit-evidence-contracts = { version = "=0.1.1" }
 serde_json = "1"

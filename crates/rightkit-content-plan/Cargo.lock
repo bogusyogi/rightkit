@@ -704,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-cache"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -721,7 +721,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-content-plan"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-fs",
  "rightkit-platform-rules",
@@ -754,7 +754,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -767,7 +767,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-platform-rules"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -775,7 +775,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-social-analytics"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-fs",
  "rightkit-http",
@@ -786,7 +786,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-social-publish"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-cache",
  "rightkit-fs",
@@ -800,7 +800,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "ring"

@@ -1648,7 +1648,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rightkit-audio"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "hound",
  "rightkit-ffmpeg",
@@ -1659,7 +1659,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-captions"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "rightkit-timeline",
@@ -1679,7 +1679,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-color"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-ffmpeg",
  "rightkit-fs",
@@ -1710,7 +1710,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "rightkit-child-process",
  "serde",
@@ -1719,7 +1719,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-pipeline"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blake3",
  "rightkit-audio",
@@ -1736,7 +1736,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-timeline"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-ffmpeg",
  "rightkit-fs",
@@ -1747,7 +1747,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1756,7 +1756,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-typeset"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "thiserror",
  "typst",

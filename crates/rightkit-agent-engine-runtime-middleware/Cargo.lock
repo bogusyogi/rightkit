@@ -104,7 +104,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-runtime-middleware"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-fs",
  "serde",

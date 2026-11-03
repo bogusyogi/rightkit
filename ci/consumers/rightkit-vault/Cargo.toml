@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-vault = { version = "=0.2.0" }
+rightkit-vault = { version = "=0.2.1" }
 rightkit-credentials = { version = "=0.4.3" }

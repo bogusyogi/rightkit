@@ -880,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-docs"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "base64",
  "calamine",
@@ -908,7 +908,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-pdf"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "fontdb",
  "getrandom",

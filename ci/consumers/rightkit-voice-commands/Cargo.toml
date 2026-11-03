@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-voice-commands = { version = "=0.1.0" }
+rightkit-voice-commands = { version = "=0.1.1" }

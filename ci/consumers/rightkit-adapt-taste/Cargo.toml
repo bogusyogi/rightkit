@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-adapt-taste = { version = "=0.1.0" }
+rightkit-adapt-taste = { version = "=0.1.1" }
 serde_json = "1"

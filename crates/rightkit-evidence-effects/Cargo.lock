@@ -349,7 +349,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-evidence-contracts"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hex",
  "serde",
@@ -360,7 +360,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-evidence-effects"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hex",
  "libc 1.0.0-alpha.5",
@@ -375,7 +375,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "libc 0.2.191",
  "portable-pty",

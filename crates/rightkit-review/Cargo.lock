@@ -640,7 +640,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc 0.2.191",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2128,7 +2128,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2308,7 +2308,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "hound",
  "rightkit-ffmpeg",
@@ -2319,7 +2319,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-captions"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "rightkit-timeline",
@@ -2339,7 +2339,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-code-audit-provider-sdk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -2358,7 +2358,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-evidence-contracts"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hex",
  "serde",
@@ -2369,7 +2369,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-evidence-effects"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hex",
  "libc 1.0.0-alpha.5",
@@ -2428,7 +2428,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "libc 0.2.191",
  "portable-pty",
@@ -2438,7 +2438,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-timeline"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-ffmpeg",
  "rightkit-fs",
@@ -2449,7 +2449,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2458,7 +2458,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-typeset"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "thiserror 2.0.21",
  "typst",
@@ -2468,7 +2468,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-video-project"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "rightkit-audio",
@@ -2546,7 +2546,7 @@ dependencies = [
  "errno",
  "libc 0.2.191",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2603,7 +2603,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3082,7 +3082,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4105,7 +4105,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

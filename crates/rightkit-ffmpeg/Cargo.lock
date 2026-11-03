@@ -1021,7 +1021,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-time",
  "serde",
@@ -1031,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-policy"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "globset",
  "libc",
@@ -1057,7 +1057,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "serde_json",
@@ -1105,7 +1105,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ocr"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "image",
  "objc2",
@@ -1120,7 +1120,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "ring"

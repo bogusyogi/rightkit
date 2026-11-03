@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-time = { version = "=0.1.1" }
+rightkit-time = { version = "=0.1.2" }

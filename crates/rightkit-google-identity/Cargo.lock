@@ -700,7 +700,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "getrandom",
  "secret-service",
@@ -713,7 +713,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-google-identity"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "getrandom",
  "rightkit-credentials",

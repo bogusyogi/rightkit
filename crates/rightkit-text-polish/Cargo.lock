@@ -66,7 +66,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rightkit-text-polish"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "regex",
  "rightkit-voice-commands",
@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-voice-commands"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
 ]
