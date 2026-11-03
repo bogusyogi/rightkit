@@ -240,6 +240,8 @@ fn sync_read_only(path: &Path, refused: io::Error) -> io::Result<()> {
     if !permissions.readonly() {
         return Err(refused);
     }
+    // Windows: the read-only attribute is the whole permission set; clearing it is the point.
+    #[allow(clippy::permissions_set_readonly_false)]
     permissions.set_readonly(false);
     fs::set_permissions(path, permissions)?;
     let flushed = fs::OpenOptions::new()
