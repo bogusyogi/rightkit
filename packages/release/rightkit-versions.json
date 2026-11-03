@@ -49,7 +49,7 @@
     "@rightkit/qa": "0.6.2",
     "@rightkit/qa-chrome": "0.1.12",
     "@rightkit/react-shell": "0.7.2",
-    "@rightkit/release": "0.6.28",
+    "@rightkit/release": "0.6.29",
     "@rightkit/settings-ui": "0.7.0",
     "@rightkit/social-ui": "0.1.0",
     "@rightkit/system-ui": "0.1.0",

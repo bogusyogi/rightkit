@@ -1,19 +1,24 @@
 #!/usr/bin/env node
 // `right-release build-helpers check [--manifest-path <Cargo.toml>]` (Class A, rightkit#1450) and
-// `right-release build-helpers trace [--manifest-path <Cargo.toml>]` (the one-time trace: eslogger on macOS (sudo + Full Disk Access), strace -ff on Linux, ETW on Windows (Administrator)).
+// `right-release build-helpers trace [--manifest-path <Cargo.toml>]` (the one-time trace: eslogger on macOS (sudo + Full Disk Access), ETW on Windows (Administrator)).
+// Only broker hosts (Mac, Dell) vet build helpers (Adrian, 2026-11-03: "linux is the wrong target and it has to be only where we have brokers"):
+// a Linux host or CI runner is a throwaway container, so check and trace do nothing there.
 //
 // check: reads the workspace's resolved graph (`cargo metadata --format-version 1 --locked`, a non-compiling call run directly: GATE-CONTRACT
 // GC-A11), its Cargo.lock, the host triple and toolchain (`rustc -vV`), and the host list, and refuses (exit 1) when any build-helper unit is
 // untraced or traced as writing outside its build directories, naming each.
 // trace: for each untraced unit, builds the workspace's dependency alone (`cargo build -p <crate>@<version> --locked`) under the host's tracer, into a
 // scratch target, judges every write against OUT_DIR / target / CARGO_HOME / temp, and records the verdict in the host list.
-// check --trace-missing (Linux only, where strace needs no admin; CI and Linux hosts): untraced units are traced first, then judged.
+// Units are listed per target the host compiles: its own and the two cross-check targets (GC-A14), each from `cargo metadata --filter-platform`.
+// A unit that does not build on this host for its target is recorded once as unbuildable and skipped (Adrian, 2026-11-03: "if it's not compiling
+// on the OS, and doesn't generate output ... why not skip it?"): the gate's own scan cannot build it there either.
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildHelperRefusal, buildHelperUnits, checkBuildHelpers, hostListPath, esloggerWritesByRoot, etwWritesByRoot, judgeTrace, mergeLists, parseStraceWrites, readStraceFiles, readHostList, recordTrace, repoListPath } from "./build-helper-trace.mjs";
+import { buildHelperRefusal, buildHelperUnits, checkBuildHelpers, hostListPath, esloggerWritesByRoot, etwWritesByRoot, judgeTrace, mergeLists, readHostList, recordTrace, repoListPath } from "./build-helper-trace.mjs";
+import { crossCompileEnv, crossTargetsFor } from "./cross-targets.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { directCargoPath } from "./managed-cargo.mjs";
 
@@ -43,13 +48,19 @@ const start = (i) => new Promise((resolve) => {
 const worker = async () => { while (next < jobs.length) { const i = next++; await start(i); } };
 Promise.all(Array.from({ length: Math.min(limit, jobs.length) }, worker)).then(() => fs.writeFileSync(process.argv[2], JSON.stringify(results)));`;
 
-export function inventory({ manifestPath, run = spawnSync, readFile = (f) => fs.readFileSync(f, "utf8") }) {
-  const args = ["metadata", "--format-version", "1", "--locked", ...(manifestPath ? ["--manifest-path", manifestPath] : [])];
-  const r = run("cargo", args, { encoding: "utf8", maxBuffer: 1 << 28 });
-  if (r.error || r.status !== 0) throw new Error(`cargo ${args.join(" ")} failed (${r.error?.message ?? `exit ${r.status}`}): ${String(r.stderr ?? "").trim().split(/\r?\n/).slice(-2).join(" | ")}`);
-  const metadata = JSON.parse(r.stdout);
-  const lockText = readFile(path.join(metadata.workspace_root, "Cargo.lock"));
-  return { metadata, units: buildHelperUnits(metadata, lockText, hostFacts(run)) };
+export function inventory({ manifestPath, run = spawnSync, readFile = (f) => fs.readFileSync(f, "utf8"), platform = process.platform }) {
+  const host = hostFacts(run);
+  // The host's own target plus the two targets every crate is cross-checked for: each target's resolved graph and features.
+  const targets = [host.target, ...crossTargetsFor({}, platform)];
+  let metadata = null; const units = [];
+  for (const target of targets) {
+    const args = ["metadata", "--format-version", "1", "--locked", "--filter-platform", target, ...(manifestPath ? ["--manifest-path", manifestPath] : [])];
+    const r = run("cargo", args, { encoding: "utf8", maxBuffer: 1 << 28 });
+    if (r.error || r.status !== 0) throw new Error(`cargo ${args.join(" ")} failed (${r.error?.message ?? `exit ${r.status}`}): ${String(r.stderr ?? "").trim().split(/\r?\n/).slice(-2).join(" | ")}`);
+    const m = JSON.parse(r.stdout); metadata ??= m;
+    units.push(...buildHelperUnits(m, readFile(path.join(m.workspace_root, "Cargo.lock")), { target, toolchain: host.toolchain }));
+  }
+  return { metadata, units, host: host.target };
 }
 
 // Every Cargo workspace (a directory holding Cargo.lock) under `root`, skipping build outputs, dependencies and vendored copies.
@@ -119,20 +130,15 @@ function mainWith(argv, { env, platform, run, log, err }) {
   const [sub, ...rest] = argv;
   const at = rest.indexOf("--manifest-path");
   const manifestPath = at >= 0 ? rest[at + 1] : undefined;
+  if (platform !== "darwin" && platform !== "win32") { log(`right-release build-helpers ${sub}: nothing to do on ${platform}; only broker hosts (Mac, Dell) vet build helpers`); return 0; }
   const listFile = hostListPath(resolveManagedRoots({ env, platform }).dataRoot, platform);
   let inv;
-  try { inv = inventory({ manifestPath, run }); } catch (e) { err(`right-release build-helpers: ${e.message}`); return 2; }
+  try { inv = inventory({ manifestPath, run, platform }); } catch (e) { err(`right-release build-helpers: ${e.message}`); return 2; }
   // The host's own list and the repository's committed list (.rightkit/build-helper-trace.json): CI and every host read the same reviewed
   // passes, and a host traces only what neither holds.
   const repoFile = repoListPath(inv.metadata.workspace_root);
   const list = mergeLists(readHostList(listFile), readHostList(repoFile));
   const verdict = checkBuildHelpers(inv.units, list);
-  if (sub === "check" && !verdict.ok && rest.includes("--trace-missing") && platform === "linux" && verdict.untraced.length) {
-    log(`right-release build-helpers: ${verdict.untraced.length} untraced unit(s) on this Linux host; tracing them now (strace -ff)`);
-    const traced = mainWith(["trace", ...(manifestPath ? ["--manifest-path", manifestPath] : [])], { env, platform, run, log, err });
-    if (traced !== 0) return traced;
-    return mainWith(["check", ...(manifestPath ? ["--manifest-path", manifestPath] : [])], { env, platform, run, log, err });
-  }
   if (sub === "check") {
     if (verdict.ok) { log(`right-release build-helpers: ${inv.units.length} build-helper unit(s), every one traced on this host (${listFile})`); return 0; }
     for (const line of buildHelperRefusal(verdict)) err(line);
@@ -152,12 +158,20 @@ function mainWith(argv, { env, platform, run, log, err }) {
     const recordRepo = rest.includes("--record-repo");
     const cargoHome = env.CARGO_HOME ?? path.join(os.homedir(), ".cargo");
     // Parallel: `--jobs N` builds at once (default 4). Each build is its own process tree, rooted at its own cargo, in its own scratch
-    // target, and is judged only on the writes of that tree (eslogger and ETW events name their process; strace -ff writes one file per
-    // process of its own run). The cores are shared out so the builds do not fight over them.
+    // target, and is judged only on the writes of that tree (eslogger and ETW events name their process). The cores are shared out so the
+    // builds do not fight over them.
     const jobsAt = rest.indexOf("--jobs");
     const jobs = Math.max(1, Number.parseInt(jobsAt >= 0 ? rest[jobsAt + 1] : "4", 10) || 4);
     const perBuildJobs = String(Math.max(1, Math.floor(os.cpus().length / jobs)));
-    const pending = [...verdict.untraced, ...verdict.failed.map((f) => f.unit)];
+    // A cross target builds with the provisioned zig C toolchain; without it those units wait (never recorded as unbuildable).
+    const crossEnv = new Map(); const waiting = [];
+    const pending = [...verdict.untraced, ...verdict.failed.map((f) => f.unit)].filter((unit) => {
+      if (unit.target === inv.host) return true;
+      if (!crossEnv.has(unit.target)) crossEnv.set(unit.target, crossCompileEnv(unit.target, undefined, platform) ?? null);
+      if (crossEnv.get(unit.target)) return true;
+      waiting.push(unit); return false;
+    });
+    if (waiting.length) err(`right-release build-helpers trace: ${waiting.length} cross-target unit(s) not traced: the zig C toolchain is not provisioned (scripts/ci/provision-zig.mjs)`);
     log(`right-release build-helpers trace: ${pending.length} unit(s), ${jobs} at a time`);
     if (!pending.length) return 0;
     const prepared = pending.map((unit) => {
@@ -173,18 +187,17 @@ function mainWith(argv, { env, platform, run, log, err }) {
       fs.writeFileSync(path.join(probe, "src", "lib.rs"), "");
       try { fs.copyFileSync(path.join(inv.metadata.workspace_root, "Cargo.lock"), path.join(probe, "Cargo.lock")); } catch { /* the probe resolves on its own */ }
       // Release profile, like every other build (GATE-CONTRACT GC-A15): no dev or debug build anywhere, a throwaway probe included.
-      const buildArgs = ["build", "--profile", "release", "--manifest-path", path.join(probe, "Cargo.toml"), "--target-dir", target];
-      const buildEnv = { ...env, CARGO_TARGET_DIR: target, CARGO_BUILD_JOBS: perBuildJobs };
-      const straceOut = path.join(scratch, "strace");
-      const job = platform === "linux"
-        ? { cmd: "strace", args: ["-ff", "-qq", "-y", "-o", straceOut, "-e", "trace=open,openat,openat2,creat,rename,renameat,renameat2,unlink,unlinkat,mkdir,mkdirat,rmdir,link,linkat,symlink,symlinkat,truncate,chmod,fchmodat,chown,fchownat,lchown,utimensat", "cargo", ...buildArgs], env: buildEnv }
-        : { cmd: "cargo", args: buildArgs, env: buildEnv };
-      job.label = `${unit.crate} ${unit.version}`;
-      return { unit, scratch, target, straceOut, job };
+      // Built for the unit's own target, as the gate builds it: the host's, or a cross-check target with --target and zig.
+      const cross = unit.target !== inv.host;
+      const buildArgs = ["build", "--profile", "release", "--manifest-path", path.join(probe, "Cargo.toml"), "--target-dir", target, ...(cross ? ["--target", unit.target] : [])];
+      const buildEnv = { ...env, ...(cross ? crossEnv.get(unit.target) : {}), CARGO_TARGET_DIR: target, CARGO_BUILD_JOBS: perBuildJobs };
+      const job = { cmd: "cargo", args: buildArgs, env: buildEnv };
+      job.label = `${unit.crate} ${unit.version}${cross ? ` (${unit.target})` : ""}`;
+      return { unit, scratch, target, job };
     });
     const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-bht-session-"));
     const traceFile = path.join(sessionDir, "trace.txt");
-    // One tracer session for the whole run (macOS eslogger, Windows ETW); Linux traces per build through strace.
+    // One tracer session for the whole run (macOS eslogger, Windows ETW).
     let stopTracer = () => {};
     let etl = null;
     if (platform === "darwin") {
@@ -247,15 +260,21 @@ function mainWith(argv, { env, platform, run, log, err }) {
       if (exported.status !== 0) { err("right-release build-helpers trace: tracerpt could not export the ETW trace"); return 2; }
       try { recorded = fs.statSync(xml).size > 0; if (recorded) byRoot = etwWritesByRoot(xml, roots, devices); } catch { /* no output */ }
     }
-    if (platform !== "linux" && !recorded && roots.size) { err(`right-release build-helpers trace: the ${platform === "darwin" ? "eslogger" : "ETW"} session recorded nothing; nothing recorded`); return 2; }
+    if (!recorded && roots.size) { err(`right-release build-helpers trace: the ${platform === "darwin" ? "eslogger" : "ETW"} session recorded nothing; nothing recorded`); return 2; }
     prepared.forEach((b, k) => {
       const r = results[k] ?? {};
-      if (r.status !== 0 || !Number.isInteger(r.pid)) { err(`right-release build-helpers trace: ${b.unit.crate} ${b.unit.version} did not build (${r.error ?? `exit ${r.status}`}); not recorded`); return; }
-      let writes;
-      if (platform === "linux") { let text = ""; try { text = readStraceFiles(b.straceOut); } catch { /* none */ } writes = parseStraceWrites(text, { cwd: path.dirname(path.resolve(manifestPath ?? "Cargo.toml")) }); }
-      else writes = byRoot.get(r.pid) ?? [];
+      if (!Number.isInteger(r.status)) { err(`right-release build-helpers trace: ${b.unit.crate} ${b.unit.version} did not finish (${r.error ?? "no result"}); not recorded`); return; }
+      if (r.status !== 0) {
+        // It does not build here for this target, so nothing this host's gate runs builds it either: recorded once, skipped from then on.
+        const reason = String(r.error ?? `exit ${r.status}`);
+        recordTrace(listFile, b.unit, { ok: false, unbuildable: true, outside: [reason] });
+        if (recordRepo) recordTrace(repoFile, b.unit, { ok: false, unbuildable: true, outside: [reason] });
+        log(`skip ${b.unit.crate} ${b.unit.version} (${b.unit.target}): does not build on this host (${reason.slice(0, 160)})`);
+        return;
+      }
+      const writes = byRoot.get(r.pid) ?? [];
       const allowed = platform === "win32" ? [b.scratch, cargoHome, os.tmpdir(), env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, "Temp") : null]
-        : [b.scratch, cargoHome, os.tmpdir(), "/private/var/folders", "/dev", "/proc/self"];
+        : [b.scratch, cargoHome, os.tmpdir(), "/private/var/folders", "/dev"];
       // Allowed folders by their real path: a linked CARGO_HOME (~/.cargo -> /Volumes/D/...) or temp (/var -> /private/var) is reported by
       // the tracer under the real path, so comparing the link's path would fail every crate.
       const real = (d) => { try { return fs.realpathSync.native(d); } catch { return d; } };

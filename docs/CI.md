@@ -247,6 +247,11 @@ gate report names it under "Now green" for removal in next commit.
 
 ## Publishing
 
+**Current route (Adrian, 2026-11-03, rightkit#1471): local, from the Mac, no CI.** `right-release publish-local npm --package
+@rightkit/<name> --commit <sha>` publishes a pushed commit's package after the gate's Class A passes on that commit, with the Keychain
+token `npm-rightkit-publish` and npm provenance off (rightkit#1472). Crates publish locally too. Credentials, steps and who does what:
+`docs/PUBLISHING-CREDENTIALS.md`. The CI routes below are not in use.
+
 Two routes, one uploader (`scripts/ci/upload.mjs`), and registry uploads exist only in Actions:
 
 - **GitHub qualification publishes directly** (Adrian, 2026-10-22: "As soon as the qualification passes on GitHub, GitHub can
@@ -268,7 +273,7 @@ Two routes, one uploader (`scripts/ci/upload.mjs`), and registry uploads exist o
   RustRight broker, an approval commit, then `publish-reviewed.yml`). This is the route for bytes GitHub did not qualify
   and for every runtime-proof owner.
 
-A local `npm publish` of RightKit's own packages is never a route (rightkit#1297): `@rightkit/release` 0.6.10 to 0.6.13 were direct publishes with no npm provenance, skipped the loop's pre-flight receipt check and shipped a gate route nobody ran. The only publish is `publish-direct.yml` through the uploader's `--provenance` upload; a version without registry provenance is not CI-qualified and must not be pinned as a host broker's trusted entry (`admission.trustedEntry`, BR30); the current trusted-entry pins (the installed 0.6.13 on each host) are pending the 0.6.14 pin. The rule is about that pin only: an app or template that depends on the latest published `@rightkit/release` (0.6.13 today) is a registry-version question, not a trust one. The provenance definition is pending in RustRight's BR30 (BROKER-CONTRACT.md says only "published, CI-qualified" today); GATE-CONTRACT.md §1 is RightKit's side of it.
+Superseded by rightkit#1471 (local publish is the route now). Before that: a local `npm publish` of RightKit's own packages was never a route (rightkit#1297): `@rightkit/release` 0.6.10 to 0.6.13 were direct publishes with no npm provenance, skipped the loop's pre-flight receipt check and shipped a gate route nobody ran. The only publish is `publish-direct.yml` through the uploader's `--provenance` upload; a version without registry provenance is not CI-qualified and must not be pinned as a host broker's trusted entry (`admission.trustedEntry`, BR30); the current trusted-entry pins (the installed 0.6.13 on each host) are pending the 0.6.14 pin. The rule is about that pin only: an app or template that depends on the latest published `@rightkit/release` (0.6.13 today) is a registry-version question, not a trust one. The provenance definition is pending in RustRight's BR30 (BROKER-CONTRACT.md says only "published, CI-qualified" today); GATE-CONTRACT.md §1 is RightKit's side of it.
 
 Dispatch `publish.yml` only through `rightkit-gate --to release --unit <kind:name>` on a broker-managed host: its release stage
 writes the unit's qualification receipt (`<bundle>/qualification.json`, schema `rightkit.unit-qualification/1`: commit, tree,
