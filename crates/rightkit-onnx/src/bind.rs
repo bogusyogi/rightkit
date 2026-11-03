@@ -5,7 +5,7 @@
 //!
 //! The steps, in order (none of them loads the library; ort does that later):
 //!
-//! 1. [`clear_inherited_runtime_for_release`](crate::clear_inherited_runtime_for_release): an
+//! 1. [`clear_inherited_runtime_for_release`]\: an
 //!    inherited `ORT_DYLIB_PATH` is dropped unless the `dev-overrides` feature is on.
 //! 2. Candidates, first regular file wins: the developer override named by
 //!    [`BindSpec::developer_env`] (only with `dev-overrides`; a release build never reads the
@@ -22,7 +22,7 @@
 //!    entry, then the recorded binding ([`configured_runtime`]).
 //!
 //! The file is verified before it is bound, not while ort loads it: a local writer replacing it in
-//! that window is outside the check, as for [`configure_runtime_verified`](crate::configure_runtime_verified).
+//! that window is outside the check, as for [`configure_runtime_verified`].
 
 use std::cell::RefCell;
 use std::fmt;
