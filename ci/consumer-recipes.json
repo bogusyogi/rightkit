@@ -1610,7 +1610,8 @@
         "./documents/mdx/MdxPreviewFrame",
         "./documents/mdx/mdxCompiler",
         "./package.json",
-        "./styles.css"
+        "./styles.css",
+        "./documents/markdown/markdownReading.css"
       ],
       "closure": {
         "install": {
@@ -1653,6 +1654,9 @@
         "ci/consumers/npm/markdown-editor/package.json": "574d72ca53ec89c5132a25bd9bf718e4ea4c75511e32064b8959d369e293d54e",
         "ci/consumers/npm/markdown-editor/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "93635b5cffe9d4aff2a89dff78473ed73dda669306c6fafcb4e8ded10361cf18"
+      },
+      "importClosures": {
+        "./documents/markdown/markdownReading.css": {}
       }
     },
     "@rightkit/media-gen-ui": {
@@ -3128,7 +3132,7 @@
       "pkId": "PK92",
       "id": "ci/consumers/rightkit-disk-cleanup/src/main.rs",
       "files": {
-        "Cargo.toml": "8108af4b25552fe5b3e95e487336e54a1b496e31f7e179eaa1538de5c9b6aa92",
+        "Cargo.toml": "9670e8f9338292c8fc7f5d698b42452fc559658792efa29456362718565a9757",
         "README.md": "e94e1a225da26cd1130a968bed896ca944b8262c21d9d2bfbb76055b88074922",
         "src/main.rs": "5390ebfe754fad27c388cf46ba21774cf72592521f0973af82c9c9bcf275de8c"
       }

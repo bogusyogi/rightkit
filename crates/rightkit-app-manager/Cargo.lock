@@ -387,7 +387,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-disk-cleanup"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "libc",
  "rightkit-app-settings",
