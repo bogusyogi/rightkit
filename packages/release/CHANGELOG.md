@@ -1,6 +1,16 @@
 # Changelog
 
-## 0.6.29 (unpublished)
+## 0.6.30 (unpublished)
+
+Fixes found on the 2026-11-03 Mac and Dell trace runs of 0.6.29; proved on the Dell (crates/rightkit-http: every unit passes, ring and rustls included for the Linux and macOS targets) and reviewed independently before release.
+
+- **zig's caches stay inside the build.** The zig C wrapper (`scripts/ci/provision-zig.mjs`) sets `ZIG_GLOBAL_CACHE_DIR` / `ZIG_LOCAL_CACHE_DIR` under `CARGO_TARGET_DIR` (else `OUT_DIR`) unless already set, and the trace's probe builds keep them in their scratch folder. zig's default host cache failed every crate with C code for a cross target (ring, rustls, blake3, libsqlite3-sys, tree-sitter). Wrappers name Node by its real path (an elevated shell refused the Dell's `C:\nvm4w` junction, so no cross C compile ran there).
+- **The cross C compiler is proved before cross units are traced.** A one-line C file is compiled through each target's wrapper; if that fails, those units are neither built nor recorded. 0.6.29 recorded every C crate as "unbuildable" on the Dell because its wrapper could not start.
+- **Each unit is judged once per `trace-all` run.** A FAIL was rebuilt in every later workspace.
+- **A FAIL on Windows must repeat (Adrian's rule, 2026-11-03, via the proxy).** Windows' recorder sees the whole machine and sometimes pins another program's write on a build. A failing unit is rebuilt alone once and fails only on outside paths both builds wrote; if the first build went unobserved, every outside path of the rebuild counts; a rebuild that does not build keeps the first FAIL. On the Mac (eslogger follows only the build's own processes) an outside write fails at once and the rebuild only retries an unobserved build.
+- **The MSVC linker's telemetry helper is not the build's.** `vctip.exe` under `Program Files\Microsoft Visual Studio` (started by `link.exe`; writes the user profile and .NET's caches) is left out of the build's process tree; a copy anywhere else stays in it.
+
+## 0.6.29 — 2026-11-03
 
 - **Local publish route for npm (Adrian, 2026-11-03, rightkit#1471: "i want you to publish it from local ... feel free to push but no ci").** `right-release publish-local npm --package @rightkit/<name> --commit <sha>` (Mac): the commit must be on origin/main; the gate's Class A for the package runs on that commit; a version already on npm is refused; the commit's package folder is packed and published with the Keychain token `npm-rightkit-publish` (granular, `@rightkit`, 2FA bypass; read in-process, never printed) and `--provenance=false` (rightkit#1472); the registry shasum must equal the packed tarball's. `docs/PUBLISHING-CREDENTIALS.md` and `docs/CI.md` "Publishing" state the route, both credentials and who does what.
 - **Build helpers are vetted only on the broker hosts (Adrian, 2026-11-03: "linux is the wrong target and it has to be only where we have brokers i.e. mac and windows").** The `build-helpers` Class A scan is planned on macOS and Windows only; on Linux `check` and `trace` do nothing. A Linux host or CI runner is a throwaway container. The strace tracer, `check --trace-missing` and the CI trace-list cache steps (ci.yml, publish.yml, qualify-direct.yml) are removed.

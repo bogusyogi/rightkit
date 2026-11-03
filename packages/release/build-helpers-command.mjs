@@ -84,6 +84,8 @@ export function cargoWorkspaces(root, { depth = 4, fsApi = fs } = {}) {
 // in the workspace's own committed list (--record-repo). Default root: /Volumes/D/claude (Mac), D:\claude (Windows), the current
 // directory elsewhere.
 function traceAll(argv, { env, platform, log, err }) {
+  // A unit is judged once per run: a verdict recorded in one workspace (pass, fail or unbuildable) is never rebuilt in the next.
+  const judged = new Set();
   const roots = argv.flatMap((a, i) => (a === "--root" && argv[i + 1] ? [path.resolve(argv[i + 1])] : []));
   if (!roots.length) roots.push(platform === "darwin" ? "/Volumes/D/claude" : platform === "win32" ? "D:\\claude" : process.cwd());
   let keepAlive = null;
@@ -103,7 +105,7 @@ function traceAll(argv, { env, platform, log, err }) {
       const jobsAt = argv.indexOf("--jobs");
       // The host list is what Class A reads on this host; a repository's committed list is written only on request (--record-repo), so
       // tracing never edits a checkout another owner holds.
-      const code = main(["trace", "--manifest-path", path.join(ws, "Cargo.toml"), ...(argv.includes("--record-repo") ? ["--record-repo"] : []), ...(jobsAt >= 0 ? ["--jobs", argv[jobsAt + 1]] : [])], { env, platform, log, err });
+      const code = main(["trace", "--manifest-path", path.join(ws, "Cargo.toml"), ...(argv.includes("--record-repo") ? ["--record-repo"] : []), ...(jobsAt >= 0 ? ["--jobs", argv[jobsAt + 1]] : [])], { env, platform, log, err, judged });
       if (code !== 0) err(`right-release build-helpers trace-all: ${ws} ended with ${code}`);
       worst = Math.max(worst, code);
     }
@@ -112,7 +114,7 @@ function traceAll(argv, { env, platform, log, err }) {
   return worst;
 }
 
-export function main(argv = process.argv.slice(2), { env = process.env, platform = process.platform, run: runRaw = null, log = console.log, err = console.error } = {}) {
+export function main(argv = process.argv.slice(2), { env = process.env, platform = process.platform, run: runRaw = null, log = console.log, err = console.error, judged = new Set() } = {}) {
   if (argv[0] === "trace-all") return traceAll(argv.slice(1), { env, platform, log, err });
   // GATE-CONTRACT GC-A11: the check's cargo and rustc calls compile nothing and run directly with the real toolchain (RustRight shims off PATH),
   // writing to a scratch target, never through the broker.
@@ -123,10 +125,10 @@ export function main(argv = process.argv.slice(2), { env = process.env, platform
   // The parallel trace builds are spawned by the batch runner with the job's own env: that env carries the direct PATH too, so no build
   // ever goes through the RustRight shim (which refuses a build that redirects its output folder).
   const directEnv = { ...env, [pathKey]: directPath };
-  try { return mainWith(argv, { env: directEnv, platform, run, log, err }); } finally { fs.rmSync(scratchTarget, { recursive: true, force: true }); }
+  try { return mainWith(argv, { env: directEnv, platform, run, log, err, judged }); } finally { fs.rmSync(scratchTarget, { recursive: true, force: true }); }
 }
 
-function mainWith(argv, { env, platform, run, log, err }) {
+function mainWith(argv, { env, platform, run, log, err, judged = new Set(), confirm = null }) {
   const [sub, ...rest] = argv;
   const at = rest.indexOf("--manifest-path");
   const manifestPath = at >= 0 ? rest[at + 1] : undefined;
@@ -161,18 +163,37 @@ function mainWith(argv, { env, platform, run, log, err }) {
     // target, and is judged only on the writes of that tree (eslogger and ETW events name their process). The cores are shared out so the
     // builds do not fight over them.
     const jobsAt = rest.indexOf("--jobs");
-    const jobs = Math.max(1, Number.parseInt(jobsAt >= 0 ? rest[jobsAt + 1] : "4", 10) || 4);
+    // A confirming pass builds one unit at a time, so nothing else of this run shares the machine with it.
+    const jobs = confirm ? 1 : Math.max(1, Number.parseInt(jobsAt >= 0 ? rest[jobsAt + 1] : "4", 10) || 4);
     const perBuildJobs = String(Math.max(1, Math.floor(os.cpus().length / jobs)));
     // A cross target builds with the provisioned zig C toolchain; without it those units wait (never recorded as unbuildable).
+    // The toolchain is proved first: a one-line C file compiled through the target's CC wrapper. A wrapper that cannot run (on the Dell a
+    // Node junction an elevated shell refused to traverse) failed every C crate, and 0.6.29 recorded those as unbuildable.
+    const workingCrossEnv = (target) => {
+      const cc = crossCompileEnv(target, undefined, platform);
+      if (!cc) return null;
+      const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-bht-cc-"));
+      try {
+        fs.writeFileSync(path.join(probeDir, "probe.c"), "int rk_probe(void) { return 0; }\n");
+        const zigCache = { ZIG_GLOBAL_CACHE_DIR: path.join(probeDir, "zig-global"), ZIG_LOCAL_CACHE_DIR: path.join(probeDir, "zig-local") };
+        // A .cmd wrapper runs through the shell on Windows, which joins arguments unquoted: every path is quoted there.
+        const q = (s) => (platform === "win32" ? `"${s}"` : s);
+        const r = run(q(cc[`CC_${target.replaceAll("-", "_")}`]), ["-c", q(path.join(probeDir, "probe.c")), "-o", q(path.join(probeDir, "probe.o"))], { encoding: "utf8", env: { ...env, ...zigCache }, shell: platform === "win32" });
+        if (r.status === 0 && fs.existsSync(path.join(probeDir, "probe.o"))) return cc;
+        err(`right-release build-helpers trace: the ${target} C compiler wrapper does not work (${String(r.error?.message ?? r.stderr ?? r.stdout ?? `exit ${r.status}`).trim().split(/\r?\n/)[0]}); its units are not traced (rerun scripts/ci/provision-zig.mjs)`);
+        return null;
+      } finally { fs.rmSync(probeDir, { recursive: true, force: true }); }
+    };
     const crossEnv = new Map(); const waiting = [];
-    const pending = [...verdict.untraced, ...verdict.failed.map((f) => f.unit)].filter((unit) => {
+    const pending = [...verdict.untraced, ...verdict.failed.map((f) => f.unit)].filter((unit) => (confirm ? confirm.has(unit.key) : !judged.has(unit.key))).filter((unit) => {
       if (unit.target === inv.host) return true;
-      if (!crossEnv.has(unit.target)) crossEnv.set(unit.target, crossCompileEnv(unit.target, undefined, platform) ?? null);
+      if (!crossEnv.has(unit.target)) crossEnv.set(unit.target, workingCrossEnv(unit.target));
       if (crossEnv.get(unit.target)) return true;
       waiting.push(unit); return false;
     });
-    if (waiting.length) err(`right-release build-helpers trace: ${waiting.length} cross-target unit(s) not traced: the zig C toolchain is not provisioned (scripts/ci/provision-zig.mjs)`);
-    log(`right-release build-helpers trace: ${pending.length} unit(s), ${jobs} at a time`);
+    if (waiting.length) err(`right-release build-helpers trace: ${waiting.length} cross-target unit(s) not traced: the zig C toolchain is not provisioned or does not work (scripts/ci/provision-zig.mjs)`);
+    log(`right-release build-helpers trace: ${pending.length} unit(s)${confirm ? " to confirm" : ""}, ${jobs} at a time`);
+    const firstFails = new Map();
     if (!pending.length) return 0;
     const prepared = pending.map((unit) => {
       const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rk-bht-"));
@@ -190,7 +211,10 @@ function mainWith(argv, { env, platform, run, log, err }) {
       // Built for the unit's own target, as the gate builds it: the host's, or a cross-check target with --target and zig.
       const cross = unit.target !== inv.host;
       const buildArgs = ["build", "--profile", "release", "--manifest-path", path.join(probe, "Cargo.toml"), "--target-dir", target, ...(cross ? ["--target", unit.target] : [])];
-      const buildEnv = { ...env, ...(cross ? crossEnv.get(unit.target) : {}), CARGO_TARGET_DIR: target, CARGO_BUILD_JOBS: perBuildJobs };
+      // zig (the cross C compiler) keeps its caches in this build's scratch folder: its default global cache is a host folder outside the
+      // allowed roots, and every crate with C code was failed for zig's own cache writes (ring, rustls, blake3, libsqlite3-sys on 0.6.29).
+      const zigCache = cross ? { ZIG_GLOBAL_CACHE_DIR: path.join(scratch, "zig-global"), ZIG_LOCAL_CACHE_DIR: path.join(scratch, "zig-local") } : {};
+      const buildEnv = { ...env, ...(cross ? crossEnv.get(unit.target) : {}), ...zigCache, CARGO_TARGET_DIR: target, CARGO_BUILD_JOBS: perBuildJobs };
       const job = { cmd: "cargo", args: buildArgs, env: buildEnv };
       job.label = `${unit.crate} ${unit.version}${cross ? ` (${unit.target})` : ""}`;
       return { unit, scratch, target, job };
@@ -258,15 +282,25 @@ function mainWith(argv, { env, platform, run, log, err }) {
       const xml = path.join(sessionDir, "trace.xml");
       const exported = run("tracerpt", [etl.file, "-o", xml, "-of", "XML", "-y"], { encoding: "utf8" });
       if (exported.status !== 0) { err("right-release build-helpers trace: tracerpt could not export the ETW trace"); return 2; }
-      try { recorded = fs.statSync(xml).size > 0; if (recorded) byRoot = etwWritesByRoot(xml, roots, devices); } catch { /* no output */ }
+      try { recorded = fs.statSync(xml).size > 0; if (recorded) byRoot = etwWritesByRoot(xml, roots, devices, { toolchainDirs: [env.ProgramFiles, env["ProgramFiles(x86)"]].filter(Boolean).map((d) => path.win32.join(d, "Microsoft Visual Studio")) }); } catch { /* no output */ }
     }
     if (!recorded && roots.size) { err(`right-release build-helpers trace: the ${platform === "darwin" ? "eslogger" : "ETW"} session recorded nothing; nothing recorded`); return 2; }
     prepared.forEach((b, k) => {
       const r = results[k] ?? {};
       if (!Number.isInteger(r.status)) { err(`right-release build-helpers trace: ${b.unit.crate} ${b.unit.version} did not finish (${r.error ?? "no result"}); not recorded`); return; }
+      if (r.status !== 0 && confirm) {
+        // It built in the first pass, so a failed rebuild is a passing problem (memory, a lock), not "unbuildable": the first FAIL stands.
+        const before = [...confirm.get(b.unit.key)];
+        judged.add(b.unit.key);
+        recordTrace(listFile, b.unit, { ok: false, outside: before });
+        if (recordRepo) recordTrace(repoFile, b.unit, { ok: false, outside: before });
+        log(`FAIL ${b.unit.crate} ${b.unit.version} (${b.unit.target}): the rebuild did not build; the first trace stands: wrote ${before.slice(0, 5).join(", ")}`);
+        return;
+      }
       if (r.status !== 0) {
         // It does not build here for this target, so nothing this host's gate runs builds it either: recorded once, skipped from then on.
         const reason = String(r.error ?? `exit ${r.status}`);
+        judged.add(b.unit.key);
         recordTrace(listFile, b.unit, { ok: false, unbuildable: true, outside: [reason] });
         if (recordRepo) recordTrace(repoFile, b.unit, { ok: false, unbuildable: true, outside: [reason] });
         log(`skip ${b.unit.crate} ${b.unit.version} (${b.unit.target}): does not build on this host (${reason.slice(0, 160)})`);
@@ -279,14 +313,30 @@ function mainWith(argv, { env, platform, run, log, err }) {
       // the tracer under the real path, so comparing the link's path would fail every crate.
       const real = (d) => { try { return fs.realpathSync.native(d); } catch { return d; } };
       const roots = allowed.filter(Boolean).flatMap((d) => [d, real(d)]);
-      const judged = judgeTrace(writes, { allowed: roots, platform, mustSee: real(b.target) });
-      recordTrace(listFile, b.unit, judged);
+      let verdictOf = judgeTrace(writes, { allowed: roots, platform, mustSee: real(b.target) });
+      // A FAIL must repeat (Dell, 2026-11-03: Windows' recorder pinned other programs' writes on a build now and then). The first FAIL is
+      // held and the unit is rebuilt alone; it fails only on the outside paths both builds wrote, or when either build went unobserved.
+      // Only Windows' recorder sees the whole machine, so only there can another program's write land on a build: on the Mac (eslogger
+      // follows the build's own processes) an outside write fails at once, and the rebuild only retries a build that went unobserved.
+      const unseen = (o) => o.startsWith("(the tracer recorded no write");
+      if (!verdictOf.ok && !confirm && (platform === "win32" || verdictOf.outside.every(unseen))) { firstFails.set(b.unit.key, new Set(verdictOf.outside)); log(`recheck ${b.unit.crate} ${b.unit.version} (${b.unit.target}): rebuilding it alone`); return; }
+      if (!verdictOf.ok && confirm) {
+        const before = confirm.get(b.unit.key);
+        // An unobserved first build proves nothing either way: then every outside write of the rebuild counts.
+        const firstUnseen = [...before].some(unseen);
+        const repeated = verdictOf.outside.filter((o) => !unseen(o) && (firstUnseen || before.has(o)));
+        const unobserved = verdictOf.outside.some(unseen);
+        verdictOf = repeated.length || unobserved ? { ok: false, outside: repeated.length ? repeated : verdictOf.outside } : { ok: true, outside: [] };
+      }
+      judged.add(b.unit.key);
+      recordTrace(listFile, b.unit, verdictOf);
       // --record-repo also writes the verdict into the repository's committed list, for review and commit by the repository's owner.
-      if (recordRepo) recordTrace(repoFile, b.unit, judged);
-      log(`${judged.ok ? "pass" : "FAIL"} ${b.unit.crate} ${b.unit.version}${judged.ok ? "" : `: wrote ${judged.outside.slice(0, 5).join(", ")}`}`);
+      if (recordRepo) recordTrace(repoFile, b.unit, verdictOf);
+      log(`${verdictOf.ok ? "pass" : "FAIL"} ${b.unit.crate} ${b.unit.version} (${b.unit.target})${verdictOf.ok ? "" : `: wrote ${verdictOf.outside.slice(0, 5).join(", ")}`}`);
     });
     for (const b of prepared) fs.rmSync(b.scratch, { recursive: true, force: true });
     fs.rmSync(sessionDir, { recursive: true, force: true });
+    if (firstFails.size) return mainWith(argv, { env, platform, run, log, err, judged, confirm: firstFails });
     return 0;
   }
   err("usage: right-release build-helpers check|trace [--manifest-path <Cargo.toml>] [--record-repo] [--jobs N] | trace-all [--root <dir>]... [--jobs N]");

@@ -44,11 +44,22 @@ for (let i = 3; i < process.argv.length; i += 1) {
   if (a.startsWith("--target=")) continue;
   rest.push(a);
 }
-const r = spawnSync(zig, [...fixed, ...rest], { stdio: "inherit" });
+// zig's caches live inside the build's own target folder (one build folder per app, GATE-CONTRACT GC-A15): its default global cache is a
+// host folder outside the build, which the build-helper trace failed for every crate with C code (ring, rustls, blake3, libsqlite3-sys).
+const env = { ...process.env };
+const base = env.CARGO_TARGET_DIR || env.OUT_DIR;
+if (base) {
+  env.ZIG_GLOBAL_CACHE_DIR ??= base + "/zig-cache/global";
+  env.ZIG_LOCAL_CACHE_DIR ??= base + "/zig-cache/local";
+}
+const r = spawnSync(zig, [...fixed, ...rest], { stdio: "inherit", env });
 process.exit(r.status ?? 1);
 `;
 
-export function wrappers(zig, platform = process.platform, { node = process.execPath, dir } = {}) {
+// Node by its real path: on the Dell C:\nvm4w\nodejs is a junction, and an elevated shell refuses to traverse it ("untrusted mount point"),
+// so every cross C compile through a wrapper naming the junction failed.
+const realNode = () => { try { return fs.realpathSync.native(process.execPath); } catch { return process.execPath; } };
+export function wrappers(zig, platform = process.platform, { node = realNode(), dir } = {}) {
   const files = { "zig-filter.mjs": FILTER };
   for (const target of Object.values(CROSS_TARGETS)) {
     const zt = ZIG_TARGETS[target];

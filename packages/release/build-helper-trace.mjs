@@ -294,7 +294,7 @@ export function esloggerWritesByRoot(file, roots) {
 }
 
 /** tracerpt XML from `file`, streamed by `</Event>`: Map(root pid -> written paths) for every pid in `roots`, kernel paths mapped by `devices`. */
-export function etwWritesByRoot(file, roots, devices = {}) {
+export function etwWritesByRoot(file, roots, devices = {}, { toolchainDirs = [] } = {}) {
   const field = (ev, name) => new RegExp(`<Data Name="${name}">([^<]*)</Data>`).exec(ev)?.[1];
   const id = (ev) => Number(/<EventID>(\d+)<\/EventID>/.exec(ev)?.[1]);
   const pidOf = (ev) => Number(/ProcessID="(\d+)"/.exec(ev)?.[1]);
@@ -322,7 +322,14 @@ export function etwWritesByRoot(file, roots, devices = {}) {
       const pid = Number(field(ev, "ProcessID"));
       if (n === 1) {
         const ppid = Number(field(ev, "ParentProcessID"));
-        if (roots.has(pid) && ppid === runner) live.set(pid, pid);
+        // The MSVC linker starts its telemetry helper (vctip.exe, a .NET program) after a link: it writes the user profile and .NET's
+        // caches, belongs to Microsoft's toolchain rather than to any crate, and is left out of the build's tree with everything it starts.
+        // Only Microsoft's own copy, by path prefix (Program Files\Microsoft Visual Studio): a copy a build script places elsewhere stays in
+        // the tree, and placing one under Program Files is itself an outside write the trace fails.
+        const imagePath = String(toDos(field(ev, "ImageName")) ?? "").toLowerCase();
+        const msvcOwned = imagePath.endsWith("\\vctip.exe") && toolchainDirs.some((d) => imagePath.startsWith(`${String(d).toLowerCase().replace(/[\\/]+$/, "")}\\`));
+        if (msvcOwned) live.delete(pid);
+        else if (roots.has(pid) && ppid === runner) live.set(pid, pid);
         else if (live.has(ppid)) live.set(pid, live.get(ppid));
         else live.delete(pid);
       } else if (n === 2) live.delete(pid);
