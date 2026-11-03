@@ -360,7 +360,8 @@ export function dependencyDirs(entries, platform = process.platform) {
  * entry whose TYPE is not the commit's (a file where the commit has a link or the reverse, from `lstat`, independent of git's
  * configuration), whose link text is not the committed text, or, on POSIX, whose exec bit is not the commit's; and the first
  * non-directory outside the dependency directories with more than one hard link (a checkout file hard-linked into the snapshot
- * carries every later checkout edit into the build, with bytes that may still equal the commit's). Hard links inside the
+ * carries every later checkout edit into the build, with bytes that may still equal the commit's), unless every other name for it
+ * is inside the snapshot's own dependency directories (pnpm's link of a committed `file:` package). Hard links inside the
  * dependency directories are pnpm's own store links; their bytes are bound by the environment digest instead. Never follows a link
  * to enter it. Returns a message naming the path, or null.
  *
@@ -421,6 +422,8 @@ function inspectSnapshot({ dir, entries, checkout, platform = process.platform, 
   const dirs = new Set();
   for (const e of entries) { const parts = e.path.split("/"); for (let i = 1; i < parts.length; i++) dirs.add(fold(parts.slice(0, i).join("/"))); }
   const deps = dependencyDirs(entries, platform);
+  const shared = []; // committed files with more than one hard link, judged after the walk (sharedLinkProblem)
+  const depRoots = []; // the dependency directories the walk entered
   let realDir; let realCheckout = checkout;
   try { realDir = fs.realpathSync.native(dir); } catch (e) { return problem(`${dir} cannot be resolved: ${e.message}`); }
   try { realCheckout = fs.realpathSync.native(checkout); } catch { /* the path as given */ }
@@ -455,7 +458,7 @@ function inspectSnapshot({ dir, entries, checkout, platform = process.platform, 
     const s = lstat(p);
     if (!s) return `${r} vanished while it was checked`;
     if (!s.isFile() && !s.isSymbolicLink()) return `${r} is not a regular file or a link`;
-    if (s.nlink > 1n) return `${r} has ${s.nlink} hard links: a checkout edit made through another name for it would reach the build`;
+    if (s.nlink > 1n) shared.push({ r, dev: s.dev, ino: s.ino, nlink: s.nlink });
     const committedLink = entry.mode === LINK_MODE;
     if (s.isSymbolicLink() !== committedLink) return committedLink ? `${r} is a plain file, but the commit holds a link there (a file holding the link's text is not the link)` : `${r} is a link, but the commit holds a file there`;
     if (committedLink) {
@@ -512,7 +515,7 @@ function inspectSnapshot({ dir, entries, checkout, platform = process.platform, 
         if (!found && !inDeps) found = !byKey.has(key) ? (ledgerMode ? `${r} is a link the commit does not have: a link is never admitted to the stage-output ledger` : `${r} is not in the commit's tree (a link the commit does not have)`) : fileProblem(r, p, byKey.get(key));
       } else if (e.isDirectory()) {
         if (inDeps) found = walk(p, r, true);
-        else if (deps.has(key)) found = walk(p, r, true);
+        else if (deps.has(key)) { depRoots.push(p); found = walk(p, r, true); }
         else if (dirs.has(key)) found = walk(p, r, false);
         else if (key === ".git") found = gitConfigProblem(r, p);
         else found = ledgerMode ? candidateDir(p, r) : `${r} is not in the commit's tree (a directory the commit does not have)`;
@@ -521,7 +524,30 @@ function inspectSnapshot({ dir, entries, checkout, platform = process.platform, 
     }
     return null;
   };
-  const found = walk(dir, "", false);
+  // A committed file may share its inode only with names inside the snapshot's own installed dependencies: pnpm hard-links a
+  // committed `file:` package's files into node_modules/.pnpm on NTFS (ViewRight's vendor/docx-editor on the Dell). Every other
+  // name, a checkout file or a store file included, is unaccounted for and refused. Only files named like a shared file are stat'ed.
+  const sharedLinkProblem = () => {
+    if (!shared.length) return null;
+    const idOf = (s) => `${s.dev}:${s.ino}`;
+    const counts = new Map(shared.map((x) => [idOf(x), 0n]));
+    const names = new Set(shared.map((x) => fold(x.r.slice(x.r.lastIndexOf("/") + 1))));
+    const scan = (d) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const q = path.join(d, e.name);
+        if (e.isSymbolicLink()) continue;
+        if (e.isDirectory()) scan(q);
+        else if (names.has(fold(e.name))) { const s = lstat(q); const id = s && idOf(s); if (id && counts.has(id)) counts.set(id, counts.get(id) + 1n); }
+      }
+    };
+    for (const d of depRoots) scan(d);
+    for (const x of shared) {
+      const inside = counts.get(idOf(x));
+      if (x.nlink !== 1n + inside) return `${x.r} has ${x.nlink} hard links and only ${inside} other name(s) for it are in the snapshot's installed dependencies: a checkout edit made through another name for it would reach the build`;
+    }
+    return null;
+  };
+  const found = walk(dir, "", false) ?? sharedLinkProblem();
   if (found || !ledgerMode) return { problem: found, admitted: [] };
 
   // The ledger's entries, keyed like the walk's, must all be here and byte-identical; anything else the walk met is new.
