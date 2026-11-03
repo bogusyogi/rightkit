@@ -756,7 +756,7 @@ mod unix_impl {
             Ok(None) => Err(ObserveError::Gone),
             Err(e) => Err(ObserveError::Unreadable(format!("process start time: {e}"))),
         };
-        let before = start(pid).map_err(&observe)?;
+        let before = start(pid).map_err(observe)?;
         // The pid must still be the process that connected: its start time was recorded when
         // the connection was accepted. No record, or a different one, is a pid that may have
         // been reused. Fails closed.
@@ -782,7 +782,7 @@ mod unix_impl {
                 ))))
             }
         };
-        let after = start(pid).map_err(&observe)?;
+        let after = start(pid).map_err(observe)?;
         if before != after {
             return Err(refuse(
                 Some(pid),

@@ -152,6 +152,14 @@ pub struct LeaseEvidence {
     pub expires_at_unix: u64,
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    File,
+    Dir,
+    Symlink,
+}
+
 #[derive(Clone, Debug)]
 struct Entry {
     root: usize,

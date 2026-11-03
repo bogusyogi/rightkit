@@ -26,7 +26,7 @@ fn winsize(size: PtySize) -> libc::winsize {
 fn open_pty(size: PtySize) -> io::Result<(OwnedFd, OwnedFd)> {
     let mut master: libc::c_int = -1;
     let mut slave: libc::c_int = -1;
-    let mut window = winsize(size);
+    let window = winsize(size);
     // SAFETY: the out pointers are valid; the name and termios arguments are null (not wanted,
     // defaults); `window` is a valid winsize that openpty only reads.
     let opened = unsafe {
@@ -35,7 +35,7 @@ fn open_pty(size: PtySize) -> io::Result<(OwnedFd, OwnedFd)> {
             &mut slave,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
-            &mut window,
+            &window,
         )
     };
     if opened != 0 {

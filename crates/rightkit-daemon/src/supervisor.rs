@@ -247,14 +247,17 @@ pub enum StartGate {
     Stop,
 }
 
+type ExitActionHook = Box<dyn FnMut(&ExitInfo) -> ExitAction + Send>;
+type StartGateHook = Box<dyn FnMut(&StartGateInfo) -> StartGate + Send>;
+
 /// Optional decisions the supervisor asks its host (rightkit#936). Every hook runs on the
 /// supervisor thread; keep each short.
 #[derive(Default)]
 pub struct SupervisorHooks {
     /// Called when a child exits by itself.
-    pub exit_action: Option<Box<dyn FnMut(&ExitInfo) -> ExitAction + Send>>,
+    pub exit_action: Option<ExitActionHook>,
     /// Called before every launch, the first included (a start precondition: wait for a handover).
-    pub start_gate: Option<Box<dyn FnMut(&StartGateInfo) -> StartGate + Send>>,
+    pub start_gate: Option<StartGateHook>,
 }
 
 enum Cmd {

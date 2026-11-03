@@ -137,11 +137,7 @@
       "featureSets": [
         [
           "--features",
-          "sqlcipher,qa-snapshot"
-        ],
-        [
-          "--features",
-          "sqlcipher-system"
+          "qa-snapshot"
         ]
       ]
     },
