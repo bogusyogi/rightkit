@@ -64,7 +64,6 @@ export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
 export const UNOBSERVED_NESTED_CARGO_NOTE = "cargo calls that a build script makes through $CARGO are unobserved: cargo hands build scripts its own path, not the gate's wrapper, so they are not in the cargo ledger; they inherit the parent's bound CARGO_TARGET_DIR, and the per-scan sentinel and the after-compile snapshot verify are the backstops";
 
 /** The ledger token of the gate's own tool version probes (they reach the cargo wrapper like any scan does). */
-const BUILD_HELPERS_COMMAND = fileURLToPath(new URL("./build-helpers-command.mjs", import.meta.url));
 const PROBE_LEDGER_TOKEN = scanTokenOf("tool-probe");
 
 /** Scan id prefixes (the text before the first ":") that belong to each class. */
@@ -1251,12 +1250,8 @@ export function planScans({
   }
   if (rustTouched) {
     for (const ws of touchedWs) add({ id: `cargo-metadata${wsIdSuffix(ws)}`, class: A, ...cargoReadIn(ws, ...metadataArgs()) });
-    // rightkit#1450 (Adrian, 2026-11-02): every build script and proc macro of the workspace must have been traced once on this host, writing only
-    // inside its build directories; an untraced or out-of-bounds unit refuses Class A, naming it. Runs the gate's own command, directly (GC-A11).
-    // It runs in its workspace (cwd), so a unit's scope keeps it only for the Cargo workspaces of its own closure (app-closure CARGO_WORKSPACE_SCAN),
-    // like metadata, deny and audit: an npm-only unit traces nothing.
-    // Build helpers are vetted only on broker hosts (Mac, Dell); a Linux host or CI runner is a throwaway container (Adrian, 2026-11-03).
-    if (platform === "darwin" || platform === "win32") for (const ws of touchedWs) add({ id: `build-helpers${wsIdSuffix(ws)}`, class: A, tool: "node", args: [BUILD_HELPERS_COMMAND, "check", "--manifest-path", "Cargo.toml"], ...(ws !== "." ? { cwd: ws } : {}), root: "content" });
+    // The build-helper trace check (rightkit#1450) is removed from Class A (Adrian, 2026-11-03): the Mac tracer misattributed writes and
+    // its sessions filled the disk (rightkit#1494), and apps waited on traces for hours. No host blocks on build-helper traces.
     // Locked package listings are observations in RustRight (#1216). They run through the selected executor
     // from the checked Cargo inputs, just like metadata; an executor refusal remains a failed scan.
     for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, ...cargoReadIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });

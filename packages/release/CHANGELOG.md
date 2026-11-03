@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.6.35 (unpublished)
+## 0.6.36 (unpublished)
+
+- **Class A no longer runs the build-helper trace check (rightkit#1450 removed; Adrian, 2026-11-03).** The Mac tracer blamed other processes' writes and truncated paths on the traced crate (false FAILs), and an orphaned root eslogger from one session wrote 648 GiB and filled /Volumes/D (rightkit#1494). Apps waited on traces for hours. No host blocks Class A on build-helper traces; build-script writes are to be confined by the RustRight broker at build time instead.
+- **`right-release publish-local npm` packs a package whose prepack builds (rightkit#1493).** It exported only `packages/<name>` with no `node_modules`, so a prepack `tsc` exited 127 (@rightkit/agent-ui-hooks, html-editor, markdown-editor, terminal-ui). It now exports the commit's whole tree into /Volumes/D/scratch, installs the package and its workspace dependencies with `pnpm install --frozen-lockfile --offline --ignore-scripts --ignore-pnpmfile` from the checkout's own pnpm store, builds those workspace dependencies in dependency order (their `dist/` is not in git), and packs there. The checkout and the gate's snapshot are never written.
+
+## 0.6.35 — 2026-11-03
 
 - **The snapshot check accepts a committed `file:` package that pnpm hard-links into the snapshot's own `node_modules` (rightkit#1486).** On NTFS pnpm hard-links a committed `file:` dependency's files into `node_modules/.pnpm`, so ViewRight's `vendor/docx-editor/packages/react/LICENSE` had two names and the Dell compile stopped at check ("has 2 hard links"). A committed file may now have extra names only inside the snapshot's dependency directories, counted by device and inode; any other name (the checkout, the pnpm store, anywhere else) is still refused.
 

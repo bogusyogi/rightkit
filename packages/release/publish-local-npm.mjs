@@ -9,8 +9,10 @@
 //   2. the gate's Class A for the package passes on that commit (`rightkit-gate --to check --unit npm:<name> --commit <sha>`, this
 //      package's own gate, so a release publishes through the gate it ships);
 //   3. the version is not on npm yet.
-// The package folder is exported from the commit (git archive) and packed there; npm provenance is off (rightkit#1472). After publishing,
-// the registry's shasum must equal the packed tarball's, or the command fails.
+// The commit's whole tree is exported (git archive), its dependencies are installed there offline from the commit's own lockfile and the
+// checkout's pnpm store (a package whose prepack builds needs its devDependencies, rightkit#1493), and the package is packed there; the
+// checkout and the gate's snapshot are never written. npm provenance is off (rightkit#1472). After publishing, the registry's shasum must
+// equal the packed tarball's, or the command fails.
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -23,6 +25,16 @@ const REGISTRY = "https://registry.npmjs.org/";
 const GATE = fileURLToPath(new URL("./bin/rightkit-gate.mjs", import.meta.url));
 
 function fail(message) { throw new Error(message); }
+
+/** The pnpm store the checkout installed from (`storeDir` in its node_modules/.modules.yaml, e.g. /Volumes/D/.pnpm-store/v11), as a `--store-dir` value (its parent). */
+export function checkoutStoreDir(repo, readFile = (f) => fs.readFileSync(f, "utf8")) {
+  let text;
+  try { text = readFile(path.join(repo, "node_modules", ".modules.yaml")); } catch { fail(`${repo}/node_modules/.modules.yaml is missing: install the checkout once so its pnpm store is known`); }
+  const m = /"?storeDir"?\s*:\s*"?([^"\r\n]+)"?/.exec(text);
+  if (!m) fail(`${repo}/node_modules/.modules.yaml names no storeDir`);
+  const storeDir = m[1].trim();
+  return /^v\d+$/.test(path.basename(storeDir)) ? path.dirname(storeDir) : storeDir;
+}
 
 export function parseArgs(argv) {
   const out = { kind: argv[0], pkg: null, commit: null, repo: process.cwd() };
@@ -61,13 +73,23 @@ export function publishLocalNpm(argv, { run = spawnSync, log = console.log, plat
   const classA = run(process.execPath, [GATE, "--to", "check", "--unit", `npm:${o.pkg}`, "--commit", commit], { cwd: o.repo, stdio: ["ignore", "inherit", "inherit"] });
   if (classA.status !== 0) fail(`Class A failed for npm:${o.pkg} on ${commit} (exit ${classA.status}); nothing published`);
 
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), "rk-publish-local-"));
+  // The agent volume, not the internal drive: the export holds a full install (workspace rule: run output under /Volumes/D/scratch).
+  const scratchRoot = fs.existsSync("/Volumes/D/scratch") ? "/Volumes/D/scratch" : os.tmpdir();
+  const work = fs.mkdtempSync(path.join(scratchRoot, "rk-publish-local-"));
   try {
-    const archive = run("git", ["archive", "--format=tar", commit, dir], { cwd: o.repo, maxBuffer: 1 << 30 });
-    if (archive.status !== 0) fail(`git archive ${commit} ${dir} failed`);
-    const tarIn = run("tar", ["-x", "-C", work], { input: archive.stdout });
-    if (tarIn.status !== 0) fail("unpacking the commit's package folder failed");
-    const pkgDir = path.join(work, dir);
+    const tree = path.join(work, "tree");
+    fs.mkdirSync(tree);
+    const archive = run("git", ["archive", "--format=tar", commit], { cwd: o.repo, maxBuffer: 1 << 30 });
+    if (archive.status !== 0) fail(`git archive ${commit} failed`);
+    const tarIn = run("tar", ["-x", "-C", tree], { input: archive.stdout });
+    if (tarIn.status !== 0) fail("unpacking the commit's tree failed");
+    // The package and its workspace dependencies, from the commit's lockfile only, offline from the store; no dependency's install scripts run.
+    const install = run("pnpm", ["install", "--frozen-lockfile", "--offline", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir", checkoutStoreDir(o.repo), "--filter", `${o.pkg}...`], { cwd: tree, encoding: "utf8", maxBuffer: 1 << 28 });
+    if (install.status !== 0) fail(`pnpm install (offline, frozen lockfile) for ${o.pkg} failed: ${String(install.stderr || install.stdout || "").trim().split(/\r?\n/).slice(-3).join(" | ")}`);
+    // Workspace dependencies resolve through their dist/ (gitignored, so not in the export): build them first, in dependency order.
+    const deps = run("pnpm", ["-r", "--filter", `${o.pkg}^...`, "run", "--if-present", "build"], { cwd: tree, encoding: "utf8", maxBuffer: 1 << 28 });
+    if (deps.status !== 0) fail(`building ${o.pkg}'s workspace dependencies failed: ${String(deps.stderr || deps.stdout || "").trim().split(/\r?\n/).slice(-3).join(" | ")}`);
+    const pkgDir = path.join(tree, dir);
     const packed = run("pnpm", ["pack", "--pack-destination", work], { cwd: pkgDir, encoding: "utf8" });
     if (packed.status !== 0) fail(`pnpm pack failed: ${String(packed.stderr ?? packed.stdout ?? "").trim().split(/\r?\n/).slice(-3).join(" | ")}`);
     const tgz = fs.readdirSync(work).find((f) => f.endsWith(".tgz"));
