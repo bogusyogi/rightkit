@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/config",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared presets for desktop apps: TypeScript configs, a Vite base config, a flat ESLint preset and Rust toolchain, cargo-deny, cargo-audit, rustfmt and cargo-about templates.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

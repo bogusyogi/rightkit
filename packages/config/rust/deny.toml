@@ -2,6 +2,8 @@
 # (and the same ids in .cargo/audit.toml). The app's own unpublished crates are private.
 [graph]
 all-features = true
+# Per-app platform scope (optional): list only the targets the app ships, for example
+# targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-pc-windows-msvc"]
 
 [advisories]
 version = 2

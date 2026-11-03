@@ -1,3 +1,7 @@
 # cargo-audit template (copy to .cargo/audit.toml). Reasons live in deny.toml [advisories] ignore.
 [advisories]
 ignore = []
+
+# Per-app platform scope (optional), matching deny.toml [graph] targets:
+# [target]
+# os = ["macos", "windows"]
