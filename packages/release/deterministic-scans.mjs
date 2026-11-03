@@ -938,6 +938,12 @@ export function planScans({
   // planner emits one scan per compatible batch and no per-crate Clippy scan for a crate that belongs to one (row 8.15).
   // `shardSolo` is ci/shards.json `solo`; `clippySeparate` maps a unit name to the reason equivalence found batching changed it.
   clippyBatching = false, shardSolo = [], clippySeparate = new Map(),
+  // Class B execution batching (B1, rightkit#1458): the compile scans (check, check-features, check-dependent, clippy, each cross target) of
+  // one Cargo workspace that differ only in their `-p <crate>` are marked `batchable`, and runScans runs each group as ONE cargo invocation
+  // (`-p a -p b ...`). Unlike clippyBatching above, ids, commands and the scan-set digest are unchanged: the plan still lists one scan per
+  // crate and configuration, so required ids (GC-A14's three targets, scan-receipt) and GC-T14 keys are untouched; only the run is shared.
+  // `shardSolo` and `clippySeparate` keep a crate out of every group, as they do for clippyBatching. Off unless the caller (rightkit-gate) asks.
+  classBBatching = false,
 } = {}) {
   if (!contentRoot) throw new TypeError("planScans: contentRoot is required");
   if (!Array.isArray(cargoCommand) || cargoCommand.length === 0 || !["rustright", "cargo"].includes(cargoCommand[0]) || cargoCommand.slice(1).some((a) => a !== "cargo")) {
@@ -1329,10 +1335,10 @@ export function planScans({
     const ws = wsOf(name); const crate = crateOf(name);
     // `cargo clippy --all-targets` type-checks exactly what `cargo check --all-targets` does: the default
     // check runs only when no clippy set covers default features.
-    if (defaultCheck) add({ id: rustScanId.check(name), class: B, ...cargoIn(ws, ...checkArgs(crate, { locked: true })) });
-    checkSets.forEach((set, i) => add({ id: rustScanId.checkFeatures(name, i), class: B, ...cargoIn(ws, ...checkArgs(crate, { features: set, locked: true })) }));
+    if (defaultCheck) add({ id: rustScanId.check(name), class: B, batchUnit: name, ...cargoIn(ws, ...checkArgs(crate, { locked: true })) });
+    checkSets.forEach((set, i) => add({ id: rustScanId.checkFeatures(name, i), class: B, batchUnit: name, ...cargoIn(ws, ...checkArgs(crate, { features: set, locked: true })) }));
     if (clippyBatching) lintSets.forEach((set) => clippyEntries.push({ name, crate, ws, set, count: lintSets.length, env: targetDirs?.[ws] ?? null }));
-    else lintSets.forEach((set, i) => add({ id: rustScanId.clippy(name, lintSets.length, i), class: B, ...cargoIn(ws, ...clippyArgs(crate, { features: set, locked: true })) }));
+    else lintSets.forEach((set, i) => add({ id: rustScanId.clippy(name, lintSets.length, i), class: B, batchUnit: name, ...cargoIn(ws, ...clippyArgs(crate, { features: set, locked: true })) }));
     // The other two OS targets, every lint set, -D warnings, on every host (cross-targets.mjs; Adrian 2026-11-02/03, no skip). The zig C
     // toolchain must be provisioned (crossCcDir); without it the scan fails naming the fix, never skipped. On a broker host the broker must
     // admit the cross target and its CC_/CXX_/AR_ variables; a refusal there fails the scan.
@@ -1342,7 +1348,7 @@ export function planScans({
         const id = `${rustScanId.clippy(name, lintSets.length, i)}@${target}`;
         if (!crossEnv) { add({ id, class: B, tool: "node", args: ["-e", `console.error("RK_CROSS_CC_UNPROVISIONED: the zig C toolchain for ${target} is not provisioned; run node scripts/ci/provision-zig.mjs <managed data root>/zig (or set RIGHTKIT_CROSS_CC_DIR)"); process.exit(1)`] }); return; }
         const scan = cargoIn(ws, ...clippyArgs(crate, { features: set, locked: true, target }));
-        add({ id, class: B, ...scan, env: { ...(scan.env ?? {}), ...crossEnv } });
+        add({ id, class: B, batchUnit: name, ...scan, env: { ...(scan.env ?? {}), ...crossEnv } });
       });
     }
     // rustdoc flags go after `--` for this crate's library only: the broker owns RUSTDOCFLAGS and refuses
@@ -1369,13 +1375,13 @@ export function planScans({
     const scoped = crateNames.filter((n) => wsOf(n) === ws).map(crateOf);
     const workspace = (rustMap ? [...rustMap.keys()] : listDir(path.join(contentRoot, "crates"))).filter((n) => wsOf(n) === ws);
     const dependents = safeUnits(workspace.filter((n) => !inScope.has(n) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml")) && scoped.some((t) => reach(lock, crateOf(n), memo).has(t))).sort(), "crate");
-    for (const name of dependents) { planned.add(name); add({ id: `check-dependent:${name}`, class: B, ...cargoIn(ws, ...checkArgs(crateOf(name), { locked: true })) }); }
+    for (const name of dependents) { planned.add(name); add({ id: `check-dependent:${name}`, class: B, batchUnit: name, ...cargoIn(ws, ...checkArgs(crateOf(name), { locked: true })) }); }
   }
   // Across Cargo workspaces (one workspace and lock per crate): a unit that path-depends on a unit in scope, transitively, is judged by
   // the manifests' path dependencies, since no lock holds both.
   if (typeof crateDependents === "function" && rustMap && crateNames.length) {
     const across = [...crateDependents(new Set(crateNames))].filter((n) => !inScope.has(n) && !planned.has(n) && rustMap.has(n) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml"))).sort();
-    for (const name of safeUnits(across, "crate")) add({ id: `check-dependent:${name}`, class: B, ...cargoIn(wsOf(name), ...checkArgs(crateOf(name), { locked: true })) });
+    for (const name of safeUnits(across, "crate")) add({ id: `check-dependent:${name}`, class: B, batchUnit: name, ...cargoIn(wsOf(name), ...checkArgs(crateOf(name), { locked: true })) });
   }
   // A linter config in the unit's directory or any ancestor of it (a repository-level config covers every unit, as the tools look it up).
   const hasConfig = (dir, names) => ancestorDirsOf(dir).some((d) => names.some((f) => exists(path.join(liveRoot, inDir(d, f)))));
@@ -1590,6 +1596,35 @@ export function planScans({
       return { ...x, deferred: "no local compile grant; the broker refuses this scan" };
     });
     if (deferred.length) notes.push(`deferred, not passed (no local compile grant): ${deferred.join(", ")}`);
+  }
+  // Class B execution batching (see classBBatching above). A scan is batchable only when it is a carried-or-direct cargo compile with exactly one
+  // `-p <crate>`, names no crate-specific feature (`--features`: unifying them across crates changes what compiles; the same rule as
+  // clippyBatchPlan's crate-specific feature sets), is not a solo, separate or sidecar-bound crate, and is not deferred. Its group key is the
+  // scan with the `-p` pair removed (tool, directory, root, environment, remaining argv, and where the pair sat), so only identical
+  // configurations of one workspace and target share an invocation. The plan carries no argv for the group: runScans rebuilds it from members.
+  const batchNotes = new Map(); const groupCount = new Map();
+  scans = scans.map((x) => {
+    if (x.batchUnit === undefined) return x;
+    const { batchUnit: unit, ...plain } = x;
+    if (!classBBatching || x.deferred || !Array.isArray(x.args) || (x.tool !== "rustright" && x.tool !== "cargo")) return plain;
+    const at = x.args.indexOf("-p");
+    const crate = at >= 0 ? x.args[at + 1] : null;
+    const rest = at >= 0 ? [...x.args.slice(0, at), ...x.args.slice(at + 2)] : [];
+    let why = null;
+    if (at < 0 || typeof crate !== "string" || x.args.indexOf("-p", at + 1) >= 0) why = "it does not name exactly one `-p <crate>`";
+    else if (rest.some((w) => /^(?:--features(?:=.*)?|-F.*)$/.test(w))) why = "its feature set names crate-specific features";
+    else if (shardSolo.includes(unit) || shardSolo.includes(crateOf(unit))) why = "ci/shards.json solo";
+    else if (clippySeparate instanceof Map && clippySeparate.has(unit)) why = String(clippySeparate.get(unit));
+    else if (sidecarBoundCrate({ dir: path.join(contentRoot, rustDir(unit)), exists, readFile }).bound) why = "sidecar-bound";
+    if (why) { batchNotes.set(why, (batchNotes.get(why) ?? 0) + 1); return plain; }
+    const key = sha256(canonicalJson({ tool: x.tool, cwd: x.cwd ?? ".", root: x.root, env: x.env, rest, at })).slice(0, 16);
+    groupCount.set(key, (groupCount.get(key) ?? 0) + 1);
+    return { ...plain, batchable: { key, at, crate, unit } };
+  });
+  if (groupCount.size) {
+    const grouped = [...groupCount.values()].filter((n) => n > 1);
+    notes.push(`class B batching: ${scans.filter((x) => x.batchable).length} compile scan(s) in ${groupCount.size} configuration group(s); each group of one Cargo workspace and target runs as one cargo invocation (${grouped.reduce((a, n) => a + n, 0)} scan(s) in ${grouped.length} shared group(s)), a failed group is bisected to the crate that fails, every row keeps its own id and command; the batch-equivalence run (GATE-CONTRACT GC-I11, item 8 row 8.7) has NOT been run, so a crate whose own features differ when unified with its group's can pass here and fail alone`);
+    for (const [why, n] of batchNotes) notes.push(`class B batching: ${n} compile scan(s) stay their own invocation: ${why}`);
   }
   const ids = scans.map((s) => s.id);
   const dup = ids.find((id, i) => ids.indexOf(id) !== i);
@@ -2086,7 +2121,7 @@ export function classBChainKey(scan, carried) {
  * every chain started at once. A broker-carried scan starts without a count; the broker queues and orders it. A scan the broker never sees (an npm or node suite) holds one
  * of `localJobs` local slots while it runs. `run(index)` runs one scan and never rejects.
  */
-export async function scheduleBrokerHostClassB({ scans, lanes, carried, localJobs, run }) {
+export async function scheduleBrokerHostClassB({ scans, lanes, carried, localJobs, run, pipeline = 1 }) {
   const chains = new Map();
   for (const lane of ["compile", "doc", "tests"]) {
     for (const i of lanes[lane] ?? []) { const key = classBChainKey(scans[i], carried(scans[i])); if (!chains.has(key)) chains.set(key, []); chains.get(key).push(i); }
@@ -2095,12 +2130,27 @@ export async function scheduleBrokerHostClassB({ scans, lanes, carried, localJob
   let held = 0; const waiters = [];
   const take = async () => { while (held >= limit) await new Promise((resolve) => waiters.push(resolve)); held += 1; };
   const free = () => { held -= 1; waiters.shift()?.(); };
+  // B4 (rightkit#1458 audit): with `pipeline` 1 a chain runs one scan at a time, so the gate's work after one job (receipt read, signed-evidence
+  // verification, ledger check) and before the next (cache key, request file) was dead time at the broker (about 10.6 s a job on the Dell). With
+  // `pipeline` n, up to n carried scans of one chain are in flight: the next is submitted while the previous is still running or being verified, and the
+  // broker (which owns ordering and holds one build per repository) queues it. Starts stay in plan order; a scan the broker never sees keeps its
+  // local slot and runs alone, after the carried scans started before it have finished.
+  const depth = Math.max(1, Number(pipeline) || 1);
   await Promise.all([...chains.values()].map(async (chain) => {
+    const flight = new Set();
     for (const i of chain) {
       const local = !carried(scans[i]);
-      if (local) await take();
-      try { await run(i); } finally { if (local) free(); }
+      if (local) {
+        await Promise.all(flight);
+        await take();
+        try { await run(i); } finally { free(); }
+        continue;
+      }
+      while (flight.size >= depth) await Promise.race(flight);
+      const job = run(i).finally(() => flight.delete(job));
+      flight.add(job);
     }
+    await Promise.all(flight);
   }));
 }
 
@@ -2630,6 +2680,57 @@ export async function runScans(plan, options = {}) {
     // broker queues and orders them. A scan the broker never sees (an npm or node test suite) is a process of this host: those keep the local limit.
     const bJobs = Math.max(1, Number(options.classBJobs ?? (brokerHost ? LOCAL_CLASS_B_JOBS : 1)) || 1);
     const failedRow = (i, error) => ({ id: bScans[i].id, class: bScans[i].class, command: bScans[i].command, tool: bScans[i].tool ?? null, toolVersion: null, status: "fail", code: "SCAN_ERROR", detail: String(error?.message ?? error) });
+    // Class B batching (B1, rightkit#1458; planScans `classBBatching`). The compile scans of one Cargo workspace that differ only in their `-p <crate>`
+    // are one group; a group of two or more runs as ONE cargo invocation naming every member (`-p a -p b ...`) and the invocation's verdict becomes each
+    // member's row, under the member's own id and command (so required scan ids and the scan-set digest are what the plan said). The invocation is a scan
+    // of its own for everything else: it takes its own cache entry (the gate keys it on every member's inputs, `check:batch:` / `clippy:batch:`), cargo
+    // ledger token, signed broker receipt and run limit. A cargo failure (code EXIT: a compile diagnostic) is bisected, never reported for the group: each
+    // half runs again as a smaller invocation, down to one crate, which runs as its own per-crate scan, so a failure always names the crate that fails and
+    // the crates that pass still pass. Any other failure (a refused or unverified receipt, a timeout, a missing tool) is the group's and is not retried:
+    // running it N times would repeat it N times. Equivalence caveat (GC-I11): one invocation unifies features across its crates, so a pass here is not
+    // proof that every member passes alone; the plan notes say the equivalence run has not been done.
+    const groupOf = new Map();
+    if (options.classBBatching === true) {
+      const byKey = new Map();
+      bScans.forEach((s, i) => { if (s.batchable && !s.deferred && laneOf(s) === "compile") { if (!byKey.has(s.batchable.key)) byKey.set(s.batchable.key, []); byKey.get(s.batchable.key).push(i); } });
+      for (const members of byKey.values()) if (members.length > 1) { const group = { members, promise: null }; for (const i of members) groupOf.set(i, group); }
+    }
+    const batchScanOf = (idx) => {
+      const lead = bScans[idx[0]];
+      const { batchable: _batchable, ...plain } = lead; void _batchable;
+      const args = [...lead.args.slice(0, lead.batchable.at), ...idx.flatMap((i) => ["-p", bScans[i].batchable.crate]), ...lead.args.slice(lead.batchable.at + 2)];
+      const units = idx.map((i) => bScans[i].batchable.unit);
+      const id = `${/^clippy/.test(lead.id) ? "clippy" : "check"}:batch:${sha256(`${lead.batchable.key}\0${units.join("\0")}`).slice(0, 8)}`;
+      return { ...plain, id, args, command: commandText({ ...plain, args }), batch: { units, members: idx.map((i) => bScans[i].id) } };
+    };
+    const runGroup = async (idx, extraEnv) => {
+      if (idx.length === 1) { const i = idx[0]; slots[i] = await runOne(bScans[i], extraEnv).catch((error) => failedRow(i, error)); return; }
+      const started = Date.now();
+      const bs = batchScanOf(idx);
+      let row;
+      try { row = await scanRow(bs, extraEnv); } catch (error) { row = { id: bs.id, status: "fail", code: "SCAN_ERROR", detail: String(error?.message ?? error) }; }
+      if (row.status === "fail" && row.code === "EXIT" && !signal?.aborted) {
+        const half = Math.ceil(idx.length / 2);
+        await runGroup(idx.slice(0, half), extraEnv);
+        await runGroup(idx.slice(half), extraEnv);
+        return;
+      }
+      for (const i of idx) {
+        const m = bScans[i];
+        const own = { id: m.id, class: m.class, command: m.command, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, status: row.status, ...(row.code ? { code: row.code } : {}), ...(row.detail ? { detail: row.status === "fail" ? `${row.id} (${idx.length} crates: ${bs.batch.units.join(", ")}): ${row.detail}` : row.detail } : {}), ...(row.cached ? { cached: true } : {}), batchedWith: { id: row.id, units: bs.batch.units }, ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.identities ? { identities: row.identities } : {}), ...(row.log ? { log: row.log } : {}) };
+        slots[i] = own; done += 1;
+        try { onResult(own, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
+      }
+    };
+    // The one entry both schedulers use: a scan outside every group runs as before; the first member of a group to start runs the whole group, and a later
+    // member (same component, so it starts after) finds its row already in place.
+    const runB = async (i, extraEnv = null) => {
+      const group = groupOf.get(i);
+      if (!group) return runOne(bScans[i], extraEnv);
+      if (!group.promise) group.promise = runGroup(group.members, extraEnv);
+      await group.promise;
+      return slots[i] ?? failedRow(i, "its batched invocation produced no row");
+    };
     const drain = async (queue, extraEnv = null) => {
       const busy = new Set(); const running = new Set();
       const keyOf = (i) => bScans[i].cwd ?? ".";
@@ -2638,7 +2739,7 @@ export async function runScans(plan, options = {}) {
         if (at === -1) { await Promise.race(running); continue; }
         const [i] = queue.splice(at, 1); const key = keyOf(i); busy.add(key);
         // A scan that throws becomes a failed row: with several components in flight, a rejection must not abandon the others.
-        const job = runOne(bScans[i], extraEnv)
+        const job = runB(i, extraEnv)
           .catch((error) => failedRow(i, error))
           .then((row) => { slots[i] = row; }).finally(() => { busy.delete(key); running.delete(job); });
         running.add(job);
@@ -2646,8 +2747,8 @@ export async function runScans(plan, options = {}) {
     };
     if (brokerHost) {
       await scheduleBrokerHostClassB({
-        scans: bScans, lanes, localJobs: bJobs, carried: (scan) => isBrokerScheduledScan(scan, carriedCtx),
-        run: async (i) => { try { slots[i] = await runOne(bScans[i]); } catch (error) { slots[i] = failedRow(i, error); } },
+        scans: bScans, lanes, localJobs: bJobs, carried: (scan) => isBrokerScheduledScan(scan, carriedCtx), pipeline: options.classBPipeline ?? 1,
+        run: async (i) => { try { slots[i] = await runB(i); } catch (error) { slots[i] = failedRow(i, error); } },
       });
     } else {
       await drain(lanes.compile);

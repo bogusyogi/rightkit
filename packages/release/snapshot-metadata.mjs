@@ -130,8 +130,14 @@ export function snapshotCargoSpawn({ spawn, carrySpawn = spawn, cargoCommand, sn
  * otherwise write target/.rustc_info.json beside the manifest and the snapshot would no longer be the commit's tree); the scratch is removed
  * when the call returns. Every other cargo call inside the snapshot is refused (a compile belongs to the broker); calls outside the snapshot
  * and every non-cargo command pass through to `spawn` unchanged. `spawn` may be synchronous or return a promise.
+ *
+ * `memo` (a Map the caller shares between the synchronous and the asynchronous spawn of one run; `isAsync` says which this one is) answers a
+ * repeated metadata call from the first one's result (rightkit#1460): the gate reads each workspace's `metadata --no-deps --locked` once to
+ * discover units and again as the Class A `cargo-metadata` scan, in the same verified snapshot, with the same toolchain and registry state, so the
+ * second run can only repeat the first. Only a successful call that streams to no file is kept (a failure is never replayed), keyed on the snapshot
+ * directory it ran in and its exact words; every other call (fetch, deny, audit, package, fmt) always runs.
  */
-export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath, pathKey = "PATH", tmpRoot, env, err = () => {} }) {
+export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath, pathKey = "PATH", tmpRoot, env, err = () => {}, memo = null, isAsync = false }) {
   const prefix = cargoCommand.slice(1);
   const refused = (code, message) => { err(`rightkit-gate: ${code}: ${message}`); return { status: BROKER_REFUSAL_STATUS, signal: null, error: null, stdout: "", stderr: `rightkit-gate: ${code}: ${message}\n` }; };
   return (cmd, args, opts = {}) => {
@@ -140,6 +146,9 @@ export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath,
     const words = args.slice(prefix.length);
     const shape = carriedScanRefusal(words);
     if (shape !== null) return refused(CARRIED_METADATA_REFUSED, `\`cargo ${words.join(" ")}\` would run inside the managed snapshot ${snapshotRoot} and is not one of the read-only shapes Class A runs directly (GC-A11): ${shape}`);
+    const memoKey = memo && words[0] === "metadata" && opts.stdoutFile === undefined ? `${real(opts.cwd)}\0${words.join(" ")}` : null;
+    if (memoKey !== null && memo.has(memoKey)) { const hit = { ...memo.get(memoKey) }; return isAsync ? Promise.resolve(hit) : hit; }
+    const remember = (result) => { if (memoKey !== null && result && !result.error && result.status === 0 && typeof result.stdout === "string") memo.set(memoKey, { status: 0, signal: null, error: null, stdout: result.stdout, stderr: result.stderr ?? "" }); return result; };
     let scratch;
     try { fs.mkdirSync(tmpRoot, { recursive: true }); scratch = fs.mkdtempSync(path.join(tmpRoot, "rk-class-a-cargo-")); }
     catch (e) { return refused("RK_CLASS_A_SCRATCH", `cannot create a scratch target under ${tmpRoot}: ${e.message}`); }
@@ -148,8 +157,8 @@ export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath,
     let r;
     try { r = spawn("cargo", words, { ...opts, env: childEnv }); }
     catch (e) { cleanup(); throw e; }
-    if (r && typeof r.then === "function") return r.finally(cleanup);
+    if (r && typeof r.then === "function") return r.then(remember).finally(cleanup);
     cleanup();
-    return r;
+    return remember(r);
   };
 }

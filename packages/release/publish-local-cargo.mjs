@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // `right-release publish-local cargo --crate <name> --commit <sha> --compile-report <file>`: the local crates route (Adrian, 2026-11-03,
-// rightkit#1471: "the npm and crates are both local ... feel free to push but no ci"). The crates.io token is cargo's own, read by cargo's
-// credential provider from the OS store (Mac: `cargo:macos-keychain`); this command never reads it.
+// rightkit#1471: "the npm and crates are both local ... feel free to push but no ci"). The crates.io token is cargo's own,
+// stored by cargo's macOS Keychain provider; on the Mac this command reads it through /usr/bin/security and hands it to its one `cargo publish`
+// call (cargo's own provider is admitted per program path, which the broker's pinned toolchain changes).
 //
 // It publishes exactly one commit's crate, and only when:
 //   1. the commit is on origin/main;
@@ -22,6 +23,11 @@ import { fileURLToPath } from "node:url";
 import { directCargoPath } from "./managed-cargo.mjs";
 
 export const UNIT_REPORT_SCHEMA = "rightkit.unit-gate-report/1";
+
+/** The Keychain item cargo's macOS provider stores the crates.io token under. */
+export const CARGO_KEYCHAIN_SERVICE = "cargo-registry:https://github.com/rust-lang/crates.io-index";
+const KEYCHAIN_READ_MS = 60_000;
+const PUBLISH_CALL_MS = 10 * 60_000;
 
 function fail(message) { throw new Error(message); }
 
@@ -115,8 +121,18 @@ export async function publishLocalCargo(argv, { run = spawnSync, log = console.l
     const sha256 = crypto.createHash("sha256").update(fs.readFileSync(crateFile)).digest("hex");
     log(`publish-local: packaged ${name}-${version}.crate sha256 ${sha256}`);
 
-    const pub = run("cargo", ["publish", "--no-verify", "--locked", "--manifest-path", manifestPath, "--target-dir", targetDir], { encoding: "utf8", env: cargoEnv });
-    if (pub.status !== 0) fail(`cargo publish failed: ${String(pub.stderr ?? "").trim().split(/\r?\n/).slice(-4).join(" | ")}`);
+    // Mac: cargo's own Keychain provider is admitted per program path, and the broker's pinned toolchain moves that path with every
+    // toolchain, so a background publish waited on an approval prompt nobody saw. The token is read here through /usr/bin/security (one
+    // fixed path, as the npm route reads its token), bounded so a refusal fails instead of hanging, and handed to this one cargo call only.
+    const publishEnv = { ...cargoEnv };
+    if (platform === "darwin") {
+      const read = run("/usr/bin/security", ["find-generic-password", "-s", CARGO_KEYCHAIN_SERVICE, "-w"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: KEYCHAIN_READ_MS });
+      const token = read.status === 0 ? String(read.stdout ?? "").trim() : "";
+      if (!token) fail(`the crates.io token could not be read from the Keychain item ${CARGO_KEYCHAIN_SERVICE} within ${KEYCHAIN_READ_MS / 1000} s (${read.error?.code === "ETIMEDOUT" ? "waiting for an access approval: allow /usr/bin/security on that item once in Keychain Access" : "missing or refused"})`);
+      Object.assign(publishEnv, { CARGO_REGISTRY_TOKEN: token, CARGO_REGISTRY_GLOBAL_CREDENTIAL_PROVIDERS: "cargo:token" });
+    }
+    const pub = run("cargo", ["publish", "--no-verify", "--locked", "--manifest-path", manifestPath, "--target-dir", targetDir], { encoding: "utf8", env: publishEnv, timeout: PUBLISH_CALL_MS });
+    if (pub.status !== 0) fail(`cargo publish failed${pub.error?.code === "ETIMEDOUT" ? ` (no answer within ${PUBLISH_CALL_MS / 60000} min)` : ""}: ${String(pub.stderr ?? "").trim().split(/\r?\n/).slice(-4).join(" | ")}`);
 
     let entry = null;
     for (let i = 0; i < 20 && !entry; i += 1) { entry = await indexEntry(name, version, fetchImpl); if (!entry) await sleep(15000); }

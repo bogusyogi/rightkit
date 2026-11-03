@@ -946,7 +946,12 @@ const plainRelative = (p) => typeof p === "string" && p !== "" && !path.posix.is
  * - An npm package scan (test:npm, tsc, eslint, biome) keys on the package's workspace closure (every dependency that is a workspace
  *   package, whatever its spec, transitively, by package name) and the root npm inputs; test:scripts-ci on scripts/, ci/, .github/, packages/release and the
  *   root install graph. Every other class B scan (generated-docs, swift-build) uses the whole tree.
- * - Class A: cargo-deny, cargo-audit, pnpm-audit, pnpm-lockfile and advisory-exceptions are never cached (live answers); rustfmt,
+ * - Class A: pnpm-lockfile and advisory-exceptions are never cached (live answers). cargo-deny, cargo-audit and pnpm-audit are cached by
+ *   their inputs and the identity of the advisory data they read (rightkit#1464, ADR-001 C5; advisoryKey below): a Cargo workspace's lock
+ *   blob, every Cargo.toml of the commit, the deny and cargo configuration files, and the pinned RustSec commit (cargo-deny and cargo-audit
+ *   read exactly that commit); a pnpm root's lock, manifests and npm configuration. cargo-deny also reads the crate index (yanked
+ *   versions) and pnpm audit asks the registry, neither of which a commit pins, so those keys carry the UTC day: a rerun the same day is a
+ *   hit, the next day is a run. A changed pin, lock, manifest or configuration is a different key; rustfmt,
  *   node-check, actionlint and the parse scans key on their files' blob ids; cargo-package-list on the crate, the manifest projection
  *   and its lock entry; the rest on the whole tree.
  */
@@ -958,7 +963,15 @@ const LINT_CONFIG_NAMES = [...ESLINT_CONFIG_FILES, ...BIOME_CONFIG_FILES];
 // The gate's own test suite reads the CI scripts, the gate config and the release package it imports from.
 const SCRIPTS_CI_INPUTS = ["scripts", "ci", ".github", "packages/release", "package.json", "pnpm-lock.yaml"];
 
-export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits = [], cargoDir = ".", rustLock = null, rustLocks = null, crateFeatures = {}, listFiles = null, readBlob = null }) {
+/** ci/shards.json `solo` (crate names that always get an invocation of their own), read from the gated tree; empty when the file is absent or unreadable. */
+function shardSoloOf(o, repo) {
+  try {
+    const solo = JSON.parse(o.readFile(path.join(repo, "ci", "shards.json"))).solo;
+    return Array.isArray(solo) ? solo.filter((n) => typeof n === "string") : [];
+  } catch { return []; }
+}
+
+export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits = [], cargoDir = ".", rustLock = null, rustLocks = null, crateFeatures = {}, listFiles = null, readBlob = null, today = () => new Date().toISOString().slice(0, 10) }) {
   const memo = new Map(); const reachMemos = new Map(); const externalMemo = new Map();
   const idOf = (p) => { if (!memo.has(p)) memo.set(p, p === "." ? headTree : objectId(p)); return memo.get(p); };
   // npm: a package's test, tsc and eslint scans read the package, every workspace package it depends on (package.json
@@ -1026,6 +1039,28 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
   // projection and its own lock entry; anything else (cargo metadata, licence, ownership catalog, secret scan) on the whole tree,
   // so it is reused for a rerun of the same commit and nothing else.
   const liveScan = (id) => /^(cargo-deny|cargo-audit|pnpm-audit|pnpm-lockfile|advisory-exceptions)(:|$)/.test(id);
+  const ADVISORY_SCAN = /^(cargo-deny|cargo-audit|pnpm-audit)(:|$)/;
+  // The key of an advisory scan (rightkit#1464), or null when an input cannot be identified (the scan then runs). Every input that decides the
+  // verdict and is not in the scan's id, command or environment is here; the advisory database's commit (cargo) is in the scan's own environment
+  // (RK_ADVISORY_DB_COMMIT) and its pin object, the gate's code and advisory-db.json are in the environment digest the caller appends.
+  const advisoryKey = (scan) => {
+    if (typeof listFiles !== "function") return null;
+    const dir = typeof scan.cwd === "string" && scan.cwd !== "" ? scan.cwd : ".";
+    const idsOf = (paths) => [...new Set(paths)].sort().map((p) => [p, idOf(p) ?? null]);
+    const all = listFiles(".");
+    if (/^pnpm-audit(:|$)/.test(scan.id)) {
+      const lock = inWs(dir, "pnpm-lock.yaml");
+      if (idOf(lock) === null || idOf(lock) === undefined) return null;
+      const manifests = all.filter((f) => /(^|\/)package\.json$/.test(f) && (dir === "." || f === inWs(dir, "package.json") || f.startsWith(`${dir}/`)));
+      return canonicalJson({ kind: "pnpm-audit", id: scan.id, day: today(), inputs: idsOf([lock, inWs(dir, "pnpm-workspace.yaml"), inWs(dir, ".npmrc"), ".npmrc", ...manifests]) });
+    }
+    const lock = inWs(dir, "Cargo.lock");
+    if (idOf(lock) === null || idOf(lock) === undefined) return null;
+    const ancestors = ancestorDirsOf(dir);
+    const config = [dir, ...ancestors].flatMap((d) => [".cargo", "deny.toml", "audit.toml", "rust-toolchain", "rust-toolchain.toml"].map((f) => inWs(d, f)));
+    const manifests = all.filter((f) => /(^|\/)Cargo\.toml$/.test(f));
+    return canonicalJson({ kind: scan.id.startsWith("cargo-deny") ? "cargo-deny" : "cargo-audit", id: scan.id, day: today(), pin: scan.advisoryPin ?? null, inputs: idsOf([lock, ...manifests, ...config]) });
+  };
   const fileList = (scan) => {
     if (Array.isArray(scan.files) && scan.files.length) return scan.files;
     const args = Array.isArray(scan.args) ? scan.args : [];
@@ -1036,8 +1071,9 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
   };
   return (scan) => {
     if (scan.class === "A") {
-      if (liveScan(scan.id)) return null;
+      if (liveScan(scan.id) && !ADVISORY_SCAN.test(scan.id)) return null;
       try {
+        if (ADVISORY_SCAN.test(scan.id)) return advisoryKey(scan);
         const files = fileList(scan);
         if (files) return canonicalJson({ kind: "files", id: scan.id, files: [...new Set(files)].sort().map((p) => [p, idOf(p)]) });
         if (/^cargo-package-list:/.test(scan.id)) {
@@ -1055,9 +1091,11 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
     }
     if (scan.class !== "B") return null;
     try {
-      // A batched Clippy scan (clippy:batch:*, planScans `clippyBatching`) is keyed on the inputs of every member it names: each member's
-      // own compile key, in member order. Any member that falls back to the whole tree makes the batch fall back too.
-      if (/^clippy:batch:/.test(String(scan.id)) && Array.isArray(scan.batch?.units) && scan.batch.units.length && scan.batch.units.every((n) => known.has(n))) {
+      // A batched compile (clippy:batch:*, from planScans `clippyBatching` or runScans' class B batching, and check:batch:*) is keyed on the inputs of
+      // every member it names: each member's own compile key, in member order, plus the batch's own id and command (its member list, target and
+      // environment). Any member that falls back to the whole tree makes the batch fall back too. A changed member changes the key, so the
+      // batch runs again as a whole (cargo is incremental); no member's result is ever taken from another invocation's.
+      if (/^(?:clippy|check):batch:/.test(String(scan.id)) && Array.isArray(scan.batch?.units) && scan.batch.units.length && scan.batch.units.every((n) => known.has(n))) {
         const keys = scan.batch.units.map((n) => rustUnitKey(n, scan));
         return keys.includes(undefined) ? whole() : canonicalJson({ kind: "rust-batch", id: scan.id, units: scan.batch.units.map((n, i) => [n, keys[i]]) });
       }
@@ -1079,7 +1117,17 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
     } catch { return null; }
   };
   // The cache key of one Rust unit's compile or test scan, or undefined when the scan must fall back to the whole tree.
+  // A unit's key is a function of the unit, whether the scan is a test scan and the commit; it never names the scan, so the 5 to 10 scans of one
+  // crate share one computation (B7: per-job prep, one git read of the manifest and one closure walk per scan before).
+  const unitKeyMemo = new Map();
   function rustUnitKey(unit, scan) {
+    const memoKey = `${unit}\0${/^test:rust(?:-serial)?:/.test(scan.id) ? "test" : "compile"}`;
+    if (unitKeyMemo.has(memoKey)) return unitKeyMemo.get(memoKey);
+    const keyed = rustUnitKeyOf(unit, scan);
+    unitKeyMemo.set(memoKey, keyed);
+    return keyed;
+  }
+  function rustUnitKeyOf(unit, scan) {
       const head = byName.get(unit);
       const ws = wsOf(head); const lock = lockFor(ws);
       if (!lock || typeof listFiles !== "function" || typeof readBlob !== "function") return undefined;
@@ -1588,8 +1636,8 @@ async function runStages(o, args, root, git, io) {
   const tierAtLeast = (have, need) => have === "release" || need === "compile";
   // GB-12 (GATE 36/44/86, E18): Class A admission runs at every stage boundary a door run crosses; an outer receipt boolean or an intact
   // sealed set never stands in for it. The deterministic scans reuse through their own complete result-cache key (never this receipt's
-  // coarse binding, which names the entry file only), and the live scans (cargo-deny, cargo-audit, pnpm-audit, pnpm-lockfile,
-  // advisory-exceptions) are never cached, so the day's advisories are re-asked on every reuse. The one exception is the trusted
+  // coarse binding, which names the entry file only), and the live scans (pnpm-lockfile, advisory-exceptions) are never cached; cargo-deny, cargo-audit
+  // and pnpm-audit are keyed on lock, configuration, advisory identity and the UTC day (GC-A19), and the door's `live-scans` refresh re-asks the registry. The one exception is the trusted
   // publisher's upload (`--to release` on a desktop platform): it runs no build environment, only uploads bytes whose earlier stages
   // (Class A included) another job of the same pipeline recorded in the receipt it imported (--receipt-in).
   const publisherUploadOnly = to === "release" && !mobile;
@@ -3631,8 +3679,11 @@ export async function main(argv, io = {}) {
         const pathKey = o.platform === "win32" ? (Object.keys(o.env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH";
         const direct = directCargoPath({ env: { ...o.env, PATH: o.env[pathKey] }, exists: o.exists, platform: o.platform, gateWrappers: true });
         const readOpts = { cargoCommand: planCargoCommand, snapshotRoot: repo, directPath: direct.path, pathKey, tmpRoot: gateTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }), env: o.env, err: o.err };
-        snapshotSpawn = directReadSpawn({ spawn: withDeclaredClient((c, a, opts) => o.spawn(c, a, opts)), ...readOpts });
-        scanSpawn = directReadSpawn({ spawn: withDeclaredClient(defaultSpawnAsync), ...readOpts });
+        // One memo for the run (rightkit#1460): the unit discovery's `metadata --no-deps --locked` and the Class A `cargo-metadata` scan of the same
+        // workspace are the same call on the same verified snapshot, so the scan reuses the discovery's result instead of running Cargo again.
+        const readMemo = new Map();
+        snapshotSpawn = directReadSpawn({ spawn: withDeclaredClient((c, a, opts) => o.spawn(c, a, opts)), ...readOpts, memo: readMemo });
+        scanSpawn = directReadSpawn({ spawn: withDeclaredClient(defaultSpawnAsync), ...readOpts, memo: readMemo, isAsync: true });
       }
       npm = discoverNpmUnits({ root: repo, tracked, readFile: readSnap, exists: o.exists });
       npmRoots = discoverPnpmRoots({ root: repo, tracked, exists: o.exists });
@@ -3874,6 +3925,9 @@ export async function main(argv, io = {}) {
       quietTests: fullA || o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures, liveExecution: (fullA && (args.includes("--worktree") || Boolean(snapshotA))) || Boolean(snapshotB),
       e2eCrateDirs, swiftPackages,
       rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures, crateDependents, externalInputs,
+      // B1 (rightkit#1458): compile scans of one Cargo workspace run as one cargo invocation per configuration; ci/shards.json `solo` crates never join one.
+      // Batching is opt-in (RK_GATE_CLASS_B_BATCH=1) until the batch-equivalence run (GATE-CONTRACT GC-I11) shows a batch passes exactly when each crate passes alone: one cargo call unifies the members' features.
+      classBBatching: o.env.RK_GATE_CLASS_B_BATCH === "1", shardSolo: shardSoloOf(o, repo),
       // The broker (or, on a direct host, the gate itself) admits compiles; no separate grant file decides it here.
       localCompile: true,
       exists: o.exists, readFile: o.readFile, platform: o.platform,
@@ -4021,7 +4075,9 @@ export async function main(argv, io = {}) {
         // The verdict also depends on what is not in the tree: the gate's own code and advisory data, the node and pnpm that run
         // the checks, the installed dependencies (pnpm's install state) and the platform. Any change there is a cache miss.
         // Tool caches (vitest, tsc build info, ...) are left out: the scans write them themselves, so keying on them made every rerun miss.
-        const environment = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files, spawn: o.spawn, includeCaches: false });
+        // A6: the digest bound at the start of this run is this very computation (same root, gate package, files and tool-cache setting), so it is
+        // reused: each call walks every installed dependency file, and the run made three of these walks before its first scan.
+        const environment = envAtStart ?? classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files, spawn: o.spawn, includeCaches: false });
         const digest = buildCacheDigest({ objectId, headTree: digestOf(files), rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob });
         // A row's key is its own inputs plus the environment; the run's scope and scan set are not inputs of one row, and keying on them
         // missed every row whenever one file joined or left the plan. build-helpers is never reused: it reads the host's trace list,
@@ -4084,7 +4140,7 @@ export async function main(argv, io = {}) {
     directTiming.cargoStart = Date.now();
     census?.start();
     const scanResult = await (o.runScans ?? runScans)(plan, {
-      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, testJobs, classBJobs, ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
+      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, testJobs, classBJobs, classBBatching: o.env.RK_GATE_CLASS_B_BATCH === "1", classBPipeline: Math.max(1, Number(o.env.RK_GATE_CLASS_B_PIPELINE ?? 2) || 2), ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
       ...(census ? { spawn: census.wrapSpawn(defaultSpawnAsync) } : {}),
       // The declared Linux broker route: the scans are planned with the logical `rustright`, which this spawn (and scanSpawn's pass-through below) starts as the
       // executor's validated client, never a PATH lookup (withDeclaredClient).
@@ -4122,7 +4178,7 @@ export async function main(argv, io = {}) {
           return path.join(base, "rightkit-gate-scan-logs", `${path.basename(root)}-${stamp}-${process.pid}`);
         } catch { return null; }
       })(),
-      onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? "cached" : row.status).padEnd(7)} ${row.id} (${p.seconds}s)${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : ""}`),
+      onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? "cached" : row.status).padEnd(7)} ${row.id} (${p.seconds}s)${row.batchedWith ? ` [batch of ${row.batchedWith.units.length}]` : ""}${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : ""}`),
     });
     directTiming.cargoEnd = Date.now();
     const freshness = census ? census.finish() : null;
@@ -4208,7 +4264,7 @@ export async function main(argv, io = {}) {
       }
       const outputWorkspaces = (snapshotBroker ? scanResult.scans.map((r) => r.snapshotEvidence?.outputDir) : Object.values(targetDirs ?? {})).filter(Boolean).map((dir) => [dir]);
       o.onCompileOutputs?.(outputWorkspaces.map(([dir]) => dir), builtBins);
-      if (snapshotBroker) o.out(`${tag} broker compile: ${scanResult.scans.filter((r) => r.snapshotEvidence).length} carried request(s) with verified signed receipts; no direct receipt on a broker host`);
+      if (snapshotBroker) o.out(`${tag} broker compile: ${new Set(scanResult.scans.map((r) => r.snapshotEvidence?.requestId).filter(Boolean)).size} carried request(s) with verified signed receipts (${scanResult.scans.filter((r) => r.snapshotEvidence).length} scan row(s)); no direct receipt on a broker host`);
       else {
         // The direct host's own receipt (GATE-CONTRACT "Broker interface", row 7.18): the contract's returned-evidence names minus the
         // broker-only ones (admission, queue, reusedFrom): the run, the commit, the snapshot's tree at start and exit, the declared
