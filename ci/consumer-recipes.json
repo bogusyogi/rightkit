@@ -2105,11 +2105,11 @@
       "gateEvidence": "ffmpeg is never resolved, verified or run; no assets needed; the embedded catalog is parsed only. Default feature native stays on (no extra gate row needed for pure items)",
       "consumes": "motion dependency (PK19 proposal; rightkit-motion encode feature uses rightkit-ffmpeg =0.2.9 per PROPOSAL.txt:157); rightkit-ffmpeg public items used: lib.rs pcm_s16le_16khz_mono_args (src/lib.rs ~1136), command::extract_args and command::transcode_audio_command (src/command.rs:220,276), encoders::EncoderInventory::parse and pick_h264 (src/encoders.rs:115,203), ArtifactCatalog::embedded and parse (src/lib.rs:237-245), MediaError (src/lib.rs:628)",
       "files": {
-        "Cargo.toml": "fd905762190ad1bad5e63807e56728e9562b5d0b67d6ae97a186099f202ae1b0",
+        "Cargo.toml": "d538a2dae9fc41d7fd2d7ad225e56800192bfbd7536bcf74b10dc11552f5e478",
         "README.md": "6c8c8889252efa82ac7ee302918bb288591aac87b52e9ca808910e699ac42dfd",
         "src/main.rs": "fcd2cf237f28083e92e235c0682df4a8cabe260a57df6320c65e707c2da38820"
       },
-      "aggregateSha256": "2e5d88787357221450c0a1d764e24d8fcc0727dcffea2f9080c15e4a241f5219"
+      "aggregateSha256": "503995d48651c3aecaa5ff0400518fb55f2154e3e64332bd62758c3ccba6801d"
     },
     "rightkit-sidecar": {
       "pkId": "PK06",
