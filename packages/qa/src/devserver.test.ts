@@ -269,7 +269,8 @@ describe('waitForHttp (0.4.8)', () => {
 });
 
 describe('dev server refuses installed apps', () => {
-  it('refuses a command inside an installed-apps location before anything is spawned', async () => {
+  // Linux has no installed-apps location (`installedRoots` is empty there), so there is nothing to refuse.
+  it.skipIf(process.platform === 'linux')('refuses a command inside an installed-apps location before anything is spawned', async () => {
     vi.stubEnv('RIGHT_RELEASE_QA_STAGE', '');
     try {
       const command = process.platform === 'win32' ? 'C:\\Program Files\\CutRight\\cutright.exe' : '/Applications/CutRight.app/Contents/MacOS/CutRight';

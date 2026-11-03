@@ -4,11 +4,13 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { launchChromeForTesting, type ChromeForTestingBrowser } from '@rightkit/qa-chrome';
+import { findChromeForTesting, launchChromeForTesting, type ChromeForTestingBrowser } from '@rightkit/qa-chrome';
 import { ElementOccludedError, FillMismatchError, QaBrowserSession, type QaPage, TimeoutError } from './index.js';
 
-// Deliberately no skip: this integration lane requires installed Chrome for Testing.
-describe('QaPage with real Chrome for Testing', () => {
+// No skip on macOS or Windows: their verify jobs provision Chrome for Testing, so a missing install fails there. The
+// Linux direct-origin qualification lane has no Chrome for Testing, so it alone skips when none is installed.
+const linuxWithoutChrome = process.platform === 'linux' && findChromeForTesting().path === undefined;
+describe.skipIf(linuxWithoutChrome)('QaPage with real Chrome for Testing', () => {
   let chrome: ChromeForTestingBrowser;
   let browser: QaBrowserSession;
   let page: QaPage;
