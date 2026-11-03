@@ -154,7 +154,7 @@ impl Selection {
             "auto" => true,
             _ => false,
         };
-        class && self.model.as_deref().map_or(true, |m| m == c.model)
+        class && self.model.as_deref().is_none_or(|m| m == c.model)
     }
 
     fn label(&self) -> String {

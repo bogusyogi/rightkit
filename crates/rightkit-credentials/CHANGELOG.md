@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4 (GATE-CONTRACT GC-A07)
+
+- Changed: no `debug_assertions` switches. `MemoryBackend` and the `GuardMode::Memory` swap compile under `cfg(test)` or the new non-default `memory-backend` feature, which dependents enable only in `[dev-dependencies]`. Without it a tripped guard is `Deny` in every build. Fixes dependents' release-profile tests that could not name `MemoryBackend`.
+
 ## 0.4.3 (unreleased)
 
 - Added the `secure_prompt` module (every OS, no feature): `ask(target, caption, message)` opens the system credential dialog (Windows `CredUIPromptForCredentialsW`, nothing persisted, buffers wiped) and returns `Entered { visible, masked }` with the masked box zeroized on drop; other systems answer an error. Moved from Pulse's hub. Additive.

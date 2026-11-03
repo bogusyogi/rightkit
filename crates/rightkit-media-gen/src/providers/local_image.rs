@@ -224,9 +224,7 @@ impl LocalImage {
                 .is_some_and(|m| {
                     m.is_file()
                         && m.len() > 0
-                        && component
-                            .bytes
-                            .map_or(true, |b| b > 0 && m.len() == b as u64)
+                        && component.bytes.is_none_or(|b| b > 0 && m.len() == b as u64)
                 });
             if !present {
                 return Err(ProviderError::new(
@@ -455,6 +453,12 @@ impl LocalImage {
         Ok(SubmitOutcome::Accepted {
             provider_job_id: submitted.job.id,
         })
+    }
+}
+
+impl Default for LocalImage {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

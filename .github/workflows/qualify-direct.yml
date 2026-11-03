@@ -147,6 +147,12 @@ jobs:
           chmod +x "$RUNNER_TEMP/shellcheck-bin/shellcheck"
           "$RUNNER_TEMP/shellcheck-bin/shellcheck" --version | grep -Fx "version: ${SHELLCHECK_VERSION}"
           echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"
+      - name: Install the GTK and WebKit development libraries for Tauri units
+        if: ${{ contains(matrix.unit, 'tauri') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends pkg-config libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev
       # The snapshot route (not the hosted-checkout route): the gate builds the commit's snapshot, as on any Linux host, so the
       # archive it qualifies carries no .cargo_vcs_info.json and equals publish.yml's pack.
       - name: Wait for the runner disk to be freed

@@ -712,7 +712,7 @@ fn acquire_one(ctx: &Context, fetch: &dyn Fetch, cand: &Candidate) -> GenResult<
         &Value::Null,
         Some(json!({"acquisition": acquisition})),
     )
-    .map_err(|e| cleanup(e))?;
+    .map_err(cleanup)?;
     let path: PathBuf = dir.join(format!("{asset_id}.{}", library::ext_for_mime(mime)));
     rightkit_fs::atomic_write(&path, &bytes)
         .map_err(|e| cleanup(io_err(std::io::Error::other(e))))?;
@@ -741,7 +741,7 @@ fn acquire_one(ctx: &Context, fetch: &dyn Fetch, cand: &Candidate) -> GenResult<
                 row,
             )
         })
-        .map_err(|e| cleanup(e))?;
+        .map_err(cleanup)?;
     Ok(Outcome::Added(json!({
         "asset_id": asset_id,
         "path": path.to_string_lossy(),

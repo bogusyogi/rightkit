@@ -2,10 +2,12 @@
 //! [`crate::host::HostConfig::app_identifier`]; account = provider id) through
 //! `rightkit_credentials::Store`. Key values are never logged or returned by any command.
 
-#[cfg(any(test, debug_assertions))]
+#[cfg(any(test, feature = "memory-backend"))]
 use std::sync::Arc;
 
-use rightkit_credentials::{Namespace, Source, Store, WriteIntent};
+#[cfg(any(test, feature = "memory-backend"))]
+use rightkit_credentials::Namespace;
+use rightkit_credentials::{Source, Store, WriteIntent};
 
 use crate::{Context, GenError, GenResult};
 
@@ -38,19 +40,19 @@ pub trait CredentialSource: Send + Sync + std::fmt::Debug {
 }
 
 /// In-memory `Store` (the published `MemoryBackend`) for tests.
-#[cfg(any(test, debug_assertions))]
+#[cfg(any(test, feature = "memory-backend"))]
 pub struct MemoryCredentials {
     store: Store,
 }
 
-#[cfg(any(test, debug_assertions))]
+#[cfg(any(test, feature = "memory-backend"))]
 impl std::fmt::Debug for MemoryCredentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("MemoryCredentials")
     }
 }
 
-#[cfg(any(test, debug_assertions))]
+#[cfg(any(test, feature = "memory-backend"))]
 impl MemoryCredentials {
     pub fn new() -> Self {
         Self::with_backend(Arc::new(rightkit_credentials::MemoryBackend::new()))
@@ -63,14 +65,14 @@ impl MemoryCredentials {
     }
 }
 
-#[cfg(any(test, debug_assertions))]
+#[cfg(any(test, feature = "memory-backend"))]
 impl Default for MemoryCredentials {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(any(test, debug_assertions))]
+#[cfg(any(test, feature = "memory-backend"))]
 impl CredentialSource for MemoryCredentials {
     fn store(&self) -> &Store {
         &self.store
@@ -211,7 +213,7 @@ pub fn import_env_with(
     }))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "memory-backend"))]
 mod tests {
     use super::*;
 

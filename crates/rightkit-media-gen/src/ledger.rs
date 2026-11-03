@@ -1899,7 +1899,7 @@ pub fn reconcile_invoice(db: &Db, input: &Value) -> GenResult<Value> {
                     .query_map(params![key, provider, from, to], |r| Ok((r.get(0)?, r.get(1)?, usd(r.get(2)?))))?
                     .collect::<Result<Vec<_>, _>>()?
                     .into_iter()
-                    .filter(|(_, a, _)| line.attempt.map_or(true, |want| *a == want))
+                    .filter(|(_, a, _)| line.attempt.is_none_or(|want| *a == want))
                     .collect();
                 let unmatched = |reason: &str| json!({"index": i, "job_id": line.job_id, "provider_job_id": line.provider_job_id, "attempt": line.attempt, "usd": line.usd, "reason": reason});
                 let (job_id, attempt, settled) = match rows.as_slice() {

@@ -1533,14 +1533,12 @@ mod delete_tests {
         let root = scratch("rie");
         let file = root.join("a.txt");
         std::fs::write(&file, b"x").unwrap();
-        assert_eq!(
-            remove_if_exists(&root.join("missing.txt")).unwrap(),
-            false,
+        assert!(
+            !remove_if_exists(&root.join("missing.txt")).unwrap(),
             "missing file is fine"
         );
-        assert_eq!(
-            remove_if_exists(&root.join("nofolder").join("a.txt")).unwrap(),
-            false,
+        assert!(
+            !remove_if_exists(&root.join("nofolder").join("a.txt")).unwrap(),
             "missing folder is fine"
         );
         {
@@ -1549,7 +1547,7 @@ mod delete_tests {
             assert_eq!(err.code, "io_error", "{err:?}");
             assert!(file.exists(), "a failed remove leaves the file");
         }
-        assert_eq!(remove_if_exists(&file).unwrap(), true);
+        assert!(remove_if_exists(&file).unwrap());
         assert!(!file.exists());
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1570,11 +1568,10 @@ mod delete_tests {
             assert!(remove_gallery_item(&images, &gallery).is_err());
             assert!(gallery.exists());
         }
-        assert_eq!(remove_gallery_item(&images, &gallery).unwrap(), true);
+        assert!(remove_gallery_item(&images, &gallery).unwrap());
         assert!(!gallery.exists());
-        assert_eq!(
-            remove_gallery_item(&images, &gallery).unwrap(),
-            false,
+        assert!(
+            !remove_gallery_item(&images, &gallery).unwrap(),
             "already gone is not an error"
         );
         let _ = std::fs::remove_dir_all(&root);
@@ -1637,9 +1634,9 @@ mod delete_tests {
                 "marker survives a failure on {failing}"
             );
         }
-        assert_eq!(remove_tree(&dir).unwrap(), true);
+        assert!(remove_tree(&dir).unwrap());
         assert!(!dir.exists());
-        assert_eq!(remove_tree(&dir).unwrap(), false, "missing is not an error");
+        assert!(!remove_tree(&dir).unwrap(), "missing is not an error");
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -2158,9 +2155,8 @@ mod delete_tests {
             gallery.exists(),
             "the image goes last, so it is still there after a sidecar failure"
         );
-        assert_eq!(
+        assert!(
             remove_gallery_item(&images, &gallery).unwrap(),
-            true,
             "a repeat finishes"
         );
         assert!(!gallery.exists());
@@ -2243,12 +2239,11 @@ mod delete_tests {
     fn media_left_reports_media_and_treats_a_missing_folder_as_none() {
         let root = scratch("media");
         std::fs::write(root.join("a.json"), b"{}").unwrap();
-        assert_eq!(media_left(&root).unwrap(), false, "only sidecars left");
+        assert!(!media_left(&root).unwrap(), "only sidecars left");
         std::fs::write(root.join("a.png"), b"x").unwrap();
-        assert_eq!(media_left(&root).unwrap(), true);
-        assert_eq!(
-            media_left(&root.join("gone")).unwrap(),
-            false,
+        assert!(media_left(&root).unwrap());
+        assert!(
+            !media_left(&root.join("gone")).unwrap(),
             "a folder that is already gone holds no media"
         );
         let _ = std::fs::remove_dir_all(&root);

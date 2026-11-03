@@ -12,6 +12,7 @@ use crate::host::ffmpeg::FfmpegBinary;
 use rightkit_child_process::{OwnedCommand, RunOptions};
 use serde_json::{json, Map, Value};
 use std::fs;
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(unused_imports))]
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
@@ -579,10 +580,7 @@ impl LocalBlender {
                 .as_object()
                 .ok_or_else(|| invalid("params.camera must be an object"))?;
             let fields = ["lens_mm", "azimuth_deg", "elevation_deg", "distance_scale"];
-            if camera
-                .keys()
-                .any(|key| !fields.iter().any(|name| *name == key.as_str()))
-            {
+            if camera.keys().any(|key| !fields.contains(&key.as_str())) {
                 return Err(invalid("params.camera supports lens_mm, azimuth_deg, elevation_deg, and distance_scale only"));
             }
             let mut normalized_camera = Map::new();
@@ -1218,6 +1216,7 @@ fn monitor_blender(
     };
     let mut last_event: Option<Value> = None;
     let mut encode: Option<EncodeRun> = None;
+    #[cfg_attr(not(any(target_os = "macos", windows)), allow(unused_mut))]
     let mut result: Option<(String, Option<i32>, bool, Option<String>)>;
     loop {
         for event in event_rx.try_iter() {

@@ -1057,7 +1057,7 @@ impl Entry {
             }
             _ => {}
         }
-        if !i.required && i.default.as_ref().map_or(true, Value::is_null) {
+        if !i.required && i.default.as_ref().is_none_or(Value::is_null) {
             return Err(format!("field `{field}`: pricing depends on {param:?}, which has no default and is not required"));
         }
         Ok(i)
@@ -1328,7 +1328,7 @@ impl Entry {
         if !i.send {
             return Err(format!("field `{field}`: input {param:?} is not sent, so the caller would state the price basis; derive it from a sent input"));
         }
-        if !i.required && i.default.as_ref().map_or(true, Value::is_null) {
+        if !i.required && i.default.as_ref().is_none_or(Value::is_null) {
             return Err(format!("field `{field}`: pricing depends on {param:?}, which has no default and is not required"));
         }
         Ok(i)
@@ -1357,8 +1357,7 @@ impl Entry {
         if !i.send {
             return Err(format!("field `pricing.text_param`: input {text_param:?} is not sent, so the caller would state its length; price the text that is sent"));
         }
-        if text_param != "prompt" && !i.required && i.default.as_ref().map_or(true, Value::is_null)
-        {
+        if text_param != "prompt" && !i.required && i.default.as_ref().is_none_or(Value::is_null) {
             return Err(format!("field `pricing.text_param`: pricing depends on {text_param:?}, which has no default and is not required"));
         }
         if let Some(n) = est_chars {
@@ -1523,7 +1522,7 @@ impl Entry {
                         }
                     }
                     // The value is always known: given, defaulted, or required.
-                    if !i.required && i.default.as_ref().map_or(true, Value::is_null) {
+                    if !i.required && i.default.as_ref().is_none_or(Value::is_null) {
                         return Err(format!("{}: pricing depends on {param:?}, which has no default and is not required", at("when.param")));
                     }
                 }
@@ -1548,9 +1547,8 @@ impl Entry {
 
     /// True when `priced_at` is more than [`STALE_AFTER_DAYS`] before `today`.
     pub fn is_stale_on(&self, today: Date) -> bool {
-        parse_date(&self.priced_at).map_or(true, |d| {
-            i64::from(today.to_julian_day() - d.to_julian_day()) > STALE_AFTER_DAYS
-        })
+        parse_date(&self.priced_at)
+            .is_none_or(|d| i64::from(today.to_julian_day() - d.to_julian_day()) > STALE_AFTER_DAYS)
     }
 
     /// Checks a request against the entry and builds the provider body.
@@ -3281,7 +3279,7 @@ mod tests {
         }
         b.extend_from_slice(b"data");
         b.extend_from_slice(&(bytes as u32).to_le_bytes());
-        b.extend(std::iter::repeat(0u8).take(bytes));
+        b.extend(std::iter::repeat_n(0u8, bytes));
         let path = dir.join(name);
         std::fs::write(&path, b).unwrap();
         path

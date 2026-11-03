@@ -855,7 +855,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "block2",
  "getrandom",
@@ -863,6 +863,7 @@ dependencies = [
  "objc2",
  "objc2-foundation",
  "rightkit-app-settings",
+ "rightkit-credentials",
  "rightkit-db",
  "secret-service",
  "serde",

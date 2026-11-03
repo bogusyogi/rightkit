@@ -230,7 +230,7 @@ fn map_code(code: u16, text: &str) -> ProviderError {
             format!("nanobanana rejected the API key ({code}): {text}"),
             false,
         ),
-        402 | 401 | 403 => ProviderError::new(
+        401..=403 => ProviderError::new(
             "billing",
             format!("nanobanana billing problem: {text}"),
             false,

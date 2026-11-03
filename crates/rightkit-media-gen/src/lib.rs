@@ -1,6 +1,15 @@
 //! Generation core: provider adapters, durable jobs (§4.3), the
 //! spend ledger (§4.2), credentials (OS keychain), and result descriptors
 //! (§4.4). The engine CLI and the app sidecar both drive it through [`api`].
+// Provider adapters are ported as written; these style lints would only churn the moved code.
+#![allow(
+    clippy::too_many_arguments,
+    clippy::needless_range_loop,
+    clippy::slow_vector_initialization,
+    clippy::repeat_vec_with_capacity,
+    clippy::large_enum_variant,
+    clippy::type_complexity
+)]
 
 /// The OS temp dir with symlinks resolved (macOS `/var` is a link, which the safe-filesystem owner refuses).
 #[cfg(test)]

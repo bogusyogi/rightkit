@@ -242,10 +242,7 @@ pub fn job_evidence(kind: &str, parent_evidence: &[EvidenceKind]) -> EvidenceKin
         .all(|e| *e == EvidenceKind::Authentic)
     {
         EvidenceKind::Authentic
-    } else if parent_evidence
-        .iter()
-        .any(|e| *e == EvidenceKind::Illustrative)
-    {
+    } else if parent_evidence.contains(&EvidenceKind::Illustrative) {
         EvidenceKind::Illustrative
     } else {
         EvidenceKind::Unknown

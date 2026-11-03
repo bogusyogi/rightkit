@@ -457,15 +457,9 @@ impl Fal {
                     .and_then(Value::as_str);
                 if endpoint == VIDEO_I2V {
                     body["image_url"] = json!(image_url(req).unwrap_or_default());
-                    body["aspect_ratio"] = json!(match ar {
-                        Some(a @ ("16:9" | "9:16")) => a,
-                        _ => "auto",
-                    });
+                    body["aspect_ratio"] = json!(ar.unwrap_or("auto"));
                 } else {
-                    body["aspect_ratio"] = json!(match ar {
-                        Some(a @ ("16:9" | "9:16")) => a,
-                        _ => "16:9",
-                    });
+                    body["aspect_ratio"] = json!(ar.unwrap_or("16:9"));
                 }
             }
             Kind::Music => {
@@ -694,25 +688,16 @@ fn variant_body(v: &Variant, req: &GenRequest) -> Value {
     match v.mode {
         Mode::I2v => {
             body["image_url"] = json!(image_url(req).unwrap_or_default());
-            body["aspect_ratio"] = json!(match ar {
-                Some(a @ ("16:9" | "9:16")) => a,
-                _ => "auto",
-            });
+            body["aspect_ratio"] = json!(ar.unwrap_or("auto"));
         }
         Mode::Flf => {
             body["first_frame_url"] = json!(image_url(req).unwrap_or_default());
             body["last_frame_url"] = json!(end_url(req).unwrap_or_default());
-            body["aspect_ratio"] = json!(match ar {
-                Some(a @ ("16:9" | "9:16")) => a,
-                _ => "auto",
-            });
+            body["aspect_ratio"] = json!(ar.unwrap_or("auto"));
         }
         Mode::Reference => {
             body["image_urls"] = json!(ref_urls(req));
-            body["aspect_ratio"] = json!(match ar {
-                Some(a @ ("16:9" | "9:16")) => a,
-                _ => "16:9",
-            });
+            body["aspect_ratio"] = json!(ar.unwrap_or("16:9"));
         }
     }
     if v.mode != Mode::Reference {
@@ -868,7 +853,7 @@ fn builtin_capabilities(model: &str) -> Capabilities {
             .setting("seed", capabilities::seed()),
         Kind::Video => {
             // `resolution()`: 720p or 1080p, plus 4k on rows with a 4K rate; 720p when absent.
-            let allow_4k = variant(model).map_or(true, |v| v.r4k.is_some());
+            let allow_4k = variant(model).is_none_or(|v| v.r4k.is_some());
             let resolutions: &[&str] = if allow_4k {
                 &["720p", "1080p", "4k"]
             } else {
@@ -1216,10 +1201,7 @@ impl Provider for Fal {
                 let detail = v.get("error").and_then(Value::as_str).unwrap_or("");
                 let status = v.get("status").and_then(Value::as_str).unwrap_or("");
                 Ok(PollOutcome::Failed {
-                    message: redact(
-                        &format!("fal status {status} {detail}").trim().to_string(),
-                        api_key,
-                    ),
+                    message: redact(format!("fal status {status} {detail}").trim(), api_key),
                 })
             }
             "COMPLETED" => {

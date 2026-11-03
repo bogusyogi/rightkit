@@ -183,7 +183,7 @@ fn b64_decode(s: &str) -> Option<Vec<u8>> {
         .chars()
         .filter(|c| !c.is_ascii_whitespace() && *c != '=')
         .collect();
-    while t.len() % 4 != 0 {
+    while !t.len().is_multiple_of(4) {
         t.push('=');
     }
     rightkit_crypto::base64_decode(&t).ok()

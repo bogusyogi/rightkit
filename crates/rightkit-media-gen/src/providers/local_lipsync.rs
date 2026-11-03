@@ -355,7 +355,7 @@ fn mel_spectrogram(wav: &[f32]) -> Vec<Vec<f32>> {
             for k in 0..mag.len() {
                 s += basis[m][k] * mag[k][tt] as f64;
             }
-            let db = 20.0 * (s.max(min_level as f64)).log10() as f64 - REF_LEVEL_DB;
+            let db = 20.0 * (s.max(min_level as f64)).log10() - REF_LEVEL_DB;
             mel[m][tt] = ((2.0 * MAX_ABS) * ((db - MIN_LEVEL_DB) / -MIN_LEVEL_DB) - MAX_ABS)
                 .clamp(-MAX_ABS, MAX_ABS) as f32;
         }
@@ -695,7 +695,9 @@ fn decode_audio_16k(audio: &Path) -> Result<Vec<f32>, ProviderError> {
     Ok(out
         .stdout
         .bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / i16::MAX as f32)
         .collect())
 }
@@ -724,7 +726,7 @@ fn h264_unavailable(listing: &str, ffmpeg_message: Option<&str>) -> ProviderErro
         format!(
             "local-wav2lip needs the platform H.264 encoder ({}) in the resolved ffmpeg; it does not produce MPEG-4 because its output cannot report a fallback; details={}",
             h264::platform_encoder(),
-            h264::details(path.as_deref(), listing, ffmpeg_message)
+            h264::details(path, listing, ffmpeg_message)
         ),
         false,
     )

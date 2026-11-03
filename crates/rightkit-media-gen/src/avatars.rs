@@ -1091,7 +1091,7 @@ fn resolve_model(input: &Value, kind: GenKind) -> GenResult<(String, String)> {
             if m.kind != kind {
                 continue;
             }
-            if want_model.map_or(true, |w| w == m.model) {
+            if want_model.is_none_or(|w| w == m.model) {
                 return Ok((p.id().to_string(), m.model.to_string()));
             }
         }

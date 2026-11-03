@@ -114,9 +114,9 @@ pub fn discover(root: &Path) -> Option<Installed> {
             continue;
         }
         let version = m["version"].as_str().unwrap_or("").to_string();
-        let better = best.as_ref().map_or(true, |b: &Installed| {
-            version_key(&version) > version_key(&b.version)
-        });
+        let better = best
+            .as_ref()
+            .is_none_or(|b: &Installed| version_key(&version) > version_key(&b.version));
         if better {
             best = Some(Installed {
                 home,
@@ -183,6 +183,12 @@ impl RealEsrgan {
             ));
         }
         Ok(())
+    }
+}
+
+impl Default for RealEsrgan {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

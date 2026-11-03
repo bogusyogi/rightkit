@@ -1617,7 +1617,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",

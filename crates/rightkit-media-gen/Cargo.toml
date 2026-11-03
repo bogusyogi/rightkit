@@ -14,6 +14,8 @@ name = "rightkit_media_gen"
 path = "src/lib.rs"
 
 [features]
+# `credentials::MemoryCredentials` for dependents' tests (dev-dependency use only); no release dependency tree carries it.
+memory-backend = ["rightkit-credentials/memory-backend"]
 # Development builds only: honour `<PREFIX>_FFMPEG` / `PATH` (unverified binaries).
 dev-overrides = ["rightkit-ffmpeg/dev-overrides"]
 # QA and dev builds only: test seams (approval test secret). A release build never enables it.
@@ -44,6 +46,7 @@ rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg" }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
 
 [dev-dependencies]
+rightkit-credentials = { version = "0.4.4", path = "../rightkit-credentials", features = ["memory-backend"] }
 ctor = { version = "1.0" }
 
 [workspace]

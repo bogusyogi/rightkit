@@ -124,6 +124,12 @@ impl LocalMusicGen {
     }
 }
 
+impl Default for LocalMusicGen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Provider for LocalMusicGen {
     fn id(&self) -> &'static str {
         ID

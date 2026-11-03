@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-credentials"
-version = "0.4.3"
+version = "0.4.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager / Linux Secret Service / Android Keystore, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration."
@@ -12,6 +12,9 @@ categories = ["os", "authentication"]
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
+# The in-process `MemoryBackend` (and the `GuardMode::Memory` swap). A dev-dependency capability: a crate enables it only under
+# `[dev-dependencies]`, so no release dependency tree carries it. There is no debug_assertions switch; without it a tripped guard is `Deny`.
+memory-backend = []
 # `impl rightkit_app_settings::SecretProbe for Store` (presence-only adapter).
 settings-probe = ["dep:rightkit-app-settings"]
 # TEST ONLY. Compiles the throwaway macOS test keychain (`IsolatedKeychain`,
@@ -59,6 +62,8 @@ windows-native-keyring-store = "1.1.0"
 
 [dev-dependencies]
 tempfile = "3"
+# The binary's tests drive an in-memory store; dev-only, so no release dependency tree carries it.
+rightkit-credentials = { path = ".", features = ["memory-backend"] }
 
 [package.metadata.rightkit]
 continuous = false

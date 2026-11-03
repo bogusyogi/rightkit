@@ -40,7 +40,7 @@ pub mod os_auth;
 #[cfg(windows)]
 mod windows;
 
-#[cfg(any(test, debug_assertions))]
+#[cfg(any(test, feature = "memory-backend"))]
 pub use backend::MemoryBackend;
 pub use backend::{system_backend, Backend, ConditionalDelete, Interaction, UnavailableBackend};
 pub use error::{Error, Result};

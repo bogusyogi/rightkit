@@ -501,7 +501,7 @@ fn list_with(ctx: &Context, el_base: &str, input: &Value) -> GenResult<Value> {
         .get("offline")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let want = |p: &str| filter.map_or(true, |f| f == p);
+    let want = |p: &str| filter.is_none_or(|f| f == p);
     let stored = stored_defaults(ctx);
     let data = builtin();
     let mut voices: Vec<Value> = Vec::new();
@@ -1961,12 +1961,11 @@ fn export(ctx: &Context, input: &Value) -> GenResult<Value> {
         let bytes = if let Some(ff) = &ffmpeg {
             transcode(ff, src, &dest, &format, normalize)?
         } else {
-            let n = if src == &dest {
+            if src == &dest {
                 src.metadata().map(|m| m.len()).unwrap_or(0)
             } else {
                 copy_export(src, &dest)?
-            };
-            n
+            }
         };
         let data = std::fs::read(&dest).map_err(io)?;
         let entry = json!({
@@ -2444,7 +2443,7 @@ mod tests {
         let d = Dir::new();
         let ctx = ctx_with(&d, None);
         let vr = voiceright_fixture(&d.0.join("appdata"));
-        let r = import_from(&ctx, &json!({}), &[vr.clone()]).unwrap();
+        let r = import_from(&ctx, &json!({}), std::slice::from_ref(&vr)).unwrap();
         assert_eq!(r["source_found"], true);
         assert_eq!(r["found"], 5);
         let imported = r["imported"].as_array().unwrap();
@@ -2483,7 +2482,7 @@ mod tests {
         assert!(vr.join("voice-1.pb").is_file());
 
         // Re-import is idempotent; a changed prompt re-imports.
-        let again = import_from(&ctx, &json!({}), &[vr.clone()]).unwrap();
+        let again = import_from(&ctx, &json!({}), std::slice::from_ref(&vr)).unwrap();
         assert_eq!(again["imported"].as_array().unwrap().len(), 0);
         assert!(again["skipped"]
             .as_array()

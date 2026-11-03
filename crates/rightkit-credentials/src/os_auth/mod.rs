@@ -503,17 +503,17 @@ mod platform {
 
 // ---- Debug/test authenticator ---------------------------------------------------------------
 
-/// A scripted authenticator for coordinator tests. Compiled only with debug assertions or under
+/// A scripted authenticator for coordinator tests. Compiled only under the `memory-backend` feature or
 /// `cfg(test)`, like [`crate::MemoryBackend`]: a release build has no way to mint a [`Verified`]
 /// without the OS.
-#[cfg(any(test, debug_assertions))]
+#[cfg(any(test, feature = "memory-backend"))]
 pub struct ScriptedAuthenticator {
     availability: Availability,
     script: Mutex<std::collections::VecDeque<Result<(), OsAuthError>>>,
     prompts: std::sync::atomic::AtomicUsize,
 }
 
-#[cfg(any(test, debug_assertions))]
+#[cfg(any(test, feature = "memory-backend"))]
 impl ScriptedAuthenticator {
     /// `outcomes` are consumed one per `authenticate` call; an empty script answers
     /// `Err(OsAuthError::Cancelled)`.
@@ -532,7 +532,7 @@ impl ScriptedAuthenticator {
     }
 }
 
-#[cfg(any(test, debug_assertions))]
+#[cfg(any(test, feature = "memory-backend"))]
 impl OsAuthenticator for ScriptedAuthenticator {
     fn availability(&self) -> Availability {
         self.availability

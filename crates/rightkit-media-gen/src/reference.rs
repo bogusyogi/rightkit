@@ -20,7 +20,7 @@ pub fn decode_base64(s: &str) -> Result<Vec<u8>, String> {
         .chars()
         .filter(|c| !c.is_ascii_whitespace() && *c != '=')
         .collect();
-    while t.len() % 4 != 0 {
+    while !t.len().is_multiple_of(4) {
         t.push('=');
     }
     let out = rightkit_crypto::base64_decode(&t)

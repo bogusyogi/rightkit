@@ -174,6 +174,83 @@ pub fn derived_facts(provider: &str, model: &str, job_id: &str, parents: &[Paren
     AssetFacts::generated(provider, model, job_id, ids, &rights, evidence)
 }
 
+/// Facts of a file the user supplied: the given origin kind, the source it came from, and only the
+/// evidence and rights the caller actually knows (`unknown` when not stated).
+pub fn recorded_facts(
+    kind: OriginKind,
+    source: Option<String>,
+    evidence: EvidenceKind,
+    rights: Rights,
+) -> AssetFacts {
+    AssetFacts {
+        origin: Origin {
+            kind,
+            source,
+            ..Origin::default()
+        },
+        evidence,
+        rights,
+    }
+}
+
+/// Write the `facts.json` the gallery scan reads beside a library asset (`<dir>/facts.json`).
+/// `extra` keys are merged at the top level beside `facts` and `scope`.
+pub fn write_facts_file(
+    dir: &Path,
+    facts: &AssetFacts,
+    scope: &Value,
+    extra: Option<Value>,
+) -> GenResult<()> {
+    let mut body = json!({"facts": facts.to_value(), "scope": scope});
+    if let (Some(extra), Some(object)) = (
+        extra.as_ref().and_then(Value::as_object),
+        body.as_object_mut(),
+    ) {
+        for (k, v) in extra {
+            if k != "facts" && k != "scope" {
+                object.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    rightkit_fs::atomic_write(&dir.join("facts.json"), body.to_string().as_bytes())
+        .map_err(|e| GenError::new("io", format!("cannot write facts.json: {e}")))
+}
+
+/// Facts of material the user supplied whose evidence and rights nothing establishes: origin
+/// `supplied` from `source`, evidence `unknown`, rights `unknown`. `consent_refs` are references
+/// to consent the caller recorded (a likeness or voice consent record); they are carried as
+/// stated and never raise the status above `unknown`.
+pub fn supplied_unknown(source: Option<String>, consent_refs: Vec<String>) -> AssetFacts {
+    recorded_facts(
+        OriginKind::Supplied,
+        source,
+        EvidenceKind::Unknown,
+        Rights {
+            consent_refs,
+            ..Rights::default()
+        },
+    )
+}
+
+/// Write `facts` as `<file>.facts.json` beside a file that is not in the library (the gallery
+/// reads only the library's per-folder `facts.json`). Returns the sidecar path.
+pub fn write_sibling_facts(file: &Path, facts: &AssetFacts) -> GenResult<PathBuf> {
+    let mut name = file
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    name.push(".facts.json");
+    let path = file.with_file_name(name);
+    rightkit_fs::atomic_write(
+        &path,
+        json!({"facts": facts.to_value(), "scope": Value::Null})
+            .to_string()
+            .as_bytes(),
+    )
+    .map_err(|e| GenError::new("io", format!("cannot write {}: {e}", path.display())))?;
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,81 +359,4 @@ mod tests {
         );
         assert_eq!(facts.origin.parents, vec!["u".to_string()]);
     }
-}
-
-/// Facts of a file the user supplied: the given origin kind, the source it came from, and only the
-/// evidence and rights the caller actually knows (`unknown` when not stated).
-pub fn recorded_facts(
-    kind: OriginKind,
-    source: Option<String>,
-    evidence: EvidenceKind,
-    rights: Rights,
-) -> AssetFacts {
-    AssetFacts {
-        origin: Origin {
-            kind,
-            source,
-            ..Origin::default()
-        },
-        evidence,
-        rights,
-    }
-}
-
-/// Write the `facts.json` the gallery scan reads beside a library asset (`<dir>/facts.json`).
-/// `extra` keys are merged at the top level beside `facts` and `scope`.
-pub fn write_facts_file(
-    dir: &Path,
-    facts: &AssetFacts,
-    scope: &Value,
-    extra: Option<Value>,
-) -> GenResult<()> {
-    let mut body = json!({"facts": facts.to_value(), "scope": scope});
-    if let (Some(extra), Some(object)) = (
-        extra.as_ref().and_then(Value::as_object),
-        body.as_object_mut(),
-    ) {
-        for (k, v) in extra {
-            if k != "facts" && k != "scope" {
-                object.insert(k.clone(), v.clone());
-            }
-        }
-    }
-    rightkit_fs::atomic_write(&dir.join("facts.json"), body.to_string().as_bytes())
-        .map_err(|e| GenError::new("io", format!("cannot write facts.json: {e}")))
-}
-
-/// Facts of material the user supplied whose evidence and rights nothing establishes: origin
-/// `supplied` from `source`, evidence `unknown`, rights `unknown`. `consent_refs` are references
-/// to consent the caller recorded (a likeness or voice consent record); they are carried as
-/// stated and never raise the status above `unknown`.
-pub fn supplied_unknown(source: Option<String>, consent_refs: Vec<String>) -> AssetFacts {
-    recorded_facts(
-        OriginKind::Supplied,
-        source,
-        EvidenceKind::Unknown,
-        Rights {
-            consent_refs,
-            ..Rights::default()
-        },
-    )
-}
-
-/// Write `facts` as `<file>.facts.json` beside a file that is not in the library (the gallery
-/// reads only the library's per-folder `facts.json`). Returns the sidecar path.
-pub fn write_sibling_facts(file: &Path, facts: &AssetFacts) -> GenResult<PathBuf> {
-    let mut name = file
-        .file_name()
-        .map(|n| n.to_os_string())
-        .unwrap_or_default();
-    name.push(".facts.json");
-    let path = file.with_file_name(name);
-    rightkit_fs::atomic_write(
-        &path,
-        json!({"facts": facts.to_value(), "scope": Value::Null})
-            .to_string()
-            .as_bytes(),
-    )
-    .map_err(|e| GenError::new("io", format!("cannot write {}: {e}", path.display())))?;
-    Ok(path)
 }

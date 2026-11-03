@@ -1,4 +1,4 @@
-#[cfg(any(test, debug_assertions))]
+#[cfg(any(test, feature = "memory-backend"))]
 use crate::backend::MemoryBackend;
 use crate::backend::{system_backend, Backend, ConditionalDelete, Interaction};
 use crate::error::{Error, Result};
@@ -386,8 +386,11 @@ impl Store {
             Interaction::Interactive => Duration::from_secs(90),
         });
         let (backend, guard): (Arc<dyn Backend>, _) = match tripped {
-            Some(name) => match effective_guard_mode(cfg.guard_mode, !cfg!(debug_assertions)) {
-                #[cfg(any(test, debug_assertions))]
+            Some(name) => match effective_guard_mode(
+                cfg.guard_mode,
+                !cfg!(any(test, feature = "memory-backend")),
+            ) {
+                #[cfg(any(test, feature = "memory-backend"))]
                 GuardMode::Memory => (
                     MemoryBackend::process_wide(),
                     Some((name, GuardMode::Memory)),
@@ -395,7 +398,7 @@ impl Store {
                 // The volatile store is not compiled into a release build: the mode resolves to
                 // Deny there (`effective_guard_mode` already maps it, this arm only completes
                 // the match).
-                #[cfg(not(any(test, debug_assertions)))]
+                #[cfg(not(any(test, feature = "memory-backend")))]
                 GuardMode::Memory => (
                     Arc::new(Denied(name.clone())),
                     Some((name, GuardMode::Deny)),
