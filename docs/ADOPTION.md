@@ -49,7 +49,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-agent-plugins` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-agent-policy` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-agent-recipes` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-agent-tools` | crates.io | 0.3.1 | 0.3.0 | 2 | genright, legion | - |
+| `rightkit-agent-tools` | crates.io | 0.3.2 | 0.3.0 | 2 | genright, legion | - |
 | `rightkit-agent-transcript` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-agents` | crates.io | 0.2.1 | 0.2.0 | 2 | coderight, legion | - |
 | `rightkit-ai-accounts` | crates.io | 0.1.0 | none recorded | 0 | none | - |
@@ -234,7 +234,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/qa` | npm | 0.6.2 | 0.6.1 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/qa-chrome` | npm | 0.1.12 | 0.1.12 | 8 | coderight, genright, heardright, legion, mailright, postright, scraperight, viewright | - |
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/release` | npm | 0.6.34 | 0.6.13 | 8 | coderight, genright, heardright, legion, mailright, postright, scraperight, viewright | 8 ahead of published |
+| `@rightkit/release` | npm | 0.6.35 | 0.6.13 | 8 | coderight, genright, heardright, legion, mailright, postright, scraperight, viewright | 8 ahead of published |
 | `@rightkit/settings-ui` | npm | 0.7.0 | 0.7.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/social-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded | 0 | none | - |

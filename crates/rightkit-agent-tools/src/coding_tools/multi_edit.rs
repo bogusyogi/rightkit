@@ -163,7 +163,7 @@ impl Tool for MultiEditTool {
         }
 
         // Snapshot prior content before writing.
-        let store = HistoryStore::new(&ctx.workspace_root);
+        let store = HistoryStore::new(&ctx.workspace_root, ".rightkit");
         let _ = store.snapshot(&path, &original);
 
         match ctx.file_service.write_with_receipt_intent(

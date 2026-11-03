@@ -106,7 +106,7 @@ impl Tool for WriteFileTool {
             None
         };
         if let Some(ref prior_content) = prior {
-            let store = HistoryStore::new(&ctx.workspace_root);
+            let store = HistoryStore::new(&ctx.workspace_root, ".rightkit");
             let _ = store.snapshot(&path, prior_content);
         }
 

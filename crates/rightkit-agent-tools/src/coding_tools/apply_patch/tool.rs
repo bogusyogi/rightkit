@@ -216,7 +216,7 @@ impl Tool for ApplyPatchTool {
             }
             let item = &prepared[entry.index];
             if item.existed {
-                let store = HistoryStore::new(&ctx.workspace_root);
+                let store = HistoryStore::new(&ctx.workspace_root, ".rightkit");
                 let _ = store.snapshot(&item.path, &item.original);
             }
             crate::coding_tools::lsp_notify::document_mutated(&ctx.workspace_root, &item.path)
