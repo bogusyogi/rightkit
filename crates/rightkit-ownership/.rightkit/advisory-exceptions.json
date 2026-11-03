@@ -9,7 +9,7 @@
         "0.9.10"
       ],
       "dependents": [
-        "rightkit-ownership 0.4.4"
+        "rightkit-ownership 0.4.5"
       ],
       "path": "rightkit-ownership -> rsa",
       "owner": "RK Fable",
