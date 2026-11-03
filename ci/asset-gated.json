@@ -22,6 +22,7 @@
   },
   "npm": {
     "@rightkit/release": "local-publish.mjs forwards RIGHTKIT_REQUIRE_ASSETS to the units it runs; release's own tests need no assets",
-    "@rightkit/legal": "packages/legal/test/tooling.test.mjs 'npm generator invokes production pnpm scanner in app root & preserves output on failure' is skipped on win32 by design (POSIX shebang scanner fixture); every other legal test runs on both hosts"
+    "@rightkit/legal": "packages/legal/test/tooling.test.mjs 'npm generator invokes production pnpm scanner in app root & preserves output on failure' is skipped on win32 by design (POSIX shebang scanner fixture); every other legal test runs on both hosts",
+    "@rightkit/qa": "Chrome for Testing for src/page.integration.test.ts (skipped on the Linux direct-origin lane, strict on macOS and Windows) and a Linux skip of the installed-apps refusal test, which has no Linux installed-apps root"
   }
 }

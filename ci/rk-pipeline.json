@@ -179,6 +179,13 @@
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: the macOS sandbox storage tests need private IPC storage (RIGHTKIT_CI_IPC_STORAGE) the publish workflow does not provision; they print SKIP markers recorded in the receipts, and the crate's compile, clippy, doc and remaining tests still qualify it."
+      },
+      "@rightkit/qa": {
+        "version": "0.6.2",
+        "allow": [
+          "allow_missing_assets"
+        ],
+        "reason": "ci/asset-gated.json: the real-Chrome integration lane (src/page.integration.test.ts) needs Chrome for Testing, which the Linux direct-origin qualification does not provision, & the installed-apps refusal test has no Linux installed-apps root; both skip on Linux by design & are recorded in the receipts. The Windows & macOS verify jobs provision Chrome for Testing & run them strictly."
       }
     },
     "watchTimeoutMinutes": 180,
