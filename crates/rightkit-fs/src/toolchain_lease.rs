@@ -160,6 +160,16 @@ enum Kind {
     Symlink,
 }
 
+impl Kind {
+    fn label(self) -> &'static str {
+        match self {
+            Kind::File => "file",
+            Kind::Dir => "dir",
+            Kind::Symlink => "symlink",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Entry {
     root: usize,

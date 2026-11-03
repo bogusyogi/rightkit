@@ -35,17 +35,7 @@ const MAX_HEAD: usize = 64 * 1024;
 /// One HTTP reply (the client sends `Connection: close`).
 pub(crate) struct Reply {
     pub status: u16,
-    pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
-}
-
-impl Reply {
-    pub(crate) fn header(&self, name: &str) -> Option<&str> {
-        self.headers
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(name))
-            .map(|(_, v)| v.as_str())
-    }
 }
 
 /// An open request whose response head was read and whose body has not been.
@@ -191,7 +181,6 @@ pub(crate) fn request(
     }
     Ok(Reply {
         status: open.status,
-        headers: open.headers,
         body: out,
     })
 }
