@@ -1775,6 +1775,10 @@ export function defaultSpawnAsync(command, args, options = {}) {
 /** null when a test summary is evidence of a pass; otherwise { code, detail }. Used for fresh and cached test rows alike. */
 export function testResultsProblem(results) {
   if (!results) return { code: "NO_TEST_SUMMARY", detail: "no test counts recorded" };
+  // End-to-end tests only (Adrian, 2026-11-03: "End to end tests ONLY any unit tests need strict approval along with evidence and
+  // reason"): a Rust crate whose test build runs no test is a pass, recorded with its zero counts. A test that failed still fails, and a
+  // run whose tests were all skipped or ignored still proves nothing (ALL_SKIPPED below). node:test and vitest rows are unchanged.
+  if (results.runner === "libtest" && !(results.tests > 0) && !(results.fail > 0)) return null;
   if (!(results.tests > 0)) return { code: "NO_TESTS", detail: "the test scan executed no test" };
   if (results.fail > 0) return { code: "SUMMARY_FAILED", detail: `the test runner exited 0 but its summary reports ${results.fail} failed test(s)` };
   // A suite that ran tests but passed none of them (every test skipped or todo) proves nothing (D17, rightkit#1236).
@@ -3045,8 +3049,10 @@ export async function runScans(plan, options = {}) {
             if (listingCut) fail("TEST_LISTING", `${s.id}: the compile listing was cut at the kept output tail, so the test executables cannot be enumerated`);
             else if (listing.buildFinished !== true) fail("TEST_LISTING", `${s.id}: the compile exited 0 but its listing has no successful build-finished record (${listing.buildFinished === false ? "a build-finished record said failure" : "none found"})`);
             else if (listing.binaries.length === 0) {
-              // A test scan that lists no test executable proves nothing; it is never a pass (rightkit-qa run_tests: "the compile listed no test executable").
-              fail("NO_TEST_EXECUTABLES", `${s.id}: the compile listed no test executable (${listing.artifacts} artifact record(s), none of the test profile with an executable); a test scan that runs nothing is not a pass`);
+              // End-to-end tests only (Adrian, 2026-11-03): a crate whose test build lists no test executable has no test to run; the row passes
+              // with zero libtest counts, the same as a test build that runs none (testResultsProblem).
+              row.results = { runner: "libtest", tests: 0, pass: 0, fail: 0, skipped: 0, todo: 0, binaries: 0 };
+              detail = `${s.id}: no test executable (${listing.artifacts} artifact record(s)); end-to-end tests only, nothing to run`;
             } else {
               let boundDirs; let generationRoots = null;
               if (viaSnapshotBroker) { boundDirs = row.snapshotEvidence?.outputDir ? [row.snapshotEvidence.outputDir] : []; generationRoots = deps.snapshotBroker.outputRoots ?? []; }

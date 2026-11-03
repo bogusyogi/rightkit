@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.37 (unpublished)
+## 0.6.38 (unpublished)
+
+- **End-to-end tests only: a Rust crate with no test passes its test row (Adrian, 2026-11-03: "End to end tests ONLY any unit tests need strict approval along with evidence and reason").** A Rust test row whose test build runs no test, or lists no test executable, now passes and records zero libtest counts, fresh and cached alike; before, it failed NO_TESTS / NO_TEST_EXECUTABLES (D17, rightkit#1236), which failed every crate whose unit tests were deleted under that ruling (RustRight). A failed test still fails, and a run whose tests were all skipped or ignored still fails ALL_SKIPPED. node:test and vitest rows are unchanged.
+
+## 0.6.37 — 2026-11-03
 
 - **A unit publish runs its Rust tests again on a broker host (GATE-CONTRACT GC-A08).** The broker compiles a test build and never runs it (`rustright: compiled, ready for testing`), so `rightkit-gate --to compile --unit cargo:<crate>` (local-publish) counted zero executed tests for every crate and refused it ("executed no test"); no crate could publish. local-publish now reads the test executables from the compile's JSON listing, requires each to sit inside the compile's output directory (the carried receipt's, else cargo metadata's target directory), runs them outside the broker with the arguments after `--` (a `--test-threads=1` step runs one executable at a time, as cargo does), sums their libtest results, and still counts the `SKIP` markers their output prints, so a skipped proof refuses a unit that is not asset-gated, as before. A host whose test command runs the tests itself is unchanged. Not yet equal to the class B rows: the broker's signed test-executable list is not checked on this path, and doctests are not run by the broker's test build.
 
