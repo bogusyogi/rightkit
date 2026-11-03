@@ -1896,7 +1896,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.9"
+version = "0.4.10"
 dependencies = [
  "libc 0.2.191",
  "serde",

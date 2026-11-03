@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-review = { version = "=0.4.1" }
+rightkit-review = { version = "=0.4.2" }
 serde_json = "1"

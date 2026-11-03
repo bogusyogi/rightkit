@@ -1286,7 +1286,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "libc 0.2.191",
  "rightkit-fs",
@@ -1307,7 +1307,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.9"
+version = "0.4.10"
 dependencies = [
  "libc 0.2.191",
  "sha2",
