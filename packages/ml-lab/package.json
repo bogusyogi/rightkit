@@ -1,16 +1,21 @@
 {
   "name": "@rightkit/ml-lab",
   "version": "0.1.0",
+  "private": true,
   "description": "Speech and text-polish model lab: ASR bake-off harnesses, CoreML and ONNX conversion, local-model training and screening, wake-word corpus preparation.",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@12.16.1",
   "type": "module",
-  "files": ["scripts", "bakeoff", "tools", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"],
+  "files": [
+    "scripts",
+    "bakeoff",
+    "tools",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
   "sideEffects": false,
-  "publishConfig": {
-    "registry": "https://registry.npmjs.org",
-    "access": "public"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bogusyogi/rightkit.git",

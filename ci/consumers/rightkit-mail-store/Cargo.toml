@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-mail-store-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-mail-store = { version = "=0.1.0" }
