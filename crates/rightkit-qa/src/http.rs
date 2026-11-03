@@ -180,7 +180,7 @@ pub fn port_open(port: u16) -> bool {
     TcpStream::connect_timeout(&loopback(port), Duration::from_millis(250)).is_ok()
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use std::net::TcpListener;

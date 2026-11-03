@@ -1007,7 +1007,7 @@ pub fn serve_stdio<P: StepPlugin>(plugin: &mut P) -> std::io::Result<()> {
     serve(plugin, std::io::stdin().lock(), std::io::stdout().lock())
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use crate::process::Tracker;

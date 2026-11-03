@@ -1,3 +1,4 @@
+#![cfg(any(target_os = "macos", windows))]
 //! Cross-checks the pure-Rust validators against ffmpeg, the measurement GenRight ships
 //! (`ebur128=peak=true`, decoded frames, decoded PNGs). Skips (printing why) when no ffmpeg is
 //! found: settings key `RIGHTKIT_QA_FFMPEG`, then `PATH`, then common install directories.

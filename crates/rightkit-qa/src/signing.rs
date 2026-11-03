@@ -387,7 +387,7 @@ fn app_binary_from(value: Option<OsString>) -> Option<PathBuf> {
     value.filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};

@@ -2,6 +2,8 @@
 
 ## 0.4.4 (GATE-CONTRACT GC-A07)
 
+- Gate: the `db-adapter` + SQLCipher feature sets moved from the tested sets to the check sets. Every tested set is linted for macOS and Windows with the zig toolchain, and a bundled SQLCipher cannot be built for those targets there (`os/log.h`, CommonCrypto missing); the sets still compile and document natively. `tests/db_adapter.rs` is run by the app that selects the SQLCipher provider.
+
 - Changed: no `debug_assertions` switches. `MemoryBackend` and the `GuardMode::Memory` swap compile under `cfg(test)` or the new non-default `memory-backend` feature, which dependents enable only in `[dev-dependencies]`. Without it a tripped guard is `Deny` in every build. Fixes dependents' release-profile tests that could not name `MemoryBackend`.
 - Fixed: a tripped `GuardMode::Memory` guard keeps a caller-injected memory backend instead of replacing it with the shared process-wide map, so tests that inject one no longer see each other's secrets.
 

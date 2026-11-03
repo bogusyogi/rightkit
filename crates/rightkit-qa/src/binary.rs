@@ -691,7 +691,7 @@ pub fn check_launch(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod launch_tests {
     use super::*;
 
@@ -791,7 +791,7 @@ mod launch_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use std::time::{Duration, SystemTime};

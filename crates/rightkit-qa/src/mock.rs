@@ -729,7 +729,7 @@ fn write_reply(s: &mut TcpStream, req: &Request, mut reply: Reply) -> std::io::R
     s.flush()
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use crate::http::request;

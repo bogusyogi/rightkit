@@ -2931,7 +2931,7 @@ pub fn write_explore_scenario(
     Ok(path)
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod engine_start_tests {
     use super::*;
 

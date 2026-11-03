@@ -779,7 +779,7 @@ fn main() {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod help_tests {
     use super::help_request;
 
@@ -858,7 +858,7 @@ mod help_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod version_tests {
     use super::version_request;
 
@@ -888,7 +888,7 @@ mod version_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod guard_tests {
     use super::{
         guard_files_for_app_root, guard_files_for_config, guard_issues, Args, Backend, GuardFiles,

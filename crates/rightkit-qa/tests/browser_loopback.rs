@@ -1,3 +1,4 @@
+#![cfg(any(target_os = "macos", windows))]
 //! Loopback allowance for the QA browser target: scoped to one origin, never a global disable.
 #![cfg(feature = "browser")]
 

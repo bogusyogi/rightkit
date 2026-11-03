@@ -438,7 +438,7 @@ pub(crate) fn scenario_path(data_dir: &Path, log_dir: &Path, text: &str) -> Resu
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use crate::plugin::{serve, PluginCx, StepOutput, StepPlugin};

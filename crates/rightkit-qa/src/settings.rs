@@ -258,7 +258,7 @@ fn unquote(v: &str) -> &str {
     v
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

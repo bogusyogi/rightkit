@@ -242,20 +242,16 @@
         [
           "--features",
           "os-auth"
-        ],
-        [
-          "--features",
-          "db-adapter,rightkit-db/sqlcipher"
-        ],
-        [
-          "--features",
-          "db-adapter,os-auth,settings-probe,rightkit-db/sqlcipher"
         ]
       ],
       "checkFeatureSets": [
         [
           "--features",
-          "db-adapter,os-auth,settings-probe,rightkit-db/sqlcipher-system"
+          "db-adapter,os-auth,settings-probe,rightkit-db/sqlcipher"
+        ],
+        [
+          "--features",
+          "db-adapter,os-auth,rightkit-db/sqlcipher-system"
         ]
       ]
     },

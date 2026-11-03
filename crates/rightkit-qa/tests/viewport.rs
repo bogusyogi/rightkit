@@ -1,3 +1,4 @@
+#![cfg(any(target_os = "macos", windows))]
 //! Public viewport core, exercised without Tauri windows or production app state.
 #![cfg(feature = "control")]
 

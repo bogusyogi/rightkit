@@ -350,7 +350,7 @@ pub fn main(args: &[String]) -> Result<i32> {
     Ok(super::run(&opts)?.exit_code)
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

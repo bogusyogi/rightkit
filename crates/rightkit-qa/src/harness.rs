@@ -854,7 +854,7 @@ pub fn read_summary(evidence_root: &Path) -> Result<Vec<Value>> {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tool_settings_tests {
     use super::*;
 

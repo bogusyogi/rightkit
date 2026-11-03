@@ -53,7 +53,7 @@ pub(crate) fn for_each_line<R: BufRead>(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

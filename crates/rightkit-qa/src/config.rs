@@ -593,7 +593,7 @@ pub fn validate_tier_list(list: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 
@@ -733,7 +733,7 @@ binaries = {{ macos = \"target/debug/{exe}\", windows = \"target/debug/{exe}\" }
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod plugin_config_tests {
     use super::*;
 
@@ -771,7 +771,7 @@ mod plugin_config_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod ui_declaration_tests {
     use super::*;
 

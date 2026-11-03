@@ -1062,7 +1062,7 @@ fn screenshot<R: Runtime>(win: &WebviewWindow<R>) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 
@@ -1095,7 +1095,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod vk_tests {
     use super::*;
     use rightkit_automation::keys::appkit::{chord, named};

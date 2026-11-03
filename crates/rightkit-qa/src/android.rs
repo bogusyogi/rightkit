@@ -956,7 +956,7 @@ impl Drop for AndroidSession {
 // ---------------------------------------------------------------------------------------------
 // tests (recorded adb output; no adb, no device)
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};

@@ -232,7 +232,7 @@ impl Drop for Monitor {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     fn frame(sequence: u64, kind: &str) -> Frame {

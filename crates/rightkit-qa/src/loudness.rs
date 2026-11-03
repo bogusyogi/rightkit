@@ -312,7 +312,7 @@ pub fn parse_ebur128_summary(text: &str) -> Result<Loudness> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

@@ -804,7 +804,7 @@ pub fn live_permission_dialog_check(_app_pid: u32) -> DialogCheck {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use crate::util::new_id;

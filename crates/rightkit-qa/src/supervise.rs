@@ -1325,7 +1325,7 @@ mod contain {
 
 // -------------------------------------------------------------------------------------- tests
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use crate::process::is_alive;

@@ -1725,7 +1725,7 @@ pub(crate) mod params {
     pub(crate) use super::{dur, pb, pf_or, ps, ps_opt, pv};
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 
@@ -2809,7 +2809,7 @@ screenshot = true
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod token_and_skip_tests {
     use super::*;
 
@@ -3032,7 +3032,7 @@ mod token_and_skip_tests {
 
 /// How `cli`, `cold_cli` and `engine_seed` steps declare their lifecycle (Sage C3(a)); the counting
 /// and routing themselves are tested in `engine::session_tests`.
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod cli_route_tests {
     use super::*;
 
@@ -3117,7 +3117,7 @@ mod cli_route_tests {
 }
 
 /// What a `ui_launch` tells the app about its window (see [`ui_launch_env`]).
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod ui_launch_env_tests {
     use super::*;
 

@@ -623,7 +623,7 @@ pub fn prune_abandoned(cache_root: &Path, older_than: Duration, keep: &[String])
     report
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

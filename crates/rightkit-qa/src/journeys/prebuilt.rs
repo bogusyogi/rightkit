@@ -420,7 +420,7 @@ pub fn problems_of(e: &Error) -> Vec<Problem> {
     }]
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use crate::journeys::build_record::{parse_request_id, validate_build_command, ArtifactSpec};

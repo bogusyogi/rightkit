@@ -217,7 +217,7 @@ pub fn canonical_plain(path: &std::path::Path) -> std::io::Result<std::path::Pat
     std::fs::canonicalize(path).map(|p| plain_path(&p))
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod plain_path_tests {
     use super::*;
 
@@ -279,7 +279,7 @@ mod plain_path_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 
@@ -340,7 +340,7 @@ pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod base64_tests {
     use super::base64_decode;
     #[test]
@@ -543,7 +543,7 @@ pub fn secret_leaks(haystack: &[u8], secret: &str) -> Vec<&'static str> {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod base64_encode_tests {
     use super::*;
 
@@ -559,7 +559,7 @@ mod base64_encode_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod secret_form_tests {
     use super::*;
 

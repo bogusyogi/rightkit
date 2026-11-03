@@ -1087,7 +1087,7 @@ pub fn change_hash(id: &str, before: &serde_json::Value, after: &serde_json::Val
     sha256_hex(canonical_json(&v).as_bytes())
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod token_tests {
     use super::*;
 
@@ -1120,7 +1120,7 @@ mod token_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod plugin_tests {
     use super::*;
 

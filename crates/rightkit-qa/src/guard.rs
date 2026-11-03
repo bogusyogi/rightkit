@@ -849,7 +849,7 @@ pub fn scripts_from_package_json(text: &str) -> Result<BTreeMap<String, String>>
         .unwrap_or_default())
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

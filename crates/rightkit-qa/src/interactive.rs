@@ -807,7 +807,7 @@ pub fn session_facts() -> SessionFacts {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use std::cell::RefCell;

@@ -562,7 +562,7 @@ pub fn read_outcome(world_dir: &Path, spec: &ScenarioSpec) -> Result<WorkerOutco
     Ok(outcome)
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use serde_json::json;

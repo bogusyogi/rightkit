@@ -828,7 +828,7 @@ fn utf8_len(lead: u8) -> usize {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

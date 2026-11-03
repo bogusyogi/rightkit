@@ -40,13 +40,13 @@ extern "C" {
     fn method_setImplementation(method: Id, imp: *const c_void) -> *const c_void;
     fn object_getClass(obj: Id) -> Id;
     fn class_getSuperclass(class: Id) -> Id;
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "macos", windows)))]
     fn objc_allocateClassPair(base: Id, name: *const c_char, extra: usize) -> Id;
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "macos", windows)))]
     fn objc_registerClassPair(class: Id);
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "macos", windows)))]
     fn class_addMethod(class: Id, name: Sel, imp: *const c_void, types: *const c_char) -> bool;
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "macos", windows)))]
     fn method_getTypeEncoding(method: Id) -> *const c_char;
     #[cfg(target_arch = "x86_64")]
     fn objc_msgSend_stret();
@@ -896,7 +896,7 @@ pub fn screenshot_masked<R: Runtime>(
         .map_err(|_| "screenshot timed out".to_string())?
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

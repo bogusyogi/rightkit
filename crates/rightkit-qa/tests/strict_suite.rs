@@ -1,3 +1,4 @@
+#![cfg(any(target_os = "macos", windows))]
 //! End-to-end: real engine process, real scenario files, real evidence on disk.
 //! Proves the suite fails wrong content, fails mandatory skips, binds evidence to
 //! binary/config/scenario identity, and that a grandchild holding stdout cannot hang a command.

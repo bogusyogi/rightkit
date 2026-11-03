@@ -375,7 +375,7 @@ pub mod token {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "macos", windows)))]
     mod tests {
         use super::*;
 
@@ -2596,7 +2596,7 @@ fn settled_viewport_size(v: &Value) -> Result<(u32, u32)> {
     Ok((dimension("innerWidth")?, dimension("innerHeight")?))
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod launch_path_tests {
     use super::*;
 

@@ -130,7 +130,7 @@ where
 }
 
 /// Shared by this module's tests and `supervise`'s.
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 pub(crate) mod test_support {
     use crate::evidence::CheckStatus;
     use crate::worker::{
@@ -205,7 +205,7 @@ pub(crate) mod test_support {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::test_support::*;
     use super::*;

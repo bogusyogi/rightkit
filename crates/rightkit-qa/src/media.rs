@@ -808,7 +808,7 @@ pub fn freeze_intervals(frames: &[Vec<u8>], fps: f64, noise: f64, min_s: f64) ->
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod interval_tests {
     use super::*;
 
@@ -871,7 +871,7 @@ mod interval_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

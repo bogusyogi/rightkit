@@ -1897,7 +1897,7 @@ pub fn build_engine(
         })
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod command_shape_tests {
     use super::*;
 
@@ -1932,7 +1932,7 @@ mod command_shape_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod frame_shape_tests {
     use super::*;
     use std::sync::mpsc::Sender;
@@ -2204,7 +2204,7 @@ mod frame_shape_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod launch_guard_tests {
     use super::*;
     use crate::userdata::Rule;
@@ -2274,7 +2274,7 @@ mod launch_guard_tests {
 /// The engine-per-scenario counter and routing against a fixture engine that lives in the test
 /// process: a scripted sidecar (frames answered as its stdin is written) and a one-shot CLI that
 /// answers from the same table, so cold and in-session results can be compared.
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod session_tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};

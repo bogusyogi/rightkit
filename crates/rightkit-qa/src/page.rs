@@ -331,7 +331,7 @@ pub fn wait_for_pane_resize(
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

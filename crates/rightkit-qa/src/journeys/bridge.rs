@@ -1067,7 +1067,7 @@ pub fn result_lines(run_id: &str, nonce: &str, results: &[JourneyResult]) -> Res
 
 // ------------------------------------------------------------------ fixtures
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

@@ -1,3 +1,4 @@
+#![cfg(any(target_os = "macos", windows))]
 //! End to end: the real `rightkit-qa run-tests` binary compiles a tiny fixture crate (one passing and one
 //! failing test among others) with cargo, runs its test executables outside any broker, and leaves a
 //! receipt. Proves the exit codes, the receipt, libtest argument pass-through, the deadline kill and the

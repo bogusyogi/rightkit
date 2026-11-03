@@ -275,7 +275,7 @@ pub fn set_viewport<W: ViewportWindow>(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use std::cell::Cell;

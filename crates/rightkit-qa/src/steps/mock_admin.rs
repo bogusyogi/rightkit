@@ -91,7 +91,7 @@ pub(super) fn run_with(port: u16, p: &Map<String, Value>) -> Result<Value> {
     Ok(json!({ "status": response.status, "json": parsed }))
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use crate::mock::{MockServer, Route};

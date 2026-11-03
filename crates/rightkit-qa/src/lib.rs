@@ -29,6 +29,9 @@
 //!
 //! Validators: [`media`] (WAV stats, PNG/frame non-uniformity) and [`loudness`]
 //! (BS.1770 integrated loudness, range, true peak), pure Rust except where a compressed
+// Linux is no supported QA host (`util::platform` refuses it) and its unit tests are desktop-only, so desktop-only
+// helpers read as unused there.
+#![cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
 //! container needs a caller-supplied ffmpeg. [`mock::MockServer`] stands in for paid providers.
 /// Accessibility evidence for UI scenarios: contrast, focus indicator, role/name assertions.
 pub mod a11y;

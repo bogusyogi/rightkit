@@ -111,7 +111,7 @@ pub fn parse_listing<R: BufRead>(reader: R) -> std::io::Result<Listing> {
     Ok(listing)
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 pub(crate) mod fixtures {
     //! A recorded cargo listing, shaped like what `cargo test --no-run --message-format=json` prints for
     //! a package with a library, a binary, two integration tests, an example and a build script.
@@ -131,7 +131,7 @@ this line is a broker banner, not json
 "##;
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::fixtures::LISTING;
     use super::*;

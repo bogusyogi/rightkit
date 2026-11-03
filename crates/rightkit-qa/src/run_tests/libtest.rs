@@ -155,7 +155,7 @@ pub fn parse_stream<R: BufRead>(reader: R) -> std::io::Result<Parsed> {
     Ok(parsed)
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

@@ -275,7 +275,7 @@ fn interpolate_str(s: &str, vars: &BTreeMap<String, Value>) -> Result<Value> {
     Ok(json!(out))
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

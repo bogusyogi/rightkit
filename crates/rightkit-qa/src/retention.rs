@@ -327,7 +327,7 @@ fn remove_run_dir(runs: &Path, app_dir: &Path, c: &Candidate) -> std::result::Re
     fs::remove_dir(&real).map_err(|e| format!("{}: {e}", real.display()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use crate::storage;

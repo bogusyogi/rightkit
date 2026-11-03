@@ -2038,7 +2038,7 @@ pub(crate) mod test_links {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use std::io::Write;

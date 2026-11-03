@@ -285,7 +285,7 @@ pub fn verdict(limits: Limits, timing: Timing<'_>, now: Day, window_end: Day) ->
     Verdict::Ok
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

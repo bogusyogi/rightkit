@@ -554,7 +554,7 @@ pub fn ax_assert(nodes: &[Value], q: &AxQuery) -> Result<Value> {
     Ok(json!({"count": found.len(), "matches": found}))
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

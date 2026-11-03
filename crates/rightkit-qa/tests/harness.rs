@@ -1,3 +1,4 @@
+#![cfg(any(target_os = "macos", windows))]
 //! The Rust-test scenario wrapper: tier gating, settings-backed requires, runtime skip,
 //! failure and orphan accounting, per-scenario hashed evidence and the summary ledger.
 use rightkit_qa::evidence::Bundle;

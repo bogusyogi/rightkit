@@ -1720,7 +1720,7 @@ fn bound_binary(p: Option<&std::path::Path>, what: &str, needed: bool) -> Result
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 
@@ -1875,7 +1875,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod pool_tests {
     use super::*;
     use crate::scenario::SkipKind;

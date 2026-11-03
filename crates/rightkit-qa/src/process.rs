@@ -1108,7 +1108,7 @@ pub fn sweep_registries(runs_root: &std::path::Path, skip_run: &str) -> Vec<u32>
     killed
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

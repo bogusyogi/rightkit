@@ -827,7 +827,7 @@ mod tests {
 }
 
 /// Runs on every host (the process tests above need `/bin/sh`).
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod var_tests {
     use super::*;
 

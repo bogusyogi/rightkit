@@ -412,7 +412,7 @@ pub fn write(dir: &Path, receipt: &Receipt) -> crate::util::Result<PathBuf> {
     Ok(target)
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

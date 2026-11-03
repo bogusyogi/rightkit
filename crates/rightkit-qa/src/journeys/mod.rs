@@ -34,7 +34,7 @@ pub mod prebuilt;
 pub mod receipt;
 pub mod run;
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests;
 
 pub use manifest::{check, check_manifest, check_mapping, Checked, Manifest, Mapping};

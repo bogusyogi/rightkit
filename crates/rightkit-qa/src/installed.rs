@@ -294,7 +294,7 @@ pub fn refuse_installed(path: &Path, what: &str) -> Result<()> {
     decide(os, what, &canonical_text(path), &roots, false)
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

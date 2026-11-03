@@ -172,7 +172,7 @@ pub fn parse_stats(csv: &str) -> Result<FrameStats> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 

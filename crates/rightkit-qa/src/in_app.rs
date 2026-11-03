@@ -150,7 +150,7 @@ impl InApp for ServiceBridge {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use rightkit_automation::keys;

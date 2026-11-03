@@ -268,7 +268,7 @@ pub(super) fn run_with(scope: &Scope, p: &Map<String, Value>) -> Result<Value> {
     }))
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     use crate::util::{base64_encode, new_id};

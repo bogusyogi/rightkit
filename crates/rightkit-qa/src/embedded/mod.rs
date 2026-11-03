@@ -1553,7 +1553,7 @@ fn key_char(name: &str) -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
     #[test]
