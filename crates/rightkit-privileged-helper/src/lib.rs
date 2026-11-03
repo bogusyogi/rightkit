@@ -259,3 +259,15 @@ pub fn next(_params: &serde_json::Value) -> Result<serde_json::Value, String> {
 pub fn complete(_params: &serde_json::Value) -> Result<serde_json::Value, String> {
     Err("not available on Windows".into())
 }
+
+#[cfg(all(test, not(unix)))]
+mod non_unix_tests {
+    use super::*;
+
+    #[test]
+    fn the_helper_methods_refuse_and_run_just_does_the_work() {
+        assert!(next(&serde_json::json!({})).is_err());
+        assert!(complete(&serde_json::json!({ "id": 1, "moved": [] })).is_err());
+        assert_eq!(run(true, "App", || 7), 7);
+    }
+}
