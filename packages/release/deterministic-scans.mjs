@@ -1583,7 +1583,8 @@ export function planScans({
       // The suite is the exported commit's test files, named explicitly: an untracked WIP test in the live
       // checkout is never run and can neither block nor pass a push.
       const suite = listDir(path.join(contentRoot, "scripts", "ci")).filter((n) => n.endsWith(".test.mjs")).sort().map((n) => `scripts/ci/${n}`);
-      add({ id: "test:scripts-ci", class: B, kind: "test", executes: true, classReason: "tests execute project code and run after class A", tool: "node", args: ["--test", ...(suite.length ? suite : ["scripts/ci/*.test.mjs"])] });
+      // End-to-end tests only (Adrian, 2026-11-03): a repo that removed its scripts/ci unit tests has no suite to run, and no row is planned.
+      if (suite.length) add({ id: "test:scripts-ci", class: B, kind: "test", executes: true, classReason: "tests execute project code and run after class A", tool: "node", args: ["--test", ...suite] });
     }
   }
 

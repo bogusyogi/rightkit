@@ -2,6 +2,7 @@
 
 ## 0.6.40 (unpublished)
 
+- **No `test:scripts-ci` row when `scripts/ci` has no `*.test.mjs`.** A repo that deleted its scripts/ci unit tests under the end-to-end-only ruling (Legion, 2026-11-03) got a row running `node --test scripts/ci/*.test.mjs`, which matched nothing and failed "executed no test".
 - **An empty advisory ignore list needs no ledger.** The app advisory-exceptions scan read the @rightkit/config template's commented example inside `ignore = [ ... ]` as an entry and demanded `.rightkit/advisory-exceptions.json` (CutRight, 2026-11-03). TOML comments are now dropped before the check.
 
 ## 0.6.39 (unpublished)
