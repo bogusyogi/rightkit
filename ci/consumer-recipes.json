@@ -2267,7 +2267,7 @@
     "rightkit-asr": {
       "pkId": "PK18",
       "id": "ci/consumers/rightkit-asr/src/main.rs",
-      "dependency": "rightkit-asr = { version = \"=0.3.0\", default-features = false }",
+      "dependency": "rightkit-asr = { version = \"=0.4.0\", default-features = false }",
       "gateEvidence": "assetless API/transcript compatibility & impossible-model-path refusal; no model download, session or inference",
       "consumes": "New PK18 publication qualification supplement, 2026-10-23; transcript 0.4 type identity/source_ms wire, longform word/cue assembly & early model refusal; optional engine features disabled; added after original PK01-PK17 inventory",
       "extraDependencies": [
@@ -2275,11 +2275,11 @@
         "serde_json = \"1\""
       ],
       "files": {
-        "Cargo.toml": "1307dcac65f6c21319f6aaf412a650643cfb609d4f1425ea0214dd7b50368f15",
+        "Cargo.toml": "2e1e178aaccf8f0653d9ebd3d8d537a507846c104551ac61cc03a5a98941c588",
         "README.md": "5e12707d11b0b88c7f82541808ee5260136e5aad4ec3a74bfb958568988e73e0",
         "src/main.rs": "77a1fdae68ad0faca0ff96168d26c4a24ebcc33100724b4db7443408ecbae07e"
       },
-      "aggregateSha256": "3e3f139ef17e70ce19253600b0123ba57ca64ababecbae26b6504589e58a9f52"
+      "aggregateSha256": "b1d6ae655f46f488d22f3f9b5ba6498d1eca6cffef4b0f9c17f4dade7e91d73f"
     },
     "rightkit-qa-driver": {
       "pkId": "PK14",
