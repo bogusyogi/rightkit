@@ -1654,9 +1654,6 @@
         "ci/consumers/npm/markdown-editor/package.json": "574d72ca53ec89c5132a25bd9bf718e4ea4c75511e32064b8959d369e293d54e",
         "ci/consumers/npm/markdown-editor/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "93635b5cffe9d4aff2a89dff78473ed73dda669306c6fafcb4e8ded10361cf18"
-      },
-      "importClosures": {
-        "./documents/markdown/markdownReading.css": {}
       }
     },
     "@rightkit/media-gen-ui": {
