@@ -23,6 +23,10 @@ rayon = { version = "=1.12.0" }
 rightkit-embed = { version = "0.6.2", path = "../rightkit-embed" }
 rightkit-fs = { version = "0.4.9", features = ["digest"], path = "../rightkit-fs" }
 
+[dev-dependencies]
+# rightkit-embed's vector store links SQLite; the test binaries bundle one so they link on Windows too.
+rusqlite = { version = "0.41", features = ["bundled"] }
+
 [workspace]
 
 # Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
