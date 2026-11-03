@@ -90,7 +90,7 @@
         "reason": "ci/asset-gated.json: the #[ignore]d tests/encode_e2e.rs needs an ffmpeg binary and encoders the publish workflow does not provision; a missing ffmpeg prints SKIP hosted."
       },
       "rightkit-asr": {
-        "version": "0.3.4",
+        "version": "0.4.0",
         "allow": [
           "allow_missing_assets"
         ],
