@@ -400,7 +400,7 @@ fn live_eval_smoke_writes_case_and_four_resumable_results() {
 #[test]
 fn checked_in_live_eval_config_prepares_four_jobs_for_every_lane() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../bakeoff/live-polish-eval-v1/config.json");
+        .join("fixtures/live-polish-eval-v1/config.json");
     let config: LiveEvalConfig = serde_json::from_str(
         &std::fs::read_to_string(path).expect("read checked-in live eval config"),
     )
@@ -463,7 +463,7 @@ fn checked_in_live_eval_config_prepares_four_jobs_for_every_lane() {
 #[test]
 fn checked_in_l1_candidate_pins_correction_precedence_and_minimality() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../bakeoff/live-polish-eval-v1/config.json");
+        .join("fixtures/live-polish-eval-v1/config.json");
     let config: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(path).expect("read checked-in live eval config"),
     )

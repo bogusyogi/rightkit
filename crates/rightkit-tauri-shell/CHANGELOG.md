@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.2
+
+- Tests: the app-lock tests take `ScriptedAuthenticator` from `rightkit-credentials` through a dev-dependency with `memory-backend` (credentials 0.4.4 has no `debug_assertions` switch). No source change.
+
 ## 0.7.1 (GATE-CONTRACT GC-A07)
 
 - Changed: no `debug_assertions` switches. The dev build is the release profile plus `qa-native`, so `qa-probes` (frameless, clipboard, `lifecycle::qa_hidden` / `qa_background`) now compile under the feature alone, the `compile_error!` that refused `qa-probes` without debug assertions is removed (the release scan forbids the feature in a release), and the inspector close in `devtools` is gated on `content-devtools` only.

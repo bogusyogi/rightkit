@@ -16,8 +16,8 @@ Status values compare each pin with the latest published version (registry-recor
 ## Summary
 
 - Packages in RightKit: 221 (172 crates, 49 npm packages).
-- Packages with at least one app pin: 103.
-- App pins: 553. Stale: 1. Ahead of published: 202. Unpublished: 56. Local: 0. Git: 0. Unparsed: 0.
+- Packages with at least one app pin: 106.
+- App pins: 556. Stale: 0. Ahead of published: 202. Unpublished: 59. Local: 0. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 1.
 - App and package pairs with more than one requirement: 5.
 
@@ -75,7 +75,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-code-audit-provider-sdk` | crates.io | 0.1.0 | none recorded | 1 | legion | - |
 | `rightkit-color` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-compose` | crates.io | 0.2.2 | 0.2.0 | 0 | none | - |
-| `rightkit-compositor` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-compositor` | crates.io | 0.2.0 | none recorded | 0 | none | - |
 | `rightkit-content-plan` | crates.io | 0.1.1 | none recorded | 0 | none | - |
 | `rightkit-content-proof` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-context` | crates.io | 0.1.0 | none recorded | 0 | none | - |
@@ -87,7 +87,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-context-runtime` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-contracts` | crates.io | 0.1.8 | 0.1.7 | 2 | genright, postright | 4 ahead of published |
 | `rightkit-crash` | crates.io | 0.3.6 | 0.3.6 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `rightkit-credentials` | crates.io | 0.4.3 | 0.4.2 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 15 ahead of published |
+| `rightkit-credentials` | crates.io | 0.4.4 | 0.4.2 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 15 ahead of published |
 | `rightkit-crypto` | crates.io | 0.1.0 | 0.1.0 | 5 | coderight, genright, heardright, mailright, postright | - |
 | `rightkit-daemon` | crates.io | 0.5.1 | 0.4.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 17 ahead of published |
 | `rightkit-db` | crates.io | 0.5.3 | 0.5.2 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 9 ahead of published |
@@ -95,7 +95,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-device-link-types` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-dictation-app-runtime` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-dictation-command-host` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-dictation-core` | crates.io | 0.2.0 | none recorded | 1 | heardright | - |
+| `rightkit-dictation-core` | crates.io | 0.2.1 | none recorded | 1 | heardright | - |
 | `rightkit-dictation-engine` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-dictation-inference` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-dictation-models` | crates.io | 0.1.0 | none recorded | 0 | none | - |
@@ -105,7 +105,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-disk-cleanup` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-docs` | crates.io | 0.1.3 | 0.1.2 | 1 | viewright | 1 ahead of published |
 | `rightkit-doctor` | crates.io | 0.1.0 | none recorded | 1 | mailright | - |
-| `rightkit-document-workspace` | crates.io | 0.1.1 | none recorded | 1 | viewright | - |
+| `rightkit-document-workspace` | crates.io | 0.1.3 | none recorded | 1 | viewright | - |
 | `rightkit-embed` | crates.io | 0.6.2 | 0.6.1 | 1 | mailright | - |
 | `rightkit-engine-host` | crates.io | 0.1.1 | none recorded | 0 | none | - |
 | `rightkit-evidence` | crates.io | 0.1.0 | none recorded | 1 | coderight | - |
@@ -179,7 +179,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-sync` | crates.io | 0.2.2 | 0.2.2 | 2 | heardright, scraperight | - |
 | `rightkit-sync-keys` | private | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-system-monitor` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-tauri-shell` | crates.io | 0.7.0 | 0.6.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 7 ahead of published |
+| `rightkit-tauri-shell` | crates.io | 0.7.2 | 0.6.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 7 ahead of published |
 | `rightkit-terminal-ui` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-text-polish` | crates.io | 0.1.0 | none recorded | 1 | heardright | - |
 | `rightkit-time` | crates.io | 0.1.1 | 0.1.0 | 6 | coderight, genright, heardright, mailright, postright, scraperight | 11 ahead of published |
@@ -197,7 +197,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-web-extract` | crates.io | 0.1.1 | none recorded | 1 | scraperight | - |
 | `rightkit-web-session` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-workflow` | crates.io | 0.2.1 | 0.2.0 | 0 | none | - |
-| `@rightkit/agent-ui-approvals` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/agent-ui-approvals` | npm | 0.1.0 | none recorded | 1 | mailright | - |
 | `@rightkit/agent-ui-components` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/agent-ui-core` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/agent-ui-hooks` | npm | 0.1.0 | none recorded | 0 | none | - |
@@ -223,7 +223,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/library-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/license` | npm | 0.3.0 | 0.3.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/logs` | npm | 0.1.6 | 0.1.6 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/mail-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/mail-ui` | npm | 0.1.0 | none recorded | 1 | mailright | - |
 | `@rightkit/markdown-editor` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/media-gen-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/media-ui` | npm | 0.3.4 | 0.3.4 | 3 | genright, scraperight, viewright | - |
@@ -232,9 +232,9 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/pdf-ui` | npm | 0.2.0 | 0.2.0 | 2 | mailright, viewright | - |
 | `@rightkit/platform-ui` | npm | 0.4.0 | 0.4.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/qa` | npm | 0.6.2 | 0.6.1 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/qa-chrome` | npm | 0.1.12 | 0.1.12 | 8 | coderight, genright, heardright, legion, mailright, postright, scraperight, viewright | 1 stale |
+| `@rightkit/qa-chrome` | npm | 0.1.12 | 0.1.12 | 8 | coderight, genright, heardright, legion, mailright, postright, scraperight, viewright | - |
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/release` | npm | 0.6.29 | 0.6.13 | 8 | coderight, genright, heardright, legion, mailright, postright, scraperight, viewright | 8 ahead of published |
+| `@rightkit/release` | npm | 0.6.34 | 0.6.13 | 8 | coderight, genright, heardright, legion, mailright, postright, scraperight, viewright | 8 ahead of published |
 | `@rightkit/settings-ui` | npm | 0.7.0 | 0.7.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/social-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded | 0 | none | - |
@@ -245,7 +245,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/theme` | npm | 0.3.1 | 0.3.1 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/video-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/waitlist-worker` | npm | 0.1.0 | none recorded | 1 | viewright | - |
-| `@rightkit/workspace-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
+| `@rightkit/workspace-ui` | npm | 0.1.0 | none recorded | 1 | mailright | - |
 
 ## Pins
 
@@ -682,6 +682,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-vad` | heardright | `heardright/tauri-app-next/vendor/rightkit-asr/Cargo.toml` | dev-dependencies | `0.1.0` | 0.1.2 | range ok |
 | `rightkit-voice-commands` | heardright | `heardright/tauri-app-next/heardright_core/Cargo.toml` | dependencies | `=0.1.0` | none recorded | unpublished |
 | `rightkit-web-extract` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.1.1` | none recorded | unpublished |
+| `@rightkit/agent-ui-approvals` | mailright | `mailright/package.json` | dependencies | `0.1.0` | none recorded | unpublished |
 | `@rightkit/app-update` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
 | `@rightkit/app-update` | genright | `genright/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
 | `@rightkit/app-update` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
@@ -728,6 +729,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/logs` | postright | `postright/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
 | `@rightkit/logs` | scraperight | `scraperight/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
 | `@rightkit/logs` | viewright | `viewright/package.json` | dependencies | `0.1.6` | 0.1.6 | current |
+| `@rightkit/mail-ui` | mailright | `mailright/package.json` | dependencies | `0.1.0` | none recorded | unpublished |
 | `@rightkit/media-ui` | genright | `genright/package.json` | dependencies | `0.3.4` | 0.3.4 | current |
 | `@rightkit/media-ui` | scraperight | `scraperight/package.json` | dependencies | `0.3.4` | 0.3.4 | current |
 | `@rightkit/media-ui` | viewright | `viewright/package.json` | dependencies | `0.3.4` | 0.3.4 | current |
@@ -758,7 +760,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/qa-chrome` | genright | `genright/package.json` | devDependencies | `0.1.12` | 0.1.12 | current |
 | `@rightkit/qa-chrome` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.1.12` | 0.1.12 | current |
 | `@rightkit/qa-chrome` | legion | `legion/package.json` | devDependencies | `0.1.12` | 0.1.12 | current |
-| `@rightkit/qa-chrome` | mailright | `mailright/package.json` | devDependencies | `0.1.11` | 0.1.12 | stale |
+| `@rightkit/qa-chrome` | mailright | `mailright/package.json` | devDependencies | `0.1.12` | 0.1.12 | current |
 | `@rightkit/qa-chrome` | postright | `postright/package.json` | devDependencies | `0.1.12` | 0.1.12 | current |
 | `@rightkit/qa-chrome` | scraperight | `scraperight/package.json` | devDependencies | `0.1.12` | 0.1.12 | current |
 | `@rightkit/qa-chrome` | viewright | `viewright/package.json` | devDependencies | `0.1.12` | 0.1.12 | current |
@@ -804,6 +806,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/theme` | scraperight | `scraperight/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
 | `@rightkit/theme` | viewright | `viewright/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
 | `@rightkit/waitlist-worker` | viewright | `viewright/workers/waitlist/package.json` | dependencies | `0.1.0` | none recorded | unpublished |
+| `@rightkit/workspace-ui` | mailright | `mailright/package.json` | dependencies | `0.1.0` | none recorded | unpublished |
 
 ## Duplicate copies and split pins
 
@@ -833,7 +836,7 @@ Split pins: one app names the same package with different requirements, possibly
 | viewright | yes | 5 | 0 | 38 |
 | heardright | yes | 22 | 0 | 112 |
 | coderight | yes | 44 | 0 | 71 |
-| mailright | yes | 6 | 0 | 51 |
+| mailright | yes | 6 | 0 | 54 |
 | postright | yes | 7 | 0 | 52 |
 | cockpit | **missing** | 0 | 0 | 0 |
 | workright | **missing** | 0 | 0 | 0 |

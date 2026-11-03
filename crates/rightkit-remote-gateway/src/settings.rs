@@ -362,13 +362,6 @@ impl Settings {
     /// owner's own paired phone keeps reading every chat (#579 D9).
     pub fn load() -> Settings {
         let mut published = read_published();
-        // Test builds only (`test-overrides`, never in a release build): the remote smoke
-        // (scripts/qa/remote-smoke.mjs) switches the gates in its fixture `owner app-state.json`, with
-        // no engine or PIN, so with RIGHTKIT_TEST_PROTECTED_FROM_FILE=1 the file's values stand.
-        #[cfg(feature = "test-overrides")]
-        if std::env::var_os("RIGHTKIT_TEST_PROTECTED_FROM_FILE").is_some_and(|v| v == "1") {
-            return Settings::from_published(&published);
-        }
         super::protected_store::apply(&mut published);
         Settings::from_published(&published)
     }

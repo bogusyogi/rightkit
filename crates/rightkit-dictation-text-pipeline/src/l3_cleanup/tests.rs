@@ -502,7 +502,7 @@ fn environment_line_has_frozen_machine_readable_shape() {
 #[test]
 fn production_l1_prompts_match_approved_plan_bytes() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../docs/plans/2026-08-26-ai-polish-surface-routing-field-context.md");
+        .join("fixtures/plans/2026-08-26-ai-polish-surface-routing-field-context.md");
     let plan = std::fs::read_to_string(path).expect("read approved prompt plan");
     let block = |heading: &str| {
         let rest = plan.split_once(heading).expect("prompt heading").1;
@@ -528,7 +528,7 @@ fn production_l1_prompts_match_approved_plan_bytes() {
         block("## Conditional field-context instruction")
     );
     let path15 = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../docs/plans/2026-09-30-l1-prompt-15-approval.md");
+        .join("fixtures/plans/2026-09-30-l1-prompt-15-approval.md");
     let plan15 = std::fs::read_to_string(path15).expect("read prompt 15 approval");
     let block15 = |heading: &str| {
         let rest = plan15.split_once(heading).expect("prompt 15 heading").1;

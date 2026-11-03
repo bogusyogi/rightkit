@@ -13,12 +13,6 @@ include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENS
 name = "rightkit_remote_gateway"
 path = "src/lib.rs"
 
-[features]
-default = []
-# Test builds only: a protected-settings keychain check is relaxed and dev approver keys are trusted (and
-# `RIGHTKIT_CLAUDE_BIN` names the Claude program `chat_start` runs). Refused at compile time in a release build.
-test-overrides = ["rightkit-owner-approvals/test-overrides"]
-
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1" }

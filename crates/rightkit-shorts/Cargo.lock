@@ -2914,6 +2914,7 @@ dependencies = [
  "rightkit-credentials",
  "rightkit-engine-host",
  "rightkit-ffmpeg",
+ "rightkit-fs",
  "rightkit-llm",
  "rightkit-ocr",
  "rightkit-search",

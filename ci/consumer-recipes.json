@@ -2163,11 +2163,11 @@
       "pkId": "PK08",
       "id": "ci/consumers/rightkit-tauri-shell/src/main.rs",
       "files": {
-        "Cargo.toml": "0554ecf5c76cf2a20f472bd2d61f24f0e39efff7bf5fc2a317f9e80b20d1c584",
+        "Cargo.toml": "0ee50359aa3abcbe8d5cf98cc5f29460dc593ad57e3683ffecc9028eef246390",
         "README.md": "6c436494f121266387c34ec66bad6959d92ae9e378fe05f1551f238489e222e6",
         "src/main.rs": "8019c8f4a15fd6d4e0abf44933b074fc0cedffd99231cb5e721620b7c81f28d9"
       },
-      "aggregateSha256": "5ca169b9beb436363075ab5357f1f22d60bcd0490746f5948702574b1322c2fc"
+      "aggregateSha256": "a3197cfabc469a67273282cd1bf6a0357a4562c4d7e2e0ab67c234cbbd34c90d"
     },
     "rightkit-oauth": {
       "pkId": "PK06",

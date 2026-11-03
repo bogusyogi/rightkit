@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-03T00:38:13Z",
-  "rightkitHead": "01b02e7",
+  "generatedAt": "2026-11-03T05:53:51Z",
+  "rightkitHead": "4a957e8",
   "legend": [
     {
       "state": "adopted",
@@ -137,7 +137,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/coderight",
       "present": true,
-      "head": "0fcfe1e",
+      "head": "ada26a9",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -577,402 +577,16 @@
     {
       "name": "cutright",
       "group": "mandatory-set app",
-      "dir": "/home/user/CutRight",
-      "present": true,
-      "head": "bf83904",
-      "profile": "desktop",
-      "inMandatorySet": true,
-      "declaration": {
-        "present": true,
-        "error": "",
-        "notApplicable": [
-          {
-            "row": "M9",
-            "ratified": false
-          },
-          {
-            "row": "M17",
-            "ratified": false
-          }
-        ],
-        "ignored": []
-      },
-      "scan": {
-        "manifests": 11,
-        "parseErrors": 0,
-        "pins": 94,
-        "vendored": 0
-      },
-      "progress": {
-        "foundation": {
-          "profile": "desktop",
-          "rowsTotal": 21,
-          "rowsDeclared": 19,
-          "rowsRuled": 2,
-          "rowsOpen": 0,
-          "openRows": [],
-          "ownersRequired": 28,
-          "ownersPinned": 28,
-          "ownersCurrent": 28,
-          "percent": 100
-        },
-        "addons": {
-          "total": 59,
-          "adopted": 21,
-          "current": 21,
-          "stale": 0,
-          "local": 0
-        },
-        "exceptions": {
-          "total": 6,
-          "open": 6,
-          "expired": 0,
-          "withoutIssueOrExpiry": 0,
-          "unmatched": 0
-        },
-        "releasePin": {
-          "state": "ahead",
-          "req": "0.6.29",
-          "latest": "0.6.13",
-          "current": true,
-          "dev": true
-        },
-        "check": {
-          "status": "not run",
-          "reason": "--with-check not passed",
-          "fail": null,
-          "known": null,
-          "stale": null,
-          "byRule": {}
-        }
-      },
-      "flags": {
-        "prePushHook": "absent",
-        "switches": false,
-        "journeys": false,
-        "releaseConfig": "none"
-      },
-      "foundationRows": [
-        {
-          "id": "M1",
-          "name": "Window host",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-tauri-shell",
-              "state": "ahead"
-            },
-            {
-              "name": "rightkit-device",
-              "state": "adopted"
-            },
-            {
-              "name": "@rightkit/tauri",
-              "state": "adopted"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M2",
-          "name": "App frame",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "@rightkit/react-shell",
-              "state": "adopted"
-            },
-            {
-              "name": "@rightkit/platform-ui",
-              "state": "adopted"
-            },
-            {
-              "name": "@rightkit/theme",
-              "state": "adopted"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M3",
-          "name": "Engine supervision",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-job-queue",
-              "state": "adopted"
-            },
-            {
-              "name": "rightkit-child-process",
-              "state": "adopted"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M4",
-          "name": "Window/CLI protocol",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-job-queue",
-              "state": "adopted"
-            },
-            {
-              "name": "rightkit-sidecar",
-              "state": "adopted"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M5",
-          "name": "Other child processes",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-child-process",
-              "state": "adopted"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M6",
-          "name": "Data location",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-daemon",
-              "state": "ahead"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M7",
-          "name": "Local services",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-daemon",
-              "state": "ahead"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M8",
-          "name": "Safe file writes",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-fs",
-              "state": "ahead"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M9",
-          "name": "Database",
-          "status": "ruled",
-          "ratified": false,
-          "owners": [],
-          "missing": []
-        },
-        {
-          "id": "M10",
-          "name": "Settings",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-app-settings",
-              "state": "ahead"
-            },
-            {
-              "name": "@rightkit/settings-ui",
-              "state": "adopted"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M11",
-          "name": "Secrets",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-credentials",
-              "state": "ahead"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M12",
-          "name": "Licence/device",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-license",
-              "state": "ahead"
-            },
-            {
-              "name": "rightkit-device",
-              "state": "adopted"
-            },
-            {
-              "name": "@rightkit/license",
-              "state": "adopted"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M13",
-          "name": "Pro entitlement",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-license",
-              "state": "ahead"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M14",
-          "name": "Legal/onboarding",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "@rightkit/legal",
-              "state": "adopted"
-            },
-            {
-              "name": "@rightkit/legal-ui",
-              "state": "adopted"
-            },
-            {
-              "name": "@rightkit/onboarding",
-              "state": "adopted"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M15",
-          "name": "Logging",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-logs",
-              "state": "ahead"
-            },
-            {
-              "name": "@rightkit/logs",
-              "state": "adopted"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M16",
-          "name": "Crash reporting",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-crash",
-              "state": "adopted"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M17",
-          "name": "HTTP",
-          "status": "ruled",
-          "ratified": false,
-          "owners": [],
-          "missing": []
-        },
-        {
-          "id": "M18",
-          "name": "Updates",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "@rightkit/app-update",
-              "state": "adopted"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M19",
-          "name": "Release tooling",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "@rightkit/release",
-              "state": "ahead"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M20",
-          "name": "QA",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-qa",
-              "state": "ahead"
-            },
-            {
-              "name": "@rightkit/qa",
-              "state": "adopted"
-            },
-            {
-              "name": "@rightkit/qa-chrome",
-              "state": "adopted"
-            }
-          ],
-          "missing": []
-        },
-        {
-          "id": "M22",
-          "name": "Agent surface",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-agent-tools",
-              "state": "adopted"
-            }
-          ],
-          "missing": []
-        }
-      ],
+      "dir": "/home/user/cutright",
+      "present": false,
+      "head": null,
+      "profile": null,
+      "inMandatorySet": false,
+      "declaration": null,
+      "scan": null,
+      "progress": null,
+      "flags": null,
+      "foundationRows": [],
       "appleTargets": [],
       "rkReady": [],
       "toMove": []
@@ -2230,7 +1844,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/mailright",
       "present": true,
-      "head": "d690ecd",
+      "head": "f65bf39",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -2247,7 +1861,7 @@
       "scan": {
         "manifests": 6,
         "parseErrors": 0,
-        "pins": 51,
+        "pins": 54,
         "vendored": 0
       },
       "progress": {
@@ -2260,8 +1874,8 @@
           "openRows": [],
           "ownersRequired": 29,
           "ownersPinned": 29,
-          "ownersCurrent": 28,
-          "percent": 97
+          "ownersCurrent": 29,
+          "percent": 100
         },
         "addons": {
           "total": 59,
@@ -2611,7 +2225,7 @@
             },
             {
               "name": "@rightkit/qa-chrome",
-              "state": "stale"
+              "state": "adopted"
             }
           ],
           "missing": []
@@ -2634,7 +2248,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/postright",
       "present": true,
-      "head": "6d7412f",
+      "head": "c91a122",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3038,7 +2652,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/pulse",
       "present": true,
-      "head": "c8f3b68",
+      "head": "6e96700",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3050,7 +2664,7 @@
       "scan": {
         "manifests": 25,
         "parseErrors": 0,
-        "pins": 134,
+        "pins": 138,
         "vendored": 0
       },
       "progress": {
@@ -3552,7 +3166,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/scraperight",
       "present": true,
-      "head": "df8983e",
+      "head": "4796998",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -4422,7 +4036,7 @@
       "group": "tool consumer",
       "dir": "/home/user/legion",
       "present": true,
-      "head": "96b1da2",
+      "head": "28e71ec",
       "profile": null,
       "inMandatorySet": false,
       "declaration": {
@@ -4515,7 +4129,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -4531,8 +4145,8 @@
           "detail": ""
         },
         "mailright": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.0 (no published version)"
         },
         "postright": {
           "state": "unused",
@@ -4582,7 +4196,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -4649,7 +4263,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -4716,7 +4330,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -4783,7 +4397,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -4850,7 +4464,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -4917,7 +4531,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -5000,11 +4614,8 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.4.2",
-          "rows": [
-            "M18"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -5104,7 +4715,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -5169,7 +4780,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -5236,7 +4847,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -5303,7 +4914,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -5370,7 +4981,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -5437,7 +5048,7 @@
           "detail": "0.2.1"
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -5504,7 +5115,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -5571,7 +5182,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -5638,7 +5249,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -5715,7 +5326,7 @@
           }
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -5782,7 +5393,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -5849,7 +5460,7 @@
           "detail": "0.2.0"
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -5928,7 +5539,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -6010,11 +5621,8 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.6.3",
-          "rows": [
-            "M14"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -6119,11 +5727,8 @@
           ]
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.4.1",
-          "rows": [
-            "M14"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -6223,7 +5828,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -6308,11 +5913,8 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.3.0",
-          "rows": [
-            "M12"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -6451,11 +6053,8 @@
           ]
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.1.6",
-          "rows": [
-            "M15"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -6597,7 +6196,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -6613,8 +6212,8 @@
           "detail": ""
         },
         "mailright": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.0 (no published version)"
         },
         "postright": {
           "state": "unused",
@@ -6664,7 +6263,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -6731,7 +6330,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -6798,8 +6397,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.3.4"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -6870,11 +6469,8 @@
           ]
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.6.3",
-          "rows": [
-            "M14"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -6974,7 +6570,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -7041,7 +6637,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -7113,11 +6709,8 @@
           ]
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.4.0",
-          "rows": [
-            "M2"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -7234,11 +6827,8 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.6.1",
-          "rows": [
-            "M20"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -7353,11 +6943,8 @@
           ]
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.1.12 dev",
-          "rows": [
-            "M20"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "stale",
@@ -7381,8 +6968,8 @@
           ]
         },
         "mailright": {
-          "state": "stale",
-          "detail": "0.1.11→0.1.12 dev",
+          "state": "adopted",
+          "detail": "0.1.12 dev",
           "rows": [
             "M20"
           ]
@@ -7469,11 +7056,8 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.7.2",
-          "rows": [
-            "M2"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -7640,9 +7224,9 @@
         "release-tooling"
       ],
       "private": false,
-      "source": "0.6.29",
+      "source": "0.6.34",
       "registry": "0.6.13",
-      "staged": "0.6.29",
+      "staged": "0.6.34",
       "dir": "packages/release",
       "toMoveFrom": {},
       "cells": {
@@ -7666,11 +7250,8 @@
           }
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.6.29 > 0.6.13 dev",
-          "rows": [
-            "M19"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "stale",
@@ -7805,11 +7386,8 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.7.0",
-          "rows": [
-            "M10"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -7921,7 +7499,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -7988,7 +7566,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -8055,7 +7633,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -8137,11 +7715,8 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.3.0",
-          "rows": [
-            "M1"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -8261,8 +7836,8 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.1.3"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -8401,7 +7976,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -8483,21 +8058,8 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.3.1; 1 exception: bogusyogi/rightkit#1016, expires 2026-11-30",
-          "rows": [
-            "M2"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1016"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -8628,8 +8190,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.1.0 (no published version)"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -8695,7 +8257,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -8762,7 +8324,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -8778,8 +8340,8 @@
           "detail": ""
         },
         "mailright": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.0 (no published version)"
         },
         "postright": {
           "state": "unused",
@@ -8878,7 +8440,7 @@
           }
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -8966,7 +8528,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9033,7 +8595,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9100,7 +8662,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9167,7 +8729,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9234,7 +8796,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9301,7 +8863,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9368,7 +8930,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9435,7 +8997,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9502,7 +9064,7 @@
           "detail": "0.1.0 (no published version)"
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9569,7 +9131,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9636,7 +9198,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9703,7 +9265,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9770,7 +9332,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9837,7 +9399,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9904,7 +9466,7 @@
           "detail": "0.1.0 (no published version)"
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -9971,7 +9533,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -10038,7 +9600,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -10105,7 +9667,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -10172,7 +9734,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -10239,7 +9801,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -10306,7 +9868,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -10373,7 +9935,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -10440,7 +10002,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -10507,7 +10069,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -10579,11 +10141,8 @@
           ]
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.3.0",
-          "rows": [
-            "M22"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "n/a",
@@ -10673,7 +10232,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -10750,7 +10309,7 @@
           }
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -10817,7 +10376,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -10841,8 +10400,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.0 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -10884,7 +10443,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -10951,7 +10510,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -11028,7 +10587,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -11052,8 +10611,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.0 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -11095,7 +10654,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -11167,11 +10726,8 @@
           ]
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.3.1 > 0.3.0, 2 pins",
-          "rows": [
-            "M10"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -11282,7 +10838,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -11349,7 +10905,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -11416,8 +10972,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.3.0, 2 pins"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -11483,8 +11039,8 @@
           "detail": "=0.3.1"
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.3.1, 2 pins"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -11550,8 +11106,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.1.0 (no published version)"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -11617,8 +11173,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.6.1"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -11704,7 +11260,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -11771,7 +11327,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -11838,7 +11394,7 @@
           "detail": "=0.3.6"
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -11925,8 +11481,8 @@
           "detail": "=0.2.3"
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.2.3"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -11992,8 +11548,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.1.0 (no published version)"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -12059,7 +11615,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -12126,7 +11682,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -12150,8 +11706,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.0 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -12212,12 +11768,8 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.5.7, 2 pins",
-          "rows": [
-            "M3",
-            "M5"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "stale",
@@ -12315,7 +11867,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -12382,8 +11934,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.1.0 (no published version)"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -12449,8 +12001,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.2.0"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -12505,9 +12057,9 @@
         "video-compositor"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.2.0",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.2.0",
       "dir": "crates/rightkit-compositor",
       "toMoveFrom": {},
       "cells": {
@@ -12516,8 +12068,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.1.0 (no published version)"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -12583,7 +12135,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -12650,7 +12202,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -12717,7 +12269,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -12784,7 +12336,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -12851,7 +12403,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -12918,7 +12470,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -12985,7 +12537,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -13052,7 +12604,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -13119,7 +12671,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -13186,8 +12738,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.1.8 > 0.1.7, 2 pins"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -13258,11 +12810,8 @@
           ]
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.3.6, 2 pins",
-          "rows": [
-            "M16"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -13353,9 +12902,9 @@
         "os-credential-store"
       ],
       "private": false,
-      "source": "0.4.3",
+      "source": "0.4.4",
       "registry": "0.4.2",
-      "staged": "0.4.3",
+      "staged": "0.4.4",
       "dir": "crates/rightkit-credentials",
       "toMoveFrom": {},
       "cells": {
@@ -13379,11 +12928,8 @@
           }
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.4.3 > 0.4.2",
-          "rows": [
-            "M11"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -13494,7 +13040,7 @@
           "detail": "=0.1.0, 2 pins"
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -13597,12 +13143,8 @@
           }
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.5.1 > 0.4.0, 3 pins",
-          "rows": [
-            "M6",
-            "M7"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "n/a",
@@ -13678,7 +13220,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.5.1 > 0.4.0; also 5 adopted; 2 exceptions: bogusyogi/rightkit#1042/bogusyogi/rightkit#852, expires 2026-11-30",
+          "detail": "0.5.1 > 0.4.0, 2 pins; also 4 adopted; 2 exceptions: bogusyogi/rightkit#1042/bogusyogi/rightkit#852, expires 2026-11-30",
           "rows": [
             "M6",
             "M7"
@@ -13748,11 +13290,8 @@
           ]
         },
         "cutright": {
-          "state": "n/a",
-          "detail": "M9 declared",
-          "rows": [
-            "M9"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "n/a",
@@ -13869,12 +13408,8 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.4.0",
-          "rows": [
-            "M1",
-            "M12"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -13992,7 +13527,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -14016,8 +13551,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.0 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -14059,7 +13594,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -14126,7 +13661,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -14182,9 +13717,9 @@
         "dictation"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-dictation-core",
       "toMoveFrom": {},
       "cells": {
@@ -14193,7 +13728,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -14260,7 +13795,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -14327,7 +13862,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -14394,7 +13929,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -14461,7 +13996,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -14528,7 +14063,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -14595,7 +14130,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -14662,7 +14197,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -14733,7 +14268,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -14800,8 +14335,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.1.0 (no published version)"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -14856,9 +14391,9 @@
         "document-workspace"
       ],
       "private": false,
-      "source": "0.1.1",
+      "source": "0.1.3",
       "registry": "",
-      "staged": "0.1.1",
+      "staged": "0.1.3",
       "dir": "crates/rightkit-document-workspace",
       "toMoveFrom": {},
       "cells": {
@@ -14867,7 +14402,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -14934,7 +14469,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -15001,8 +14536,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.1.1 (no published version)"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -15068,7 +14603,7 @@
           "detail": "0.1.0 (no published version)"
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -15135,7 +14670,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -15202,7 +14737,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -15269,7 +14804,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -15336,7 +14871,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -15403,7 +14938,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -15470,8 +15005,8 @@
           "detail": "=0.2.10"
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.2.10, 5 pins"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -15547,7 +15082,7 @@
           "detail": "0.4.2 > 0.4.1"
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -15633,11 +15168,8 @@
           }
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.4.9 > 0.4.7, 7 pins",
-          "rows": [
-            "M8"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -15784,7 +15316,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -15851,7 +15383,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -15918,7 +15450,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -15985,7 +15517,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -16062,7 +15594,7 @@
           }
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -16129,8 +15661,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.1.2"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -16211,11 +15743,8 @@
           }
         },
         "cutright": {
-          "state": "n/a",
-          "detail": "M17 declared",
-          "rows": [
-            "M17"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -16315,7 +15844,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -16399,23 +15928,8 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.5.1, 2 pins; 2 exceptions: bogusyogi/rightkit#1010/bogusyogi/rightkit#1012, expires 2026-11-30",
-          "rows": [
-            "M3",
-            "M4"
-          ],
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1010",
-              "bogusyogi/rightkit#1012"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "n/a",
@@ -16536,7 +16050,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -16624,12 +16138,8 @@
           }
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.2.6 > 0.2.5",
-          "rows": [
-            "M12",
-            "M13"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "n/a",
@@ -16783,7 +16293,7 @@
           }
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -16870,7 +16380,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -16942,11 +16452,8 @@
           ]
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.3.7 > 0.3.5",
-          "rows": [
-            "M15"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -17088,7 +16595,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -17155,7 +16662,7 @@
           "detail": "0.7.2 > 0.7.0"
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -17232,7 +16739,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -17299,7 +16806,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -17366,7 +16873,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -17433,7 +16940,7 @@
           "detail": "0.1.0 (no published version)"
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -17500,7 +17007,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -17567,7 +17074,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -17634,7 +17141,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -17701,8 +17208,8 @@
           "detail": "0.5.3 > 0.5.1"
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.5.3 > 0.5.1, 3 pins"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -17800,7 +17307,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -17889,7 +17396,7 @@
           }
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -17956,8 +17463,8 @@
           "detail": "=0.2.3"
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.2.3"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -18023,8 +17530,8 @@
           "detail": "=0.2.7"
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.2.7"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -18100,8 +17607,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.2.0"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -18187,7 +17694,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -18264,7 +17771,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -18332,7 +17839,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -18400,7 +17907,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -18477,8 +17984,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.1.1 (no published version)"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -18544,7 +18051,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -18611,8 +18118,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.3.0"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -18678,7 +18185,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -18745,7 +18252,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -18820,23 +18327,8 @@
           ]
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.10.0 > 0.9.1, 3 pins; 3 exceptions: bogusyogi/rightkit#1005/bogusyogi/rightkit#1007+, expires 2026-11-30",
-          "rows": [
-            "M20"
-          ],
-          "exceptions": {
-            "count": 3,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1005",
-              "bogusyogi/rightkit#1007",
-              "bogusyogi/rightkit#468"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "stale",
@@ -18946,7 +18438,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -19013,8 +18505,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.3.3"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -19080,8 +18572,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.1.0 (no published version)"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -19147,7 +18639,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -19214,7 +18706,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -19281,7 +18773,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -19348,7 +18840,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -19415,7 +18907,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -19482,8 +18974,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.4.1 > 0.4.0"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -19563,7 +19055,7 @@
           }
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -19630,7 +19122,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -19708,8 +19200,8 @@
           }
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.4.1 > 0.4.0"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -19785,7 +19277,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -19852,8 +19344,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.1.0 (no published version)"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -19934,11 +19426,8 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.3.0",
-          "rows": [
-            "M4"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "n/a",
@@ -20038,7 +19527,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -20105,7 +19594,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -20172,7 +19661,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -20249,8 +19738,8 @@
           }
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.4.1 > 0.4.0"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -20326,7 +19815,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -20403,7 +19892,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -20480,7 +19969,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -20547,7 +20036,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -20605,9 +20094,9 @@
         "desktop-shell"
       ],
       "private": false,
-      "source": "0.7.0",
+      "source": "0.7.2",
       "registry": "0.6.0",
-      "staged": "0.7.0",
+      "staged": "0.7.2",
       "dir": "crates/rightkit-tauri-shell",
       "toMoveFrom": {},
       "cells": {
@@ -20630,11 +20119,8 @@
           }
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.7.0 > 0.6.0",
-          "rows": [
-            "M1"
-          ]
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "adopted",
@@ -20798,7 +20284,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -20865,7 +20351,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -20942,7 +20428,7 @@
           }
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -21029,8 +20515,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.1.0 (no published version), 5 pins"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -21096,8 +20582,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.4.0, 2 pins"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -21173,7 +20659,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -21240,7 +20726,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -21307,7 +20793,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -21374,7 +20860,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -21441,7 +20927,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -21508,8 +20994,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.1.2, 2 pins"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -21575,7 +21061,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -21642,8 +21128,8 @@
           "detail": ""
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.1.0 (no published version), 5 pins"
+          "state": "not present",
+          "detail": ""
         },
         "ember": {
           "state": "unused",
@@ -21709,7 +21195,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -21776,7 +21262,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -21843,7 +21329,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {
@@ -21910,7 +21396,7 @@
           "detail": ""
         },
         "cutright": {
-          "state": "unused",
+          "state": "not present",
           "detail": ""
         },
         "ember": {

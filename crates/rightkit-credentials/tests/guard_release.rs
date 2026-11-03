@@ -23,7 +23,7 @@ fn a_deny_guard_refuses_every_operation_without_touching_the_os_store() {
     std::env::remove_var(&guard);
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(feature = "memory-backend"))]
 #[test]
 fn an_env_memory_guard_denies_instead_of_using_volatile_memory_in_release_builds() {
     let guard = format!("RK_SECRETS_TEST_MEMORY_REL_{}", std::process::id());
@@ -42,7 +42,7 @@ fn an_env_memory_guard_denies_instead_of_using_volatile_memory_in_release_builds
     std::env::remove_var(&guard);
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(feature = "memory-backend"))]
 #[test]
 fn a_guard_forced_from_code_to_memory_denies_in_release_builds() {
     let store = Store::open(

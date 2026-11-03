@@ -69,11 +69,6 @@
 
 use serde_json::{Value, json};
 
-#[cfg(all(feature = "test-overrides", not(debug_assertions)))]
-compile_error!(
-    "the `test-overrides` feature must never be enabled in a release build (it relaxes the protected-settings keychain check and trusts dev approver keys)"
-);
-
 pub mod agent_secrets;
 pub mod approvals;
 pub mod apps;

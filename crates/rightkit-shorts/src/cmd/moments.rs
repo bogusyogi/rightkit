@@ -6,7 +6,7 @@
 //!
 //! The index records the BLAKE3 of the source bytes. Relinking the same bytes reuses it;
 //! changed bytes make it stale, so it is rebuilt. A corrupt index is treated as absent.
-//! The model directory comes from `model_dir` or `RIGHTKIT_OCR_MODEL_DIR`; the native
+//! The model directory comes from `model_dir`; the native
 //! backend (Apple Vision / Windows OCR) needs none.
 
 use std::io::Write;
@@ -36,21 +36,6 @@ const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 500;
 /// Frame extraction and OCR run for a whole source; one call may take a while on long media.
 const INDEX_TIMEOUT: Duration = Duration::from_secs(900);
-#[cfg(feature = "test-mode")]
-const MODEL_DIR_ENV: &str = "RIGHTKIT_OCR_MODEL_DIR";
-
-/// `RIGHTKIT_OCR_MODEL_DIR` in `test-mode` builds only; a shipped engine never reads it.
-fn model_dir_from_env() -> Option<PathBuf> {
-    #[cfg(feature = "test-mode")]
-    {
-        std::env::var_os(MODEL_DIR_ENV).map(PathBuf::from)
-    }
-    #[cfg(not(feature = "test-mode"))]
-    {
-        None
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 struct OcrIndex {
     version: u32,
@@ -171,7 +156,7 @@ pub fn m_moments_ocr_index(
         source: String,
         /// Sampling interval; default 1000 ms.
         interval_ms: Option<i64>,
-        /// Absolute ONNX OCR model directory; overrides `RIGHTKIT_OCR_MODEL_DIR`.
+        /// Absolute ONNX OCR model directory.
         model_dir: Option<String>,
     }
     let q: P =
@@ -182,7 +167,7 @@ pub fn m_moments_ocr_index(
             "interval_ms must be {MIN_INTERVAL_MS}..={MAX_INTERVAL_MS}"
         )));
     }
-    let model_dir = q.model_dir.map(PathBuf::from).or_else(model_dir_from_env);
+    let model_dir = q.model_dir.map(PathBuf::from);
     if model_dir.as_ref().is_some_and(|m| !m.is_absolute()) {
         return Err(bad("OCR model_dir must be an absolute path"));
     }

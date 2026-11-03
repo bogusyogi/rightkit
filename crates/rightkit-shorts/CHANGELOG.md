@@ -2,7 +2,7 @@
 
 ## 0.1.1 (unreleased)
 
-- New, additive (feature `engine-commands`, off by default): `cmd::moments`, the `moments.ocr_index` and `moments.search` engine handlers (on-screen-text moment search over `rightkit-ocr` and `rightkit-search`), moved from CutRight's `cutright-engine`. `RIGHTKIT_OCR_MODEL_DIR` (feature `test-mode`) replaces `CUTRIGHT_OCR_MODEL_DIR`.
+- New, additive (feature `engine-commands`, off by default): `cmd::moments`, the `moments.ocr_index` and `moments.search` engine handlers (on-screen-text moment search over `rightkit-ocr` and `rightkit-search`), moved from CutRight's `cutright-engine`. The OCR model directory is the `model_dir` argument only (no environment variable, no test-mode feature). Uses `rightkit-fs` for the atomic index write and source hash.
 
 ## 0.1.0 (unreleased)
 

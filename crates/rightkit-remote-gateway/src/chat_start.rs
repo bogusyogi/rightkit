@@ -100,16 +100,8 @@ mod imp {
         Some(rightkit_app_host::account_home())
     }
 
-    /// The Claude CLI at its install locations. Test builds (`test-overrides`, #192) also take
-    /// `$RIGHTKIT_CLAUDE_BIN` and the `PATH`; a release build never picks a program from either.
+    /// The Claude CLI at its install locations. Never a program from `$RIGHTKIT_CLAUDE_BIN` or the `PATH`.
     fn claude_binary() -> Option<PathBuf> {
-        #[cfg(feature = "test-overrides")]
-        if let Some(chosen) = std::env::var_os("RIGHTKIT_CLAUDE_BIN").filter(|v| !v.is_empty()) {
-            let chosen = PathBuf::from(chosen);
-            if chosen.is_file() {
-                return Some(chosen);
-            }
-        }
         let name = if cfg!(windows) {
             "claude.exe"
         } else {
@@ -131,15 +123,6 @@ mod imp {
         if cfg!(not(windows)) {
             candidates.push(PathBuf::from("/opt/homebrew/bin/claude"));
             candidates.push(PathBuf::from("/usr/local/bin/claude"));
-        }
-        #[cfg(feature = "test-overrides")]
-        if let Some(paths) = std::env::var_os("PATH") {
-            for dir in std::env::split_paths(&paths) {
-                candidates.push(dir.join(name));
-                if cfg!(windows) {
-                    candidates.push(dir.join("claude.cmd"));
-                }
-            }
         }
         candidates.into_iter().find(|c| c.is_file())
     }

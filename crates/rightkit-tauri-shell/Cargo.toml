@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-tauri-shell"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring."
@@ -113,6 +113,7 @@ name = "budget_native"
 harness = false
 
 [dev-dependencies]
+rightkit-credentials = { version = "0.4.4", path = "../rightkit-credentials", features = ["memory-backend", "os-auth"] }
 tempfile = "3"
 # A real `TracingGuard` for the logs clear test; the shell itself does not enable the feature.
 rightkit-logs = { version = "0.3.5", path = "../rightkit-logs", default-features = false, features = ["tracing"] }

@@ -122,6 +122,7 @@ pub fn entry_job(entry_url: &str, id: String, media: Option<MediaSpec>) -> JobIn
 /// List a playlist and queue one child job per entry through `submit` (the
 /// queue's public submit). Pure orchestration: the lister and `submit` are
 /// injected.
+#[allow(clippy::too_many_arguments)]
 pub fn run_playlist_batch(
     lister: &dyn PlaylistLister,
     entitlements: &EntitlementsSnapshot,

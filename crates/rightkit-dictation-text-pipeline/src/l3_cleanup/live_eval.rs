@@ -144,7 +144,7 @@ pub(crate) struct LiveEvalJob {
 }
 
 pub fn live_eval_enabled() -> bool {
-    cfg!(debug_assertions) && overrides::ai_eval_mode()
+    overrides::ai_eval_mode()
 }
 
 pub fn live_eval_suppresses_delivery() -> bool {
@@ -158,7 +158,7 @@ pub fn run_live_evaluation(
 ) -> Result<PathBuf, String> {
     if !live_eval_enabled() {
         return Err(
-            "live evaluation is available only in an explicitly enabled debug build".to_string(),
+            "live evaluation is available only in an explicitly enabled test build".to_string(),
         );
     }
     if !policy::cleanup_enabled() || !policy::cloud_consent() {

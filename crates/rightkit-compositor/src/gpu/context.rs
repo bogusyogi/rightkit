@@ -172,6 +172,7 @@ impl GpuContext {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface,
                 force_fallback_adapter: false,
+                apply_limit_buckets: false,
             })
             .await
             .map_err(|_| GpuError::AdapterUnavailable)?;
@@ -319,7 +320,9 @@ impl GpuContext {
         rx.recv()
             .map_err(|_| GpuError::Readback)?
             .map_err(|_| GpuError::Readback)?;
-        let mapped = slice.get_mapped_range();
+        let mapped = slice
+            .get_mapped_range()
+            .map_err(|_| GpuError::Readback)?;
 
         let mut out = Vec::with_capacity((row_bytes * height) as usize);
         for row in mapped.chunks(padded_row as usize).take(height as usize) {
@@ -449,6 +452,7 @@ impl GpuContext {
                 .unwrap_or(wgpu::CompositeAlphaMode::Auto),
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
+            color_space: wgpu::SurfaceColorSpace::Auto,
         })
     }
 
