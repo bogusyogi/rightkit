@@ -281,7 +281,7 @@ pub fn overlay_opacity(
 ///
 /// Which clip, hold or title is active, its stack order, source time, opacity,
 /// keyed transform and crop come from `crate::evaluate` (see
-/// [`crate::native::base_eval`]). Static geometry (letterbox fit, pixel transform,
+/// `crate::native::base_eval`). Static geometry (letterbox fit, pixel transform,
 /// rotation, flip), blend, effects, masks, rejection of unsupported
 /// combinations and texture identity stay here.
 pub fn compose_frame(

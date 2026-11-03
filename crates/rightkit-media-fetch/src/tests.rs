@@ -7,7 +7,12 @@ mod output_limits;
 fn verified_ffmpeg_refuses_a_path_that_does_not_exist() {
     let missing = std::env::temp_dir().join("rightkit-missing-ffmpeg-for-verify-test");
     let err = verify_ffmpeg_path(&missing).unwrap_err();
-    assert!(err.starts_with("failed to launch ffmpeg"), "{err}");
+    // Hosts without an approved FFmpeg artifact (Linux) refuse before looking at the path.
+    if cfg!(any(target_os = "macos", windows)) {
+        assert!(err.starts_with("failed to launch ffmpeg"), "{err}");
+    } else {
+        assert!(err.contains("no approved FFmpeg artifact"), "{err}");
+    }
 }
 
 #[test]

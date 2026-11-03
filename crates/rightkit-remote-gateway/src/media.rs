@@ -156,6 +156,7 @@ impl Outcome {
 }
 
 /// Percent-encodes a query for a `spotify:search:` URI: every byte but an unreserved one.
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
 fn encode_query(query: &str) -> String {
     let mut out = String::with_capacity(query.len() * 3);
     for byte in query.bytes() {

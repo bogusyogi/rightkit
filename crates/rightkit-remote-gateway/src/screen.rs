@@ -74,7 +74,12 @@
 //! the main run loop. A host without a running main loop may see a stale app list; that is
 //! untested here (see docs/chatgpt-gateway.md).
 
-use super::settings::{Settings, hard_floor};
+// The spot runner and the argument helpers serve the macOS and Windows drivers; other hosts refuse.
+#![cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
+
+use super::settings::Settings;
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(unused_imports))]
+use super::settings::hard_floor;
 use super::{Origin, Refusal, Result};
 use serde_json::{Value, json};
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Declared `markdown_index` (it shipped in 0.1.1 as a file but was never a `pub mod`, so no host could import it).
+
 ## 0.1.1
 
 - Added the viewer command bodies (library, document IO, explorer, markdown resources, settings) behind `PathGrants`, `DocumentBackend` and `WorkspaceWatcher`, returning `WorkspaceError`. Additive.

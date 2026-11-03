@@ -19,6 +19,7 @@ pub mod error;
 pub mod explorer;
 pub mod grants;
 pub mod library;
+pub mod markdown_index;
 pub mod markdown_resources;
 pub mod settings;
 pub mod store;

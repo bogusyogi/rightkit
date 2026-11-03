@@ -53,7 +53,7 @@ impl NativeCompositor {
 
     /// Builds the frame key for `frame_index` under `quality`.
     /// `quality` is applied to the snapshot's output spec via
-    /// [`ComposeSnapshot::at_quality`]-style rebasing done by the caller; the
+    /// `ComposeSnapshot::at_quality`-style rebasing done by the caller; the
     /// key records the effective dimensions.
     pub fn frame_key(
         snapshot: &ComposeSnapshot,

@@ -531,7 +531,7 @@ mod tests {
     #[test]
     fn a_real_socket_round_trip_serves_the_entry() {
         let (dir, _) = project();
-        let mut server = ProjectServer::start(dir.clone(), "index.html".into()).unwrap();
+        let mut server = ProjectServer::start(dir.clone(), "index.html".into(), None).unwrap();
         let port = server.port();
         let ask = |host: &str| {
             let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
