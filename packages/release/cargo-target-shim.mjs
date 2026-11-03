@@ -175,7 +175,8 @@ export function decideCargoInvocation({ args, cwd, env, map, locate, realpath = 
  *
  * Broker mode (`broker: { checkoutDirs, section }`, the Mac): `checkoutDirs` is the gate's { [cargoDir]: absolute path of that
  * workspace in the primary checkout } (the snapshot-to-checkout map, the only source of a request's primaryCwd) and `section` the
- * public part of the gate's snapshot broker (brokerSection). `realCargo` then only runs `version` and `help`; it may be null.
+ * public part of the gate's snapshot broker (brokerSection). `realCargo` then runs `version`, `help` and the non-compiling calls
+ * (GC-A11: metadata, fmt --check, deny, audit, package --list), which the broker refuses; null leaves those to fail at the broker.
  *
  * Windows, broker mode only (rightkit#1350, rustright#215): a child started without a shell finds only an .exe, so `bin/cargo.exe` is a
  * byte copy of the live RustRight client (`broker.section.client`) and `bin/gate-trampoline.json` beside it pins node, this module and the

@@ -128,6 +128,19 @@ function gateCodeIdentity() {
   return gateCodeIdentityMemo;
 }
 
+/**
+ * The real cargo a broker host's runtime wrapper runs non-compiling calls with (GATE-CONTRACT GC-A11: metadata, fmt --check, deny,
+ * audit, package --list never go to the broker, which refuses them since rustright a2972f0): the broker's registered toolchain first
+ * (managed-cargo.mjs directCargoPath), else PATH without the RustRight shims; null when none exists.
+ */
+function directCargoBinOf(o) {
+  const pk = o.platform === "win32" ? (Object.keys(o.env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH";
+  const d = directCargoPath({ env: { ...o.env, PATH: o.env[pk] }, exists: o.exists, platform: o.platform, gateWrappers: true });
+  const names = o.platform === "win32" ? ["cargo.exe"] : ["cargo"];
+  for (const dir of String(d.path ?? "").split(o.platform === "win32" ? ";" : ":").filter(Boolean)) for (const n of names) { const c = path.join(dir, n); if (o.exists(c)) return c; }
+  return null;
+}
+
 const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to tool --unit cargo:rightkit-qa|cargo:rightkit-credentials [--no-broker <exception-id>] [--receipt-out <file>] [--commit <rev>] (builds the unit's release binary from the commit and enrols it: cargo:rightkit-qa as the managed rightkit-qa runner, cargo:rightkit-credentials as the managed OS credential provider updater signing runs; Mac and Windows) | rightkit-gate --to check|compile|package|qualify --units-file <json {"units":[<selector>,...]} written for this run> | rightkit-gate --to check|compile|package|qualify --all-units-exception <id> (RightKit only: its unit is named on every run, or every unit by Adrian's entry in ci/all-units-exceptions.json of the commit) | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
 /** The host platform (process.platform) that constructs each platform's artifact; a platform missing here (android) builds on any host. */
 const STAGE_NATIVE_HOST = Object.freeze({ mac: "darwin", ios: "darwin", win: "win32" });
@@ -2333,6 +2346,10 @@ async function bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs, ext
     // Installing the carrier map sends nothing: the ownership records each carried request's sub-handle just before it is sent (snapshot-broker.mjs).
     const { brokerSection } = await import("../snapshot-broker.mjs");
     broker = { checkoutDirs: Object.fromEntries(workspaces.map((w) => [w, path.join(checkoutReal, ...(w === "." ? [] : w.split("/")))])), section: (o.brokerSection ?? brokerSection)(sb) };
+    // The unit stages' non-compiling cargo (the `cargo fmt --check` step, metadata) runs directly with the broker's real cargo, as class A
+    // does (GC-A11). Without it the wrapper sent `cargo fmt -p <crate> --check` to the broker, which refuses non-compiling requests: every
+    // unit compile on the Mac and Dell stopped there (rightkit-document-workspace on the Dell, 2026-11-03, exit 125).
+    realCargo = directCargoBinOf(o);
   } else {
     realCargo = realCargoOf(which("cargo"));
     if (!realCargo) return { refusal: "no cargo on PATH to wrap for the unit stages" };
@@ -3697,7 +3714,7 @@ export async function main(argv, io = {}) {
       // broker host never reaches here; a direct Windows host keeps the fail-closed static walk). Removed when the gate ends (cleanup).
       if (o.platform !== "win32" && rust.workspaces.length) {
         // GC-A11: the wrapper runs non-compiling calls directly, so a broker-mode wrapper also needs the real toolchain cargo (shims off PATH).
-        const directCargoBin = () => { const pk = o.platform === "win32" ? (Object.keys(o.env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH"; const d = directCargoPath({ env: { ...o.env, PATH: o.env[pk] }, exists: o.exists, platform: o.platform, gateWrappers: true }); const names = o.platform === "win32" ? ["cargo.exe"] : ["cargo"]; for (const dir of String(d.path ?? "").split(o.platform === "win32" ? ";" : ":").filter(Boolean)) for (const n of names) { const c = path.join(dir, n); if (o.exists(c)) return c; } return null; };
+        const directCargoBin = () => directCargoBinOf(o);
         const realCargo = wrapBroker ? (directCargoBin() ?? undefined) : realCargoOf(which("cargo"));
         if (!realCargo && !wrapBroker) { o.err(`${tag} BLOCKED: no cargo on PATH to wrap for the snapshot compile; nothing compiled`); return 1; }
         try {

@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.32 (unpublished)
+## 0.6.33 (unpublished)
+
+- **A unit's compile stage on the Mac and the Dell runs its non-compiling cargo directly (GC-A11).** The unit stages' runtime cargo wrapper was installed without a real cargo in broker mode, so `cargo fmt -p <crate> --check` (and any other non-compiling call) went to the broker, which refuses non-compiling requests since rustright a2972f0 ("a snapshot request must compile ... run cheap non-compiling cargo outside the broker"). Every `--to compile --unit cargo:<crate>` on a broker host stopped at that step: rightkit-document-workspace on the Dell, 2026-11-03, exit 125. The wrapper now gets the broker's registered cargo (the same `directCargoBinOf` the snapshot compile already used); compiles still go to the broker.
+
+## 0.6.32 — 2026-11-03
 
 - **Results are reused when their inputs haven't changed (GC-T14; A1, A10, B5 in `docs/results/2026-11-02-class-a-b-inefficiencies.md`).** Measured on the Mac, Class A of rightkit-asr on one commit twice: the first run took 59 s and the second 30 s, with 949 checks reused. Before this release no run reused anything.
   - Every key held the runtime cargo wrapper's folder name, `rk-cargo-shim-<identity>`. That identity hashes the run's broker section, so it differed on every run. The name is now normalised like its parent temp folder, and the wrapper's code (`cargo-target-shim.mjs` and the broker carrier files) keys results through the gate identity instead.
