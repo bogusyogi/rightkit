@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.2.13 (unreleased)
+## 0.2.14 (unpublished)
+
+- Fix: the crate compiles with `default-features = false`. `Artifact::archive` named `native::ArchiveRef`, which exists only with feature `native` (E0433, reported by Pulse). `ArchiveRef` now lives in the always-compiled `archive` module; `native::ArchiveRef` stays as a re-export, so no caller changes.
+
+## 0.2.13
 
 - Feature `agent_media`: agent media capture/transcode helpers gated by agent policy, moved from CodeRight `coderight-media`.
 - BREAKING (source): `native::NativeLibrary::SherpaOnnx` and the two `sherpa-onnx` catalog rows (`sherpa-onnx-1.13.4-macos-universal`, `sherpa-onnx-1.13.4-windows-x64`) are removed. Keyword spotting is now the Rust `rightkit_asr::kws`, so no sherpa-onnx C API library is shipped or loaded. The enum is `#[non_exhaustive]`, but a `match` that names the variant stops compiling. Staged in the unreleased 0.2.13 section, not a new version, to avoid a 0.3 requirement bump in every dependent (see the 0.2.11 note).

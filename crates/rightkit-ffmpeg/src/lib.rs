@@ -26,6 +26,7 @@ pub mod encoders;
 pub mod h264_rule;
 pub mod handle;
 pub mod loudnorm;
+pub mod archive;
 #[cfg(feature = "native")]
 pub mod native;
 pub mod probe;
@@ -366,7 +367,7 @@ pub struct Artifact {
     /// `member` is the tool's bare file name (`ffmpeg`, `ffmpeg.exe`) holding exactly the bytes
     /// `sha256` names. Absent where the bytes are not published.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub archive: Option<native::ArchiveRef>,
+    pub archive: Option<archive::ArchiveRef>,
 }
 
 impl Artifact {
@@ -1484,7 +1485,7 @@ mod tests {
         let digest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
         let with = |url: &str, sha256: &str, member: Option<&str>| {
             let mut artifact = approved_artifact(digest);
-            artifact.archive = Some(native::ArchiveRef {
+            artifact.archive = Some(archive::ArchiveRef {
                 url: url.into(),
                 sha256: sha256.into(),
                 member: member.map(Into::into),
