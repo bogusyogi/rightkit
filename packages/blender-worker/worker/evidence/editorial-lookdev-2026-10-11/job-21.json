@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "job_id": "editorial-21",
+  "recipe": "lookdev",
+  "kind": "authoring",
+  "source": "D:/Claude/Content/renderright/qualification/fenrir.glb",
+  "output_dir": "D:\\Claude\\Content\\renderright\\lookdev-editorial-20261011\\iter-21",
+  "params": {
+    "width": 960,
+    "height": 1200,
+    "samples": 96,
+    "lookdev_settings": {
+      "key_power": 3,
+      "roll": -50,
+      "rake_power": 0.4,
+      "key_size": 0.2,
+      "blade_roughness": 0.35,
+      "surface": "leather",
+      "key_x": 0.05,
+      "handle_texture": 0.6,
+      "elevation": 22,
+      "fill_power": 1.5,
+      "azimuth": -10,
+      "blade_anisotropy": 0.25,
+      "aperture": 8,
+      "handle_roughness": 0.58,
+      "handle_value": 0.08,
+      "grain_strength": 0.35,
+      "key_y": 0.15
+    }
+  }
+}

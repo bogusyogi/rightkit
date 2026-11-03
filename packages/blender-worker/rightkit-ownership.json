@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/blender-worker",
+  "capabilities": [
+    {
+      "capability": "blender-render-worker",
+      "summary": "Blender render worker: job protocol, scene authoring, product review and look development; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

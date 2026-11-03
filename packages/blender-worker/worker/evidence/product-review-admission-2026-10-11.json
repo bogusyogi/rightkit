@@ -1,0 +1,300 @@
+{
+  "assertion_cases": [
+    {
+      "case": "collision-safe-material-load",
+      "passed": true
+    },
+    {
+      "case": "nested-unpacked-image-rejected",
+      "passed": true
+    },
+    {
+      "case": "swatch-before-approval-manifest",
+      "passed": true
+    },
+    {
+      "case": "hero-review-identity",
+      "passed": true
+    }
+  ],
+  "blender_version": "5.2.2 LTS",
+  "cases": [
+    {
+      "case": "swatch-generated",
+      "expected_error": null,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [
+        "swatch.png"
+      ],
+      "returncode": 0,
+      "success_expected": true
+    },
+    {
+      "case": "approved-hero",
+      "expected_error": null,
+      "final_manifest": true,
+      "passed": true,
+      "pngs": [
+        "hero.png",
+        "frames/frame_000000.png"
+      ],
+      "returncode": 0,
+      "success_expected": true
+    },
+    {
+      "case": "finalized-hero-reuse",
+      "expected_error": null,
+      "final_manifest": true,
+      "passed": true,
+      "pngs": [
+        "hero.png",
+        "frames/frame_000000.png"
+      ],
+      "returncode": 0,
+      "success_expected": true
+    },
+    {
+      "case": "mutated-dependency-reuse-rejected",
+      "existing_outputs_preserved": true,
+      "expected_error": "product source hash mismatch",
+      "expected_error_found": true,
+      "final_manifest": true,
+      "passed": true,
+      "pngs": [
+        "hero.png",
+        "frames/frame_000000.png"
+      ],
+      "returncode": 1,
+      "success_expected": false
+    },
+    {
+      "case": "source-free-probe",
+      "expected_error": null,
+      "final_manifest": true,
+      "passed": true,
+      "pngs": [
+        "probe.png"
+      ],
+      "returncode": 0,
+      "success_expected": true
+    },
+    {
+      "case": "missing-spec",
+      "expected_error": "product spec file does not exist",
+      "expected_error_found": true,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [],
+      "returncode": 1,
+      "success_expected": false
+    },
+    {
+      "case": "missing-approval",
+      "expected_error": "swatch approval path must be absolute",
+      "expected_error_found": true,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [],
+      "returncode": 1,
+      "success_expected": false
+    },
+    {
+      "case": "rejected-approval",
+      "expected_error": "swatch decision must be approved for steel",
+      "expected_error_found": true,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [],
+      "returncode": 1,
+      "success_expected": false
+    },
+    {
+      "case": "stale-image",
+      "expected_error": "swatch image hash mismatch",
+      "expected_error_found": true,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [],
+      "returncode": 1,
+      "success_expected": false
+    },
+    {
+      "case": "swatch-prerequisite-1",
+      "expected_error": null,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [
+        "swatch.png"
+      ],
+      "returncode": 0,
+      "success_expected": true
+    },
+    {
+      "case": "stale-shader",
+      "expected_error": "finish shader hash mismatch",
+      "expected_error_found": true,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [],
+      "returncode": 1,
+      "success_expected": false
+    },
+    {
+      "case": "stale-source",
+      "expected_error": "product source hash mismatch",
+      "expected_error_found": true,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [],
+      "returncode": 1,
+      "success_expected": false
+    },
+    {
+      "case": "swatch-prerequisite-2",
+      "expected_error": null,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [
+        "swatch.png"
+      ],
+      "returncode": 0,
+      "success_expected": true
+    },
+    {
+      "case": "rejected-confirmation",
+      "expected_error": "product confirmation decision must be confirmed",
+      "expected_error_found": true,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [],
+      "returncode": 1,
+      "success_expected": false
+    },
+    {
+      "case": "swatch-prerequisite-3",
+      "expected_error": null,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [
+        "swatch.png"
+      ],
+      "returncode": 0,
+      "success_expected": true
+    },
+    {
+      "case": "material-override",
+      "expected_error": "reviewed renders reject material_recipe overrides",
+      "expected_error_found": true,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [],
+      "returncode": 1,
+      "success_expected": false
+    },
+    {
+      "case": "swatch-prerequisite-4",
+      "expected_error": null,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [
+        "swatch.png"
+      ],
+      "returncode": 0,
+      "success_expected": true
+    },
+    {
+      "case": "unmapped-node",
+      "expected_error": "imported mesh names do not exactly match confirmed product parts",
+      "expected_error_found": true,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [],
+      "returncode": 1,
+      "success_expected": false
+    },
+    {
+      "case": "swatch-prerequisite-5",
+      "expected_error": null,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [
+        "swatch.png"
+      ],
+      "returncode": 0,
+      "success_expected": true
+    },
+    {
+      "case": "swatch-prerequisite-6",
+      "expected_error": null,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [
+        "swatch.png"
+      ],
+      "returncode": 0,
+      "success_expected": true
+    },
+    {
+      "case": "unmapped-slot",
+      "expected_error": "source material slots do not exactly match confirmed slots: SyntheticBody",
+      "expected_error_found": true,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [],
+      "returncode": 1,
+      "success_expected": false
+    },
+    {
+      "case": "swatch-prerequisite-7",
+      "expected_error": null,
+      "final_manifest": false,
+      "passed": true,
+      "pngs": [
+        "swatch.png"
+      ],
+      "returncode": 0,
+      "success_expected": true
+    }
+  ],
+  "checks": {
+    "genright": {
+      "approved_synthetic_passed": true,
+      "approved_synthetic_request": "374cb8ba-f400-42db-a032-447c4da353c0",
+      "build_request": "36568598-5b83-49c5-b09b-c2046e603cb7",
+      "engine_sha256": "51f476b52c3b2d4eaacc9224b637eb6752af29dac4cbb4fc1718437403487872",
+      "missing_review_passed": true,
+      "missing_review_request": "3dc8d966-0056-46cb-a5cc-d083737a9cb7"
+    },
+    "python": {
+      "command": "py -3.11 -m unittest discover -s tests -v",
+      "passed": 22,
+      "skipped_requires_bpy": 2
+    }
+  },
+  "elapsed_seconds": 27.42,
+  "native_log_sha256": "edada35209aee8375f6397bfadbd681f35eeeaf940488d572b651957377f77d9",
+  "schema": 1,
+  "scope": "Synthetic fixture only; no real product confirmation or swatch approval.",
+  "source_files": {
+    "recipes/manifest.json": "77bb28fe8bf9fcca618a3d47ea5ca49199526b2beaf0fe8352b399e783c39420",
+    "renderright/__init__.py": "37b0eacfba4ddbc8224f75cc48f7d679ad06d66e334ee84fa2eb99b8241d2359",
+    "renderright/approved_materials.py": "0f38cd88a708230b9379e3a9d48a039520da8290de78f67aff59da285f5f8ca5",
+    "renderright/authoring.py": "8f9e15d35f2ae390c0b9814e5a191e3ad3fbdb2366e80527d31e81d1b0aa1dde",
+    "renderright/contract.py": "74868d66a5847448ddb36e1c42161481b8bb4564c57fbf554f832c1e60c5baac",
+    "renderright/fenrir_geometry.py": "b7b42753acae23f9ae48c963984dc2fc2436f0dbfe9297d766c2622caab55c0b",
+    "renderright/pngcheck.py": "e66a87dd0c56fd88ef7d140ad8af79231088c9ec7248d63333f35c4bdfa9ced3",
+    "renderright/premium_look.py": "97b99b9c97bdcb461cf78f02f800f0a92878eec62abe264ae41d9c50d0bced0e",
+    "renderright/product_review.py": "f563822b6a2601c549324dd05dd24cc963e69361132846d6820ddfdf96308d18",
+    "renderright/rest_pose.py": "aca12576476f74bcf76f1ac11dffaa00b3b5bda5b2a46065f07bb5bb4f28bd59",
+    "renderright/scene.py": "24087a0c003ecf3e3c19b1a0e60b5a5a6cedec20462eeb542c8a94f3fc0b976c",
+    "renderright/swatch.py": "bb23b88cd43b45f36c3a2460654cc918fae785b13e94e59604e578aed54a3eab",
+    "renderright/worker.py": "aa18b529202648699bb6113a6ba1354d5f5d122114d3171df9becc02c6662d09",
+    "schemas/job.schema.json": "08ab0c337d44c5f6203cf2489c95ea1a5daea31dae549919930cf07405b0dc10",
+    "tests/test_contract.py": "8f24edb91c2ea56a74131ea764cdb6cae40b808c481bfa8ed5b7f3be20086f73",
+    "tests/test_product_review.py": "277784db323e0dbc1d5ee8c75566974142f54dd87801b3fa471daf968b977b4b",
+    "tests/test_product_review_blender.py": "612e36011684d2a29b94c770678c2d554d2867fd16099fa71e651b2247413033"
+  },
+  "suite_passed": true,
+  "unittest_passed": true
+}

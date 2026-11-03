@@ -1,0 +1,15 @@
+{
+  "schema_version": "coderight.cli.stream_event.v1",
+  "event": "assistantDelta",
+  "seq": 7,
+  "session_id": "s1",
+  "ts": "2026-06-24T01:02:03Z",
+  "data": {
+    "$kind": "assistantDelta",
+    "sessionId": "s1",
+    "seq": 7,
+    "createdAt": "2026-06-24T01:02:03Z",
+    "text": "hello",
+    "isReasoning": false
+  }
+}

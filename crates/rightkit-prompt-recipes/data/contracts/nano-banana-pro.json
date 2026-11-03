@@ -1,0 +1,85 @@
+{
+  "_meta": {
+    "model_slug": "nano-banana-pro",
+    "version": "1.0.0",
+    "official_doc_url": "https://docs.nanobananaapi.ai/nanobanana-api/generate-image-2",
+    "schema_last_verified": "2026-05-05",
+    "research_sources": [
+      "https://docs.nanobananaapi.ai/nanobanana-api/generate-image-2",
+      "https://deepmind.google/models/gemini-image/prompt-guide/",
+      "https://cloud.google.com/blog/products/ai-machine-learning/ultimate-prompting-guide-for-nano-banana"
+    ],
+    "pricing_tier_id": "nb-pro-2k",
+    "_invoice_status_note": "See recipes/image/invoice-status.json[nb-pro-2k] — invoice_verified=true as of 2026-05-04"
+  },
+  "required_fields": {
+    "prompt": { "type": "string", "required": true, "max_length": 20000 }
+  },
+  "optional_fields": {
+    "resolution": { "type": "enum", "enum": ["1K", "2K", "4K"], "default": "2K" },
+    "aspect": { "type": "enum", "enum": ["auto", "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"], "default": "auto" },
+    "references": { "type": "array", "max_items": 14 },
+    "googleSearch": { "type": "boolean", "default": false },
+    "outputFormat": { "type": "enum", "enum": ["png", "jpg"], "default": "png" },
+    "callBackUrl": { "type": "string" }
+  },
+  "negative_prompt_policy": {
+    "strategy": "preservation_clauses",
+    "_note": "NB Pro internally rewrites prompts. Explicit 'no X' phrases drift. Convert to preservation language: 'preserve face identity', 'keep background unchanged'."
+  },
+  "reference_syntax": {
+    "method": "at_symbol_inline",
+    "max_references": 14,
+    "format_template": "@image{N}",
+    "_note": "References passed as separate image parts; @image1 etc. cited inline in prompt to direct relationship. Atlabs prompt guide: '[Reference images] + [Relationship instruction] + [New scenario]'"
+  },
+  "official_prompt_template": {
+    "_format": "structured-object",
+    "slots": ["subject_with_adjectives", "action", "location_context", "composition_or_camera_angle", "lighting_or_atmosphere", "style_or_media"],
+    "_ordering": "[Subject + Adjectives] doing [Action] in [Location/Context]. [Composition/Camera Angle]. [Lighting/Atmosphere]. [Style/Media].",
+    "_renderer_id": "nb_pro_default"
+  },
+  "validator_rules": [
+    {
+      "id": "prompt_required",
+      "kind": "length",
+      "field": "prompt",
+      "min": 1,
+      "throws": "nano-banana-pro: prompt is required and must be non-empty"
+    },
+    {
+      "id": "prompt_max_length",
+      "kind": "length",
+      "field": "prompt",
+      "max": 20000,
+      "throws": "nano-banana-pro: prompt exceeds NanoBananaAPI generate-2 20,000 character cap (input_chars ~= {len})"
+    },
+    {
+      "id": "aspect_in_enum",
+      "kind": "enum",
+      "field": "aspect",
+      "enum": ["auto", "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"],
+      "throws": "nano-banana-pro: aspect '{value}' not in supported set"
+    },
+    {
+      "id": "resolution_in_enum",
+      "kind": "enum",
+      "field": "resolution",
+      "enum": ["1K", "2K", "4K"],
+      "throws": "nano-banana-pro: resolution must be 1K, 2K, or 4K"
+    },
+    {
+      "id": "reference_count_le_14",
+      "kind": "range",
+      "field": "references.length",
+      "max": 14,
+      "throws": "nano-banana-pro: max 14 reference images per prompt (got {value})"
+    },
+    {
+      "id": "reference_arity_match",
+      "kind": "handler",
+      "handler": "validateNbProReferenceArity",
+      "throws": "nano-banana-pro: inline @imageN refs in prompt must match references[] array"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "_note": "Maps an engine video model id (or a legacy Media Console slug) to its prompt-renderer family, per-model-quirks key, and reference shape. Match is an EXACT, case-insensitive model id; there is no substring matching. A model with no entry here is refused with unsupported_model. Every entry names an id the engine serves (crates/genright-gen/src/providers/fal.rs, wavespeed.rs). Wan (wan-ultra, wan-hd, family wan) and HappyHorse (happy-horse, family happy) are served by the WaveSpeed adapter as start-frame image-to-video only (params.image_url required, no end frame); their routes carry the start frame as motion_control. end_frame: required = preflight needs an end frame (rule 1), optional = accepted when given, unsupported = the adapter takes no end frame.",
+  "aspects": ["16:9", "9:16"],
+  "routes": [
+    { "match": "veo3-ref", "family": "veo", "quirks": "veo3-ref", "ref_kind": "ingredient", "min_refs": 1, "max_refs": 3, "end_frame": "unsupported" },
+    { "match": "veo3-flf", "family": "veo", "quirks": "veo3-flf", "ref_kind": "flf", "min_refs": 2, "max_refs": 2, "end_frame": "required" },
+    { "match": "fal-ai/veo3.1/reference-to-video", "family": "veo", "quirks": "veo3-ref", "ref_kind": "ingredient", "min_refs": 1, "max_refs": 3, "end_frame": "unsupported" },
+    { "match": "fal-ai/veo3.1/first-last-frame-to-video", "family": "veo", "quirks": "veo3-flf", "ref_kind": "flf", "min_refs": 2, "max_refs": 2, "end_frame": "required" },
+    { "match": "fal-ai/veo3.1/fast/first-last-frame-to-video", "family": "veo", "quirks": "veo3-flf", "ref_kind": "flf", "min_refs": 2, "max_refs": 2, "end_frame": "required" },
+    { "match": "fal-ai/veo3.1/lite/first-last-frame-to-video", "family": "veo", "quirks": "veo3-flf", "ref_kind": "flf", "min_refs": 2, "max_refs": 2, "end_frame": "required" },
+    { "match": "fal-ai/veo3.1/image-to-video", "family": "veo", "quirks": "veo3-flf", "ref_kind": "motion_control", "min_refs": 1, "max_refs": 1, "end_frame": "unsupported" },
+    { "match": "fal-ai/veo3.1/fast/image-to-video", "family": "veo", "quirks": "veo3-flf", "ref_kind": "motion_control", "min_refs": 1, "max_refs": 1, "end_frame": "unsupported" },
+    { "match": "fal-ai/veo3.1/fast", "family": "veo", "quirks": "veo3-flf", "ref_kind": "motion_control", "min_refs": 1, "max_refs": 1, "end_frame": "unsupported" },
+    { "match": "kling-3-pro", "family": "kling", "quirks": "kling-3-pro", "ref_kind": "flf", "min_refs": 1, "max_refs": 2, "end_frame": "required" },
+    { "match": "seedance-2-fast", "family": "seedance", "quirks": "seedance-2-fast", "ref_kind": "flf", "min_refs": 1, "max_refs": 2, "end_frame": "required" },
+    { "match": "wan-ultra", "family": "wan", "quirks": "wan-2-2", "ref_kind": "motion_control", "min_refs": 1, "max_refs": 1, "end_frame": "unsupported" },
+    { "match": "wan-hd", "family": "wan", "quirks": "wan-2-2", "ref_kind": "motion_control", "min_refs": 1, "max_refs": 1, "end_frame": "unsupported" },
+    { "match": "happy-horse", "family": "happy", "ref_kind": "motion_control", "min_refs": 1, "max_refs": 1, "end_frame": "unsupported" }
+  ]
+}

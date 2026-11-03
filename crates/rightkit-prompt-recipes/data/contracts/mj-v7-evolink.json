@@ -1,0 +1,109 @@
+{
+  "_meta": {
+    "model_slug": "mj-v7-evolink",
+    "version": "1.0.0",
+    "official_doc_url": "https://docs.midjourney.com/hc/en-us/articles/32859204029709-Parameter-List",
+    "schema_last_verified": "2026-05-05",
+    "research_sources": [
+      "https://docs.midjourney.com/hc/en-us/articles/32859204029709-Parameter-List",
+      "https://docs.midjourney.com/hc/en-us/articles/32180011136653-Style-Reference",
+      "https://docs.midjourney.com/hc/en-us/articles/32162917505293-Character-Reference",
+      "https://updates.midjourney.com/style-references-for-v7/"
+    ],
+    "pricing_tier_id": "mj-v7-fast",
+    "_invoice_status_note": "See recipes/image/invoice-status.json[mj-v7-fast | mj-v7-relax]. ESTIMATE."
+  },
+  "required_fields": {
+    "prompt": { "type": "string", "required": true, "max_length": 6000 },
+    "ar": {
+      "type": "string",
+      "required": true,
+      "_format": "W:H (e.g. '1:1', '16:9', '9:16', '2:3')",
+      "_note": "MJ V7 requires --ar in prompt suffix. Codex 2026-05-05: throw if missing or malformed."
+    }
+  },
+  "optional_fields": {
+    "stylize": { "type": "integer", "min": 0, "max": 1000, "default": 250 },
+    "version": { "type": "string", "default": "7" },
+    "speed": { "type": "enum", "enum": ["fast", "relax", "turbo"], "default": "fast" },
+    "no": { "type": "string", "_note": "--no flag for negative prompts. Comma-separated." },
+    "sref": { "type": "string", "_note": "Style reference: code, URL, or list. --sref" },
+    "sw": { "type": "integer", "min": 0, "max": 1000, "_note": "Style weight for --sref" },
+    "cref": {
+      "type": "string",
+      "_note": "Character reference URL. V6 syntax. V7 PREFERS --omni — see references handler.",
+      "_v7_warning": "On V7, --cref is supported but --omni is preferred for character continuity."
+    },
+    "omni": {
+      "type": "string",
+      "_note": "Omni Reference URL. V7 character continuity. Replaces --cref for V7 use cases."
+    },
+    "iw": { "type": "number", "min": 0, "max": 3, "_note": "Image weight (input ref influence)" },
+    "draft": { "type": "boolean", "_note": "Draft mode for fast iteration" }
+  },
+  "negative_prompt_policy": {
+    "strategy": "mj_dash_no",
+    "_note": "MJ takes --no flag with comma-separated noun list. e.g. '--no people, text, watermark'."
+  },
+  "reference_syntax": {
+    "method": "sref_flag",
+    "max_references": 4,
+    "_note": "Three reference types — style/character/omni — must be typed in references[] array; renderer dispatches to correct flag.",
+    "_typed_references": {
+      "style": { "flag": "--sref", "weight_flag": "--sw" },
+      "character_v6": { "flag": "--cref" },
+      "character_v7": { "flag": "--omni", "_preferred_for_v7": true },
+      "image": { "flag": "image-prefix-url", "weight_flag": "--iw" }
+    }
+  },
+  "official_prompt_template": {
+    "_format": "structured-object",
+    "slots": ["subject", "environment", "lighting", "style", "_param_suffix"],
+    "_ordering": "{subject} {environment} {lighting} {style} --ar {ar} --stylize {stylize} [--sref ...] [--no ...]",
+    "_renderer_id": "mj_v7_flag_suffix"
+  },
+  "validator_rules": [
+    {
+      "id": "prompt_required",
+      "kind": "length",
+      "field": "prompt",
+      "min": 1,
+      "throws": "mj-v7: prompt is required"
+    },
+    {
+      "id": "ar_required_well_formed",
+      "kind": "handler",
+      "handler": "validateMjV7Flags",
+      "field": "ar",
+      "throws": "mj-v7: --ar flag is required and must match W:H pattern (got '{value}')"
+    },
+    {
+      "id": "stylize_range",
+      "kind": "range",
+      "field": "stylize",
+      "min": 0,
+      "max": 1000,
+      "throws": "mj-v7: --stylize must be 0..1000 (got {value})"
+    },
+    {
+      "id": "sw_range_when_sref",
+      "kind": "handler",
+      "handler": "validateMjV7Flags",
+      "throws": "mj-v7: --sw must be 0..1000 when --sref is set"
+    },
+    {
+      "id": "v7_prefers_omni_over_cref",
+      "kind": "handler",
+      "handler": "validateMjV7Flags",
+      "throws": "mj-v7: V7 character refs should use --omni, not --cref. Set ctx.allow_legacy_cref=true to override."
+    },
+    {
+      "id": "iw_range",
+      "kind": "range",
+      "field": "iw",
+      "min": 0,
+      "max": 3,
+      "throws": "mj-v7: --iw must be 0..3 (got {value})"
+    }
+  ]
+}

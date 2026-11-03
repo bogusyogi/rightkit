@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0.0",
+  "plan": "docs/plans/2026-10-08-genright-execution-plan.md:143-146 (G11), :56 (G2 motion-transfer pair), :64 (character reference batch as data), :92 (review policy per recipe)",
+  "plan_named": [
+    {"name": "Paper-cut motion", "seeded": "paper_cut_motion", "reason": "Seeded as structure only: one video node on route ask, prompt and image as inputs. The plan supplies no prompt text or route."},
+    {"name": "40 static ad templates filled from the channel's brand profile", "seeded": null, "reason": "Not seeded: the plan's batch of 40 needs fan-out, which rightkit-job-queue does not provide (see the gap in recipe_catalogue.rs). The count is the plan's figure and is not verified here."},
+    {"name": "Ad director shot list", "seeded": null, "reason": "Not seeded: the plan names no engine kind or native action that produces a shot list, so a node would invent an action."},
+    {"name": "15-second UGC character review", "seeded": "ugc_character_review_15s", "reason": "Seeded as structure only: voice node feeding an avatar node with duration 15. The plan supplies no prompt text or route."},
+    {"name": "Six-panel character sheet plus environment plate", "seeded": "character_sheet_environment", "reason": "Seeded as structure only: six panel image nodes and one environment node, all on route ask. Angles are not declared in the source; the prompt input carries them."},
+    {"name": "Vox-style explainer", "seeded": "vox_director", "reason": "Restates the existing pipeline_workflows.rs vox_director flow."},
+    {"name": "Studio packshot", "seeded": "studio_packshot", "reason": "Seeded as structure only: one image node on route ask with a product reference."},
+    {"name": "Product recreate and recompose", "seeded": "product_recreate_recompose", "reason": "Seeded as structure only: recreate image node feeding a recompose image node on route ask."},
+    {"name": "Claymation", "seeded": "claymation", "reason": "Seeded as structure only: one restyle node on route ask over a source video."},
+    {"name": "Paper", "seeded": null, "reason": "Not seeded: the plan names 'paper' without distinguishing it from paper-cut motion, so its kind and inputs are unknown."},
+    {"name": "Singing ad", "seeded": "singing_ad", "reason": "Seeded as structure only: one avatar node on route ask with presenter image and song audio."},
+    {"name": "Talking object", "seeded": "talking_object", "reason": "Seeded as structure only: one avatar node on route ask with object image and speech audio."},
+    {"name": "Skeleton", "seeded": null, "reason": "Not seeded: the plan names 'skeleton' without a stated engine kind, inputs or output."},
+    {"name": "Motion transfer (G2 pair)", "seeded": "motion_transfer", "reason": "Restates templates.json motion_transfer."},
+    {"name": "Object replacement (G2 pair)", "seeded": "object_replacement", "reason": "Restates templates.json object_replacement."},
+    {"name": "TikTok Shop pitch (character holds the product, 18 seconds)", "seeded": "tiktok_shop_pitch_18s", "reason": "Seeded as structure only: holding image node, voice node and an 18-second avatar pitch node depending on both."}
+  ],
+  "pipeline_templates_not_named_by_plan": [
+    {"id": "shotcraft", "seeded": false},
+    {"id": "opencreator_dubbing", "seeded": false},
+    {"id": "lanshu_presenter", "seeded": false},
+    {"id": "brag_launch", "seeded": false},
+    {"id": "mpt_batch", "seeded": false}
+  ]
+}

@@ -1,0 +1,121 @@
+{
+  "engine": "D:\\.rightkit-managed\\rightkit-build-control\\ws\\54090ad19752\\g\\006\\target\\x86_64-pc-windows-msvc\\debug\\genright-engine.exe",
+  "engine_sha256": "f477e8d8d1b114b6f9ca600811c3c4386a0a168d2977954ccdf55aefcce6d4b2",
+  "app_data": "D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\genright-retryguard-verified\\app-data",
+  "fixture_source": "D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\synthetic-product.glb",
+  "approved_spec": "D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\synthetic-product-spec.json",
+  "draft_job_id": "2dd927f5-8baa-4b58-bf62-3bcef1a5eee7",
+  "approved_job_id": "8e05fb09-c00e-4449-bee6-052007bb6c53",
+  "assertions": {
+    "draft_worker_rendered": true,
+    "draft_reviewed_false": true,
+    "draft_failed_one_attempt_product_review_required": true,
+    "draft_zero_assets": true,
+    "approved_complete": true,
+    "approved_reviewed_true": true,
+    "approved_attempts_one": true,
+    "approved_exact_assets": true,
+    "approved_assets_hash_bytes_valid": true,
+    "approved_hero_png_96x64": true,
+    "approved_asset_count_db": true
+  },
+  "draft": {
+    "status": "failed",
+    "attempts": 1,
+    "error": {
+      "code": "product_review_required",
+      "message": "render completed, but product review is missing; output cannot be adopted"
+    },
+    "product_review": {
+      "approved_by": null,
+      "confirmed": false,
+      "finish_tags": {},
+      "product_id": null,
+      "reviewed": false,
+      "source_sha256": "b60b0362e648efeabaf8b4cc65cf14c5c049f5a7c5394e8ea3aaeb2602ef89fe",
+      "variant": null
+    },
+    "assets_in_library": 0,
+    "worker_result_manifest": "D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\genright-retryguard-verified\\app-data\\blender-jobs\\2dd927f5-8baa-4b58-bf62-3bcef1a5eee7\\result-manifest.json"
+  },
+  "approved": {
+    "status": "complete",
+    "attempts": 1,
+    "product_review": {
+      "approved_by": "Synthetic Test Owner",
+      "confirmed": true,
+      "finish_tags": {
+        "steel": "v1"
+      },
+      "product_id": "SYNTHETIC-DELIVERY-REVIEW",
+      "reviewed": true,
+      "source_sha256": "b60b0362e648efeabaf8b4cc65cf14c5c049f5a7c5394e8ea3aaeb2602ef89fe",
+      "variant": "Native E2E cube"
+    },
+    "assets": [
+      {
+        "asset_id": "20992292-a331-e53b-0ad8-f1d54c3b1c37",
+        "role": "hero",
+        "artifact_id": "hero",
+        "path": "D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\genright-retryguard-verified\\app-data\\library\\20992292-a331-e53b-0ad8-f1d54c3b1c37\\20992292-a331-e53b-0ad8-f1d54c3b1c37.png",
+        "bytes": 8034,
+        "declared_bytes": 8034,
+        "sha256": "ca2907a659f790567e107b115ea7b577f6c14b1f85d5e85bef51939dcd9726ce",
+        "declared_sha256": "ca2907a659f790567e107b115ea7b577f6c14b1f85d5e85bef51939dcd9726ce",
+        "hash_matches": true,
+        "mime": "image/png",
+        "width": 96,
+        "height": 64,
+        "png_signature": true
+      },
+      {
+        "asset_id": "13558440-b4b0-b9e1-ddff-785bd7e3e180",
+        "role": "shot_manifest",
+        "artifact_id": null,
+        "path": "D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\genright-retryguard-verified\\app-data\\library\\13558440-b4b0-b9e1-ddff-785bd7e3e180\\13558440-b4b0-b9e1-ddff-785bd7e3e180.json",
+        "bytes": 2485,
+        "declared_bytes": 2485,
+        "sha256": "838da344e00e371c5fdfe515865602aa2978b12a708ac0bc23bd22b5e6d5ce46",
+        "declared_sha256": "838da344e00e371c5fdfe515865602aa2978b12a708ac0bc23bd22b5e6d5ce46",
+        "hash_matches": true,
+        "mime": "application/json"
+      }
+    ]
+  },
+  "database_jobs": [
+    {
+      "job_id": "2dd927f5-8baa-4b58-bf62-3bcef1a5eee7",
+      "status": "failed",
+      "attempts": 1,
+      "error_json": "{\"code\":\"product_review_required\",\"message\":\"render completed, but product review is missing; output cannot be adopted\"}"
+    },
+    {
+      "job_id": "8e05fb09-c00e-4449-bee6-052007bb6c53",
+      "status": "complete",
+      "attempts": 1,
+      "error_json": null
+    }
+  ],
+  "files": {
+    "draft_stdout": "D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\genright-retryguard-verified\\draft.stdout.json",
+    "draft_stderr": "D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\genright-retryguard-verified\\draft.stderr.log",
+    "approved_stdout": "D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\genright-retryguard-verified\\approved.stdout.json",
+    "approved_stderr": "D:\\Claude\\Content\\renderright\\delivery-review-synthetic\\genright-retryguard-verified\\approved.stderr.log"
+  },
+  "build": {
+    "repository": "bogusyogi/genright",
+    "commit": "520ddee",
+    "request_id": "c4fa80de-34fc-490b-bab1-787fcaaaf0cf",
+    "exit_code": 0,
+    "input_closure": {
+      "status": "verified",
+      "changed": [],
+      "added": [],
+      "removed": [],
+      "extrasChanged": [],
+      "preDigest": "682729d7c7a4f9acf79ed4afa209c38f1e41f5557be1da7bcd3193b75f5671ed",
+      "postDigest": "682729d7c7a4f9acf79ed4afa209c38f1e41f5557be1da7bcd3193b75f5671ed"
+    }
+  },
+  "note": "Synthetic test approval only. No Adrian or Fenrir approval created. Primary agent read actual CLI output, worker manifest & adopted artifact bytes after worker report."
+}

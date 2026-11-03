@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-app-lock",
+  "capabilities": [
+    {
+      "capability": "app-lock",
+      "summary": "Application lock: lock state machine types, preference fail-closed rules, OS user verification (Windows Hello, Touch ID) and the shell-side unlock flow against an engine transport.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

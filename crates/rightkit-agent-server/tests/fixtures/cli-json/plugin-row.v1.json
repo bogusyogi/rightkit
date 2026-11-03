@@ -1,0 +1,27 @@
+{
+  "id": "fixture-plugin",
+  "name": "Fixture Plugin",
+  "version": "1.0.0",
+  "description": "Fixture plugin row",
+  "entry": "plugin.js",
+  "providesTools": [
+    "inspect_workspace"
+  ],
+  "providesCommands": [
+    "inspect"
+  ],
+  "tools": {},
+  "commands": {},
+  "prompts": [],
+  "middleware": [],
+  "sandbox": {
+    "isolation": "restrictedSubprocess",
+    "allowAbsoluteEntry": false,
+    "timeoutMs": 30000,
+    "inheritEnv": true,
+    "allowedEnv": [],
+    "deniedEnv": [],
+    "stripNetworkEnv": false
+  },
+  "enabled": true
+}

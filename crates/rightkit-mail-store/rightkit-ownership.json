@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-mail-store",
+  "capabilities": [
+    {
+      "capability": "mail-store",
+      "summary": "Mail store over SQLCipher: encrypted open with key candidates and lifetime lock, versioned schema and migration gate with backup, accounts, labels, threads, search adapter, outbox and pending queues, sync apply and the local semantic index.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

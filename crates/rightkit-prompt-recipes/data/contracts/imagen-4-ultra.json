@@ -1,0 +1,45 @@
+{
+  "_meta": {
+    "model_slug": "imagen-4-ultra",
+    "version": "1.0.0",
+    "official_doc_url": "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/imagen/4-0-generate",
+    "schema_last_verified": "2026-05-05",
+    "_extends_parent": "imagen-4-standard",
+    "_extends_note": "Ultra tier of imagen-4-standard. Same WaveSpeed route surface; aspect is handled by the image router, not as a per-model generation field.",
+    "research_sources": [
+      "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/imagen/4-0-generate",
+      "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/image/configure-aspect-ratio",
+      "https://www.mindstudio.ai/blog/what-is-imagen-4-ultra-google"
+    ],
+    "pricing_tier_id": "imagen-4-ultra",
+    "_invoice_status_note": "See recipes/image/invoice-status.json[imagen-4-ultra]. ESTIMATE — needs invoice reconciliation."
+  },
+  "required_fields": {
+    "prompt": { "type": "string", "required": true, "max_length": 4000 }
+  },
+  "optional_fields": {
+    "negative_prompt": { "type": "string", "supported": true, "max_length": 500 },
+    "seed": { "type": "integer", "supported": true },
+    "resolution": { "type": "enum", "enum": ["1K", "2K", "4K"], "default": "1K" },
+    "num_images": { "type": "integer", "min": 1, "max": 4, "default": 1 },
+    "enable_base64_output": { "type": "boolean", "default": false }
+  },
+  "negative_prompt_policy": {
+    "strategy": "imagen_field",
+    "_note": "Same as imagen-4-standard — separate negative_prompt field."
+  },
+  "reference_syntax": {
+    "method": "none",
+    "max_references": 0,
+    "_note": "WaveSpeed Imagen 4 text-to-image route does not document image_urls."
+  },
+  "official_prompt_template": {
+    "_format": "structured-object",
+    "slots": ["subject", "context_and_background", "style"],
+    "_ordering": "natural-language descriptive prompt",
+    "_renderer_id": "imagen_default"
+  },
+  "validator_rules": [
+    { "id": "prompt_required", "kind": "length", "field": "prompt", "min": 1, "throws": "imagen-4-ultra: prompt is required and must be non-empty" }
+  ]
+}

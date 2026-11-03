@@ -1,0 +1,67 @@
+[package]
+name = "rightkit-launcher"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.0"
+description = "Command launcher logic: arithmetic calculator and unit conversion parsers that never hand typed text to an evaluator."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+default = []
+qa-views = []
+
+[lib]
+name = "rightkit_launcher"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0" }
+serde_json = { version = "1.0" }
+
+[target.'cfg(windows)'.dependencies]
+rightkit-hotkeys = { version = "0.1.2", path = "../rightkit-hotkeys" }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
+rightkit-overlay = { version = "0.2.0", path = "../rightkit-overlay" }
+rightkit-win-ui = { version = "0.1.0", path = "../rightkit-win-ui" }
+rightkit-clipboard-history = { version = "0.1.0", path = "../rightkit-clipboard-history" }
+rightkit-automation = { version = "0.6.4", path = "../rightkit-automation" }
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_SystemInformation", "Win32_Security", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Threading", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

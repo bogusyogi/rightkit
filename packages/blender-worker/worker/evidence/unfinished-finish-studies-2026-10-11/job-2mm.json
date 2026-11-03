@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "job_id": "stonewash-2mm-macro",
+  "kind": "authoring",
+  "recipe": "swatch",
+  "output_dir": "D:\\Claude\\Content\\renderright\\finish-swatch-20261011\\swatch-2mm",
+  "params": {
+    "product_spec": "D:\\Claude\\Content\\renderright\\finish-swatch-20261011\\draft-swatches.json",
+    "swatch_finish": "draft-2mm",
+    "view": "detail",
+    "width": 1200,
+    "height": 900,
+    "samples": 192,
+    "device": "auto"
+  }
+}

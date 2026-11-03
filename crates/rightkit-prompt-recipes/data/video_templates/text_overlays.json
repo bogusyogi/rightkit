@@ -1,0 +1,201 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "created": "2026-05-04",
+    "sources": [
+      "Meta Ads safe-zone spec (story/reel)",
+      "TikTok ad safe-zone spec",
+      "PJ Ace burned-caption pattern (15-25 char hook reads in 0-3s)",
+      "Codex audit 2026-05-04"
+    ],
+    "principle": "Text overlays are NOT generated inside the I2V model — they're rendered in Remotion or burned via ffmpeg drawtext at assembly. Veo/Runway can't reliably produce legible UI text. Plan typography at storyboard time; execute at assembly time.",
+    "category": "video",
+    "subcategory": "text-overlays",
+    "consumed_by": [
+      "Remotion compositions in tools/pipelines/video/composers/ (future)",
+      "tools/pipelines/audio/mix.mjs sibling 'overlay' pipeline (future)"
+    ],
+    "updated": "2026-05-04"
+  },
+  "categories": {
+    "hook_text": {
+      "_label": "Hook text — 0-3s pattern interrupt",
+      "items": {
+        "all_caps_punchline": {
+          "name": "All-Caps Punchline",
+          "use": "Toxic Sundae, anti-fast-fashion energy — short setup + accent word",
+          "spec": "ALL CAPS condensed, 18-24px (Reels), accent word in brand color, max 8 words",
+          "duration_s": 1.5,
+          "position": "centered, vertically 35% from top",
+          "fonts_by_brand": {
+            "TS": "Zen Dots Regular",
+            "DD": "IBM Plex Mono",
+            "RH": "Fraunces 500",
+            "HR": "Source Serif 4 600"
+          },
+          "fragment": "ALL CAPS condensed, 18-24px (Reels), accent word in brand color, max 8 words"
+        },
+        "founder_first_person": {
+          "name": "Founder First-Person",
+          "use": "HR / DV — direct quote from founder, no quotation marks",
+          "spec": "Sentence case, body weight, 14-18px Reels, max 12 words across 2 lines",
+          "duration_s": 2,
+          "position": "lower-third area, left-aligned",
+          "fragment": "Sentence case, body weight, 14-18px Reels, max 12 words across 2 lines"
+        }
+      }
+    },
+    "lower_thirds": {
+      "_label": "Lower thirds — name + role label",
+      "items": {
+        "minimal_name_role": {
+          "name": "Minimal Name + Role",
+          "use": "Talking-head segments, founder intro",
+          "spec": "Name in display font 18-22px, role in mono/sans 12px below, brand-accent underline",
+          "duration_s": 3,
+          "position": "left-aligned in lower-third safe zone",
+          "fragment": "Name in display font 18-22px, role in mono/sans 12px below, brand-accent underline"
+        }
+      }
+    },
+    "cta_cards": {
+      "_label": "CTA cards — outro / final beat",
+      "items": {
+        "domain_only_outro": {
+          "name": "Domain-Only Outro",
+          "use": "Final 1-2s frame — single line, brand domain, accent color underline",
+          "spec": "Domain in mono or display font 24-32px, brand-accent color, no caps unless brand demands it",
+          "duration_s": 2,
+          "position": "centered",
+          "fragment": "Domain in mono or display font 24-32px, brand-accent color, no caps unless brand demands it"
+        },
+        "tagline_plus_url": {
+          "name": "Tagline + URL stack",
+          "use": "Standard outro for product ads",
+          "spec": "Tagline display font 22px, URL mono 14px below, both in brand-accent",
+          "duration_s": 2.5,
+          "position": "centered, vertically 40% from top",
+          "fragment": "Tagline display font 22px, URL mono 14px below, both in brand-accent"
+        }
+      }
+    },
+    "burned_captions": {
+      "_label": "Burned captions — VO subtitles",
+      "items": {
+        "vo_subtitle_burned": {
+          "name": "VO Subtitle Burned",
+          "use": "Mobile-feed default — most viewers watch sound-off, captions are mandatory",
+          "spec": "1-2 lines max on screen, sentence case, 16-18px (Reels), high-contrast white-on-dark or dark-on-light, 1px outline for legibility on busy backgrounds",
+          "duration_per_word_s": 0.18,
+          "position": "lower-third, 12% from bottom (above platform UI)",
+          "tools": "Remotion <Captions> component or ffmpeg drawtext per word-timestamp",
+          "fragment": "1-2 lines max on screen, sentence case, 16-18px (Reels), high-contrast white-on-dark or dark-on-light, 1px outline for legibility on busy backgrounds"
+        }
+      }
+    },
+    "kinetic_typography": {
+      "_label": "Kinetic type — words as motion",
+      "items": {
+        "word_by_word_punctuation": {
+          "name": "Word-by-Word Punctuation",
+          "use": "Copy-led posts, no photo, kinetic-only Reels",
+          "spec": "Each word fades in on its own beat, 0.2s per word, key word lands on the punchline beat with 1.4× scale",
+          "duration_s": "match VO length",
+          "position": "centered, vertical stack",
+          "tools": "Remotion <KineticType> composition (DD existing template)",
+          "fragment": "Each word fades in on its own beat, 0.2s per word, key word lands on the punchline beat with 1.4× scale"
+        }
+      }
+    },
+    "screen_content_composite": {
+      "_label": "Screen content composite — UI/text on a laptop or phone screen rendered as a Remotion overlay because I2V models cannot render UI text reliably",
+      "_lesson": "feedback_i2v_cant_render_ui_text.md (2026-05-04). Veo / Kling / Seedance hallucinate chat bubbles, input field fills, app switches, sent ticks. Plan the screen content as a composite from storyboard time. Set image_recipe.depth='foreground_object_blur' on the I2V shot so the screen reads as soft ambient glow, then mask + overlay the real UI in Remotion at assembly stage 5b.",
+      "items": {
+        "chat_message_typing": {
+          "name": "Chat Message Typing",
+          "use": "Dictation beats — text appears word-by-word in a chat input field as the protagonist speaks, then sends",
+          "spec": "Mockup chat window (generic, not branded) at the on-screen position of the laptop in the I2V frame. Tracked via 4-corner laptop screen mask from the underlying clip. Text fills the input field word-by-word at the VO word-timestamps; on the 'sent' beat the bubble pops into the conversation thread with a tick.",
+          "duration_s": "match VO line",
+          "position": "track the laptop screen mask in the underlying clip",
+          "tools": "Remotion <ScreenComposite> with @remotion/captions for word timing + corner-pin tracking. Underlying clip MUST be rendered with image_recipe.depth='foreground_object_blur' so the I2V screen is soft and the overlay sits cleanly on top.",
+          "fragment": "Mockup chat window (generic, not branded) at the on-screen position of the laptop in the I2V frame. Tracked via 4-corner laptop screen mask from the underlying clip. Text fills the input field word-by-word at the VO word-timestamps; on the 'sent' beat the bubble pops into the conversation thread with a tick."
+        },
+        "window_switch_animation": {
+          "name": "Window Switch Animation",
+          "use": "App-switch beats — one window slides forward while another recedes (e.g. chat → email)",
+          "spec": "Two stacked window mockups at the laptop screen position; on the wake-word beat the foreground window slides one way and the new window slides forward with a soft ease-in. A copper menu-bar dot pulses briefly at the same beat.",
+          "duration_s": "0.4-0.6s for the slide, plus settled state",
+          "position": "track laptop screen mask",
+          "tools": "Remotion <WindowSwitch> with copper accent layer. I2V shot rendered with foreground_object_blur.",
+          "fragment": "Two stacked window mockups at the laptop screen position; on the wake-word beat the foreground window slides one way and the new window slides forward with a soft ease-in. A copper menu-bar dot pulses briefly at the same beat."
+        },
+        "wake_word_pulse": {
+          "name": "Wake-Word Menu-Bar Pulse",
+          "use": "Wake-word activation beats — a small accent dot in the top menu bar of the laptop pulses briefly to confirm 'decipher' fired",
+          "spec": "Single dot at top-right of the laptop screen mask, brand-accent color, scale 1.0 → 1.4 → 1.0 over 0.3s with ease-out, then a steady solid dot held for the rest of the shot",
+          "duration_s": 0.3,
+          "position": "top-right of laptop screen mask",
+          "tools": "Remotion <PulseDot> at the screen corner. Lightweight composite — works even if the rest of the screen is rendered untouched in the I2V.",
+          "fragment": "Single dot at top-right of the laptop screen mask, brand-accent color, scale 1.0 → 1.4 → 1.0 over 0.3s with ease-out, then a steady solid dot held for the rest of the shot"
+        },
+        "sent_tick": {
+          "name": "Sent Tick",
+          "use": "Message-sent beats — small checkmark or tick appears next to the last chat bubble",
+          "spec": "Single tick glyph at the right edge of the most-recent message bubble, fades in over 0.15s, brand-accent color",
+          "duration_s": 0.15,
+          "position": "right of last bubble in the chat composite",
+          "tools": "Remotion <SentTick>. Must be tied to the audio sent_tick SFX timing in audio.json.",
+          "fragment": "Single tick glyph at the right edge of the most-recent message bubble, fades in over 0.15s, brand-accent color"
+        },
+        "notification_toast": {
+          "name": "Notification Toast",
+          "use": "Phone ping / message arrival beats — a toast notification slides down at the top of a phone or laptop screen",
+          "spec": "Toast at top of screen mask, slides down 0.25s + holds 1.5s + slides up 0.2s. Generic icon (no platform branding), single line of text",
+          "duration_s": 1.95,
+          "position": "top of screen mask",
+          "tools": "Remotion <Toast>. Pair with messenger_ping SFX from audio.json.",
+          "fragment": "Toast at top of screen mask, slides down 0.25s + holds 1.5s + slides up 0.2s. Generic icon (no platform branding), single line of text"
+        },
+        "screen_glow_only": {
+          "name": "Screen Glow Only (no UI overlay)",
+          "use": "When the screen content doesn't need to be specific — let it read as ambient cyan/copper glow on the protagonist's face. Cheapest option, no compositing required.",
+          "spec": "I2V renders screen with image_recipe.depth='foreground_object_blur'. Screen reads as a soft cool glow casting on the subject's face. No Remotion overlay needed.",
+          "duration_s": "full shot",
+          "position": "implicit — handled by I2V",
+          "tools": "None — purely a manifest setting",
+          "fragment": "I2V renders screen with image_recipe.depth='foreground_object_blur'. Screen reads as a soft cool glow casting on the subject's face. No Remotion overlay needed."
+        }
+      }
+    }
+  },
+  "safe_zones": {
+    "instagram_reels_9x16": {
+      "top_safe": "0-220px (Reels UI overlay)",
+      "bottom_safe": "0-380px (caption + UI)",
+      "side_safe": "0-50px each",
+      "note": "Keep all critical text inside the central 1080×1320 zone of a 1080×1920 canvas."
+    },
+    "tiktok_9x16": {
+      "top_safe": "0-180px",
+      "bottom_safe": "0-440px (sidebar + caption + UI)",
+      "side_safe": "0-50px each",
+      "note": "TikTok bottom UI is taller than IG — reserve more bottom space."
+    },
+    "instagram_feed_1x1": {
+      "all_safe": "≥40px from every edge",
+      "note": "Square is the friendliest canvas — minimal platform chrome."
+    },
+    "youtube_shorts_9x16": {
+      "top_safe": "0-200px",
+      "bottom_safe": "0-360px",
+      "side_safe": "0-50px each"
+    }
+  },
+  "rules": {
+    "no_text_in_i2v_prompt": "Never ask Veo/Runway/Kling to render UI text — illegible 95% of the time. Add text in post.",
+    "max_words_on_screen": 8,
+    "min_contrast_ratio": "4.5:1 WCAG AA against the moving footage behind",
+    "outline_required": "Captions need a 1-2px outline OR a semi-opaque background bar for legibility on variable-brightness video",
+    "font_per_brand": "Use the brand's typography stack (CLAUDE.md). Never substitute."
+  }
+}

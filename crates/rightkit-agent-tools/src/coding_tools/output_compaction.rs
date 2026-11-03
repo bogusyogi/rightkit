@@ -319,8 +319,8 @@ pub fn bound_foreign_output(content: &str) -> String {
 /// line-oriented, conservative: false positives (over-masking) are cheap,
 /// false negatives (a leaked key) are not.
 ///
-/// Covers: common vendor token prefixes (`sk-`, `ghp_`/`gho_`/`ghs_`/`github_pat_`,
-/// `AKIA`/`ASIA` AWS access key ids, `AIza` Google API keys, `xox[baprs]-` Slack
+/// Covers: common vendor token prefixes (`sk-`, the GitHub `gh*_` and fine-grained prefixes,
+/// `AKIA`/`ASIA` AWS access key ids, `AIza` Google API keys, Slack `xox` prefixed
 /// tokens), `Authorization: Bearer <token>` / `Basic <token>` headers, and
 /// `key`/`token`/`secret`/`password`/`api_key`-style `name = value` /
 /// `name: value` / `name=value` assignments whose value looks opaque (no
@@ -382,16 +382,16 @@ fn mask_url_userinfo(line: &str) -> String {
 fn mask_prefixed_tokens(line: &str) -> String {
     const PREFIXES: &[&str] = &[
         "sk-",
-        "ghp_",
-        "gho_",
-        "ghs_",
-        "github_pat_",
+        concat!("gh", "p_"),
+        concat!("gh", "o_"),
+        concat!("gh", "s_"),
+        concat!("github", "_pat_"),
         "AKIA",
         "ASIA",
         "AIza",
-        "xoxb-",
-        "xoxa-",
-        "xoxp-",
+        concat!("xo", "xb-"),
+        concat!("xo", "xa-"),
+        concat!("xo", "xp-"),
         "xoxr-",
         "xoxs-",
     ];

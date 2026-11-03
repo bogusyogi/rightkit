@@ -1,0 +1,90 @@
+{
+  "_meta": {
+    "model_slug": "flux-2-pro",
+    "version": "1.0.0",
+    "official_doc_url": "https://fal.ai/docs/model-api-reference/image-generation-api/flux-2-pro",
+    "schema_last_verified": "2026-05-21",
+    "research_sources": [
+      "https://docs.bfl.ai/guides/prompting_guide_flux2",
+      "https://fal.ai/docs/model-api-reference/image-generation-api/flux-2-pro",
+      "https://bfl.ai/blog/flux-2"
+    ],
+    "pricing_tier_id": "flux-2-pro-32steps",
+    "_invoice_status_note": "See recipes/image/invoice-status.json[flux-2-pro-32steps] — invoice_verified=true"
+  },
+  "required_fields": {
+    "prompt": { "type": "string", "required": true, "max_length": 4000 }
+  },
+  "optional_fields": {
+    "megapixels": {
+      "type": "number",
+      "required": false,
+      "min": 0.1,
+      "max": 4,
+      "default": 1,
+      "_note": "The only size input the served fal-ai/flux-2-max route declares (default 1, range 0.1-4). The route marks it send:false: it sets the price estimate and is not transmitted to fal. No image_size or aspect enum exists on this route."
+    },
+    "seed": {
+      "type": "integer",
+      "supported": false,
+      "_note": "Unsupported: the served fal-ai/flux-2-max route takes no seed. A caller-supplied seed is not sent and the render reports a warning."
+    },
+    "safety_tolerance": { "type": "enum", "enum": ["1", "2", "3", "4", "5"] },
+    "enable_safety_checker": { "type": "boolean", "default": true },
+    "output_format": { "type": "enum", "enum": ["jpeg", "png"], "default": "jpeg" },
+    "sync_mode": { "type": "boolean", "default": false }
+  },
+  "negative_prompt_policy": {
+    "strategy": "positive_rewrite",
+    "throw_on_negative_phrases": true,
+    "_note": "BFL official guidance: FLUX.2 has NO negative prompts. Convert to positive language. 'sharp focus throughout' NOT 'no blur'. 'empty scene' NOT 'no people'.",
+    "blocked_phrases": ["no ", "without ", "exclude ", "remove ", "don't show ", "avoid ", "lacking "],
+    "rewrite_table": {
+      "no blur": "sharp focus throughout",
+      "no blur, no noise": "sharp focus throughout, clean image",
+      "no people": "empty scene",
+      "without people": "empty scene",
+      "no text": "clean visual without graphic elements",
+      "no fake UI text": "clean blurred screen surface",
+      "no readable text": "soft glow, no graphic elements",
+      "no icons": "clean planar surface",
+      "no logos": "neutral surface",
+      "no watermark": "clean output"
+    }
+  },
+  "reference_syntax": {
+    "method": "none",
+    "max_references": 0,
+    "_note": "The served route (fal-ai/flux-2-max, via the catalog engine model) takes prompt and megapixels only: no image_urls and no edit endpoint. Offer no references until a verified reference route is served."
+  },
+  "official_prompt_template": {
+    "_format": "structured-object",
+    "slots": ["subject", "action", "style", "context"],
+    "_ordering": "{subject}, {action}, {style}, {context}",
+    "_renderer_id": "flux_default",
+    "_note": "BFL recommended structure. HEX color codes supported when keyword 'color' or 'hex' precedes the code."
+  },
+  "validator_rules": [
+    {
+      "id": "prompt_required",
+      "kind": "length",
+      "field": "prompt",
+      "min": 1,
+      "throws": "flux-2-pro: prompt is required and must be non-empty"
+    },
+    {
+      "id": "no_negative_phrases",
+      "kind": "handler",
+      "handler": "validateFluxNegativePhrases",
+      "throws": "flux-2-pro: BFL requires positive_rewrite. Found '{phrase}' at offset {offset}. Use rewrite_table or rewrite caller-side."
+    },
+    {
+      "id": "reference_arity_match",
+      "kind": "handler",
+      "handler": "validateNbProReferenceArity",
+      "_note": "The served route takes no reference images, so any @imageN citation is a violation.",
+      "throws": "flux-2-pro: @image{N} cited but the served fal-ai/flux-2-max route takes no reference images"
+    },
+    { "id": "safety_tolerance_in_enum", "kind": "enum", "field": "safety_tolerance", "enum": ["1", "2", "3", "4", "5"], "throws": "flux-2-pro: safety_tolerance '{value}' must be 1, 2, 3, 4, or 5" }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "name": "renderright",
+  "version": "0.1.0",
+  "protocol": 1,
+  "license": "GPL-3.0-or-later",
+  "entry": "render_job.py",
+  "recipes": "recipes/manifest.json",
+  "blender": {
+    "version": "5.2.2",
+    "qualification": "evidence/blender-5.2.2-windows.json"
+  }
+}

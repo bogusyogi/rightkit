@@ -1,0 +1,434 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated": "2026-05-04",
+    "category": "image",
+    "subcategory": "per-model-quirks",
+    "principle": "Declarative spec of every image-gen model's input quirks. The composer reads this catalog and shapes the request body accordingly — backends are consumers, not authors, of model-specific knowledge. Add a new model by editing JSON; do NOT scatter quirks across backend code.",
+    "sources": [
+      "OpenAI image generation guide (negative-prompt = natural-language for GPT Image 2)",
+      "Google Imagen prompt guide 2026 (separate negative_prompt field, plain nouns)",
+      "Black Forest Labs FLUX prompting guide (positive rewrite > negation)",
+      "FLUX Kontext editing guide (preserve/change clauses)",
+      "Midjourney official docs (--no parameter for negatives)",
+      "Runway Gen-4 prompting guide (positive phrasing only, avoid negation)",
+      "EvoLink GPT Image 2 OpenAPI spec 2026-05-04",
+      "WaveSpeed Imagen 4 API error log 2026-05-04 (allowedAspects discovered empirically)"
+    ],
+    "interpolation_rule": "Items in this library are NOT prompt fragments — they're INPUT-SHAPING spec. The composer reads `negative_compile_strategy` etc. and builds the request body / prompt accordingly. Backend code does NOT consult these directly; it receives params from the composer."
+  },
+  "_brand_defaults": {
+    "DD": {
+      "item_key": "nano-banana-pro",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md DD: premium tier — text/photoreal/product moats matter"
+    },
+    "RH": {
+      "item_key": "flux-2-pro",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md RH: lifestyle photoreal at $0.025/MP"
+    },
+    "TS": {
+      "item_key": "qwen-image",
+      "status": "provisional_from_memory",
+      "seeded_from": "A/B 2026-05-04: Qwen wins TS streetwear (cleaner concept-art look)"
+    },
+    "HR": {
+      "item_key": "gpt-image-2",
+      "status": "provisional_from_memory",
+      "seeded_from": "HR brand UI mockups + structured layouts — text_premium intent"
+    },
+    "DV": {
+      "item_key": "flux-2-dev",
+      "status": "unknown_needs_owner_input",
+      "seeded_from": "no source yet"
+    },
+    "SS": {
+      "item_key": "nano-banana-pro",
+      "status": "owner_approved",
+      "seeded_from": "CLAUDE.md SS: photography passion — premium photoreal"
+    }
+  },
+  "items": {
+    "nano-banana-pro": {
+      "name": "Nano Banana Pro (Gemini 3 Pro Image)",
+      "use": "Premium tier on nanobananaapi.ai. Photoreal humans, brand UI text, ads with copy, model sheets, watercolor storybooks. The composition + text-rendering moat.",
+      "fragment": "",
+      "tags": [
+        "premium",
+        "text_safe",
+        "photoreal_humans"
+      ],
+      "model_spec": {
+        "backend": "nanobananaapi",
+        "endpoint": "POST /api/v1/nanobanana/generate-2 (async)",
+        "default_resolution": "2K",
+        "allowed_resolution": [
+          "1K",
+          "2K",
+          "4K"
+        ],
+        "aspect_field": "aspectRatio",
+        "allowed_aspects": [
+          "1:1",
+          "16:9",
+          "9:16",
+          "2:3",
+          "3:2",
+          "3:4",
+          "4:3",
+          "4:5",
+          "5:4",
+          "21:9",
+          "9:21"
+        ],
+        "max_prompt_length": 8000,
+        "negative_compile_strategy": "natural_language_inline",
+        "reference_field": "imageUrls",
+        "reference_max": 14,
+        "reference_syntax": "@img1 @img2 inline in prompt + URLs in imageUrls array",
+        "supports_text_in_image": "excellent",
+        "supports_seed": false,
+        "supports_styles": false,
+        "safety_strictness": "high",
+        "rewrites_prompt": false
+      }
+    },
+    "flux-2-dev": {
+      "name": "FLUX.2 dev (fal)",
+      "use": "Cheap-tier bottom of matrix. $0.012/MP via fal (BFL authorized partner). Photoreal lifestyle, blog hero, drafts.",
+      "fragment": "",
+      "tags": [
+        "cheap",
+        "photoreal_general"
+      ],
+      "model_spec": {
+        "backend": "fal-image",
+        "endpoint": "fal-ai/flux-2 (sync via fal.subscribe)",
+        "default_image_size": "square_hd",
+        "allowed_image_size": [
+          "square_hd",
+          "portrait_4_3",
+          "portrait_16_9",
+          "landscape_4_3",
+          "landscape_16_9",
+          "{width,height}"
+        ],
+        "aspect_2_3_handling": "explicit {width:1024,height:1536} — fal has no 2:3 preset",
+        "max_prompt_length": 2048,
+        "negative_compile_strategy": "preservation_clauses",
+        "reference_field": "image_urls",
+        "reference_max": 4,
+        "supports_text_in_image": "weak",
+        "supports_seed": true,
+        "supports_styles": false,
+        "supports_steps": true,
+        "default_steps": 28,
+        "supports_guidance": true,
+        "default_guidance": 3.5,
+        "safety_strictness": "medium",
+        "rewrites_prompt": false
+      }
+    },
+    "flux-2-pro": {
+      "name": "FLUX.2 Pro (fal)",
+      "use": "Mid-tier sharper photoreal + crisp anime. $0.025/MP first, $0.015/MP additional. Crisp anime, multi-element scenes, products.",
+      "fragment": "",
+      "tags": [
+        "mid",
+        "photoreal_crisp",
+        "anime_crisp"
+      ],
+      "model_spec": {
+        "backend": "fal-image",
+        "endpoint": "fal-ai/flux-2-pro (sync via fal.subscribe)",
+        "default_image_size": "square_hd",
+        "allowed_image_size": [
+          "square_hd",
+          "portrait_4_3",
+          "portrait_16_9",
+          "landscape_4_3",
+          "landscape_16_9",
+          "{width,height}"
+        ],
+        "aspect_2_3_handling": "explicit {width:1024,height:1536}",
+        "max_prompt_length": 2048,
+        "negative_compile_strategy": "preservation_clauses",
+        "reference_field": "image_urls",
+        "reference_max": 4,
+        "supports_text_in_image": "weak",
+        "supports_seed": true,
+        "supports_styles": false,
+        "supports_steps": true,
+        "supports_guidance": true,
+        "default_guidance": 3.5,
+        "pricing_tiered": true,
+        "pricing_first_mp": 0.025,
+        "pricing_additional_mp": 0.015,
+        "safety_strictness": "medium",
+        "rewrites_prompt": false
+      }
+    },
+    "qwen-image": {
+      "name": "Qwen-Image (WaveSpeed)",
+      "use": "Soft painterly cartoon scenes, illustrated mood pieces, soft-anime. Adrian's `cartoon` intent. $0.02 flat. Avoid for strict-layout prompts (white-bg book illustrations, model sheets).",
+      "fragment": "",
+      "tags": [
+        "cartoon",
+        "painterly",
+        "cheap"
+      ],
+      "model_spec": {
+        "backend": "wavespeed-image",
+        "endpoint": "POST /api/v3/wavespeed-ai/qwen-image/text-to-image (async)",
+        "body_shape": "size_string",
+        "size_format": "WIDTH*HEIGHT (e.g. 1024*1024)",
+        "default_size": "1024*1024",
+        "max_prompt_length": 2000,
+        "negative_compile_strategy": "natural_language_negative_prompt",
+        "negative_prompt_field": "negative_prompt",
+        "reference_field": "image_urls",
+        "reference_max": 4,
+        "supports_text_in_image": "moderate",
+        "supports_seed": true,
+        "supports_styles": false,
+        "default_steps": 28,
+        "default_guidance": 5,
+        "prefers_structured_prompts": true,
+        "structured_prompt_format": "Subject / Environment / Lighting / Composition",
+        "safety_strictness": "medium",
+        "rewrites_prompt": false,
+        "warning": "Drifts on strict-layout prompts (asks for white bg → may produce sticker on dark bg). Use for free-form creative scenes only."
+      }
+    },
+    "recraft-v4-raster": {
+      "name": "Recraft V4 raster (WaveSpeed)",
+      "use": "Brand-aware design layouts, marketing assets, structured ads. $0.04/img. Sends `style: 'vector_illustration'` for line art mode.",
+      "fragment": "",
+      "tags": [
+        "design",
+        "brand",
+        "structured"
+      ],
+      "model_spec": {
+        "backend": "wavespeed-image",
+        "endpoint": "POST /api/v3/recraft-ai/recraft-v4/text-to-image (async)",
+        "body_shape": "aspect_ratio_string",
+        "default_aspect": "1:1",
+        "allowed_aspects": [
+          "1:1",
+          "16:9",
+          "9:16",
+          "4:3",
+          "3:4",
+          "2:3",
+          "3:2"
+        ],
+        "max_prompt_length": 1000,
+        "negative_compile_strategy": "preservation_clauses",
+        "reference_field": "image_urls",
+        "reference_max": 1,
+        "reference_weight_warning": "Recraft weights references loosely — describe style explicitly in positive prompt too",
+        "supports_text_in_image": "good",
+        "supports_seed": true,
+        "supports_styles": true,
+        "style_param": "style",
+        "style_options": [
+          "any",
+          "vector_illustration",
+          "realistic_image",
+          "digital_illustration",
+          "icon"
+        ],
+        "prefers_structured_prompts": true,
+        "safety_strictness": "medium",
+        "rewrites_prompt": false
+      }
+    },
+    "recraft-v4-vector": {
+      "name": "Recraft V4 Vector (WaveSpeed)",
+      "use": "Native SVG output. Logos, icons. The only true vector generator in the matrix. $0.08/img.",
+      "fragment": "",
+      "tags": [
+        "vector",
+        "svg",
+        "logo"
+      ],
+      "model_spec": {
+        "backend": "wavespeed-image",
+        "endpoint": "POST /api/v3/recraft-ai/recraft-v4/text-to-vector (async)",
+        "output_format": "svg",
+        "body_shape": "aspect_ratio_string",
+        "default_aspect": "1:1",
+        "max_prompt_length": 1000,
+        "negative_compile_strategy": "preservation_clauses",
+        "supports_text_in_image": "good",
+        "supports_seed": true,
+        "supports_styles": true,
+        "style_param": "style",
+        "safety_strictness": "medium"
+      }
+    },
+    "imagen-4-standard": {
+      "name": "Imagen 4 Standard (WaveSpeed)",
+      "use": "Google-policy escape hatch when NB Pro rejects. $0.04/img. Strong on natural language. Aspect snapping required (only 1:1/16:9/9:16/4:3/3:4 — 2:3 rejected).",
+      "fragment": "",
+      "tags": [
+        "google_safe",
+        "photoreal_safe"
+      ],
+      "model_spec": {
+        "backend": "wavespeed-image",
+        "endpoint": "POST /api/v3/google/imagen4 (async)",
+        "body_shape": "aspect_ratio_string",
+        "default_aspect": "1:1",
+        "allowed_aspects": [
+          "1:1",
+          "16:9",
+          "9:16",
+          "4:3",
+          "3:4"
+        ],
+        "aspect_snap_required": true,
+        "aspect_snap_note": "2:3 rejected — composer must snap to closest allowed (3:4 for KDP 6×9 portrait)",
+        "max_prompt_length": 1500,
+        "negative_compile_strategy": "imagen_field",
+        "negative_prompt_field": "negative_prompt",
+        "negative_phrasing": "plain nouns/phrases, NOT 'no X' (Imagen guide: omit terms or list nouns)",
+        "reference_field": "image_urls",
+        "reference_max": 3,
+        "reference_weight_warning": "Imagen weights references loosely — describe style explicitly in positive prompt",
+        "supports_text_in_image": "moderate",
+        "supports_seed": true,
+        "supports_styles": false,
+        "safety_strictness": "high",
+        "rewrites_prompt": false
+      }
+    },
+    "imagen-4-ultra": {
+      "name": "Imagen 4 Ultra (WaveSpeed)",
+      "use": "Premium Imagen. Hero shots when NB Pro rejects AND quality matters. $0.05/img.",
+      "fragment": "",
+      "tags": [
+        "google_safe",
+        "premium"
+      ],
+      "model_spec": {
+        "backend": "wavespeed-image",
+        "endpoint": "POST /api/v3/google/imagen4-ultra (async)",
+        "body_shape": "aspect_ratio_string",
+        "default_aspect": "1:1",
+        "allowed_aspects": [
+          "1:1",
+          "16:9",
+          "9:16",
+          "4:3",
+          "3:4"
+        ],
+        "aspect_snap_required": true,
+        "max_prompt_length": 1500,
+        "negative_compile_strategy": "imagen_field",
+        "negative_prompt_field": "negative_prompt",
+        "negative_phrasing": "plain nouns/phrases",
+        "reference_field": "image_urls",
+        "reference_max": 3,
+        "supports_text_in_image": "moderate",
+        "supports_seed": true,
+        "safety_strictness": "high"
+      }
+    },
+    "gpt-image-2": {
+      "name": "GPT Image 2 (EvoLink)",
+      "use": "LMArena #1 reasoning. Multilingual text rendering (Devanagari/CJK/Arabic). Structured brand UI mockups, license-key displays. text_premium intent. ~$0.022 medium 1K.",
+      "fragment": "",
+      "tags": [
+        "text_safe",
+        "multilingual_text",
+        "premium"
+      ],
+      "model_spec": {
+        "backend": "evolink-image",
+        "endpoint": "POST /v1/images/generations model=gpt-image-2 (async, polled via /v1/tasks)",
+        "body_shape": "size_or_aspect",
+        "size_field_options": "ratio (e.g. 1:1) OR explicit pixels (e.g. 1024x1024)",
+        "default_size": "1:1",
+        "allowed_aspects": [
+          "1:1",
+          "16:9",
+          "9:16",
+          "2:3",
+          "3:2",
+          "4:3",
+          "3:4",
+          "4:5",
+          "5:4",
+          "21:9",
+          "9:21"
+        ],
+        "default_resolution": "1K",
+        "allowed_resolution": [
+          "1K",
+          "2K",
+          "4K"
+        ],
+        "default_quality": "medium",
+        "allowed_quality": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "max_prompt_length": 4000,
+        "negative_compile_strategy": "natural_language_edit",
+        "negative_phrasing": "natural-language constraints in prompt; for edits use 'change only X, keep Y unchanged'",
+        "reference_field": "image_urls",
+        "reference_max": 4,
+        "supports_text_in_image": "excellent_multilingual",
+        "supports_seed": false,
+        "supports_styles": false,
+        "pricing_token_based": true,
+        "rates": {
+          "image_output_per_1k_tokens": 0.027,
+          "image_input_per_1k_tokens": 0.0072,
+          "image_cached_input_per_1k_tokens": 0.0018,
+          "text_input_per_1k_tokens": 0.0045
+        },
+        "safety_strictness": "high",
+        "rewrites_prompt": false
+      }
+    },
+    "mj-v7-evolink": {
+      "name": "Midjourney V7 (EvoLink relay) — TEST ONLY",
+      "use": "NOT in production matrix. EvoLink relay for occasional MJ aesthetic A/B. Tested twice 2026-05-04 (draft + fast); doesn't beat existing winners on literal briefs.",
+      "fragment": "",
+      "tags": [
+        "test_only",
+        "stylized_aesthetic"
+      ],
+      "model_spec": {
+        "backend": "evolink-image (test-anime.mjs only — not in router)",
+        "endpoint": "POST /v1/images/generations model=mj-v7 (async, polled via /v1/tasks)",
+        "body_shape": "model_params_speed",
+        "speed_param": "model_params.speed",
+        "speed_options": [
+          "draft",
+          "fast",
+          "turbo"
+        ],
+        "ar_param": "--ar inline in prompt",
+        "stylize_param": "--stylize inline in prompt (0-1000)",
+        "max_prompt_length": 4000,
+        "negative_compile_strategy": "mj_dash_no",
+        "negative_param": "--no inline in prompt",
+        "negative_warning": "MJ rejects ::weight syntax with negative numbers ('::-100' parses as flag) — use --no instead",
+        "reference_field": "URL inline in prompt + --iw weight",
+        "reference_max": 1,
+        "niji_supported": false,
+        "niji_supported_note": "EvoLink doesn't support --niji flag — Niji 6/7 separate models, no clean per-use API",
+        "supports_text_in_image": "moderate",
+        "supports_seed": true,
+        "safety_strictness": "medium",
+        "rewrites_prompt": "minor"
+      }
+    }
+  }
+}

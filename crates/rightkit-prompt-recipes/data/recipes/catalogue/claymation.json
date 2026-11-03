@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "id": "claymation",
+  "title": "Claymation: restyle a source video into a claymation look",
+  "source": {
+    "template": "none in the repository: no prompt, route or node content",
+    "plan": "docs/plans/2026-10-08-genright-execution-plan.md:144 (G11 names claymation)"
+  },
+  "inputs": [
+    {"name": "source_video", "type": "video"},
+    {"name": "style_prompt", "type": "text"}
+  ],
+  "nodes": [
+    {
+      "id": "restyle",
+      "kind": "restyle",
+      "route": "ask",
+      "params": {
+        "prompt": {"input": "style_prompt", "type": "text"},
+        "video": {"input": "source_video", "type": "video"}
+      },
+      "depends_on": []
+    }
+  ],
+  "outputs": [{"name": "clip", "from": "restyle"}],
+  "review": {
+    "required": true,
+    "policy": "Default: review required. The per-recipe review policy (plan :92) is not yet expressed per recipe in the source."
+  }
+}

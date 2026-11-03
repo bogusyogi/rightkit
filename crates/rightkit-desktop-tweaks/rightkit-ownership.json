@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-desktop-tweaks",
+  "capabilities": [
+    {
+      "capability": "desktop-tweaks",
+      "summary": "Desktop tweaks: the Windows global keyboard layer with Mac-style editing shortcuts, screenshot hot keys, hook hub and key injection; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

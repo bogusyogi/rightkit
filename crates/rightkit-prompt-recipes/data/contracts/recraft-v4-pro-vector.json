@@ -1,0 +1,37 @@
+{
+  "_meta": {
+    "model_slug": "recraft-v4-pro-vector",
+    "version": "1.0.0",
+    "official_doc_url": "https://www.recraft.ai/docs/api-reference/getting-started",
+    "schema_last_verified": "2026-05-05",
+    "_extends_parent": "recraft-v4-vector",
+    "_extends_note": "Pro tier of recraft-v4-vector. Same WaveSpeed prompt + size API surface, higher quality + 4MP output, ~2x cost. Use for hero logos / brand identity / packaging where quality justifies premium.",
+    "research_sources": [
+      "https://www.recraft.ai/docs/api-reference/getting-started",
+      "https://www.recraft.ai/api"
+    ],
+    "pricing_tier_id": "recraft-v4-pro-4mp",
+    "_invoice_status_note": "See recipes/image/invoice-status.json[recraft-v4-pro-4mp]. ESTIMATE — needs invoice reconciliation."
+  },
+  "required_fields": {
+    "prompt": { "type": "string", "required": true, "max_length": 4000 }
+  },
+  "optional_fields": {
+    "size": { "type": "string", "default": "2048*2048", "_format": "WIDTH*HEIGHT (asterisk separator)" }
+  },
+  "negative_prompt_policy": { "strategy": "natural_language_inline" },
+  "reference_syntax": {
+    "method": "none",
+    "max_references": 0,
+    "_note": "WaveSpeed Recraft V4 text-to-image route does not document image_urls."
+  },
+  "official_prompt_template": {
+    "_format": "structured-object",
+    "slots": ["subject", "composition", "style_descriptor"],
+    "_ordering": "{subject}, {composition}, {style_descriptor}",
+    "_renderer_id": "recraft_default"
+  },
+  "validator_rules": [
+    { "id": "prompt_required", "kind": "length", "field": "prompt", "min": 1, "throws": "recraft-v4-pro-vector: prompt is required" }
+  ]
+}

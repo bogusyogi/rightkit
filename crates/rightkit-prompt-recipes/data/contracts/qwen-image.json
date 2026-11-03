@@ -1,0 +1,68 @@
+{
+  "_meta": {
+    "model_slug": "qwen-image",
+    "version": "1.0.0",
+    "official_doc_url": "https://wavespeed.ai/blog/posts/blog-how-to-use-qwen-image-2-0-text-to-image-editing/",
+    "schema_last_verified": "2026-05-05",
+    "research_sources": [
+      "https://wavespeed.ai/blog/posts/blog-how-to-use-qwen-image-2-0-text-to-image-editing/",
+      "https://wavespeed.ai/blog/posts/qwen-image-2512-api-quickstart/",
+      "https://wavespeed.ai/blog/posts/introducing-wavespeed-ai-qwen-image-2-0-on-wavespeedai/"
+    ],
+    "pricing_tier_id": "qwen-image-1mp",
+    "_invoice_status_note": "See recipes/image/invoice-status.json[qwen-image-1mp] — invoice_verified=true"
+  },
+  "required_fields": {
+    "prompt": { "type": "string", "required": true, "max_length": 4000, "_max_tokens": 1000 },
+    "size": {
+      "type": "string",
+      "required": false,
+      "default": "1024*1024",
+      "_format": "WIDTH*HEIGHT (asterisk separator, NOT 'x')"
+    }
+  },
+  "optional_fields": {
+    "seed": { "type": "integer", "supported": true },
+    "output_format": { "type": "enum", "enum": ["png", "jpeg", "webp"], "default": "png" },
+    "enable_sync_mode": { "type": "boolean", "default": false },
+    "enable_base64_output": { "type": "boolean", "default": false }
+  },
+  "negative_prompt_policy": {
+    "strategy": "natural_language_inline",
+    "_note": "WaveSpeed qwen-image base text-to-image route does not document a separate negative_prompt field. Express avoid-this guidance inline or route to a verified edit endpoint."
+  },
+  "reference_syntax": {
+    "method": "none",
+    "max_references": 0,
+    "_note": "qwen-image-edit accepts source image; t2i base does not. For multi-reference, use a verified edit/max-edit endpoint variant."
+  },
+  "official_prompt_template": {
+    "_format": "structured-object",
+    "slots": ["subject", "action", "style_modifiers", "orientation_hint"],
+    "_ordering": "{subject}, {action}, {style_modifiers}, {orientation_hint}",
+    "_renderer_id": "qwen_default",
+    "_note": "Qwen specialty: bilingual text rendering (Chinese + English). For text-rendering tasks, quote the literal text and specify position (e.g. 'Add text in upper-left corner: \"Hello\"')."
+  },
+  "validator_rules": [
+    {
+      "id": "prompt_required",
+      "kind": "length",
+      "field": "prompt",
+      "min": 1,
+      "throws": "qwen-image: prompt is required and must be non-empty"
+    },
+    {
+      "id": "prompt_max_tokens",
+      "kind": "length",
+      "field": "prompt",
+      "max": 4000,
+      "throws": "qwen-image: prompt char count {len} approximates >1000 tokens (cap)"
+    },
+    {
+      "id": "size_format_asterisk",
+      "kind": "handler",
+      "handler": "validateQwenSizeFormat",
+      "throws": "qwen-image: size '{value}' must use asterisk (1024*1024), not x (1024x1024)"
+    }
+  ]
+}

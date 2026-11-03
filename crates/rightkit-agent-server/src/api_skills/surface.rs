@@ -1,0 +1,16 @@
+include!("routes.rs");
+include!("openapi_components_core.rs");
+include!("openapi_components_governance.rs");
+include!("openapi.rs");
+include!("commands_inventory.rs");
+include!("types.rs");
+include!("handlers_basic.rs");
+include!("governance.rs");
+include!("benchmark.rs");
+include!("lifecycle.rs");
+include!("runtime_context.rs");
+include!("files.rs");
+include!("rendering_provenance.rs");
+
+#[cfg(test)]
+include!("tests.rs");

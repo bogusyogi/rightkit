@@ -1,0 +1,72 @@
+{
+  "_meta": {
+    "model_slug": "flux-2-dev",
+    "version": "1.0.0",
+    "official_doc_url": "https://docs.bfl.ai/guides/prompting_guide_flux2",
+    "schema_last_verified": "2026-05-05",
+    "_extends_note": "Sibling of flux-2-pro. Same prompt format, same negative-policy, same reference syntax. Diff: cheaper tier (~$0.012/MP), shorter default steps, and dev-only tuning controls.",
+    "research_sources": [
+      "https://docs.bfl.ai/guides/prompting_guide_flux2",
+      "https://fal.ai/docs/model-api-reference/image-generation-api/flux-2"
+    ],
+    "pricing_tier_id": "flux-2-dev-default",
+    "_invoice_status_note": "See recipes/image/invoice-status.json[flux-2-dev-default]. Estimate — needs invoice reconciliation."
+  },
+  "required_fields": {
+    "prompt": { "type": "string", "required": true, "max_length": 4000 },
+    "image_size": {
+      "type": "enum",
+      "required": false,
+      "enum": ["square_hd", "square", "portrait_4_3", "portrait_16_9", "landscape_4_3", "landscape_16_9"],
+      "default": "landscape_4_3"
+    }
+  },
+  "optional_fields": {
+    "seed": { "type": "integer", "supported": true },
+    "num_inference_steps": { "type": "integer", "min": 1, "max": 50, "default": 28 },
+    "guidance_scale": { "type": "number", "min": 1.0, "max": 20.0 },
+    "num_images": { "type": "integer", "min": 1, "max": 4, "default": 1 },
+    "acceleration": { "type": "enum", "enum": ["none", "regular", "high"], "default": "regular" },
+    "enable_prompt_expansion": { "type": "boolean", "default": false },
+    "enable_safety_checker": { "type": "boolean", "default": true },
+    "output_format": { "type": "enum", "enum": ["jpeg", "png", "webp"], "default": "png" },
+    "sync_mode": { "type": "boolean", "default": false }
+  },
+  "negative_prompt_policy": {
+    "strategy": "positive_rewrite",
+    "throw_on_negative_phrases": true,
+    "_note": "BFL prompt rules apply across FLUX.2 family. Same as flux-2-pro contract.",
+    "blocked_phrases": ["no ", "without ", "exclude ", "remove ", "don't show ", "avoid ", "lacking "],
+    "rewrite_table": {
+      "no blur": "sharp focus throughout",
+      "no blur, no noise": "sharp focus throughout, clean image",
+      "no people": "empty scene",
+      "without people": "empty scene",
+      "no text": "clean visual without graphic elements",
+      "no fake UI text": "clean blurred screen surface",
+      "no readable text": "soft glow, no graphic elements",
+      "no icons": "clean planar surface",
+      "no logos": "neutral surface",
+      "no watermark": "clean output"
+    }
+  },
+  "reference_syntax": {
+    "method": "none",
+    "max_references": 0,
+    "_note": "fal-ai/flux-2 base text-to-image route does not accept image_urls. Use a verified edit route before exposing references."
+  },
+  "official_prompt_template": {
+    "_format": "structured-object",
+    "slots": ["subject", "action", "style", "context"],
+    "_ordering": "{subject}, {action}, {style}, {context}",
+    "_renderer_id": "flux_default"
+  },
+  "validator_rules": [
+    { "id": "prompt_required", "kind": "length", "field": "prompt", "min": 1, "throws": "flux-2-dev: prompt is required and must be non-empty" },
+    { "id": "image_size_in_enum", "kind": "enum", "field": "image_size", "enum": ["square_hd", "square", "portrait_4_3", "portrait_16_9", "landscape_4_3", "landscape_16_9"], "throws": "flux-2-dev: image_size '{value}' not in fal enum" },
+    { "id": "no_negative_phrases", "kind": "handler", "handler": "validateFluxNegativePhrases", "throws": "flux-2-dev: BFL requires positive_rewrite. Found '{phrase}' at offset {offset}." },
+    { "id": "num_inference_steps_range", "kind": "range", "field": "num_inference_steps", "min": 1, "max": 50, "throws": "flux-2-dev: num_inference_steps must be 1..50 (got {value})" },
+    { "id": "num_images_range", "kind": "range", "field": "num_images", "min": 1, "max": 4, "throws": "flux-2-dev: num_images must be 1..4 (got {value})" },
+    { "id": "acceleration_in_enum", "kind": "enum", "field": "acceleration", "enum": ["none", "regular", "high"], "throws": "flux-2-dev: acceleration must be none, regular, or high" }
+  ]
+}

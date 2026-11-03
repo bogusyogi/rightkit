@@ -1,0 +1,153 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "updated": "2026-05-04",
+    "category": "image",
+    "subcategory": "lens",
+    "principle": "Optical capture ONLY: focal length + aperture + lens character + DoF. Lens choice determines compression, perspective, and out-of-focus quality. Ownership boundary: lens does NOT describe spatial layering (depth.json) or subject placement (composition.json).",
+    "sources": [
+      "Higgsfield AI tutorial transcript 2026-05-03 (texture and capture mentioned)",
+      "Cinematography Mailing List archives — focal-length perspective primer"
+    ],
+    "interpolation_rule": "Paste fragment verbatim into the lens clause."
+  },
+  "_brand_defaults": {
+    "DD": {
+      "item_key": "85mm_f1.4_portrait_compressed",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md DD: premium product compressed depth, classic portrait"
+    },
+    "RH": {
+      "item_key": "50mm_f1.8_natural_eye",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md RH: lifestyle natural-eye perspective"
+    },
+    "TS": {
+      "item_key": "anamorphic_widescreen",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md TS: cinematic dystopian widescreen"
+    },
+    "HR": {
+      "item_key": "35mm_f2_environmental",
+      "status": "provisional_from_memory",
+      "seeded_from": "CLAUDE.md HR: dictation device + environment, UI-friendly framing"
+    },
+    "DV": {
+      "item_key": "50mm_f1.8_natural_eye",
+      "status": "unknown_needs_owner_input",
+      "seeded_from": "no source yet"
+    },
+    "SS": {
+      "item_key": "85mm_f1.4_portrait_compressed",
+      "status": "owner_approved",
+      "seeded_from": "CLAUDE.md SS: photography portrait compression"
+    }
+  },
+  "items": {
+    "35mm_f2_environmental": {
+      "name": "35mm f/2 environmental",
+      "use": "Default human-environmental shot. Slight wide-of-normal, mild perspective expansion, shallow but not extreme DoF. The journalism / documentary default.",
+      "fragment": "shot on a 35mm prime at roughly f/2 aperture, slightly wider than normal perspective, mild background separation with environmental context still readable, the natural-eye documentary look",
+      "tags": [
+        "35mm",
+        "environmental",
+        "documentary"
+      ]
+    },
+    "50mm_f1.8_natural_eye": {
+      "name": "50mm f/1.8 natural eye",
+      "use": "The 'normal' lens. Mimics human eye perspective. Default for portraits with environmental context. Shallow but not creamy DoF.",
+      "fragment": "shot on a 50mm prime at f/1.8, perspective matching the natural human eye, gentle background blur, the classic standard-prime portrait look",
+      "tags": [
+        "50mm",
+        "natural",
+        "portrait"
+      ]
+    },
+    "85mm_f1.4_portrait_compressed": {
+      "name": "85mm f/1.4 portrait compressed",
+      "use": "Classic portrait lens. Compresses background, creamy bokeh, flattering on faces. Subject pops out of frame.",
+      "fragment": "shot on an 85mm prime at f/1.4 wide open, compressed perspective flattering to faces, creamy out-of-focus background bokeh, subject visually carved from a softened backdrop",
+      "tags": [
+        "85mm",
+        "portrait",
+        "compressed",
+        "creamy-bokeh"
+      ]
+    },
+    "24mm_f4_wide_deep": {
+      "name": "24mm f/4 wide deep-focus",
+      "use": "Wide environmental shot. Most of the frame in focus. Used for establishing shots, architecture, group scenes.",
+      "fragment": "shot on a 24mm wide-angle at f/4 stopped down, expansive field of view with mild edge stretching, deep front-to-back focus across the frame",
+      "tags": [
+        "24mm",
+        "wide",
+        "deep-focus",
+        "environmental"
+      ]
+    },
+    "100mm_macro_extreme_close": {
+      "name": "100mm macro extreme close",
+      "use": "Product detail, food, jewelry, textures. Razor-thin DoF, close working distance.",
+      "fragment": "shot on a 100mm macro lens at close focusing distance, razor-thin depth of field with most of the frame falling into soft focus, fine detail in the focal plane crisp and resolving",
+      "tags": [
+        "macro",
+        "close-up",
+        "razor-DoF",
+        "product"
+      ]
+    },
+    "anamorphic_widescreen": {
+      "name": "Anamorphic widescreen 2.39:1",
+      "use": "Cinematic widescreen feel. Horizontal lens flares, oval bokeh, slight squeeze. For images that should feel like a film still.",
+      "fragment": "anamorphic lens character at roughly 2.39:1 cinematic widescreen aspect, oval-shaped out-of-focus highlights, horizontal lens flares if light sources are present, slight horizontal squeeze",
+      "tags": [
+        "anamorphic",
+        "cinematic",
+        "widescreen"
+      ],
+      "warning": "Cinematic flag. Avoid for vertical 9:16 formats — the horizontal character fights the frame."
+    },
+    "phone_camera_18mm": {
+      "name": "Phone camera 18mm equivalent",
+      "use": "iPhone/Android shot look. Wide, deep DoF, slight HDR-flat tone. Used for UGC and authentic-feeling content.",
+      "fragment": "shot on a phone camera at roughly 18mm-equivalent wide angle, deep depth of field with most of the frame in focus, slight HDR-flat tonal compression, the casual phone-photography look",
+      "tags": [
+        "phone",
+        "wide",
+        "UGC"
+      ]
+    },
+    "vintage_swirly_bokeh": {
+      "name": "Vintage swirly bokeh",
+      "use": "Helios-44 / Petzval feel. Background bokeh swirls in a circular pattern around the subject. Painterly, dreamy, vintage.",
+      "fragment": "shot on a vintage Petzval-style lens, background bokeh swirling in a circular pattern around the subject, soft painterly out-of-focus areas, the dreamy distinctive look of vintage Soviet-era optics",
+      "tags": [
+        "vintage",
+        "swirly-bokeh",
+        "painterly"
+      ]
+    },
+    "tilt_shift_miniature": {
+      "name": "Tilt-shift miniature",
+      "use": "Selective focus band creating miniature illusion. Top-down or wide aerial scenes look like dioramas.",
+      "fragment": "tilt-shift lens effect with a narrow horizontal band in sharp focus and the top and bottom of the frame thrown into soft blur, creating the optical illusion of a miniature diorama",
+      "tags": [
+        "tilt-shift",
+        "miniature",
+        "selective-focus"
+      ]
+    },
+    "fisheye_distorted": {
+      "name": "Fisheye distorted",
+      "use": "Extreme wide with curvilinear distortion. Skateboarding, GoPro, surreal. Strong visual signature.",
+      "fragment": "fisheye lens with extreme curvilinear distortion bending straight lines into curves at the edges, ultra-wide field of view, the surreal extreme-perspective signature",
+      "tags": [
+        "fisheye",
+        "distorted",
+        "extreme-wide"
+      ],
+      "warning": "Strong signature. Use only when the distortion serves the message."
+    }
+  }
+}

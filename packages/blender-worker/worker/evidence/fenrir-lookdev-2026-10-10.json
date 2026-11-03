@@ -1,0 +1,389 @@
+{
+  "schema": 1,
+  "stage": "development_authoring_lookdev",
+  "installed_worker_changed": false,
+  "adrian_visual_acceptance": false,
+  "film_complete": false,
+  "worker": {
+    "files_sha256": {
+      "render_job.py": "10b6b1a96afcb5619038fcb6e6a267fa270538e453f72492fad1c777f9d535ba",
+      "renderright/__init__.py": "37b0eacfba4ddbc8224f75cc48f7d679ad06d66e334ee84fa2eb99b8241d2359",
+      "renderright/contract.py": "472f1c9d4f9868150fbc4cfd998e0a4cf0fe7d721a8bb2fbad1fc4735bb9b672",
+      "renderright/pngcheck.py": "e66a87dd0c56fd88ef7d140ad8af79231088c9ec7248d63333f35c4bdfa9ced3",
+      "renderright/scene.py": "24087a0c003ecf3e3c19b1a0e60b5a5a6cedec20462eeb542c8a94f3fc0b976c",
+      "renderright/worker.py": "83dd351d208916746649ad267da9ce2313b95f6d6d8bf25d692be8d8f6327bfd",
+      "renderright/authoring.py": "3a22b08caecf952391dbd117105865bbcf036901f5a5ec46521aa62d0e731d11",
+      "renderright/premium_look.py": "97b99b9c97bdcb461cf78f02f800f0a92878eec62abe264ae41d9c50d0bced0e",
+      "renderright/fenrir_geometry.py": "c20c036aaf3bb0420975ce5c9f5c9bd69e983cf507f56b8fbb8ad4f827ae9436",
+      "archive/fenrir-v2/scripts/fenrir_common.py": "52c9b86e421e2ae719147856d26bc7572d4512750c8ef8936ef65debe4e687b0",
+      "recipes/fenrir-registration.json": "fcf6900cef8c394479017c8518770c9c28e703b125a2be838a0d78d572bedc4d"
+    },
+    "worker_code_sha256": "ad1eab0757c90ff75c74d61bf8be53ee14b47c7fe200f7956e529474d505dbce"
+  },
+  "source_sha256": "48af6070d85c1cb34920a7db531f0a89fe8491c86e29d5ab6ab809c9c3ad9cb4",
+  "checks": {
+    "contract_tests_passed": 11,
+    "png_decode_dimensions_hashes": true,
+    "artifact_bytes_hashes": true,
+    "measure_completed": true,
+    "deadline_exit_code": 124,
+    "deadline_elapsed_seconds": 1.0327560901641846
+  },
+  "contact_sheet": {
+    "path": "D:\\Claude\\Content\\renderright\\lookdev\\lookdev-contact-sheet.jpg",
+    "sha256": "177a097c0c7258f327824756bf5cdcffcb76255acc6f775ac03043a5a2bdc4a2"
+  },
+  "views": [
+    {
+      "view": "hero",
+      "folder": "D:\\Claude\\Content\\renderright\\lookdev\\hero-1080-v2",
+      "manifest_sha256": "85f484031a661cdbcd26680b1119b03bf25b3bc83b987a936935e909027cd5fb",
+      "artifacts": [
+        {
+          "bytes": 7449,
+          "path": "geometry.json",
+          "sha256": "7f6340db5c23fdeef7bb02e31e206f87fb0178ec666768f43910d4acb4dd0337"
+        },
+        {
+          "bytes": 2153736,
+          "path": "lookdev.png",
+          "sha256": "e3d847834cd36a818ef9bbb24d6129b3dcf34520479f200b40a073332b669c8f"
+        },
+        {
+          "bytes": 24216014,
+          "path": "passes.exr",
+          "sha256": "4c00ff817dfd590901f0d8ab4692217d0edb1d7e03466da8940ad02c2c5cefaf"
+        },
+        {
+          "bytes": 6071424,
+          "path": "scene.blend",
+          "sha256": "93ba04f02d3531bdd2723e2d5fc3031f910ebf8b78e219cc19c38ae495c34d2e"
+        },
+        {
+          "bytes": 4398,
+          "path": "lookdev.json",
+          "sha256": "a5e19d1a6b43c0b93ebc51cefccb09b468cda7cec8c6d32b458f0bc8a931b91a"
+        }
+      ],
+      "fingerprint": "f32dea12c0aedc8bea78a0c70149d998c038b891f0db2e11f0c06d134f00ae36",
+      "device": "OPTIX:NVIDIA GeForce RTX 4070 Laptop GPU",
+      "render_seconds": 19.626752999996825,
+      "mask_seconds": 0.595105299998977,
+      "launch_elapsed_seconds": 23.32158851623535,
+      "projection": {
+        "bounds_uv": [
+          [
+            0.1053014444898327,
+            0.9213073231379403
+          ],
+          [
+            0.300072821299063,
+            0.610323872424569
+          ]
+        ],
+        "intentional_macro_crop": false,
+        "outside_frame": 0,
+        "vertices": 136702
+      },
+      "C1": {
+        "analytic_axis_xy_m": [
+          -0.0031360089778900146,
+          0.00023699738085269928
+        ],
+        "axis_direction_mapped": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "bore_centroid_residual_mm": 2.9860473315941913e-05,
+        "bore_circle_vertex_count": 508,
+        "bore_datum_knife_z_m": 0.010000000707805157,
+        "fitted_bore_centroid_xy_m": [
+          -0.003135979175567627,
+          0.0002369992434978485
+        ],
+        "fitted_radius_mm": 2.9999999995229514,
+        "pass": true,
+        "source_axis_datum_mm": 20.80724860542477,
+        "source_axis_origin_mm": [
+          -263.6189270019531,
+          0.0,
+          19.275510787963867
+        ],
+        "source_to_import_units": 0.001
+      },
+      "C2": {
+        "archive_pivot_rest_m": [
+          -0.019670402631163597,
+          -0.003342518350109458,
+          0.006972603499889374
+        ],
+        "archive_reference": "recipes/fenrir-registration.json",
+        "archive_support_normal": [
+          -0.043178245425224304,
+          -0.0025911699049174786,
+          -0.999064028263092
+        ],
+        "archive_tip_rest_m": [
+          -0.11867716908454895,
+          -0.0183425210416317,
+          0.002674754010513425
+        ],
+        "current_pivot_rest_m": [
+          -0.01966327615082264,
+          -0.0033419854007661343,
+          0.00696905329823494
+        ],
+        "current_support_normal": [
+          -0.043245065957307816,
+          -0.0027807813603430986,
+          -0.9990606307983398
+        ],
+        "current_tip_rest_m": [
+          -0.11866875737905502,
+          -0.01834193803369999,
+          0.0026417551562190056
+        ],
+        "pass": true,
+        "pivot_rest_residual_mm": 0.007979642149855611,
+        "rest_normal_disagreement_deg": 0.011520467683706074,
+        "tip_rest_residual_mm": 0.0340590822346029
+      },
+      "mask_float32_channel_header_verified": true
+    },
+    {
+      "view": "detail",
+      "folder": "D:\\Claude\\Content\\renderright\\lookdev\\detail-1080-v2",
+      "manifest_sha256": "1d5aa801ecde307bc1c429522f65f0880f532a49761610c2ef2977f164913818",
+      "artifacts": [
+        {
+          "bytes": 7449,
+          "path": "geometry.json",
+          "sha256": "7f6340db5c23fdeef7bb02e31e206f87fb0178ec666768f43910d4acb4dd0337"
+        },
+        {
+          "bytes": 2142449,
+          "path": "lookdev.png",
+          "sha256": "728ae8f39363d799b2d406aed55f59a94b3075cb3329a1e2d0f734335e645dea"
+        },
+        {
+          "bytes": 22476504,
+          "path": "passes.exr",
+          "sha256": "516f49cb0bc38d54bfcc445f228f5364c7e38969234b722a58e5235763acd01a"
+        },
+        {
+          "bytes": 6071315,
+          "path": "scene.blend",
+          "sha256": "de09790ca60f340c4a63b613fc9544269843d68dfa6363daf1287ac28208c9ef"
+        },
+        {
+          "bytes": 4407,
+          "path": "lookdev.json",
+          "sha256": "ae2c46bc0b97c62e008916a44ff9622b9c3039621b64de64753a6bb93b4026dc"
+        }
+      ],
+      "fingerprint": "8b4643cd847bb5ba1981c9fee27b690ae4491bbb0c45a1395030a47c9b6b7e19",
+      "device": "OPTIX:NVIDIA GeForce RTX 4070 Laptop GPU",
+      "render_seconds": 22.622669700002007,
+      "mask_seconds": 1.3527113999989524,
+      "launch_elapsed_seconds": 27.603665351867676,
+      "projection": {
+        "bounds_uv": [
+          [
+            -0.41698178136841824,
+            2.362041929635793
+          ],
+          [
+            0.22282498415150398,
+            0.84500873790607
+          ]
+        ],
+        "intentional_macro_crop": true,
+        "outside_frame": 103698,
+        "vertices": 136702
+      },
+      "C1": {
+        "analytic_axis_xy_m": [
+          -0.0031360089778900146,
+          0.00023699738085269928
+        ],
+        "axis_direction_mapped": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "bore_centroid_residual_mm": 2.9860473315941913e-05,
+        "bore_circle_vertex_count": 508,
+        "bore_datum_knife_z_m": 0.010000000707805157,
+        "fitted_bore_centroid_xy_m": [
+          -0.003135979175567627,
+          0.0002369992434978485
+        ],
+        "fitted_radius_mm": 2.9999999995229514,
+        "pass": true,
+        "source_axis_datum_mm": 20.80724860542477,
+        "source_axis_origin_mm": [
+          -263.6189270019531,
+          0.0,
+          19.275510787963867
+        ],
+        "source_to_import_units": 0.001
+      },
+      "C2": {
+        "archive_pivot_rest_m": [
+          -0.019670402631163597,
+          -0.003342518350109458,
+          0.006972603499889374
+        ],
+        "archive_reference": "recipes/fenrir-registration.json",
+        "archive_support_normal": [
+          -0.043178245425224304,
+          -0.0025911699049174786,
+          -0.999064028263092
+        ],
+        "archive_tip_rest_m": [
+          -0.11867716908454895,
+          -0.0183425210416317,
+          0.002674754010513425
+        ],
+        "current_pivot_rest_m": [
+          -0.01966327615082264,
+          -0.0033419854007661343,
+          0.00696905329823494
+        ],
+        "current_support_normal": [
+          -0.043245065957307816,
+          -0.0027807813603430986,
+          -0.9990606307983398
+        ],
+        "current_tip_rest_m": [
+          -0.11866875737905502,
+          -0.01834193803369999,
+          0.0026417551562190056
+        ],
+        "pass": true,
+        "pivot_rest_residual_mm": 0.007979642149855611,
+        "rest_normal_disagreement_deg": 0.011520467683706074,
+        "tip_rest_residual_mm": 0.0340590822346029
+      },
+      "mask_float32_channel_header_verified": true
+    },
+    {
+      "view": "overview",
+      "folder": "D:\\Claude\\Content\\renderright\\lookdev\\overview-1080-v2",
+      "manifest_sha256": "29c21270a0916f0674d825f3ae9f25ab3dcf67a8f3b67981dad4beb6e6571d8d",
+      "artifacts": [
+        {
+          "bytes": 7449,
+          "path": "geometry.json",
+          "sha256": "7f6340db5c23fdeef7bb02e31e206f87fb0178ec666768f43910d4acb4dd0337"
+        },
+        {
+          "bytes": 2114856,
+          "path": "lookdev.png",
+          "sha256": "591a95fe7f8d01eb94ee219a5d8d595132554bc91becf91b41f20bffe7a7dff2"
+        },
+        {
+          "bytes": 24139049,
+          "path": "passes.exr",
+          "sha256": "6291f8be455f82a556fcda816886e33f0a9955bbeb5138f0779a0baf8eb15b68"
+        },
+        {
+          "bytes": 6071379,
+          "path": "scene.blend",
+          "sha256": "96a5411a5d75d4df0e234bad8ed02943fe82758e9824ee69febe7ab05fc932b7"
+        },
+        {
+          "bytes": 4407,
+          "path": "lookdev.json",
+          "sha256": "e2d453cb042809e00a8c9e894303f72183fdba1b6946e3cb025790934e846701"
+        }
+      ],
+      "fingerprint": "3b5033f10d00dbd40ed42699de04cab4908b0dc068545d95c8095325004a434d",
+      "device": "OPTIX:NVIDIA GeForce RTX 4070 Laptop GPU",
+      "render_seconds": 21.282191199999943,
+      "mask_seconds": 1.2079551000024367,
+      "launch_elapsed_seconds": 31.610724449157715,
+      "projection": {
+        "bounds_uv": [
+          [
+            0.060227009138158316,
+            0.9536651450222091
+          ],
+          [
+            0.3189747308105711,
+            0.6188028464281168
+          ]
+        ],
+        "intentional_macro_crop": false,
+        "outside_frame": 0,
+        "vertices": 136702
+      },
+      "C1": {
+        "analytic_axis_xy_m": [
+          -0.0031360089778900146,
+          0.00023699738085269928
+        ],
+        "axis_direction_mapped": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "bore_centroid_residual_mm": 2.9860473315941913e-05,
+        "bore_circle_vertex_count": 508,
+        "bore_datum_knife_z_m": 0.010000000707805157,
+        "fitted_bore_centroid_xy_m": [
+          -0.003135979175567627,
+          0.0002369992434978485
+        ],
+        "fitted_radius_mm": 2.9999999995229514,
+        "pass": true,
+        "source_axis_datum_mm": 20.80724860542477,
+        "source_axis_origin_mm": [
+          -263.6189270019531,
+          0.0,
+          19.275510787963867
+        ],
+        "source_to_import_units": 0.001
+      },
+      "C2": {
+        "archive_pivot_rest_m": [
+          -0.019670402631163597,
+          -0.003342518350109458,
+          0.006972603499889374
+        ],
+        "archive_reference": "recipes/fenrir-registration.json",
+        "archive_support_normal": [
+          -0.043178245425224304,
+          -0.0025911699049174786,
+          -0.999064028263092
+        ],
+        "archive_tip_rest_m": [
+          -0.11867716908454895,
+          -0.0183425210416317,
+          0.002674754010513425
+        ],
+        "current_pivot_rest_m": [
+          -0.01966327615082264,
+          -0.0033419854007661343,
+          0.00696905329823494
+        ],
+        "current_support_normal": [
+          -0.043245065957307816,
+          -0.0027807813603430986,
+          -0.9990606307983398
+        ],
+        "current_tip_rest_m": [
+          -0.11866875737905502,
+          -0.01834193803369999,
+          0.0026417551562190056
+        ],
+        "pass": true,
+        "pivot_rest_residual_mm": 0.007979642149855611,
+        "rest_normal_disagreement_deg": 0.011520467683706074,
+        "tip_rest_residual_mm": 0.0340590822346029
+      },
+      "mask_float32_channel_header_verified": true
+    }
+  ]
+}

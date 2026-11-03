@@ -1,0 +1,35 @@
+{
+  "scope": "workspace",
+  "name": "docs",
+  "type": "stdio",
+  "config": {
+    "type": "stdio",
+    "command": "node",
+    "args": [
+      "server.js"
+    ],
+    "env": {
+      "MODE": "test"
+    }
+  },
+  "trust": {
+    "preset": "local_process",
+    "approvedBy": "tester",
+    "approvedAt": "2026-06-24T01:02:03Z",
+    "inferred": false
+  },
+  "channelPermissions": {
+    "allowedChannels": [
+      "cli",
+      "desktop"
+    ],
+    "allowMutating": false
+  },
+  "policyDiagnostics": [
+    {
+      "severity": "info",
+      "code": "mcp_mutating_requires_read_only_hint",
+      "message": "Mutating MCP tools are disabled; CodeRight only exposes/calls tools that declare annotations.readOnlyHint=true."
+    }
+  ]
+}
