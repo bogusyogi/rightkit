@@ -74,7 +74,7 @@ use crate::host_identity::{HostExpectation, HostIdentityError, HostIdentityReaso
 use crate::record::{try_read_record, ServiceRecord};
 
 pub use crate::incumbent::{stop_incumbent, IncumbentError, IncumbentStop};
-pub use crate::shutdown::{OrderedShutdown, PhaseOutcome, PhaseReport, ShutdownReport};
+pub use crate::shutdown::{OrderedShutdown, PhaseOutcome, PhaseReport};
 use std::num::NonZeroU32;
 
 /// A reply (or a request) belongs to a host generation that is no longer the current one. Not

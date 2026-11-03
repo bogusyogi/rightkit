@@ -704,7 +704,7 @@ impl OwnedCommand {
                         // After setsid this process leads a session with no controlling
                         // terminal; fd 0 is the terminal slave (std wired stdio before any hook).
                         // SAFETY: ioctl on a descriptor, no pointers; arg 0 does not steal.
-                        if unsafe { libc::ioctl(0, libc::TIOCSCTTY as _, 0 as libc::c_int) } < 0 {
+                        if libc::ioctl(0, libc::TIOCSCTTY as _, 0 as libc::c_int) < 0 {
                             return Err(io::Error::last_os_error());
                         }
                     }

@@ -128,12 +128,28 @@
         [
           "--features",
           "control,wv2-0_38"
+        ],
+        [
+          "--features",
+          "control,wv2-0_38,android,browser"
+        ],
+        [
+          "--features",
+          "control,wv2-0_39"
         ]
       ],
       "featureSets": [
         [
           "--features",
           "control,wv2-0_38"
+        ],
+        [
+          "--features",
+          "control,wv2-0_38,android,browser"
+        ],
+        [
+          "--features",
+          "control,wv2-0_39"
         ]
       ],
       "paths": [

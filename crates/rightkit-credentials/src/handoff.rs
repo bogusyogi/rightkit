@@ -998,11 +998,11 @@ fn decode_hex(text: &[u8], limits: &Limits) -> Result<Zeroizing<Vec<u8>>> {
     if text.len() > max_text {
         return Err(HandoffError::Oversize { limit: cap });
     }
-    if text.len() % 2 != 0 {
+    if !text.len().is_multiple_of(2) {
         return Err(HandoffError::Malformed("hex text has an odd length"));
     }
     let mut out: Zeroizing<Vec<u8>> = Zeroizing::new(Vec::with_capacity(text.len() / 2));
-    for pair in text.chunks_exact(2) {
+    for pair in text.as_chunks::<2>().0 {
         match (nibble(pair[0]), nibble(pair[1])) {
             (Some(hi), Some(lo)) => out.push((hi << 4) | lo),
             _ => return Err(HandoffError::Malformed("hex text has a non-hex byte")),

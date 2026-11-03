@@ -73,7 +73,7 @@ pub trait ProcessLaunchAdapter: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<ManagedProcessOutput, String>> + Send + 'a>>;
 }
 
-#[derive(Debug, Default, Clone, Copy, Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 struct MissingProcessLaunchAdapter;
 
 impl ProcessLaunchAdapter for MissingProcessLaunchAdapter {
