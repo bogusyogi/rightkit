@@ -74,8 +74,7 @@ rightkit-oauth = { version = "0.10.0", path = "../rightkit-oauth", features = ["
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", features = ["tokio"] }
 rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon", features = ["agent_daemon_core", "agent_daemon_runtime", "local", "remote-loopback"], default-features = false }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
-rightkit-license = { version = "0.2.6", path = "../rightkit-license", features = ["client"] }
-rightkit-device = { version = "0.4.0", path = "../rightkit-device", features = ["credentials"] }
+rightkit-license = { version = "0.2.6", path = "../rightkit-license", features = ["engine-snapshot"] }
 rightkit-crash = { version = "0.3.6", path = "../rightkit-crash", features = ["support-bundle"], default-features = false }
 rightkit-http = { version = "0.3.10", path = "../rightkit-http", features = ["agent_host", "async", "gzip", "untrusted"] }
 rightkit-credentials = { version = "0.4.3", path = "../rightkit-credentials" }

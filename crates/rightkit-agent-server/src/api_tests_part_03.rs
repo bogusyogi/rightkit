@@ -9,30 +9,22 @@ fn license_features_are_normalized() {
 
 #[test]
 fn an_attached_licence_gate_replaces_the_fixed_feature_set() {
-    use rightkit_credentials::{Config, MemoryBackend, Namespace, Store};
     // A test build seeds the fixed Pro set; the gate, once attached, is the only source.
     let seeded = DaemonState::new("");
     assert!(seeded.has_license_feature("schedules"));
 
-    let records = Store::open(
-        Config::new(Namespace::new("cc.coderight.licence.test").unwrap())
-            .backend(std::sync::Arc::new(MemoryBackend::new())),
-    );
-    let dir = tempfile::tempdir().unwrap();
-    let gate = crate::license::LicenseGate::with_parts(
-        [7_u8; 32],
-        "coderight",
-        dir.path(),
-        records,
-        "license-record",
-        std::sync::Arc::new(|| Ok("dev-1".to_string())),
+    let cell = rightkit_license::EngineSnapshotCell::new();
+    let config = rightkit_license::EngineEntitlementsConfig::from_snapshot([7_u8; 32], "coderight", &cell);
+    let gate = crate::license::LicenseGate::with_config(
+        cell,
+        config,
         rightkit_license::SystemClock,
         (std::time::Duration::ZERO, std::time::Duration::ZERO),
     );
     let gated = DaemonState::new("").with_license_gate(std::sync::Arc::new(gate));
     assert!(
         !gated.has_license_feature("schedules"),
-        "no stored licence is Free"
+        "no delivered licence is not Pro"
     );
     assert!(gated.current_license_features().is_empty());
 }

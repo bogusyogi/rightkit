@@ -4432,7 +4432,6 @@ dependencies = [
  "rightkit-crypto",
  "rightkit-daemon",
  "rightkit-db",
- "rightkit-device",
  "rightkit-doctor",
  "rightkit-evidence",
  "rightkit-file-watch",
@@ -4713,15 +4712,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-device"
-version = "0.4.0"
-dependencies = [
- "getrandom 0.4.3",
- "rightkit-credentials",
- "rightkit-license",
-]
-
-[[package]]
 name = "rightkit-doctor"
 version = "0.1.0"
 dependencies = [
@@ -4878,7 +4868,6 @@ dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
  "rightkit-credentials",
- "rightkit-http",
  "serde",
  "serde_json",
  "zeroize",
