@@ -24,6 +24,10 @@ use crate::store::StateStore;
 pub const PACK_JSON: &str = include_str!("../rules/cleanup.json");
 pub const ACTIVITY_SCHEMA_VERSION: u32 = 1;
 const MAX_ENTRIES_PER_ITEM: usize = 400_000;
+/// Longest the Windows held-open walk of one item may take; past it the item is
+/// unknown, never eligible.
+#[cfg(windows)]
+const HELD_OPEN_BUDGET: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -419,6 +423,22 @@ fn record_chrome_count(home: &Path, count: u64, now: u64) -> Option<CountSample>
         }
     }
     baseline
+}
+
+/// Where `apply` gets the running-process list. It is called again for every item,
+/// right before that item is re-checked, so a program started after the review is
+/// seen. An `Err` is unknown liveness: the item is skipped, never moved.
+pub type RunningProvider<'a> = dyn FnMut() -> Result<Vec<String>, String> + 'a;
+
+/// The live process list as a [`RunningProvider`] answer: `Err` when the system
+/// reports no process at all (the list could not be read), because an empty list
+/// is not proof that nothing is running.
+pub fn running_process_list() -> Result<Vec<String>, String> {
+    let names = running_process_names();
+    if names.is_empty() {
+        return Err("Can't tell which programs are running".into());
+    }
+    Ok(names)
 }
 
 /// Names (lowercased) of running processes; the liveness evidence.
@@ -876,7 +896,14 @@ fn name_matches(process: &str, owner: &str) -> bool {
 fn in_use(rule: &CleanupRule, name: &str, running: &[String]) -> Result<Option<String>, String> {
     let mut owners: Vec<String> = rule.owners.clone();
     match rule.liveness {
-        LivenessCheck::Age => {}
+        LivenessCheck::Age => {
+            // Windows age rules name no owner and the held-open probe cannot say
+            // which program will use a file next: old is not proof of idle, so
+            // an ownerless Windows age item is reported and never offered.
+            if owners.is_empty() && rule.platforms.iter().any(|p| p == "windows") {
+                return Err("Can't tell which app owns this".into());
+            }
+        }
         LivenessCheck::Owners => {
             if owners.is_empty() {
                 return Err("Can't tell which app owns this".into());
@@ -2569,7 +2596,7 @@ fn revalidate(
 pub fn apply(
     home: &Path,
     requests: &[Request],
-    running: &[String],
+    running: &mut RunningProvider<'_>,
     trasher: &mut dyn FnMut(&Path) -> Result<(), String>,
 ) -> Result<ApplyResult, String> {
     apply_with(home, requests, running, trasher, &mut |item| {
@@ -2583,7 +2610,7 @@ pub fn apply(
 pub fn apply_with(
     home: &Path,
     requests: &[Request],
-    running: &[String],
+    running: &mut RunningProvider<'_>,
     trasher: &mut dyn FnMut(&Path) -> Result<(), String>,
     lookup: &mut dyn FnMut(&ActivityItem) -> BinLookup,
 ) -> Result<ApplyResult, String> {
@@ -2597,7 +2624,7 @@ pub fn apply_with(
 pub fn apply_run(
     home: &Path,
     requests: &[Request],
-    running: &[String],
+    running: &mut RunningProvider<'_>,
     plan_id: Option<&str>,
     run_id: Option<&str>,
     trasher: &mut dyn FnMut(&Path) -> Result<(), String>,
@@ -2623,7 +2650,7 @@ pub fn apply_run(
 pub fn apply_run_with_rules(
     home: &Path,
     requests: &[Request],
-    running: &[String],
+    running: &mut RunningProvider<'_>,
     extra: &[CleanupRule],
     plan_id: Option<&str>,
     run_id: Option<&str>,
@@ -2653,17 +2680,20 @@ pub fn apply_run_with_rules(
     // anything moved. Read on the existing worker thread, each read time-limited.
     let mut watched: Vec<(DriveKey, String, Option<u64>, bool)> = Vec::new();
 
-    // Programs that start after the caller took `running` are seen for every
-    // later item: each item is judged against `running` plus any process that
-    // was not there when this run began.
-    let baseline: HashSet<String> = running_process_names().into_iter().collect();
+    // The process list is taken again for every item, right before it is
+    // re-checked: a program started during review or mid-run is seen. A list that
+    // cannot be had is unknown liveness, so that item is skipped.
     for request in requests {
-        let mut live: Vec<String> = running.to_vec();
-        live.extend(
-            running_process_names()
-                .into_iter()
-                .filter(|name| !baseline.contains(name)),
-        );
+        let live = match running() {
+            Ok(live) => live,
+            Err(why) => {
+                result.skipped.push(Skipped {
+                    path: request.path.clone(),
+                    reason: format!("Can't tell which programs are running: {why}"),
+                });
+                continue;
+            }
+        };
         let (path, bytes, wanted) = match revalidate(request, &pack, home, &live) {
             Ok(ok) => ok,
             Err(reason) => {
