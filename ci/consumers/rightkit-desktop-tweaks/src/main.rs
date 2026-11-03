@@ -16,5 +16,7 @@ fn main() {
 
 #[cfg(not(windows))]
 fn main() {
-    println!("skip: rightkit-desktop-tweaks exports only Windows modules; nothing to check on this host");
+    println!(
+        "skip: rightkit-desktop-tweaks exports only Windows modules; nothing to check on this host"
+    );
 }

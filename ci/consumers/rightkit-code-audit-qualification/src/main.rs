@@ -37,8 +37,14 @@ fn main() {
         safe_relative_path("qualification/provider-accuracy/index.json"),
         "a plain relative path is safe",
     );
-    check(!safe_relative_path("/etc/passwd"), "an absolute path is refused");
-    check(!safe_relative_path("a/../b"), "a parent-escaping path is refused");
+    check(
+        !safe_relative_path("/etc/passwd"),
+        "an absolute path is refused",
+    );
+    check(
+        !safe_relative_path("a/../b"),
+        "a parent-escaping path is refused",
+    );
     check(!safe_relative_path("a\\b"), "a backslash path is refused");
     check(!safe_relative_path("C:x"), "a drive-style path is refused");
     println!("OK rightkit-code-audit-qualification 0.1.0 (registry consumer)");

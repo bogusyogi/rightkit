@@ -28,7 +28,10 @@ fn main() {
         ptr: ptr::null_mut(),
         len: 0,
     };
-    check(empty.ptr.is_null() && empty.len == 0, "the empty owned-bytes value is null with length 0");
+    check(
+        empty.ptr.is_null() && empty.len == 0,
+        "the empty owned-bytes value is null with length 0",
+    );
     // SAFETY: the value was not returned by the library and is null, which the free accepts as a no-op.
     unsafe { rightkit_dictation_owned_bytes_free(empty) };
     check(true, "freeing the null owned-bytes value is a no-op");
@@ -38,6 +41,9 @@ fn main() {
     check(true, "freeing a null string is a no-op");
 
     check(TOKENS_FILE == "tokens.txt", "the spotter reads tokens.txt");
-    check(ENCODER_FILE.ends_with(".onnx"), "the encoder is an ONNX model file");
+    check(
+        ENCODER_FILE.ends_with(".onnx"),
+        "the encoder is an ONNX model file",
+    );
     println!("OK rightkit-dictation-ffi 0.1.0 (registry consumer)");
 }

@@ -22,9 +22,18 @@ fn check(ok: bool, what: &str) {
 }
 
 fn main() {
-    check(Kind::parse("link") == Some(Kind::Link), "the link kind parses from its name");
-    check(Kind::Image.as_str() == "image", "the image kind serialises as image");
-    check(Kind::parse("video").is_none(), "an unknown kind name is refused");
+    check(
+        Kind::parse("link") == Some(Kind::Link),
+        "the link kind parses from its name",
+    );
+    check(
+        Kind::Image.as_str() == "image",
+        "the image kind serialises as image",
+    );
+    check(
+        Kind::parse("video").is_none(),
+        "an unknown kind name is refused",
+    );
 
     check(
         matches!(detect("just some words"), Detected::Text),
@@ -41,12 +50,21 @@ fn main() {
         matches!(detect("#40C8E0"), Detected::Colour { ref hex } if hex.starts_with('#')),
         "a hex colour is a Colour",
     );
-    check(colour("#40C8E0").is_some(), "colour accepts a six-digit hex value");
-    check(colour("#40C8EZ").is_none(), "colour refuses a non-hex digit");
+    check(
+        colour("#40C8E0").is_some(),
+        "colour accepts a six-digit hex value",
+    );
+    check(
+        colour("#40C8EZ").is_none(),
+        "colour refuses a non-hex digit",
+    );
 
     let doc = json::parse(br#"{"n": 2, "ok": true}"#, 1024);
     check(
-        doc.as_ref().and_then(|v| v.path(&["n"])).and_then(|v| v.as_f64()) == Some(2.0),
+        doc.as_ref()
+            .and_then(|v| v.path(&["n"]))
+            .and_then(|v| v.as_f64())
+            == Some(2.0),
         "json::parse reads a number member",
     );
     check(

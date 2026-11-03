@@ -28,6 +28,9 @@ fn main() {
         DESTRUCTIVE_FLAG == "destructive_remote_actions_enabled",
         "the destructive remote-action flag has its reviewed name",
     );
-    check(!SCHEMA_V13.trim().is_empty(), "schema version 13 is a non-empty script");
+    check(
+        !SCHEMA_V13.trim().is_empty(),
+        "schema version 13 is a non-empty script",
+    );
     println!("OK rightkit-mail-store 0.1.0 (registry consumer)");
 }

@@ -21,12 +21,21 @@ fn check(ok: bool, what: &str) {
 }
 
 fn main() {
-    check(enabled_from_secret(Some("1".to_string())), "marker 1 means enabled");
-    check(!enabled_from_secret(Some("0".to_string())), "marker 0 means disabled");
+    check(
+        enabled_from_secret(Some("1".to_string())),
+        "marker 1 means enabled",
+    );
+    check(
+        !enabled_from_secret(Some("0".to_string())),
+        "marker 0 means disabled",
+    );
     check(!enabled_from_secret(None), "an absent item means disabled");
 
     check(
-        matches!(lock_preference_from_read(Ok(Some("1".to_string()))), LockPreference::Enabled),
+        matches!(
+            lock_preference_from_read(Ok(Some("1".to_string()))),
+            LockPreference::Enabled
+        ),
         "a read of 1 is Enabled",
     );
     let unreadable = lock_preference_from_read(Err("denied".to_string()));
@@ -36,12 +45,18 @@ fn main() {
         "an unreadable preference fails closed as enabled",
     );
 
-    check(AppLockRuntime::locked(None).blocks_db(), "a locked app blocks the database");
+    check(
+        AppLockRuntime::locked(None).blocks_db(),
+        "a locked app blocks the database",
+    );
     check(
         !AppLockRuntime::unlocked().blocks_db(),
         "an unlocked app does not block the database",
     );
-    check(!AppLockRuntime::disabled().blocks_db(), "a disabled lock blocks nothing");
+    check(
+        !AppLockRuntime::disabled().blocks_db(),
+        "a disabled lock blocks nothing",
+    );
     check(
         AppLockRuntime::unavailable(true, "no Hello".to_string()).blocks_db(),
         "an enabled lock with Hello missing blocks the database",

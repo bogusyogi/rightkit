@@ -21,10 +21,16 @@ fn check(ok: bool, what: &str) {
 
 fn main() {
     check(CELL_COUNT == 6, "the notch has six cells");
-    check(Spring::at(10.0).resting_at(10.0), "a spring placed at its target is at rest");
+    check(
+        Spring::at(10.0).resting_at(10.0),
+        "a spring placed at its target is at rest",
+    );
     let mut spring = Spring::at(0.0);
     spring.step(10.0, EMPHASIS, 0.5);
-    check(spring.value > 0.0, "a step toward a higher target moves the spring up");
+    check(
+        spring.value > 0.0,
+        "a step toward a higher target moves the spring up",
+    );
     check(EMPHASIS_SCALE == 1.12, "the hover emphasis scale is 1.12");
     println!("OK rightkit-notch-ui 0.1.0 (registry consumer)");
 }

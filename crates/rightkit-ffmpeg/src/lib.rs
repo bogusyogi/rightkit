@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 // Runner / probe / progress / cancel / loudness modules (media-runner lane). Kept in
 // separate files so the catalog lane's edits to this file stay independent.
+pub mod archive;
 pub mod bundled;
 pub mod command;
 pub mod content_digest;
@@ -26,7 +27,6 @@ pub mod encoders;
 pub mod h264_rule;
 pub mod handle;
 pub mod loudnorm;
-pub mod archive;
 #[cfg(feature = "native")]
 pub mod native;
 pub mod probe;

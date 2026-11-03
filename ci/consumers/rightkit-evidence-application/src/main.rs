@@ -31,7 +31,10 @@ fn main() {
         "truncated inline JSON is refused",
     );
     let host_error = CatalogHostError("catalog offline".to_string());
-    check(host_error.0 == "catalog offline", "CatalogHostError carries its message");
+    check(
+        host_error.0 == "catalog offline",
+        "CatalogHostError carries its message",
+    );
     let _empty = EmptyCatalog;
     check(true, "EmptyCatalog is constructible");
     println!("OK rightkit-evidence-application 0.1.0 (registry consumer)");

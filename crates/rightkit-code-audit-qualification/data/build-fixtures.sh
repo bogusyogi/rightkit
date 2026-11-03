@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016  # the sub/begin_case arguments are literal source text (JS template strings), never expanded
 # Rebuild the audit-bench fixture bundles from scratch.
 #
 #   evals/audit-bench/build-fixtures.sh <work-dir> [out-dir]

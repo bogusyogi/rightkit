@@ -26,7 +26,10 @@ fn check(ok: bool, what: &str) {
 }
 
 fn main() {
-    check(label_for_error("zzz") == "Error", "an unrecognised message is labelled Error");
+    check(
+        label_for_error("zzz") == "Error",
+        "an unrecognised message is labelled Error",
+    );
     check(
         is_explicit_microphone_mute_error("Microphone muted"),
         "an explicit mute message is recognised",

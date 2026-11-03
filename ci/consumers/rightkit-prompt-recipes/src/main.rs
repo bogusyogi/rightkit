@@ -24,8 +24,14 @@ fn main() {
         commands().contains(&"studio.catalog.intents"),
         "commands() lists studio.catalog.intents",
     );
-    check(!catalog::COMMANDS.is_empty(), "the catalogue command table is non-empty");
-    check(catalog::reference_limit() > 0, "a reference limit is a positive count");
+    check(
+        !catalog::COMMANDS.is_empty(),
+        "the catalogue command table is non-empty",
+    );
+    check(
+        catalog::reference_limit() > 0,
+        "a reference limit is a positive count",
+    );
     check(
         catalog::intent_model("no-such-intent-rightkit").is_none(),
         "an unknown intent has no model",

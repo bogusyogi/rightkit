@@ -38,9 +38,8 @@ use rightkit_credentials::handoff::{
     receive_snapshot_delivery, write_message, Limits, Message, SnapshotDelivery,
 };
 use rightkit_license::{
-    system_now_unix, AntiRollbackClock, ClockRefusal, EngineEntitlements,
-    EngineEntitlementsConfig, EngineSnapshotCell, Entitlement, OwnerLedgerReader, ProcessAnchor,
-    TrustedClock,
+    system_now_unix, AntiRollbackClock, ClockRefusal, EngineEntitlements, EngineEntitlementsConfig,
+    EngineSnapshotCell, Entitlement, OwnerLedgerReader, ProcessAnchor, TrustedClock,
 };
 
 /// The app identity RightKit's suite tokens are signed for.
@@ -160,7 +159,12 @@ impl LicenseGate {
             ProcessAnchor::process(now),
         );
         let config = EngineEntitlementsConfig::suite_snapshot(EXPECTED_APP, &cell);
-        Ok(Self::with_config(cell, config, clock, (GRANT_TTL, DENIAL_TTL)))
+        Ok(Self::with_config(
+            cell,
+            config,
+            clock,
+            (GRANT_TTL, DENIAL_TTL),
+        ))
     }
 
     /// The gate over an explicit configuration (the production wiring above, and tests).
@@ -175,7 +179,8 @@ impl LicenseGate {
     {
         // The gate caches; the verifier itself verifies on every call.
         let config = config.with_cache_ttl_secs(0);
-        let verifier = EngineEntitlements::with_clock(config, SharedClock(Arc::new(Mutex::new(clock))));
+        let verifier =
+            EngineEntitlements::with_clock(config, SharedClock(Arc::new(Mutex::new(clock))));
         let verify = move || verifier.require_pro().ok();
         Self {
             cell,
@@ -498,7 +503,10 @@ mod tests {
             wire
         };
         assert_eq!(gate.deliver(&request), Err(DeliveryError::Malformed));
-        assert!(gate.has_feature("routing"), "the held snapshot is untouched");
+        assert!(
+            gate.has_feature("routing"),
+            "the held snapshot is untouched"
+        );
     }
 
     #[test]

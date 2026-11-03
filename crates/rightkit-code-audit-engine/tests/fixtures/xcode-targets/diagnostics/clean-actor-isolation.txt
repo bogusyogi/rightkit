@@ -1,3 +1,0 @@
-Compiling App Isolated.swift
-Compiling App AppMain.swift
-** BUILD SUCCEEDED **

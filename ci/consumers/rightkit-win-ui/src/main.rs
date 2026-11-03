@@ -7,7 +7,9 @@
 #[cfg(windows)]
 fn main() {
     #[allow(unused_imports)]
-    use rightkit_win_ui::{canvas, clock, diag, fileicon, glyphs, process, raii, surface, text_layout};
+    use rightkit_win_ui::{
+        canvas, clock, diag, fileicon, glyphs, process, raii, surface, text_layout,
+    };
     println!("ok: nine Windows modules resolve; none constructed");
     println!("OK rightkit-win-ui 0.1.0 (registry consumer, Windows surface)");
 }

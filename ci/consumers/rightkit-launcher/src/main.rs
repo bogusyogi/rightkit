@@ -20,9 +20,21 @@ fn check(ok: bool, what: &str) {
 }
 
 fn main() {
-    check(evaluate("2+2").as_deref() == Some("4"), "2+2 evaluates to 4");
-    check(evaluate("7").is_none(), "a bare number with no operator is not a calculation");
-    check(format(4.0) == "4", "a whole number is written without a fraction");
-    check(!excerpt("short text", 40).is_empty(), "a short text yields a non-empty excerpt");
+    check(
+        evaluate("2+2").as_deref() == Some("4"),
+        "2+2 evaluates to 4",
+    );
+    check(
+        evaluate("7").is_none(),
+        "a bare number with no operator is not a calculation",
+    );
+    check(
+        format(4.0) == "4",
+        "a whole number is written without a fraction",
+    );
+    check(
+        !excerpt("short text", 40).is_empty(),
+        "a short text yields a non-empty excerpt",
+    );
     println!("OK rightkit-launcher 0.1.0 (registry consumer)");
 }

@@ -6,8 +6,8 @@
 // - substitute_arguments fills $1..$n and $ARGUMENTS and leaves $0 and a bare $ alone;
 // - split_args honours simple quotes (the quoted group is one argument).
 // No I/O, no process spawn, no network. Exits 1 on the first failed check.
-use rightkit_agent_skills::{evaluate_trigger, PathAffinityRouter, TriggerContext};
 use rightkit_agent_skills::custom_commands::{split_args, substitute_arguments};
+use rightkit_agent_skills::{evaluate_trigger, PathAffinityRouter, TriggerContext};
 
 fn check(ok: bool, what: &str) {
     if ok {
@@ -20,17 +20,26 @@ fn check(ok: bool, what: &str) {
 
 fn main() {
     let mut router = PathAffinityRouter::new();
-    check(router.add_rule("**/*.rs", "rust-review").is_ok(), "a glob rule registers");
+    check(
+        router.add_rule("**/*.rs", "rust-review").is_ok(),
+        "a glob rule registers",
+    );
     check(
         router.route("src/main.rs") == vec!["rust-review".to_string()],
         "a Rust path routes to its skill",
     );
-    check(router.route("README.md").is_empty(), "a non-matching path routes nowhere");
+    check(
+        router.route("README.md").is_empty(),
+        "a non-matching path routes nowhere",
+    );
     check(
         router.rules().count() == 1,
         "rules() lists the one registered pair",
     );
-    check(router.add_rule("[", "broken").is_err(), "an unclosed glob class is refused");
+    check(
+        router.add_rule("[", "broken").is_err(),
+        "an unclosed glob class is refused",
+    );
 
     let mut ctx = TriggerContext::new();
     ctx.set("event", "PreToolUse");

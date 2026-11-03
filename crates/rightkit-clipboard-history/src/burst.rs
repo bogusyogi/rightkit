@@ -450,7 +450,9 @@ fn spawn_watcher(state: &mut State) {
 
 /// Where the PNGs of a multi-image paste are written (cleared at the next burst).
 fn burst_dir() -> std::path::PathBuf {
-    std::env::temp_dir().join(crate::host::drag_copy_dir()).join("burst")
+    std::env::temp_dir()
+        .join(crate::host::drag_copy_dir())
+        .join("burst")
 }
 
 /// Puts the items on the clipboard together: one item as it was copied; several as text joined
