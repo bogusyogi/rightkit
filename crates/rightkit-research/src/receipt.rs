@@ -260,30 +260,3 @@ fn report_provider_denominator(report: &ResearchReport) -> u64 {
         .collect::<BTreeSet<_>>()
         .len() as u64
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{BudgetLimits, BudgetUsage};
-
-    #[test]
-    fn clean_report_without_provider_binding_cannot_make_receipt() {
-        let report = ResearchReport {
-            schema_version: 1,
-            report_id: "report-clean-empty".into(),
-            query: "clean report".into(),
-            status: crate::report::ReportStatus::Complete,
-            observations: Vec::new(),
-            source_assertions: Vec::new(),
-            synthesis: Vec::new(),
-            uncertainties: Vec::new(),
-            unknowns: Vec::new(),
-            omissions: Vec::new(),
-        };
-        let budget = BudgetSnapshot {
-            limits: BudgetLimits::default(),
-            usage: BudgetUsage::default(),
-        };
-        assert!(ResearchReceipt::from_report(&report, budget).is_err());
-    }
-}

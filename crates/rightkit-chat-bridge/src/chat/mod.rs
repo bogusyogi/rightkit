@@ -56,9 +56,6 @@ pub mod said;
 pub mod sendlog;
 pub mod store;
 mod tail;
-#[cfg(feature = "harness-vectors")]
-#[doc(hidden)]
-pub mod vectors;
 pub mod whoami;
 
 pub use rightkit_device_link_types::MemberRole;

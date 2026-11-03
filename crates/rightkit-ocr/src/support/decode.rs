@@ -1,17 +1,3 @@
-/// Greedy CTC decoder on a flat logits slice.
-///
-/// `logits`: flat `[T * vocab_size]` in row-major order (T outermost).
-/// `vocab[0]` = blank token '\0'; `vocab[i]` for i>0 = real char.
-#[cfg(test)]
-pub(crate) fn ctc_greedy_decode(
-    logits: &[f32],
-    t_len: usize,
-    vocab_size: usize,
-    vocab: &[char],
-) -> String {
-    ctc_greedy_decode_scored(logits, t_len, vocab_size, vocab).0
-}
-
 /// As [`ctc_greedy_decode`], also returning the mean per-character score (the
 /// winning class value of each emitted step) when the recognizer emits
 /// probabilities in 0..=1 (softmax output). `None` for raw-logit models.

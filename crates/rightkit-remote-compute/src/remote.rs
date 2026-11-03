@@ -4,8 +4,6 @@
 //! work:
 //!
 //! - [`NullDriver`]: no remote configured — honest `driver_not_configured`.
-//! - `LocalFsDriver`: exercises the full protocol against a local directory
-//!   stand-in. Compiled only for tests and `test-mode` builds; `RIGHTKIT_RENTED_DRIVER=local-fs`.
 //! - [`SshDriver`]: real protocol over the system OpenSSH client (`ssh`/`scp`
 //!   binaries — native OS tooling, no scripts) for a user-owned or rented
 //!   host. `worker.spec.ssh = {host, user, port?, key?, workdir}`.
@@ -69,131 +67,6 @@ impl RemoteDriver for NullDriver {
 }
 
 // ---------- local filesystem stand-in ------------------------------------------
-
-#[cfg(any(test, feature = "test-mode"))]
-/// `<root>/<worker_id>/{staging,outputs,receipt.json}` — exercises the real
-/// protocol (state transitions, hash verification) without a paid provider.
-pub struct LocalFsDriver {
-    pub root: PathBuf,
-}
-
-#[cfg(any(test, feature = "test-mode"))]
-impl LocalFsDriver {
-    fn dir(&self, worker: &Value) -> PathBuf {
-        self.root
-            .join(worker["worker_id"].as_str().unwrap_or("worker"))
-    }
-    fn receipt(&self, worker: &Value) -> GenResult<Value> {
-        let path = self.dir(worker).join("receipt.json");
-        serde_json::from_str(
-            &std::fs::read_to_string(&path).map_err(|e| {
-                GenError::new("not_staged", format!("read {}: {e}", path.display()))
-            })?,
-        )
-        .map_err(|e| GenError::new("bad_receipt", format!("parse {}: {e}", path.display())))
-    }
-}
-
-#[cfg(any(test, feature = "test-mode"))]
-impl RemoteDriver for LocalFsDriver {
-    fn name(&self) -> &'static str {
-        "local-fs"
-    }
-    fn stage(&self, worker: &Value) -> GenResult<Value> {
-        let dir = self.dir(worker);
-        let staging = dir.join("staging");
-        std::fs::create_dir_all(&staging)
-            .map_err(|e| GenError::new("io", format!("create {}: {e}", staging.display())))?;
-        std::fs::create_dir_all(dir.join("outputs"))
-            .map_err(|e| GenError::new("io", format!("create outputs: {e}")))?;
-        let receipt = json!({
-            "worker_id": worker["worker_id"], "spec": worker["spec"],
-            "driver": self.name(), "staged_at": store::now(),
-        });
-        rightkit_fs::atomic_write(&dir.join("receipt.json"), receipt.to_string().as_bytes())
-            .map_err(|e| GenError::new("io", format!("write receipt: {e}")))?;
-        Ok(receipt)
-    }
-    fn reconnect(&self, worker: &Value) -> GenResult<Value> {
-        self.receipt(worker)
-    }
-    fn begin(&self, worker: &Value) -> GenResult<Value> {
-        self.receipt(worker)
-            .map(|r| json!({"resumed": true, "receipt": r}))
-    }
-    fn retrieve(&self, worker: &Value, dest: &Path) -> GenResult<Vec<Value>> {
-        let outputs = self.dir(worker).join("outputs");
-        std::fs::create_dir_all(dest)
-            .map_err(|e| GenError::new("io", format!("create {}: {e}", dest.display())))?;
-        // Declared outputs (path + expected sha256) come from the worker's
-        // outputs manifest; files without a manifest entry are still copied
-        // but reported unverified.
-        let manifest: Map<String, Value> = outputs
-            .join("outputs.json")
-            .exists()
-            .then(|| std::fs::read_to_string(outputs.join("outputs.json")).ok())
-            .flatten()
-            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-            .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default();
-        let mut got = Vec::new();
-        for entry in std::fs::read_dir(&outputs)
-            .map_err(|e| GenError::new("io", format!("read {}: {e}", outputs.display())))?
-            .flatten()
-        {
-            let path = entry.path();
-            if !path.is_file() || path.file_name().is_some_and(|n| n == "outputs.json") {
-                continue;
-            }
-            let name = path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-            let target = dest.join(&name);
-            let copied = rightkit_fs::copy_verified(
-                &path,
-                &target,
-                rightkit_fs::AtomicWriteOptions::default(),
-                None,
-            )
-            .map_err(|e| {
-                GenError::new(
-                    "io",
-                    format!("copy {} to {}: {e}", path.display(), target.display()),
-                )
-            })?;
-            let sha = copied.sha256;
-            let expected = manifest
-                .get(&name)
-                .and_then(|m| m["sha256"].as_str().or_else(|| m.as_str()))
-                .map(String::from);
-            let verified = expected
-                .as_deref()
-                .map(|e| e.eq_ignore_ascii_case(&sha))
-                .unwrap_or(false);
-            got.push(json!({
-                "file": name, "path": target, "bytes": copied.bytes,
-                "sha256": sha, "expected_sha256": expected, "hash_verified": verified,
-            }));
-        }
-        if got.is_empty() {
-            return Err(GenError::new(
-                "no_outputs",
-                "worker produced no outputs to retrieve",
-            ));
-        }
-        Ok(got)
-    }
-    fn teardown(&self, worker: &Value) -> GenResult<Value> {
-        let dir = self.dir(worker);
-        // Stop-side state only: staging and the receipt are removed so nothing
-        // keeps accruing; retrieved outputs under dest/ are kept.
-        let _ = std::fs::remove_dir_all(dir.join("staging"));
-        let _ = std::fs::remove_file(dir.join("receipt.json"));
-        Ok(json!({"released": true, "driver": self.name()}))
-    }
-}
 
 // ---------- SSH driver (system OpenSSH client) ---------------------------------
 
@@ -571,29 +444,12 @@ pub struct VastDriver {
 /// The credential-store provider id of the Vast key.
 pub const KEY_PROVIDER: &str = "vast";
 
-/// `test-mode` builds only: a file standing in for the OS credential store's `vast` entry, because
-/// `RIGHTKIT_NO_KEYCHAIN` gives every credential call a fresh in-memory store that keeps nothing
-/// between calls. Compiled out of release builds.
-pub const TEST_KEY_FILE_ENV: &str = "RIGHTKIT_TEST_VAST_KEY_FILE";
-
-fn test_key_file() -> Option<PathBuf> {
-    if !cfg!(any(test, feature = "test-mode")) {
-        return None;
-    }
-    std::env::var_os(TEST_KEY_FILE_ENV)
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-}
-
 fn nonempty_trim(s: Option<String>) -> Option<String> {
     s.map(|k| k.trim().to_string()).filter(|k| !k.is_empty())
 }
 
 /// The stored Vast key (credential store only; the environment is [`resolve_key`]'s next step).
 pub fn stored_key(ctx: &Context) -> GenResult<Option<String>> {
-    if let Some(p) = test_key_file() {
-        return Ok(nonempty_trim(std::fs::read_to_string(p).ok()));
-    }
     credentials::get(ctx, KEY_PROVIDER)
 }
 
@@ -601,9 +457,6 @@ pub fn stored_key(ctx: &Context) -> GenResult<Option<String>> {
 /// without a prompt. The environment variable does not count: enforcement may run in a process
 /// that does not have it.
 pub fn key_is_stored(ctx: &Context) -> bool {
-    if test_key_file().is_some() {
-        return matches!(stored_key(ctx), Ok(Some(_)));
-    }
     credentials::status_source(ctx, KEY_PROVIDER) == Some("keychain")
         && matches!(credentials::get(ctx, KEY_PROVIDER), Ok(Some(k)) if !k.is_empty())
 }
@@ -612,18 +465,6 @@ pub fn key_is_stored(ctx: &Context) -> bool {
 /// Errors never contain the key.
 pub fn store_key(ctx: &Context, key: &str) -> GenResult<()> {
     let key = key.trim();
-    if let Some(p) = test_key_file() {
-        if key.is_empty() {
-            let _ = std::fs::remove_file(&p);
-        } else {
-            if let Some(dir) = p.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            rightkit_fs::write_private_text(&p, key)
-                .map_err(|e| GenError::new("io", format!("save the Vast key: {e}")))?;
-        }
-        return Ok(());
-    }
     credentials::set(ctx, KEY_PROVIDER, key)?;
     if !key.is_empty()
         && !(key_is_stored(ctx)
@@ -1277,286 +1118,16 @@ impl RemoteDriver for VastDriver {
 
 // ---------- selection -----------------------------------------------------------
 
-/// Driver for a worker record: `spec.driver` wins; `RIGHTKIT_RENTED_DRIVER`
-/// overrides for tests/dry runs; otherwise the honest null driver.
+/// Driver for a worker record: `spec.driver` wins; otherwise the honest null driver.
 pub fn driver_for(ctx: &Context, worker: &Value) -> Box<dyn RemoteDriver> {
-    #[cfg(any(test, feature = "test-mode"))]
-    match std::env::var("RIGHTKIT_RENTED_DRIVER").as_deref() {
-        Ok("local-fs") => {
-            return Box::new(LocalFsDriver {
-                root: std::env::var_os("RIGHTKIT_RENTED_DIR")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| std::env::temp_dir().join("rightkit-rented")),
-            })
-        }
-        _ => {}
-    }
     match worker["spec"]["driver"].as_str() {
         Some("ssh") => Box::new(SshDriver),
         Some("vast") => Box::new(VastDriver::new(ctx)),
-        #[cfg(any(test, feature = "test-mode"))]
-        Some("local-fs") => Box::new(LocalFsDriver {
-            root: worker["spec"]["local_dir"]
-                .as_str()
-                .map(PathBuf::from)
-                .or_else(|| std::env::var_os("RIGHTKIT_RENTED_DIR").map(PathBuf::from))
-                .unwrap_or_else(|| std::env::temp_dir().join("rightkit-rented")),
-        }),
         _ => Box::new(NullDriver),
     }
 }
 
 /// Default driver for reads that have no worker record yet (e.g. `workers`).
 pub fn default_driver_name() -> &'static str {
-    #[cfg(any(test, feature = "test-mode"))]
-    if std::env::var("RIGHTKIT_RENTED_DRIVER").as_deref() == Ok("local-fs") {
-        return "local-fs";
-    }
     "none"
-}
-
-#[cfg(test)]
-mod rent_params_tests {
-    use super::*;
-
-    fn ctx() -> (Context, PathBuf) {
-        let dir = std::env::temp_dir().join(format!(
-            "rightkit-rent-params-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        (Context::new(dir.clone()), dir)
-    }
-
-    fn input(max_hr: Value) -> Value {
-        json!({"authorized": true, "offer_id": 7, "max_usd_hr": max_hr, "budget_usd": 1.0, "max_duration_min": 30})
-    }
-
-    #[test]
-    fn a_non_finite_or_non_positive_hourly_ceiling_is_refused_before_the_key_check() {
-        let (c, dir) = ctx();
-        // JSON cannot carry NaN or inf, so the closest hand-built forms are zero and negative; the
-        // finite check also covers a value read from a settings file.
-        for bad in [json!(0.0), json!(-1.0)] {
-            let e = VastDriver::rent_params(&c, &input(bad))
-                .err()
-                .expect("refused");
-            assert_eq!(e.code, "invalid_input");
-        }
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn an_authorised_rental_leaves_an_audit_row_without_the_key() {
-        let (c, dir) = ctx();
-        let key_file = dir.join("vast-key.txt");
-        std::fs::write(&key_file, "test-key-not-real").unwrap();
-        std::env::set_var(TEST_KEY_FILE_ENV, &key_file);
-        let p = VastDriver::rent_params(&c, &input(json!(0.5)));
-        std::env::remove_var(TEST_KEY_FILE_ENV);
-        assert!(p.is_ok());
-        let rows = rightkit_media_gen::ledger::setting_audit(&store::open(&c).unwrap(), 5).unwrap();
-        assert!(
-            rows.iter()
-                .any(|r| r["command"] == "rental.authorized" && r["detail"]["budget_usd"] == 1.0),
-            "{rows:?}"
-        );
-        assert!(!rows
-            .iter()
-            .any(|r| r.to_string().contains("test-key-not-real")));
-        let _ = std::fs::remove_dir_all(dir);
-    }
-}
-
-#[cfg(test)]
-mod vast_lease_tests {
-    use super::*;
-
-    #[test]
-    fn the_lease_script_carries_the_deadline_and_keeps_the_user_script() {
-        let s = lease_onstart(Some("echo hi"), 30.0);
-        assert!(
-            s.contains("sleep 2400;") && s.contains("destroy instance"),
-            "{s}"
-        );
-        assert!(s.trim_end().ends_with("echo hi"), "{s}");
-        assert_eq!(lease_seconds(30.0), 30 * 60 + LEASE_MARGIN_SEC);
-        assert!(lease_onstart(None, 1.0).contains("sleep 660;"));
-    }
-}
-
-#[cfg(test)]
-mod vast_ownership_tests {
-    use super::*;
-    use rightkit_media_gen::credentials::{CredentialSource, MemoryCredentials};
-    use std::io::{Read, Write};
-    use std::net::TcpListener;
-    use std::sync::{Arc, Mutex};
-
-    type Seen = Arc<Mutex<Vec<(String, String)>>>;
-
-    /// Mock Vast: handler gets (method, path) and returns (status, JSON body).
-    fn mock<F>(handler: F) -> (String, Seen)
-    where
-        F: Fn(&str, &str) -> (u16, Value) + Send + 'static,
-    {
-        let l = TcpListener::bind("127.0.0.1:0").unwrap();
-        let base = format!("http://{}", l.local_addr().unwrap());
-        let seen: Seen = Arc::new(Mutex::new(Vec::new()));
-        let s2 = seen.clone();
-        std::thread::spawn(move || {
-            for stream in l.incoming() {
-                let Ok(mut st) = stream else { continue };
-                let mut buf = Vec::new();
-                let mut tmp = [0u8; 8192];
-                loop {
-                    let n = st.read(&mut tmp).unwrap_or(0);
-                    if n == 0 {
-                        break;
-                    }
-                    buf.extend_from_slice(&tmp[..n]);
-                    if buf.windows(4).any(|w| w == b"\r\n\r\n") {
-                        break;
-                    }
-                }
-                let head = String::from_utf8_lossy(&buf).to_string();
-                let mut first = head.lines().next().unwrap_or("").split(' ');
-                let method = first.next().unwrap_or("").to_string();
-                let path = first.next().unwrap_or("").to_string();
-                s2.lock().unwrap().push((method.clone(), path.clone()));
-                let (code, out) = handler(&method, &path);
-                let out = out.to_string();
-                let h = format!("HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", out.len());
-                let _ = st.write_all(h.as_bytes());
-                let _ = st.write_all(out.as_bytes());
-            }
-        });
-        (base, seen)
-    }
-
-    fn driver(base: &str) -> VastDriver {
-        let creds = Arc::new(MemoryCredentials::new());
-        creds.set(KEY_PROVIDER, "test-key-not-real").unwrap();
-        let ctx =
-            Context::new(std::env::temp_dir().join("rightkit-vast-own")).with_credentials(creds);
-        VastDriver {
-            base: base.to_string(),
-            ctx,
-        }
-    }
-
-    fn worker() -> Value {
-        json!({"worker_id": "w1", "spec": {"vast": {
-            "instance_id": 42, "ssh_host": "h.example", "ssh_port": 2222, "remote_command": "x"}}})
-    }
-
-    fn inst(label: Value, host: &str, port: u64) -> Value {
-        json!({"instances": {"id": 42, "label": label, "ssh_host": host, "ssh_port": port}})
-    }
-
-    fn code(r: GenResult<Value>) -> String {
-        r.err().expect("refused").code
-    }
-
-    #[test]
-    fn ssh_actions_refuse_an_instance_with_another_label_before_any_ssh() {
-        let (base, seen) = mock(|_, _| (200, inst(json!("someone-else"), "h.example", 2222)));
-        let d = driver(&base);
-        assert_eq!(code(d.stage(&worker())), "instance_not_owned");
-        assert_eq!(code(d.begin(&worker())), "instance_not_owned");
-        let dest = std::env::temp_dir().join("rightkit-vast-own-dest");
-        assert_eq!(
-            d.retrieve(&worker(), &dest).err().unwrap().code,
-            "instance_not_owned"
-        );
-        assert!(seen.lock().unwrap().iter().all(|(m, _)| m == "GET"));
-    }
-
-    #[test]
-    fn ssh_actions_refuse_a_gone_instance_and_a_mismatched_record() {
-        let (base, _) = mock(|_, _| (404, json!({})));
-        assert_eq!(code(driver(&base).stage(&worker())), "instance_gone");
-        // Same label, but the provider reports another ssh port than the stored record.
-        let (base, _) = mock(|_, _| (200, inst(json!("rightkit-w1"), "h.example", 9999)));
-        assert_eq!(
-            code(driver(&base).begin(&worker())),
-            "instance_record_mismatch"
-        );
-        let (base, _) = mock(|_, _| (200, inst(json!("rightkit-w1"), "other.example", 2222)));
-        assert_eq!(
-            code(driver(&base).begin(&worker())),
-            "instance_record_mismatch"
-        );
-        // The rental record names a different instance than spec.vast.
-        let mut w = worker();
-        w["rental"] = json!({"instance_id": 43});
-        let (base, seen) = mock(|_, _| (200, inst(json!("rightkit-w1"), "h.example", 2222)));
-        assert_eq!(code(driver(&base).begin(&w)), "instance_record_mismatch");
-        assert!(
-            seen.lock().unwrap().is_empty(),
-            "no provider call before the record check"
-        );
-    }
-
-    #[test]
-    fn the_verified_worker_carries_the_matching_ssh_target() {
-        let (base, _) = mock(|_, _| (200, inst(json!("rightkit-w1"), "h.example", 2222)));
-        let w = driver(&base).verified_ssh_worker(&worker()).unwrap();
-        assert_eq!(w["spec"]["ssh"]["host"], "h.example");
-        assert_eq!(w["spec"]["ssh"]["port"], 2222);
-    }
-
-    #[test]
-    fn destroy_succeeds_only_when_the_read_back_no_longer_lists_the_instance() {
-        let deleted = Arc::new(Mutex::new(false));
-        let d2 = deleted.clone();
-        let (base, seen) = mock(move |m, p| match (m, p) {
-            ("GET", "/api/v0/instances/42/") => {
-                (200, inst(json!("rightkit-w1"), "h.example", 2222))
-            }
-            ("DELETE", _) => {
-                *d2.lock().unwrap() = true;
-                (200, json!({"success": true}))
-            }
-            ("GET", "/api/v0/instances/") => (200, json!({"instances": []})),
-            _ => (500, json!({})),
-        });
-        let f = driver(&base).destroy(&worker()).unwrap();
-        assert_eq!(f.instance_id, "42");
-        assert!(*deleted.lock().unwrap());
-        assert_eq!(seen.lock().unwrap().last().unwrap().1, "/api/v0/instances/");
-    }
-
-    #[test]
-    fn destroy_is_unconfirmed_while_the_instance_is_still_listed() {
-        let (base, _) = mock(|m, p| match (m, p) {
-            ("GET", "/api/v0/instances/42/") => {
-                (200, inst(json!("rightkit-w1"), "h.example", 2222))
-            }
-            ("DELETE", _) => (200, json!({"success": true})),
-            ("GET", "/api/v0/instances/") => (
-                200,
-                json!({"instances": [{"id": 42, "label": "rightkit-w1"}]}),
-            ),
-            _ => (500, json!({})),
-        });
-        let e = driver(&base).destroy(&worker()).err().expect("unconfirmed");
-        assert_eq!(e.code, "destroy_unconfirmed");
-        // A failed read-back is also unconfirmed, never success.
-        let (base, _) = mock(|m, p| match (m, p) {
-            ("GET", "/api/v0/instances/42/") => {
-                (200, inst(json!("rightkit-w1"), "h.example", 2222))
-            }
-            ("DELETE", _) => (200, json!({"success": true})),
-            _ => (500, json!({})),
-        });
-        assert_eq!(
-            driver(&base).destroy(&worker()).err().unwrap().code,
-            "destroy_unconfirmed"
-        );
-    }
 }

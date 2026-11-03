@@ -22,18 +22,3 @@ pub fn live_route_health() -> HashMap<String, HealthState> {
         .map(|row| (row.route, row.state))
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn live_route_health_reads_the_rightkit_registry() {
-        let route = "rightkit-agent-health-test-route";
-        crate::health::record_failure(route);
-        crate::health::record_failure(route);
-        assert_eq!(live_route_health().get(route), Some(&HealthState::Degraded));
-        crate::health::record_success(route);
-        assert_eq!(live_route_health().get(route), Some(&HealthState::Healthy));
-    }
-}

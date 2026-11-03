@@ -20,13 +20,13 @@ pub struct ProviderInfo {
 
 /// A provider's API-key env-var name. Only builds that read keys from the environment
 /// (`host-env`, tests) carry it; the mobile build takes keys from the app and stores none.
-#[cfg(any(test, feature = "agent_providers-host-env"))]
+#[cfg(feature = "agent_providers-host-env")]
 macro_rules! key_env {
     ($name:literal) => {
         $name
     };
 }
-#[cfg(not(any(test, feature = "agent_providers-host-env")))]
+#[cfg(not(feature = "agent_providers-host-env"))]
 macro_rules! key_env {
     ($name:literal) => {
         ""
@@ -152,98 +152,4 @@ pub fn token_plan_provider_for_base_url(base_url: &str) -> Option<&'static str> 
             .eq_ignore_ascii_case(provider.base_url.trim_end_matches('/'))
             .then_some(provider.id)
     })
-}
-
-#[cfg(test)]
-mod provider_catalog_tests {
-    use super::{find_provider, is_subscription_billed_route, provider_model_id, PROVIDERS};
-
-    #[test]
-    fn known_provider_catalog_includes_setup_metadata() {
-        for p in PROVIDERS {
-            assert!(
-                !p.display_name.is_empty(),
-                "provider '{}' missing display_name",
-                p.id
-            );
-            // custom has no env var or default model; skip those checks
-            if p.id != "custom" {
-                assert!(
-                    !p.api_key_env.is_empty(),
-                    "provider '{}' missing api_key_env",
-                    p.id
-                );
-                assert!(
-                    !p.setup_hint.is_empty(),
-                    "provider '{}' missing setup_hint",
-                    p.id
-                );
-                assert!(
-                    !p.default_model.is_empty(),
-                    "provider '{}' missing default_model",
-                    p.id
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn find_provider_locates_known_ids() {
-        for expected in [
-            "openai",
-            "commandcode",
-            "opencode-go",
-            "opencode",
-            "openrouter",
-            "minimax",
-            "custom",
-        ] {
-            assert!(
-                find_provider(expected).is_some(),
-                "find_provider missing '{expected}'"
-            );
-        }
-    }
-
-    #[test]
-    fn minimax_openai_route_uses_native_model_name() {
-        assert_eq!(
-            provider_model_id("minimax", "minimax/minimax-m3"),
-            "MiniMax-M3"
-        );
-        assert_eq!(
-            provider_model_id("openrouter", "minimax/minimax-m3"),
-            "minimax/minimax-m3"
-        );
-    }
-
-    #[test]
-    fn minimax_provider_declares_its_subscription_key_environment() {
-        let minimax = find_provider("minimax").expect("minimax provider must be in catalog");
-        assert_eq!(minimax.api_key_env, "MINIMAX_API_KEY");
-    }
-
-    #[test]
-    fn only_direct_minimax_route_is_subscription_billed() {
-        assert!(is_subscription_billed_route("https://api.minimax.io/v1/"));
-        assert!(!is_subscription_billed_route(
-            "https://openrouter.ai/api/v1"
-        ));
-    }
-
-    #[test]
-    fn custom_provider_entry_is_in_catalog() {
-        let custom = find_provider("custom").expect("custom provider must be in catalog");
-        assert_eq!(custom.display_name, "Custom (OpenAI-compatible)");
-    }
-
-    #[test]
-    fn non_openrouter_hosted_ids_are_not_active_catalog_entries() {
-        for removed in ["legacy-hosted", "fast-hosted"] {
-            assert!(
-                find_provider(removed).is_none(),
-                "{removed} should not be active"
-            );
-        }
-    }
 }

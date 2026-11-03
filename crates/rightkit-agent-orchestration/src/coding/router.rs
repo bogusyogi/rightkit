@@ -403,8 +403,3 @@ fn display_duration(task: &TaskNode) -> &str {
         task.estimated_duration.as_str()
     }
 }
-
-#[cfg(test)]
-#[cfg(test)]
-#[path = "router_tests.rs"]
-mod router_tests;

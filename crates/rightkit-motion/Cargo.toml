@@ -11,7 +11,7 @@ homepage = "https://github.com/bogusyogi/rightkit/tree/main/crates/rightkit-moti
 documentation = "https://docs.rs/rightkit-motion"
 keywords = ["motion", "animation", "captions", "storyboard"]
 categories = ["multimedia::video", "data-structures"]
-include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_motion"
@@ -43,13 +43,6 @@ thiserror = "2"
 rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, optional = true }
 image = { version = "0.25", default-features = false, features = ["png"], optional = true }
 rightkit-http = { version = "0.3.9", path = "../rightkit-http", default-features = false, optional = true }
-
-[dev-dependencies]
-tempfile = "3"
-
-[[test]]
-name = "encode_e2e"
-required-features = ["encode"]
 
 [package.metadata.rightkit]
 continuous = false

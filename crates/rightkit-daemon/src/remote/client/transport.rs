@@ -4,10 +4,6 @@
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
-use std::sync::Arc;
-use std::time::Duration;
-
-use rustls::pki_types::ServerName;
 
 use super::error::Error;
 

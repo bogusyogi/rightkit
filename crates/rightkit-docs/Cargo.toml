@@ -11,7 +11,6 @@ keywords = ["docx", "xlsx", "pdf", "office", "document"]
 categories = ["parser-implementations", "filesystem"]
 include = [
   "src/**",
-  "tests/**",
   "data/**",
   "BAKEOFF.md",
   "Cargo.toml",
@@ -46,11 +45,6 @@ quick-xml = "0.42.0"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
 sha2 = "0.11.1"
-
-[dev-dependencies]
-serde_json = "1.0.154"
-# Fault seam around the replace call (debug and test builds only).
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }
 
 [package.metadata.rightkit]
 continuous = false

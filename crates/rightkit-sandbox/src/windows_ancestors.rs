@@ -1023,16 +1023,6 @@ impl AncestorLease {
         )
     }
 
-    #[cfg(test)]
-    fn acquire_chain(
-        chain: &[PathBuf],
-        sid_text: &str,
-        owned: &[String],
-        editor: &DaclEditor<'_>,
-    ) -> Result<Self, SandboxError> {
-        Self::acquire_chain_with(chain, sid_text, owned, editor, AncestorLeasePolicy::Strict)
-    }
-
     fn record_unleasable(
         &mut self,
         path: &Path,
@@ -1186,7 +1176,3 @@ impl Drop for AncestorLease {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "windows_ancestor_tests.rs"]
-mod tests;

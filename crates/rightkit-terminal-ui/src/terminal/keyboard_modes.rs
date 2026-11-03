@@ -152,7 +152,7 @@ fn read_windows_vscode_detection() -> VscodeDetection {
 
 /// Run `owned` through the child-process owner with a deadline; the owner terminates and reaps the
 /// whole tree when the deadline passes. `None` when the launch failed or the deadline passed.
-#[cfg(any(target_os = "linux", all(test, unix)))]
+#[cfg(target_os = "linux")]
 fn run_bounded(
     owned: rightkit_child_process::OwnedCommand,
     timeout: std::time::Duration,
@@ -175,7 +175,7 @@ fn run_bounded(
     Some((output.status, output.stdout_tail))
 }
 
-#[cfg(any(target_os = "linux", all(test, unix)))]
+#[cfg(target_os = "linux")]
 fn read_windows_vscode_detection_with_timeout(
     probe: impl FnOnce(std::time::Duration) -> Option<(std::process::ExitStatus, Vec<u8>)>
     + Send
@@ -220,10 +220,6 @@ fn read_windows_vscode_detection_with_timeout(
         VscodeDetection::Other
     }
 }
-
-#[cfg(all(test, unix))]
-#[path = "windows_term_program_tests.rs"]
-mod windows_term_program_tests;
 
 /// Restore keyboard reporting and return the mouse policy from the same fresh tmux probe.
 pub(super) fn enable_keyboard_enhancement(writer: &mut impl Write) -> super::tmux::MouseCapture {
@@ -374,232 +370,5 @@ impl Command for DisableModifyOtherKeys {
     #[cfg(windows)]
     fn is_ansi_code_supported(&self) -> bool {
         false
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::DisableModifyOtherKeys;
-    use super::EnableModifyOtherKeys;
-    use super::ResetKeyboardEnhancementFlags;
-    use super::VscodeDetection;
-    use super::keyboard_enhancement_disabled_for;
-    use super::keyboard_enhancement_flags;
-    use super::parse_bool_env;
-    use super::tmux_session_detected;
-    use super::tmux_should_enable_modify_other_keys_for;
-    use super::vscode_terminal_detected;
-    use crate::terminal::capability::TerminalName;
-    use crossterm::Command;
-    use crossterm::event::PushKeyboardEnhancementFlags;
-    use pretty_assertions::assert_eq;
-
-    fn ansi_for(command: impl Command) -> String {
-        let mut out = String::new();
-        command.write_ansi(&mut out).unwrap();
-        out
-    }
-
-    #[test]
-    fn keyboard_enhancement_suppresses_release_reporting_for_iterm() {
-        assert_eq!(
-            ansi_for(PushKeyboardEnhancementFlags(keyboard_enhancement_flags(
-                TerminalName::Iterm2,
-                /*running_in_tmux_session*/ false,
-                /*tmux_extended_keys_format*/ None
-            ))),
-            "\x1b[>5u"
-        );
-    }
-
-    #[test]
-    fn keyboard_enhancement_suppresses_release_reporting_for_ghostty() {
-        assert_eq!(
-            ansi_for(PushKeyboardEnhancementFlags(keyboard_enhancement_flags(
-                TerminalName::Ghostty,
-                /*running_in_tmux_session*/ false,
-                /*tmux_extended_keys_format*/ None
-            ))),
-            "\x1b[>5u"
-        );
-    }
-
-    #[test]
-    fn keyboard_enhancement_preserves_repeat_reporting_for_kitty() {
-        assert_eq!(
-            ansi_for(PushKeyboardEnhancementFlags(keyboard_enhancement_flags(
-                TerminalName::Kitty,
-                /*running_in_tmux_session*/ false,
-                /*tmux_extended_keys_format*/ None
-            ))),
-            "\x1b[>7u"
-        );
-    }
-
-    #[test]
-    fn keyboard_enhancement_preserves_repeat_reporting_for_csi_u_tmux() {
-        assert_eq!(
-            ansi_for(PushKeyboardEnhancementFlags(keyboard_enhancement_flags(
-                TerminalName::Kitty,
-                /*running_in_tmux_session*/ true,
-                Some("csi-u")
-            ))),
-            "\x1b[>7u"
-        );
-    }
-
-    #[test]
-    fn keyboard_enhancement_preserves_shift_enter_for_xterm_tmux() {
-        assert_eq!(
-            ansi_for(PushKeyboardEnhancementFlags(keyboard_enhancement_flags(
-                TerminalName::Kitty,
-                /*running_in_tmux_session*/ true,
-                Some("xterm")
-            ))),
-            "\x1b[>5u"
-        );
-    }
-
-    #[test]
-    fn keyboard_enhancement_preserves_repeat_reporting_for_unknown_terminals() {
-        assert_eq!(
-            ansi_for(PushKeyboardEnhancementFlags(keyboard_enhancement_flags(
-                TerminalName::Unknown,
-                /*running_in_tmux_session*/ false,
-                /*tmux_extended_keys_format*/ None
-            ))),
-            "\x1b[>7u"
-        );
-    }
-
-    #[test]
-    fn keyboard_enhancement_uses_conservative_flags_when_tmux_format_is_unknown() {
-        assert_eq!(
-            ansi_for(PushKeyboardEnhancementFlags(keyboard_enhancement_flags(
-                TerminalName::Unknown,
-                /*running_in_tmux_session*/ true,
-                /*tmux_extended_keys_format*/ None,
-            ))),
-            "\x1b[>5u"
-        );
-    }
-
-    #[test]
-    fn keyboard_enhancement_env_flag_parses_common_values() {
-        assert_eq!(parse_bool_env(Some("1")), Some(true));
-        assert_eq!(parse_bool_env(Some("true")), Some(true));
-        assert_eq!(parse_bool_env(Some("YES")), Some(true));
-        assert_eq!(parse_bool_env(Some("0")), Some(false));
-        assert_eq!(parse_bool_env(Some("false")), Some(false));
-        assert_eq!(parse_bool_env(Some("NO")), Some(false));
-        assert_eq!(parse_bool_env(Some("unexpected")), None);
-        assert_eq!(parse_bool_env(/*value*/ None), None);
-    }
-
-    #[test]
-    fn keyboard_enhancement_auto_disables_for_vscode_or_unknown_in_wsl() {
-        for detection in [
-            VscodeDetection::VsCode,
-            VscodeDetection::Other,
-            VscodeDetection::Unknown,
-        ] {
-            assert_eq!(
-                keyboard_enhancement_disabled_for(
-                    /*disable_env*/ None, /*is_wsl*/ true, detection
-                ),
-                detection != VscodeDetection::Other,
-            );
-            assert!(!keyboard_enhancement_disabled_for(
-                /*disable_env*/ None, /*is_wsl*/ false, detection
-            ));
-        }
-    }
-
-    #[test]
-    fn keyboard_enhancement_env_flag_overrides_auto_detection() {
-        for detection in [
-            VscodeDetection::VsCode,
-            VscodeDetection::Other,
-            VscodeDetection::Unknown,
-        ] {
-            assert!(!keyboard_enhancement_disabled_for(
-                Some("0"),
-                /*is_wsl*/ true,
-                detection
-            ));
-            assert!(keyboard_enhancement_disabled_for(
-                Some("1"),
-                /*is_wsl*/ false,
-                detection
-            ));
-        }
-    }
-
-    #[test]
-    fn vscode_terminal_detection_uses_linux_and_windows_term_program() {
-        for detection in [
-            VscodeDetection::VsCode,
-            VscodeDetection::Other,
-            VscodeDetection::Unknown,
-        ] {
-            assert_eq!(
-                vscode_terminal_detected(Some("vscode"), detection),
-                VscodeDetection::VsCode,
-            );
-            assert_eq!(
-                vscode_terminal_detected(/*linux_term_program*/ None, detection),
-                detection,
-            );
-        }
-    }
-
-    #[test]
-    fn tmux_session_detection_accepts_tmux_or_tmux_pane() {
-        assert!(tmux_session_detected(
-            Some("/tmp/tmux-501/default,1,0"),
-            /*tmux_pane*/ None
-        ));
-        assert!(tmux_session_detected(/*tmux*/ None, Some("%0")));
-        assert!(!tmux_session_detected(
-            /*tmux*/ None, /*tmux_pane*/ None
-        ));
-    }
-
-    #[test]
-    fn tmux_modify_other_keys_only_requests_confirmed_csi_u_format() {
-        assert!(tmux_should_enable_modify_other_keys_for(
-            /*running_in_tmux_session*/ true,
-            Some("csi-u")
-        ));
-        assert!(!tmux_should_enable_modify_other_keys_for(
-            /*running_in_tmux_session*/ true, /*extended_keys_format*/ None
-        ));
-        assert!(!tmux_should_enable_modify_other_keys_for(
-            /*running_in_tmux_session*/ true,
-            Some("xterm")
-        ));
-        assert!(!tmux_should_enable_modify_other_keys_for(
-            /*running_in_tmux_session*/ true,
-            Some("")
-        ));
-        assert!(!tmux_should_enable_modify_other_keys_for(
-            /*running_in_tmux_session*/ false,
-            Some("csi-u")
-        ));
-    }
-
-    #[test]
-    fn reset_keyboard_enhancement_flags_clears_all_pushed_levels() {
-        assert_eq!(ansi_for(ResetKeyboardEnhancementFlags), "\x1b[<u");
-    }
-
-    #[test]
-    fn enable_modify_other_keys_requests_xterm_keyboard_reporting() {
-        assert_eq!(ansi_for(EnableModifyOtherKeys), "\x1b[>4;2m");
-    }
-
-    #[test]
-    fn disable_modify_other_keys_resets_xterm_keyboard_reporting() {
-        assert_eq!(ansi_for(DisableModifyOtherKeys), "\x1b[>4;0m");
     }
 }

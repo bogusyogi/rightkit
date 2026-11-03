@@ -7,19 +7,15 @@ description = "Generative media providers (fal, WaveSpeed, Veo/Gemini, OpenAI Im
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "data/**", "fixtures/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_media_gen"
 path = "src/lib.rs"
 
 [features]
-# `credentials::MemoryCredentials` for dependents' tests (dev-dependency use only); no release dependency tree carries it.
-memory-backend = ["rightkit-credentials/memory-backend"]
 # Development builds only: honour `<PREFIX>_FFMPEG` / `PATH` (unverified binaries).
 dev-overrides = ["rightkit-ffmpeg/dev-overrides"]
-# QA and dev builds only: test seams (approval test secret). A release build never enables it.
-test-mode = ["dev-overrides"]
 
 [dependencies]
 rightkit-local-gen = { version = "0.1.0", path = "../rightkit-local-gen" }
@@ -44,10 +40,6 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg" }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
-
-[dev-dependencies]
-rightkit-credentials = { version = "0.4.4", path = "../rightkit-credentials", features = ["memory-backend"] }
-ctor = { version = "1.0" }
 
 [workspace]
 

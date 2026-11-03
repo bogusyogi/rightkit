@@ -7,7 +7,7 @@ description = "Dictation engine: the speech engine sidecar binary and library fa
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/fixtures/**", "examples/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "examples/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_dictation_engine"
@@ -15,7 +15,6 @@ path = "src/lib.rs"
 
 [features]
 default = []
-test-mode = ["rightkit-daemon/test-mode", "rightkit-dictation-core/test-mode", "rightkit-dictation-runtime/test-mode", "rightkit-dictation-inference/test-mode"]
 cuda-bench = ["rightkit-dictation-inference/cuda-bench"]
 
 [dependencies]
@@ -32,19 +31,11 @@ serde_json = { version = "1" }
 anyhow = { version = "1" }
 
 [dev-dependencies]
-rightkit-dictation-models = { version = "0.1.0", path = "../rightkit-dictation-models" }
 rightkit-automation = { version = "0.6.4", path = "../rightkit-automation", features = ["desktop-context"] }
-rightkit-job-queue = { version = "0.5.1", default-features = false, features = ["supervisor"], path = "../rightkit-job-queue" }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 libc = { version = "0.2" }
-tempfile = { version = "3" }
-dirs = { version = "7" }
-rightkit-speech-client = { version = "0.4.1", path = "../rightkit-speech-client" }
-chrono = { version = "0.4" }
 rightkit-audio = { version = "0.3.1", default-features = false, features = ["capture"], path = "../rightkit-audio" }
 libloading = { version = "0.9" }
 rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session"], path = "../rightkit-onnx" }
-
 
 [[example]]
 name = "av_decode_dump"
@@ -61,61 +52,6 @@ path = "examples/cond_vs_decode_split.rs"
 [[example]]
 name = "screen_vocab_smoke"
 path = "examples/screen_vocab_smoke.rs"
-
-[[example]]
-name = "bias_sweep"
-required-features = ["test-mode"]
-
-[[example]]
-name = "dml_probe_contention_ab"
-required-features = ["test-mode"]
-
-[[example]]
-name = "dml_session_residency_ab"
-required-features = ["test-mode"]
-
-[[example]]
-name = "openasr_controls"
-required-features = ["test-mode"]
-
-
-[[example]]
-name = "parakeet_hypothesis_batch"
-required-features = ["test-mode"]
-
-
-[[example]]
-name = "static15_l1_chunk_smoke"
-required-features = ["test-mode"]
-
-
-[[example]]
-name = "whisper_kws_cleanup_replay"
-required-features = ["test-mode"]
-
-[[example]]
-name = "whisper_omission_ablation"
-required-features = ["test-mode"]
-
-[[example]]
-name = "whisper_omission_diagnostic"
-required-features = ["test-mode"]
-
-[[example]]
-name = "whisper_policy_eval"
-required-features = ["test-mode"]
-
-[[example]]
-name = "whisper_termination_trace"
-required-features = ["test-mode"]
-
-[[example]]
-name = "whisper_timestamp_mass_probe"
-required-features = ["test-mode"]
-
-[[example]]
-name = "win_parakeet_smoke"
-required-features = ["test-mode"]
 
 [[bin]]
 name = "rightkit-dictation-engine"

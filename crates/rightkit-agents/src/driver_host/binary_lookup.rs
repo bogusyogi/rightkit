@@ -160,19 +160,3 @@ pub(crate) async fn run_bounded_probe(
         .await
         .map(|(status, stdout, _stderr)| (status, stdout))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn relative_candidates_from_empty_path_entries_are_dropped() {
-        let absolute = std::env::temp_dir().join("tool");
-        assert_eq!(
-            first_absolute(vec![PathBuf::from("tool"), absolute.clone()]),
-            Some(absolute)
-        );
-        assert_eq!(first_absolute(vec![PathBuf::from("tool")]), None);
-        assert_eq!(first_absolute(Vec::new()), None);
-    }
-}

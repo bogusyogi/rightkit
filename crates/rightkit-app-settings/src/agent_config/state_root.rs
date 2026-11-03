@@ -8,8 +8,7 @@
 //! desktop shell (through the daemon client), the updater and the support bundle. Nothing else
 //! computes it.
 //!
-//! Override: none in a release build. A build with the `test-mode` feature (QA and tests only)
-//! honours `RIGHTKIT_SUITE_ROOT` (the app root is then `<that>/apps/the host app`).
+//! Override: none. The root comes from the account database and the known-folder table.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -55,45 +54,9 @@ fn process_suite() -> Result<Suite, SuiteError> {
                 .join("shared"),
         )
     }
-    #[cfg(all(not(target_os = "ios"), test))]
+    #[cfg(not(target_os = "ios"))]
     {
-        if std::env::var_os(rightkit_daemon::ENV_SUITE_ROOT).is_some_and(|value| !value.is_empty())
-        {
-            Suite::resolve()
-        } else {
-            Suite::at(
-                std::env::temp_dir()
-                    .join(format!("rightkit-agent-test-state-{}", std::process::id()))
-                    .join("Orthic Labs")
-                    .join("shared"),
-            )
-        }
-    }
-    #[cfg(all(not(target_os = "ios"), not(test), feature = "agent_config-test-mode"))]
-    {
-        // Test and QA builds: an explicit `RIGHTKIT_SUITE_ROOT` wins. Without one, fail safe to a
-        // per-process temp suite, never the user's real per-user root (a test that forgets the
-        // variable must not read or write real data).
-        if std::env::var_os(rightkit_daemon::ENV_SUITE_ROOT).is_some_and(|value| !value.is_empty())
-        {
-            Suite::resolve()
-        } else {
-            Suite::at(
-                std::env::temp_dir()
-                    .join(format!("rightkit-agent-test-state-{}", std::process::id()))
-                    .join("Orthic Labs")
-                    .join("shared"),
-            )
-        }
-    }
-    #[cfg(all(
-        not(target_os = "ios"),
-        not(test),
-        not(feature = "agent_config-test-mode")
-    ))]
-    {
-        // A release build (no `test-mode`) reads no environment here: the root comes from the
-        // account database / known-folder table.
+        // Reads no environment here: the root comes from the account database / known-folder table.
         Suite::resolve()
     }
 }
@@ -124,10 +87,8 @@ pub fn state_root() -> Option<PathBuf> {
     cache.entry(key).or_insert_with(|| open(&suite)).clone()
 }
 
-/// Whether this process runs against an isolated root (`test-mode` build with
-/// `RIGHTKIT_SUITE_ROOT` set). Always `false` in a release build. Stores that live outside the
-/// state root in production (the database next to the installed executable) use this to stay
-/// inside the isolated root during QA.
+/// Whether this process runs against an isolated root. Always `false` now that the test-mode
+/// override is removed; kept so callers that stay inside the state root keep compiling.
 pub fn state_root_is_isolated() -> bool {
     process_suite().is_ok_and(|suite| suite.env_derived())
 }
@@ -136,15 +97,5 @@ pub fn state_root_is_isolated() -> bool {
 /// user-owned files that live outside the state root (for example `~/.config/host app/mcp.json`
 /// and other tools' dot directories). Never join the host app state onto it; use [`state_root`].
 pub fn os_home_dir() -> Option<PathBuf> {
-    // Test and QA builds honour the harness's isolated home (`HOME`, then `USERPROFILE`):
-    // `dirs::home_dir` reads the Windows profile folder from the OS and ignores both, which let
-    // e2e daemons write `~/.config/host app/mcp.json` into the real user's home. A release
-    // build reads no environment here.
-    #[cfg(all(not(target_os = "ios"), any(test, feature = "agent_config-test-mode")))]
-    for name in ["HOME", "USERPROFILE"] {
-        if let Some(home) = std::env::var_os(name).filter(|value| !value.is_empty()) {
-            return Some(PathBuf::from(home));
-        }
-    }
     dirs::home_dir()
 }

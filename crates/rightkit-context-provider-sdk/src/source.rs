@@ -5,7 +5,6 @@
 //! chooses an in-process or resident implementation and passes it through
 //! [`SourceSet`].
 
-use crate::error::Result;
 use async_trait::async_trait;
 use rightkit_context_protocol::{CandidateV1, FreshnessSnapshotV1, ScopeGrantV1};
 use serde::{Deserialize, Serialize};

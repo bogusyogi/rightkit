@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.1 (unreleased)
 
 - Additive: the `devicelink` module (feature `devicelink`, off by default): device identity, short-code and join-token pairing, the paired-device registry file, the device circle (member lists, introductions, endorsements, grants), resume tickets and the per-request capability check, moved from Pulse (`pulse-core devicelink`). The record types come from `rightkit-device-link-types` 0.1.0 and owner-check verification from `rightkit-owner-approvals` 0.1.0. `devicelink::policy::authorize` decides whether a paired computer may use chat here. No existing API changed.

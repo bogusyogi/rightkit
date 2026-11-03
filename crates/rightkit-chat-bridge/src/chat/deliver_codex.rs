@@ -63,16 +63,12 @@
 //! Where the CLI is looked for (`codex_candidates`); the first candidate whose
 //! `queue --help` mentions threads is used, at most six are probed, and when none
 //! supports it the newest candidate's version is named in the `unsupported` receipt:
-//! * Test builds only (`test-overrides` feature): `$RIGHTKIT_CODEX_BIN`, when it names a file,
-//!   wins everywhere and is the only candidate. A release build never reads it, and never
-//!   looks for `codex` on the search path: only the install locations below.
 //! * macOS: `/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`, then
-//!   `/opt/homebrew/bin/codex`, `/usr/local/bin/codex` (test builds add `codex` on PATH).
+//!   `/opt/homebrew/bin/codex`, `/usr/local/bin/codex`.
 //! * Windows: `%LOCALAPPDATA%\Programs\ChatGPT\resources\codex-cli\bin\codex.exe`,
 //!   `%LOCALAPPDATA%\Programs\Codex\resources\codex-cli\bin\codex.exe`, the desktop app's
 //!   `%LOCALAPPDATA%\OpenAI\Codex\bin\<hash>\codex.exe` folders newest-modified first,
-//!   `%LOCALAPPDATA%\OpenAI\Codex\bin\codex.exe` (can be a stale version); test builds
-//!   add `codex.exe` / `codex.cmd` on PATH. A packaged (WindowsApps) install is not
+//!   `%LOCALAPPDATA%\OpenAI\Codex\bin\codex.exe` (can be a stale version). A packaged (WindowsApps) install is not
 //!   readable and is not searched.
 //!
 //! Thread discovery: the highest `~/.codex/state_<N>.sqlite` (table `threads`,
@@ -149,17 +145,8 @@ pub fn codex_home() -> PathBuf {
 /// Most Codex binaries probed when looking for one that can queue.
 const MAX_PROBED: usize = 6;
 
-/// Every Codex CLI this computer has, best guess first. In a build with `test-overrides`,
-/// `$RIGHTKIT_CODEX_BIN`, when it names a file, is the only entry and the search path is read
-/// too; a release build reads neither.
+/// Every Codex CLI this computer has, best guess first.
 fn codex_candidates() -> Vec<PathBuf> {
-    #[cfg(feature = "test-overrides")]
-    if let Some(chosen) = std::env::var_os("RIGHTKIT_CODEX_BIN").filter(|v| !v.is_empty()) {
-        let chosen = PathBuf::from(chosen);
-        if chosen.is_file() {
-            return vec![chosen];
-        }
-    }
     #[cfg_attr(not(any(target_os = "macos", windows)), allow(unused_mut))]
     let mut candidates: Vec<PathBuf> = Vec::new();
     #[cfg(target_os = "macos")]
@@ -190,19 +177,6 @@ fn codex_candidates() -> Vec<PathBuf> {
             versions.sort_by_key(|a| std::cmp::Reverse(a.0));
             candidates.extend(versions.into_iter().map(|(_, exe)| exe));
             candidates.push(bin.join("codex.exe"));
-        }
-    }
-    #[cfg(feature = "test-overrides")]
-    if let Some(paths) = std::env::var_os("PATH") {
-        for dir in std::env::split_paths(&paths) {
-            let names: &[&str] = if cfg!(windows) {
-                &["codex.exe", "codex.cmd"]
-            } else {
-                &["codex"]
-            };
-            for name in names {
-                candidates.push(dir.join(name));
-            }
         }
     }
     let mut found: Vec<PathBuf> = Vec::new();

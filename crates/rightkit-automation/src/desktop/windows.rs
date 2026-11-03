@@ -18,7 +18,6 @@ use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, CountClipboardFormats, EmptyClipboard, EnumClipboardFormats, GetClipboardData,
     GetClipboardOwner, GetClipboardSequenceNumber, OpenClipboard, SetClipboardData,
 };
-use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Memory::{
     GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
 };
@@ -1408,7 +1407,3 @@ pub fn process_creation_time(pid: u32) -> Option<u64> {
             .then_some(((creation.dwHighDateTime as u64) << 32) | creation.dwLowDateTime as u64)
     }
 }
-
-#[cfg(test)]
-#[path = "windows_tests.rs"]
-mod promised_render_tests;

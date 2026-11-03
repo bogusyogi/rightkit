@@ -180,27 +180,3 @@ pub async fn fetch_raw_message(
         .map_err(String::from)?;
     Ok(decode_b64url(&r.raw))
 }
-
-#[cfg(test)]
-mod send_error_tests {
-    use super::*;
-    use crate::google::GoogleError;
-
-    #[test]
-    fn an_uncertain_delivery_is_tagged_and_a_clean_failure_is_not() {
-        let uncertain = send_error_text(GoogleError::Uncertain("reset".into()));
-        assert!(is_uncertain_send(&uncertain), "{uncertain}");
-        let late = send_error_text(GoogleError::Http {
-            status: 502,
-            body: "bad".into(),
-        });
-        assert!(is_uncertain_send(&late), "{late}");
-        let clean = send_error_text(GoogleError::Http {
-            status: 400,
-            body: "bad".into(),
-        });
-        assert!(!is_uncertain_send(&clean), "{clean}");
-        let connect = send_error_text(GoogleError::Transient("connect refused".into()));
-        assert!(!is_uncertain_send(&connect), "{connect}");
-    }
-}

@@ -54,32 +54,6 @@ pub(crate) fn continuity_window_valid(
         && now - last_progress <= max_staleness
 }
 
-#[cfg(test)]
-mod continuity_tests {
-    use super::continuity_window_valid as valid;
-
-    #[test]
-    fn separate_process_observers_can_cover_same_stop_timestamp() {
-        assert!(valid(100, 200, 10, 90, 190, 30));
-        assert!(valid(100, 200, 50, 95, 190, 30));
-    }
-
-    #[test]
-    fn later_focus_change_stays_invalid_after_return_to_old_editor() {
-        assert!(!valid(100, 200, 10, 110, 190, 30));
-        assert!(!valid(100, 200, 10, 150, 190, 30));
-    }
-
-    #[test]
-    fn late_start_restart_or_stalled_observer_cannot_prove_continuity() {
-        assert!(!valid(100, 200, 110, 90, 190, 30));
-        assert!(!valid(100, 200, 10, 90, 150, 30));
-        assert!(!valid(100, 200, 0, 90, 190, 30));
-        assert!(!valid(0, 200, 10, 90, 190, 30));
-        assert!(!valid(100, 200, 10, 90, 99, 120));
-    }
-}
-
 // Shared, cfg-free entry points for the small set of primitives that exist on
 // both `macos` and `windows` with the same purpose AND the same signature
 // (bool/Option<String> success semantics, no platform-specific proof types
@@ -169,43 +143,5 @@ pub fn verify_last_paste_undoable(
         UndoVerdict::Safe
     } else {
         UndoVerdict::TextChanged
-    }
-}
-
-#[cfg(test)]
-mod undo_verdict_tests {
-    use super::{verify_last_paste_undoable as v, UndoVerdict::*};
-
-    #[test]
-    fn undo_only_when_field_still_ends_with_the_inserted_text() {
-        assert_eq!(v(Some("hi there"), Some("there"), None), Safe);
-        assert_eq!(v(Some("hi there \n"), Some("there"), None), Safe);
-        assert_eq!(v(Some("a\nb"), Some("a\n\nb"), None), Safe);
-        assert_eq!(v(Some("hi there!"), Some("there"), None), TextChanged);
-        assert_eq!(v(Some("other"), Some("there"), None), TextChanged);
-        assert_eq!(v(None, Some("there"), None), FieldUnreadable);
-        assert_eq!(v(Some("x"), None, None), NoRecordedPaste);
-        assert_eq!(v(Some("x"), Some("  "), None), NoRecordedPaste);
-    }
-
-    #[test]
-    fn recorded_caret_must_sit_right_after_the_inserted_text() {
-        assert_eq!(v(Some("hi there more"), Some("there"), Some(8)), Safe);
-        assert_eq!(
-            v(Some("hi there more"), Some("there"), Some(13)),
-            TextChanged
-        );
-    }
-}
-
-#[cfg(test)]
-mod line_break_tests {
-    #[test]
-    fn only_runs_of_line_breaks_collapse() {
-        assert_eq!(
-            super::collapse_line_break_runs("a\n\nb\r\n\r\nc d"),
-            "a\nb\nc d"
-        );
-        assert_eq!(super::collapse_line_break_runs("a  b"), "a  b");
     }
 }

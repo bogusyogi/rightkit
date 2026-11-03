@@ -13,7 +13,7 @@ pub mod verify_receipt;
 pub mod whisper_model;
 
 /// Fixtures for the activation tests here and in the crates above this one.
-#[cfg(any(test, feature = "test-mode"))]
+#[cfg(feature = "test-mode")]
 pub mod test_support;
 
 pub use rightkit_dictation_telemetry::{app_paths, system_identity, telemetry};

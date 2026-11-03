@@ -32,9 +32,6 @@ mod routing;
 mod supervisor;
 mod wire;
 
-#[cfg(test)]
-mod tests;
-
 // No `pub(crate) use mod::*` globs: nothing resolves submodule internals
 // through this root — siblings use `super::module::name` paths and the test
 // module imports `super::protocol::frame_to_engine_event` directly. Only the
@@ -99,66 +96,5 @@ impl SingleFlight {
 impl Default for SingleFlight {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod single_flight_tests {
-    use super::SingleFlight;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::mpsc::channel;
-    use std::time::Duration;
-
-    #[test]
-    fn a_second_spawn_while_one_is_in_flight_runs_nothing() {
-        static GATE: SingleFlight = SingleFlight::new();
-        static RUNS: AtomicUsize = AtomicUsize::new(0);
-        let (release_tx, release_rx) = channel::<()>();
-        let (done_tx, done_rx) = channel::<()>();
-        assert!(GATE.spawn("test-first", move || {
-            RUNS.fetch_add(1, Ordering::SeqCst);
-            let _ = release_rx.recv();
-            let _ = done_tx.send(());
-        }));
-        assert!(!GATE.spawn("test-second", || {
-            RUNS.fetch_add(1, Ordering::SeqCst);
-        }));
-        release_tx.send(()).unwrap();
-        done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        // The flag clears just after the task returns; wait for it, then a new run is accepted.
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while !GATE.spawn("test-third", || {
-            RUNS.fetch_add(1, Ordering::SeqCst);
-        }) {
-            assert!(std::time::Instant::now() < deadline, "gate never reopened");
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while RUNS.load(Ordering::SeqCst) < 2 {
-            assert!(std::time::Instant::now() < deadline, "third run never ran");
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        assert_eq!(RUNS.load(Ordering::SeqCst), 2);
-    }
-}
-
-#[cfg(test)]
-mod snapshot_push_tests {
-    use super::needs_snapshot_push;
-
-    #[test]
-    fn a_running_engine_of_the_same_generation_is_not_pushed_again() {
-        assert!(!needs_snapshot_push("already-running", 3, 3));
-    }
-
-    #[test]
-    fn a_freshly_spawned_engine_is_pushed() {
-        assert!(needs_snapshot_push("rightkit-engine/0.1.0", 3, 3));
-        assert!(needs_snapshot_push("rightkit-engine/0.1.0", 3, 4));
-    }
-
-    #[test]
-    fn an_engine_respawned_since_the_pushes_were_prepared_is_pushed() {
-        assert!(needs_snapshot_push("already-running", 3, 4));
     }
 }

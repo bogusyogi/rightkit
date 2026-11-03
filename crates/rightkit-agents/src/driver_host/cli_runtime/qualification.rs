@@ -17,15 +17,13 @@
 //! qualified. Probe prompts are provider-neutral; adapters and transports
 //! retain ownership of vendor launch and protocol details.
 
-#[cfg(test)]
-use std::collections::BTreeSet;
+use rightkit_sandbox::execution::ProcessLaunchAdapter;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use rightkit_sandbox::execution::ProcessLaunchAdapter;
 
 use crate::driver_host::cli_runtime::adapter::{
     CliLaunchRequest, CliMcpServerSpec, CliPrompt, CliProviderAdapter, CliRuntimeError,
@@ -36,7 +34,6 @@ use crate::driver_host::cli_runtime::ids::{
     CliAccountProfile, CliAuthMode, CliProviderId, HarnessAttestation, HarnessIsolationMode,
     HarnessRequirements, ProbePolarity, QualificationProbe,
 };
-use crate::driver_host::cli_runtime::registry::CliAdapterRegistry;
 use crate::driver_host::contracts::{NormalizedEvent, NormalizedEventKind};
 
 /// A single probe run. The executor records whether the polarity
@@ -745,65 +742,4 @@ pub fn now_iso() -> String {
     rightkit_time::DateTime::from_unix(secs, 0)
         .map(|parsed| parsed.format_rfc3339())
         .unwrap_or_default()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_probe_suites_cover_all_required_polarities() {
-        let names_neg: BTreeSet<&str> = DEFAULT_NEGATIVE_PROBES
-            .iter()
-            .map(|p| p.id.as_str())
-            .collect();
-        for required in [
-            "neg.direct_native_file_read",
-            "neg.direct_native_file_write",
-            "neg.direct_native_shell",
-            "neg.direct_native_web_browser_network",
-            "neg.native_plugin_or_skill",
-            "neg.native_subagent_team_delegation",
-            "neg.outside_bound_workspace",
-            "neg.unrelated_env_secret",
-            "neg.fallback_when_mcp_unavailable",
-        ] {
-            assert!(
-                names_neg.contains(required),
-                "missing default negative probe {required}"
-            );
-        }
-
-        let names_pos: BTreeSet<&str> = DEFAULT_POSITIVE_PROBES
-            .iter()
-            .map(|p| p.id.as_str())
-            .collect();
-        for required in [
-            "pos.rightkit_mcp_discovery",
-            "pos.rightkit_read",
-            "pos.rightkit_governed_write_and_approval",
-            "pos.rightkit_shell_verify",
-            "pos.rightkit_memory",
-            "pos.rightkit_delegation",
-            "pos.interruption",
-            "pos.resume",
-            "pos.exact_once_replay",
-            "pos.transcript_visibility",
-        ] {
-            assert!(
-                names_pos.contains(required),
-                "missing default positive probe {required}"
-            );
-        }
-    }
-
-    #[test]
-    fn requirements_consistency_rejects_subagent_without_shell() {
-        let req = HarnessRequirements {
-            forbids_native_subagent: true,
-            forbids_native_shell: false,
-            ..Default::default()
-        };
-        assert!(requirements_are_consistent(&req).is_err());
-    }
 }

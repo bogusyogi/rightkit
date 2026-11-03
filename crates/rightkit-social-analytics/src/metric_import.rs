@@ -9,7 +9,6 @@
 //! for every observation, so a manual value would need a schema change to live there.
 //!
 //! Every command checks its scope against a stored channel (`foreign_scope` otherwise).
-use std::collections::BTreeSet;
 
 use rightkit_social_publish::calendar_time as time;
 use rightkit_social_publish::protocol::PublishRemote;

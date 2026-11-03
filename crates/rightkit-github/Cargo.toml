@@ -34,10 +34,6 @@ default = []
 # and engineering.rs).
 observer = ["dep:rightkit-agent-orchestration", "dep:rightkit-code-audit-provider-sdk", "dep:rightkit-review", "dep:tokio-util"]
 
-[dev-dependencies]
-rightkit-credentials = { version = "0.4.4", path = "../rightkit-credentials", features = ["memory-backend"] }
-tempfile = "3"
-
 [workspace]
 
 # Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids

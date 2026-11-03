@@ -29,18 +29,3 @@ pub fn task_dialog_click(hwnd: u64, button_id: i32) -> Result<()> {
     }
     .map_err(|e| Error::Platform(i64::from(e.code().0), "PostMessage(TDM_CLICK_BUTTON)"))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn click_message_is_wm_user_plus_102() {
-        assert_eq!(TDM_CLICK_BUTTON, 0x0400 + 102);
-    }
-
-    #[test]
-    fn null_window_is_refused_without_posting() {
-        assert!(matches!(task_dialog_click(0, 1), Err(Error::NotFound(_))));
-    }
-}

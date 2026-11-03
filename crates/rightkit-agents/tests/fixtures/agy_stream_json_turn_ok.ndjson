@@ -1,5 +1,0 @@
-{"event":"init","conversation_id":"fe568285-d0b8-4d7b-b5aa-c73f5daf6904","init":{"cwd":"D:\\Claude\\coderight","tools":["read_file","write_file","run_command","search"],"permission_mode":"request-review"}}
-{"event":"step_update","step_update":{"conversation_id":"fe568285-d0b8-4d7b-b5aa-c73f5daf6904","step_index":0,"state":"DONE","step_type":"user_input"}}
-{"event":"step_update","step_update":{"conversation_id":"fe568285-d0b8-4d7b-b5aa-c73f5daf6904","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"OK"}}
-{"event":"step_update","step_update":{"conversation_id":"fe568285-d0b8-4d7b-b5aa-c73f5daf6904","step_index":1,"state":"DONE","step_type":"agent_response","text_delta":"\n","duration_seconds":3.5,"usage":{"input_tokens":12462,"output_tokens":141,"thinking_tokens":140,"cache_read_tokens":0,"total_tokens":12603}}}
-{"event":"result","result":{"conversation_id":"fe568285-d0b8-4d7b-b5aa-c73f5daf6904","status":"SUCCESS","response":"OK\n","duration_seconds":3.7,"num_turns":1,"usage":{"input_tokens":12462,"output_tokens":141,"thinking_tokens":140,"cache_read_tokens":0,"total_tokens":12603}}}

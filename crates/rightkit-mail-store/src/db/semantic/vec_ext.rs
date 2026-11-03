@@ -46,24 +46,3 @@ pub fn ensure_registered() {
         }
     });
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rightkit_db::rusqlite::Connection;
-
-    #[test]
-    fn vec0_virtual_table_works_after_registration() {
-        ensure_registered();
-        let conn = Connection::open_in_memory().expect("open in-memory db");
-        conn.execute_batch("CREATE VIRTUAL TABLE t USING vec0(embedding float[4]);")
-            .expect("create vec0 table");
-        let version: String = conn
-            .query_row("select vec_version()", [], |r| r.get(0))
-            .expect("vec_version()");
-        assert!(
-            version.starts_with('v'),
-            "unexpected vec_version: {version}"
-        );
-    }
-}

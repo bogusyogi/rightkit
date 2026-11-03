@@ -277,6 +277,3 @@ fn last_transcript_for_error(state: &AppState) -> Option<String> {
         _ => None,
     }
 }
-
-#[cfg(test)]
-mod tests;

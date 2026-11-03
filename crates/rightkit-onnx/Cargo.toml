@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 description = "Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin)"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 # DEVELOPMENT/QA BUILDS ONLY. Honors `ORT_DYLIB_PATH` as a developer runtime override
@@ -102,18 +102,6 @@ name = "rightkit-onnx-provision"
 path = "src/bin/rightkit-onnx-provision.rs"
 required-features = ["provision"]
 
-[[test]]
-name = "provision"
-required-features = ["provision"]
-
-[dev-dependencies]
-# E2E checks the real runtime file against the approved native-library catalog.
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.13" }
-# `provision` test fixtures: a tiny zip and tar.gz built in the test, and a scratch directory.
-tempfile = "3"
-tar = "0.4"
-flate2 = "1"
-zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [package.metadata.rightkit]
 continuous = "held-resource"

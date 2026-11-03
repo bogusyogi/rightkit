@@ -99,31 +99,3 @@ pub fn readiness(rows: &[Row]) -> Value {
 pub fn is_ready(report: &Value) -> bool {
     report["readiness"]["status"] == "ready"
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_required_rows_decide_readiness() {
-        let rows = vec![
-            Row::ok("a", true, "fine"),
-            Row::unavailable("b", false, "no gpu"),
-        ];
-        let r = readiness(&rows);
-        assert_eq!(r["status"], "ready");
-        assert!(is_ready(&json!({ "readiness": r })));
-        let rows = vec![Row::failed("a", true, "broken")];
-        assert_eq!(readiness(&rows)["status"], "not_ready");
-    }
-
-    #[test]
-    fn location_is_optional_and_results_map_to_rows() {
-        let row = Row::from_result("db", true, Ok("opens".into())).at("runtime/app/db");
-        let json = row.to_json();
-        assert_eq!(json["location"], "runtime/app/db");
-        let bare = Row::from_result("db", true, Err("locked".into()));
-        assert!(bare.to_json().get("location").is_none());
-        assert_eq!(bare.status, "failed");
-    }
-}

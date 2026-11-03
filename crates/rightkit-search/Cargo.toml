@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 description = "Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index."
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "Cargo.toml", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = ["sqlite"]
@@ -18,10 +18,6 @@ filename-index = []
 
 [dependencies]
 rusqlite = { version = "0.41", default-features = false, optional = true }
-
-[dev-dependencies]
-rusqlite = { version = "0.41", features = ["bundled"] }
-tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = false

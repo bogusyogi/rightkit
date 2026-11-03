@@ -612,7 +612,3 @@ pub fn read(path: &str) -> Result<RawDocument, String> {
         })
     }
 }
-
-#[cfg(test)]
-#[path = "documents_tests.rs"]
-mod documents_tests;

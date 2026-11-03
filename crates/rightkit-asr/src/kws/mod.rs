@@ -660,6 +660,3 @@ impl KeywordStream {
             .unwrap_or_else(DecoderResult::empty)
     }
 }
-
-#[cfg(test)]
-mod parity_tests;

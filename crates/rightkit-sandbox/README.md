@@ -40,7 +40,7 @@ Published version: see `INDEX.md` at the repository root. Release notes: see `CH
 
 ## Example
 
-Illustrative; not compiled as a doctest. For compiled usage, see `tests/e2e.rs`, `tests/sandbox_exec.rs`, and `tests/output_bounds.rs`.
+Illustrative; not compiled as a doctest. For compiled usage, see `tests/sandbox_exec.rs`.
 
 ```rust,ignore
 use rightkit_sandbox::{Sandbox, SandboxCommand, SandboxPolicy};

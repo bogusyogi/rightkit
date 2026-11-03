@@ -50,37 +50,3 @@ pub enum TranscriptError {
 }
 
 pub type Result<T> = std::result::Result<T, TranscriptError>;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn messages_are_typed_and_fail_closed() {
-        let err = TranscriptError::Missing {
-            path: PathBuf::from("/tmp/nope.jsonl"),
-        };
-        assert!(err.to_string().starts_with("transcript missing:"));
-        let err = TranscriptError::UnsupportedHost {
-            host: "bogus".into(),
-        };
-        assert_eq!(err.to_string(), "unsupported host: bogus");
-        let err = TranscriptError::NoCompleteRow {
-            path: PathBuf::from("/tmp/e.jsonl"),
-        };
-        assert!(err.to_string().contains("no complete JSONL row"));
-        let err = TranscriptError::MalformedRow {
-            path: PathBuf::from("/tmp/bad.jsonl"),
-            row_index: 2,
-            byte_start: 5,
-            byte_end: 9,
-            detail: "expected object".into(),
-        };
-        assert!(err.to_string().contains("row 2 at bytes 5..9"));
-        let err = TranscriptError::NoEvents {
-            path: PathBuf::from("/tmp/empty.jsonl"),
-            host: "pi".into(),
-        };
-        assert!(err.to_string().contains("produced no events"));
-    }
-}

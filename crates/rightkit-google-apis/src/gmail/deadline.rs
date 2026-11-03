@@ -37,36 +37,3 @@ pub async fn get_json<T: serde::de::DeserializeOwned>(
 ) -> Result<T, GoogleError> {
     bounded(REQUEST_TIMEOUT, what, g.get_json(url, query)).await
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn stalled_request_times_out_with_retryable_error() {
-        let r: Result<(), GoogleError> = bounded(
-            Duration::from_millis(50),
-            "stalled",
-            std::future::pending::<Result<(), GoogleError>>(),
-        )
-        .await;
-        match r {
-            Err(GoogleError::Transient(m)) => assert!(m.contains("timed out"), "{m}"),
-            other => panic!("expected Transient timeout, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn fast_request_passes_through() {
-        let r = bounded(Duration::from_secs(5), "ok", async {
-            Ok::<_, GoogleError>(7)
-        })
-        .await;
-        assert!(matches!(r, Ok(7)));
-    }
-
-    #[test]
-    fn bounds_are_finite_and_ordered() {
-        assert!(REQUEST_TIMEOUT < SYNC_PASS_DEADLINE);
-    }
-}

@@ -112,37 +112,3 @@ impl FailureKind {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mop_fires_as_mop_loop() {
-        assert_eq!(
-            FailureKind::infer_from_output("some output", true, false),
-            FailureKind::MopLoop
-        );
-    }
-
-    #[test]
-    fn timeout_takes_priority_over_content() {
-        assert_eq!(
-            FailureKind::infer_from_output("tool error", false, true),
-            FailureKind::Timeout
-        );
-    }
-
-    #[test]
-    fn dimension_classification() {
-        assert_eq!(FailureKind::Timeout.dimension(), FailureDimension::Efficacy);
-        assert_eq!(
-            FailureKind::ScopeViolation.dimension(),
-            FailureDimension::Containment
-        );
-        assert_eq!(
-            FailureKind::ContentPolicy.dimension(),
-            FailureDimension::Safety
-        );
-    }
-}

@@ -38,7 +38,6 @@ use rightkit_child_process::{
     Generation, HealthOutcome, HealthPolicy, HealthProbe, HealthTracker, RestartOutcome,
     RestartPermit, RestartPolicy, RestartTracker,
 };
-use serde_json::json;
 use std::io;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};

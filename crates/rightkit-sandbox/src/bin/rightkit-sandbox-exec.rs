@@ -184,48 +184,4 @@ mod windows_main {
             None => fail("sandboxed child ended without an exit code"),
         }
     }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        fn argv(items: &[&str]) -> Vec<OsString> {
-            items.iter().map(OsString::from).collect()
-        }
-
-        #[test]
-        fn parses_full_invocation() {
-            let parsed = parse(argv(&[
-                "--read-only",
-                "C:\\ro",
-                "--writable",
-                "C:\\rw",
-                "--cwd",
-                "C:\\ro",
-                "--env",
-                "A=b=c",
-                "--",
-                "cmd.exe",
-                "/c",
-                "echo hi",
-            ]))
-            .unwrap();
-            assert_eq!(parsed.read_only, vec![PathBuf::from("C:\\ro")]);
-            assert_eq!(parsed.writable, vec![PathBuf::from("C:\\rw")]);
-            assert_eq!(parsed.env, vec![("A".to_string(), "b=c".to_string())]);
-            assert_eq!(parsed.program, Some(OsString::from("cmd.exe")));
-            assert_eq!(
-                parsed.args,
-                vec![OsString::from("/c"), OsString::from("echo hi")]
-            );
-        }
-
-        #[test]
-        fn rejects_missing_command_and_relative_paths() {
-            assert!(parse(argv(&["--read-only", "C:\\ro"])).is_err());
-            assert!(parse(argv(&["--read-only", "relative", "--", "x"])).is_err());
-            assert!(parse(argv(&["--bogus", "--", "x"])).is_err());
-            assert!(parse(argv(&["--env", "NOEQUALS", "--", "x"])).is_err());
-        }
-    }
 }

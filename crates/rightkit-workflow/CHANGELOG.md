@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.2.1 (unreleased)
 
 - Features `control_plane` (agent workflow compiler, pure reducer, domain model, import/export) and `control_plane_host` moved from CodeRight `coderight-workflow` and `coderight-workflow-host`.

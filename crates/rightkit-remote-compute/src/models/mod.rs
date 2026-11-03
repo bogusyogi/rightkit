@@ -278,15 +278,6 @@ fn manifest_entries() -> Vec<Value> {
     // External workers are catalogued from their provider's public model list
     // so readiness stays joined to the runtime actually used by generation.
     entries.extend(blender::manifest_entries());
-    // Test-only seam, compiled out of release builds: extra manifest entries from a
-    // JSON file, so e2e scenarios can install small served files with real pins.
-    if let Some(extra) = std::env::var_os("RIGHTKIT_TEST_MODEL_ENTRIES")
-        .filter(|_| cfg!(debug_assertions))
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|t| serde_json::from_str::<Vec<Value>>(&t).ok())
-    {
-        entries.extend(extra);
-    }
     entries
 }
 

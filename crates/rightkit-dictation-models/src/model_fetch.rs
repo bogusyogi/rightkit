@@ -169,7 +169,3 @@ pub fn download_and_verify(url: &str, dest: &Path, expected_sha256: &str) -> Res
 }
 
 pub use rightkit_models::hash::sha256_file;
-
-// Tests live in `tests/model_fetch_tests.rs` (integration): modules declared in
-// app_lib.rs are excluded under cfg(test), so inline #[cfg(test)] here would
-// never compile/run. The integration suite drives the public API instead.

@@ -27,8 +27,7 @@
 //! small attempt budget; it is not a secret to offline-guess against and must never be logged,
 //! put in an event or sent over the channel.
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as _;
+use base64::Engine;
 use serde_json::{json, Value};
 
 use crate::remote::util::{hex, random_bytes, sha256_hex, unhex};
@@ -137,38 +136,5 @@ impl PairingInitiator {
             self.label.as_deref(),
             &self.host_binding,
         ))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_code_changes_with_every_transcript_field() {
-        let (k, nd, nh) = ([1u8; 32], [2u8; 16], [3u8; 16]);
-        let base = pairing_code(&k, &nd, &nh, Some("a"), b"b");
-        assert_eq!(base.len(), CODE_DIGITS);
-        assert_eq!(base, pairing_code(&k, &nd, &nh, Some("a"), b"b"));
-        // 1 in 10^6 each by chance; these fixed inputs differ.
-        assert_ne!(base, pairing_code(&[9u8; 32], &nd, &nh, Some("a"), b"b"));
-        assert_ne!(base, pairing_code(&k, &[9u8; 16], &nh, Some("a"), b"b"));
-        assert_ne!(base, pairing_code(&k, &nd, &[9u8; 16], Some("a"), b"b"));
-        assert_ne!(base, pairing_code(&k, &nd, &nh, Some("z"), b"b"));
-        assert_ne!(base, pairing_code(&k, &nd, &nh, None, b"b"));
-        assert_ne!(base, pairing_code(&k, &nd, &nh, Some("a"), b"c"));
-    }
-
-    #[test]
-    fn framing_keeps_field_boundaries() {
-        // Moving a byte between two adjacent fields must not give the same commitment.
-        assert_ne!(
-            pairing_commit(&[1, 2], &[3], None),
-            pairing_commit(&[1], &[2, 3], None)
-        );
-        assert_ne!(
-            pairing_commit(&[1], &[2], Some("")),
-            pairing_commit(&[1], &[2], None)
-        );
     }
 }

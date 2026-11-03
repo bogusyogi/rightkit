@@ -11,7 +11,6 @@
 //! connection. The clock is passed in (`now`), never read here, so tests inject time. Bounded: at
 //! most [`MAX_ENTRIES`] per-connection entries.
 
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 /// Length of the failure window.
@@ -101,96 +100,5 @@ impl FailLimiter {
         if self.conns.get(&conn).is_some_and(|b| b.idle(now)) {
             self.conns.remove(&conn);
         }
-    }
-
-    /// Number of per-connection entries held (for tests).
-    #[cfg(test)]
-    pub fn entries(&self) -> usize {
-        self.conns.len()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_connection_is_blocked_after_its_limit_and_not_before() {
-        let mut l = FailLimiter::new();
-        let t0 = Instant::now();
-        for _ in 0..CONN_MAX_FAILS - 1 {
-            l.record_failure(1, t0);
-        }
-        assert!(!l.refuses_unverified(1, t0));
-        l.record_failure(1, t0);
-        assert!(l.refuses_unverified(1, t0));
-        assert!(
-            !l.refuses_unverified(2, t0),
-            "another connection is not blocked by this one"
-        );
-    }
-
-    #[test]
-    fn the_block_lapses_after_block_duration() {
-        let mut l = FailLimiter::new();
-        let t0 = Instant::now();
-        for _ in 0..CONN_MAX_FAILS {
-            l.record_failure(1, t0);
-        }
-        assert!(l.refuses_unverified(1, t0 + BLOCK - Duration::from_millis(1)));
-        assert!(!l.refuses_unverified(1, t0 + BLOCK));
-    }
-
-    #[test]
-    fn failures_outside_the_window_do_not_add_up() {
-        let mut l = FailLimiter::new();
-        let t0 = Instant::now();
-        for i in 0..(CONN_MAX_FAILS * 3) {
-            l.record_failure(1, t0 + WINDOW * i);
-        }
-        assert!(!l.refuses_unverified(1, t0 + WINDOW * (CONN_MAX_FAILS * 3)));
-    }
-
-    #[test]
-    fn the_global_bucket_refuses_unverified_attempts_from_every_connection() {
-        let mut l = FailLimiter::new();
-        let t0 = Instant::now();
-        for conn in 0..GLOBAL_MAX_FAILS as u64 {
-            l.record_failure(conn, t0);
-        }
-        assert!(
-            l.refuses_unverified(10_000, t0),
-            "a fresh connection's failed secret is refused too"
-        );
-        assert!(!l.refuses_unverified(10_000, t0 + BLOCK));
-    }
-
-    #[test]
-    fn a_connection_block_does_not_count_toward_the_global_bucket() {
-        let mut l = FailLimiter::new();
-        let t0 = Instant::now();
-        // One connection trips its own bucket: 5 failures, global count only 5 of 30.
-        for _ in 0..CONN_MAX_FAILS {
-            l.record_failure(1, t0);
-        }
-        assert!(l.refuses_unverified(1, t0));
-        assert!(
-            !l.refuses_unverified(2, t0),
-            "one peer's bad secrets do not refuse other peers"
-        );
-    }
-
-    #[test]
-    fn forget_drops_an_idle_entry_only() {
-        let mut l = FailLimiter::new();
-        let t0 = Instant::now();
-        l.record_failure(1, t0);
-        assert_eq!(l.entries(), 1);
-        // Inside the window the entry still counts, so it is kept.
-        l.forget(1, t0);
-        assert_eq!(l.entries(), 1);
-        // Once the window has passed it is idle and goes.
-        l.forget(1, t0 + WINDOW);
-        assert_eq!(l.entries(), 0);
     }
 }

@@ -15,8 +15,6 @@ pub(crate) static REPLACEMENT_REGEX_CACHE: OnceLock<Mutex<RegexSnapshotCache>> =
 pub(crate) struct RegexSnapshotCache {
     pub(crate) keys: Vec<String>,
     pub(crate) regexes: Vec<Regex>,
-    #[cfg(test)]
-    pub(crate) builds: usize,
 }
 
 pub(crate) fn regexes_for_keys(
@@ -38,10 +36,6 @@ pub(crate) fn regexes_for_keys(
             })
             .collect();
         snapshot.keys = keys.to_vec();
-        #[cfg(test)]
-        {
-            snapshot.builds += 1;
-        }
     }
     snapshot.regexes.clone()
 }

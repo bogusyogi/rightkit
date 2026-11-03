@@ -38,27 +38,6 @@ fn chunk_thread_ids(
         .map_err(|e| format!("read rollup chunk: {e}"))
 }
 
-#[cfg(test)]
-fn message_ids_for_threads(
-    conn: &Connection,
-    account_id: &str,
-    thread_ids: &[String],
-) -> Result<Vec<String>, String> {
-    let mut st = conn
-        .prepare("SELECT id FROM messages WHERE account_id = ?1 AND thread_id = ?2")
-        .map_err(|e| format!("select chunk messages: {e}"))?;
-    let mut out = Vec::new();
-    for t in thread_ids {
-        let rows = st
-            .query_map(params![account_id, t], |r| r.get::<_, String>(0))
-            .map_err(|e| format!("select chunk messages: {e}"))?;
-        for id in rows {
-            out.push(id.map_err(|e| format!("read chunk messages: {e}"))?);
-        }
-    }
-    Ok(out)
-}
-
 /// Drop `threads` / `thread_labels` rows with no message, within the chunk's
 /// key range (`after`, `upper`]; `upper = None` means to the end. Keeps the
 /// full rebuild's "orphans disappear" behaviour without scanning the account.
@@ -87,40 +66,6 @@ fn drop_orphans_in_range(
             .map_err(|e| format!("drop orphan {table}: {e}"))?;
     }
     Ok(())
-}
-
-/// Recompute the rollups, labels and full-text rows of the next
-/// `max_threads` threads of `account_id` after `after`, in ONE transaction.
-/// Returns the cursor to pass to the next call, or `None` when the account is
-/// finished. Idempotent and self-correcting; safe to call between any other
-/// writes.
-#[cfg(test)]
-pub fn rebuild_rollups_chunk(
-    conn: &Connection,
-    account_id: &str,
-    after: Option<&str>,
-    max_threads: usize,
-) -> Result<Option<String>, String> {
-    let max_threads = max_threads.max(1);
-    let mut next: Option<String> = None;
-    in_txn(conn, || {
-        let ids = chunk_thread_ids(conn, account_id, after, max_threads)?;
-        let full = ids.len() >= max_threads;
-        let last = ids.last().cloned();
-        if !ids.is_empty() {
-            let message_ids = message_ids_for_threads(conn, account_id, &ids)?;
-            let set: HashSet<String> = ids.into_iter().collect();
-            rebuild_threads_for_ids(conn, account_id, &set)?;
-            rebuild_fts_for_message_ids(conn, account_id, &message_ids)?;
-        }
-        let upper = if full { last.as_deref() } else { None };
-        drop_orphans_in_range(conn, account_id, after, upper)?;
-        if full {
-            next = last;
-        }
-        Ok(())
-    })?;
-    Ok(next)
 }
 
 /// Threads checked per transaction by [`repair_rollups_chunk`]. The check is a
@@ -189,38 +134,4 @@ pub fn repair_rollups_chunk(
         Ok(())
     })?;
     Ok(next)
-}
-
-/// Run every repair chunk back to back (tests).
-#[cfg(test)]
-pub fn repair_all_rollups_chunked(
-    conn: &Connection,
-    account_id: &str,
-    max_threads: usize,
-) -> Result<(), String> {
-    let mut cursor: Option<String> = None;
-    loop {
-        cursor = repair_rollups_chunk(conn, account_id, cursor.as_deref(), max_threads)?;
-        if cursor.is_none() {
-            return Ok(());
-        }
-    }
-}
-
-/// Run every chunk back to back (tests, repair tooling). Production callers
-/// that hold a shared writer use [`rebuild_rollups_chunk`] and release the
-/// lock between calls.
-#[cfg(test)]
-pub fn rebuild_all_rollups_chunked(
-    conn: &Connection,
-    account_id: &str,
-    max_threads: usize,
-) -> Result<(), String> {
-    let mut cursor: Option<String> = None;
-    loop {
-        cursor = rebuild_rollups_chunk(conn, account_id, cursor.as_deref(), max_threads)?;
-        if cursor.is_none() {
-            return Ok(());
-        }
-    }
 }

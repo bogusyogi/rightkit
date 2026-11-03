@@ -7,14 +7,11 @@ description = "Tracked 9:16 reframe for Right Suite video apps: ONNX face detect
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_reframe"
 path = "src/lib.rs"
-
-[features]
-test-mode = ["rightkit-ffmpeg/dev-overrides"]
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde", "clock"] }
@@ -27,11 +24,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = { version = "2.0" }
 rightkit-onnx = { version = "0.2.9", path = "../rightkit-onnx" }
-
-[dev-dependencies]
-rightkit-ffmpeg = { version = "0.2.13", default-features = false, features = ["dev-overrides"], path = "../rightkit-ffmpeg" }
-sha2 = { version = "0.10" }
-tempfile = { version = "3" }
 
 [workspace]
 

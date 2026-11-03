@@ -3,6 +3,10 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.4.0 (unreleased)
 
 - New `kws` module: the Rust streaming keyword spotter (a port of the Sherpa-ONNX 1.13.4 keyword spotter), used by the dictation engine as its only keyword-spotting backend. This is why the version is 0.4.0; the module is described in the 0.3.1 staging entry below.

@@ -1,10 +1,10 @@
 use crate::error::{Error, Result};
 use crate::namespace::{check_target, windows_credential_identity, Namespace};
 use crate::secret::Secret;
-#[cfg(any(test, feature = "memory-backend"))]
+#[cfg(feature = "memory-backend")]
 use std::collections::HashMap;
 use std::sync::Arc;
-#[cfg(any(test, feature = "memory-backend"))]
+#[cfg(feature = "memory-backend")]
 use std::sync::{Mutex, OnceLock};
 
 /// Whether the OS may show an authorization prompt for this call.
@@ -121,17 +121,17 @@ pub trait Backend: Send + Sync + 'static {
 
 /// In-process store (guard mode, tests). Never touches the OS.
 ///
-/// A test and development capability: it is compiled only with debug assertions or under
-/// `cfg(test)`, so a release build contains no volatile store that could be swapped in for the
+/// A test and development capability: it is compiled only under the non-default `memory-backend`
+/// feature, so a release build contains no volatile store that could be swapped in for the
 /// durable OS store (values would vanish on exit and strand encrypted data).
-#[cfg(any(test, feature = "memory-backend"))]
+#[cfg(feature = "memory-backend")]
 #[derive(Default)]
 pub struct MemoryBackend {
     map: Mutex<HashMap<(String, String), Secret>>,
     simulate_durable: bool,
 }
 
-#[cfg(any(test, feature = "memory-backend"))]
+#[cfg(feature = "memory-backend")]
 impl MemoryBackend {
     pub fn new() -> Self {
         Self::default()
@@ -157,7 +157,7 @@ impl MemoryBackend {
     }
 }
 
-#[cfg(any(test, feature = "memory-backend"))]
+#[cfg(feature = "memory-backend")]
 impl Backend for MemoryBackend {
     fn name(&self) -> &'static str {
         "memory"

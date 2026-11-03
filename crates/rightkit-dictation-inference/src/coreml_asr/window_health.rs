@@ -397,7 +397,3 @@ pub(crate) fn top1_top2_margin(
     }
     top2.is_finite().then_some(top1 - top2)
 }
-
-#[cfg(test)]
-#[path = "window_health_tests.rs"]
-mod tests;

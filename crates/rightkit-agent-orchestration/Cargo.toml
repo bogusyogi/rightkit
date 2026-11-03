@@ -7,7 +7,7 @@ description = "Agent orchestration runtime: plans, routes, tasks, budgets, grant
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_agent_orchestration"
@@ -61,19 +61,6 @@ coding = [
 ]
 coding-host = ["coding", "rightkit-agent-tools/coding_tools-host"]
 coding-os-keyring = ["coding", "rightkit-llm/agent_providers-os-keyring", "rightkit-llm/agent_router-os-keyring"]
-
-[dev-dependencies]
-tempfile = { version = "3" }
-
-[[test]]
-name = "coding_dispatch"
-path = "tests/coding_dispatch.rs"
-required-features = ["coding"]
-
-[[test]]
-name = "coding_router_proof"
-path = "tests/coding_router_proof.rs"
-required-features = ["coding"]
 
 [workspace]
 

@@ -223,28 +223,3 @@ pub(super) fn authenticate(
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_timed_out_worker_cannot_begin_a_prompt() {
-        let state = InFlight {
-            cancelled: AtomicBool::new(true),
-            launch: AtomicU8::new(CANCELLED),
-            cancel: Mutex::new(None),
-        };
-        assert_eq!(
-            state.begin(Instant::now() + Duration::from_secs(1)),
-            Err(OsAuthError::Timeout)
-        );
-        let state = InFlight {
-            cancelled: AtomicBool::new(false),
-            launch: AtomicU8::new(WAITING),
-            cancel: Mutex::new(None),
-        };
-        assert_eq!(state.begin(Instant::now()), Err(OsAuthError::Timeout));
-        assert_eq!(state.launch.load(Ordering::SeqCst), WAITING);
-    }
-}

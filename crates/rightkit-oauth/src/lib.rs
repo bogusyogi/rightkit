@@ -1232,36 +1232,3 @@ fn base64_encode(bytes: &[u8], table: &[u8; 64], pad: bool) -> String {
     }
     out
 }
-
-#[cfg(test)]
-mod base64_tests {
-    use super::*;
-    use base64::Engine as _;
-
-    #[test]
-    fn encoders_match_the_base64_crate_for_every_tail_length() {
-        let data: Vec<u8> = (0..=255u8).cycle().skip(7).take(300).collect();
-        for len in 0..data.len().min(70) {
-            let slice = &data[..len];
-            assert_eq!(
-                base64url(slice),
-                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(slice),
-                "url-safe len {len}"
-            );
-            #[cfg(feature = "server")]
-            assert_eq!(
-                base64_standard(slice),
-                base64::engine::general_purpose::STANDARD.encode(slice),
-                "standard len {len}"
-            );
-        }
-        assert_eq!(base64url(&[0xfb, 0xff, 0xfe]), "-__-");
-        #[cfg(feature = "server")]
-        {
-            assert_eq!(base64_standard(&[0xfb, 0xff, 0xfe]), "+//+");
-            assert_eq!(base64_standard(b"id:secret"), "aWQ6c2VjcmV0");
-            assert_eq!(base64_standard(b"fo"), "Zm8=");
-            assert_eq!(base64_standard(b"f"), "Zg==");
-        }
-    }
-}

@@ -75,27 +75,3 @@ pub(crate) fn random_bytes<const N: usize>() -> Result<[u8; N], crate::Error> {
     getrandom::fill(&mut b).map_err(|_| crate::Error::Random)?;
     Ok(b)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hmac_rfc4231_case_2() {
-        let mac = hmac_sha256(b"Jefe", b"what do ya want for nothing?");
-        assert_eq!(
-            hex(&mac),
-            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
-        );
-    }
-
-    #[test]
-    fn hex_round_trip_and_ct_eq() {
-        let v = vec![0u8, 1, 254, 255];
-        assert_eq!(unhex(&hex(&v)), Some(v.clone()));
-        assert_eq!(unhex("zz"), None);
-        assert!(ct_eq(&v, &v));
-        assert!(!ct_eq(&v, &[0, 1, 254]));
-        assert!(!ct_eq(&v, &[0, 1, 254, 0]));
-    }
-}

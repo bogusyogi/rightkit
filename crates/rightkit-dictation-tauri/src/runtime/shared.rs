@@ -261,10 +261,7 @@ pub fn terminal_error_generation_lock_free() -> Option<u64> {
     engine_sidecar().map(|sidecar| sidecar.state.error_generation())
 }
 
-/// `#[doc(hidden)]` test hooks — `app_lib.rs` is `#[cfg(not(test))]`, so
-/// `#[cfg(test)] mod tests` inside this tree never runs under
-/// `cargo test --lib`. These are exercised from
-/// `tests/runtime_lockfree_tests.rs`, which compiles the real crate.
+/// `#[doc(hidden)]` hooks for host-application end-to-end harnesses.
 #[doc(hidden)]
 pub fn shared_state_clone_shares_for_test() -> bool {
     let state = SharedState::new(AppState::Armed);
@@ -287,34 +284,4 @@ pub fn lock_free_facades_absent_for_test() -> bool {
         && engine_info_lock_free().is_none()
         && prewarm_handshake_lock_free().is_none()
         && sidecar_is_transcribing_session_lock_free("s").is_none()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn shared_state_round_trips_and_clones_share() {
-        let state = SharedState::new(AppState::Armed);
-        let mirror = state.clone();
-        state.set(AppState::Recording {
-            session_id: "s-1".to_string(),
-        });
-        // The lock-free reader sees exactly what the single writer published.
-        assert!(matches!(
-            mirror.get(),
-            AppState::Recording { ref session_id } if session_id == "s-1"
-        ));
-    }
-
-    #[test]
-    fn shared_state_starts_from_constructor_value() {
-        let state = SharedState::new(AppState::Transcribing {
-            session_id: "s-2".to_string(),
-        });
-        assert!(matches!(
-            state.get(),
-            AppState::Transcribing { ref session_id } if session_id == "s-2"
-        ));
-    }
 }

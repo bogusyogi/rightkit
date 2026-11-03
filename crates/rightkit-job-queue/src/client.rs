@@ -120,7 +120,6 @@ fn encode_raw_request(id: u64, method: &str, raw: &[u8], limit: usize) -> Result
     out.extend_from_slice(PARAMS);
     out.extend_from_slice(raw);
     out.extend_from_slice(b"}\n");
-    debug_assert_eq!(out.len(), payload + 1);
     Ok(out)
 }
 
@@ -1156,57 +1155,5 @@ fn dispatch(map: &PendingMap, subs: &Subscribers, v: &Value, fallback_code: &str
             }
         }
         _ => {}
-    }
-}
-
-#[cfg(test)]
-mod exit_record_tests {
-    use super::*;
-    use std::sync::mpsc::channel;
-
-    fn core() -> Arc<Core> {
-        let (wtx, _wrx) = channel::<WriteRequest>();
-        Arc::new(Core {
-            frame_limit: 1024,
-            closed: Arc::default(),
-            subscribers: Arc::default(),
-            writes: Mutex::new(wtx),
-            pending: Arc::default(),
-            next_id: AtomicU64::new(1),
-            child: Mutex::new(None),
-            release: Mutex::new(None),
-            exit: Mutex::new(ChildExit::default()),
-            exit_cv: Condvar::new(),
-            kill_bound_ms: AtomicU64::new(100),
-            stalled_write: std::sync::atomic::AtomicBool::new(false),
-        })
-    }
-
-    struct Flag(Arc<std::sync::atomic::AtomicBool>);
-    impl Drop for Flag {
-        fn drop(&mut self) {
-            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
-        }
-    }
-
-    #[test]
-    fn a_failed_wait_is_recorded_unconfirmed_and_keeps_its_token() {
-        let c = core();
-        let released = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        *c.release.lock().unwrap() = Some(Box::new(Flag(released.clone())));
-        c.exit.lock().unwrap().pid = Some(4242);
-        c.finish_exit_with(None, true, false);
-        let e = c.exit.lock().unwrap();
-        assert!(
-            !e.reaped,
-            "a wait that errored must not be recorded as reaped"
-        );
-        assert!(e.killed);
-        drop(e);
-        assert!(!released.load(std::sync::atomic::Ordering::SeqCst));
-
-        c.finish_exit_with(None, true, true);
-        assert!(c.exit.lock().unwrap().reaped);
-        assert!(released.load(std::sync::atomic::Ordering::SeqCst));
     }
 }

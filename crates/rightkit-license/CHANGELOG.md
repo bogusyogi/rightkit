@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.2.6 (unreleased)
 
 - **Fixed: a native gate check right after a licence write read as Free (rightkit#1320).** `LicenseClient` and the engine snapshot reader each made their own random `ProcessAnchor`, so a `NativeEngineEntitlements` check in the same wall second as an activate or refresh saw the client's ledger mark as another process's and refused it as a rollback (`NotEntitled`; Pro read as Free for about a second). New `ProcessAnchor::process(wall_now)` returns the one anchor this process shares; the client and the snapshot reader use it, and an app passes it to `NativeEngineEntitlements::new`. `ProcessAnchor::new` is unchanged (tests and separate processes).

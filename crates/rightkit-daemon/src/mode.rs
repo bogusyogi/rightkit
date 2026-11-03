@@ -179,16 +179,6 @@ impl TestRoot {
         self.suite.clone()
     }
 
-    /// A unit-test stand-in for what [`decide`] builds after validation.
-    #[cfg(test)]
-    pub(crate) fn for_test(path: PathBuf, suite: Suite) -> TestRoot {
-        TestRoot {
-            path,
-            suite,
-            app_id: "test",
-        }
-    }
-
     /// The app's own data directory inside the root: `<root>/<dir_name>`.
     pub fn app_dir(&self, app: &AppId) -> PathBuf {
         self.path.join(app.dir_name)
@@ -548,73 +538,5 @@ mod capable {
             }
             Ok(())
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn pair(env: Option<&str>, account: &str) -> (Option<PathBuf>, PathBuf) {
-        (env.map(PathBuf::from), PathBuf::from(account))
-    }
-
-    #[test]
-    fn a_root_under_a_differing_env_profile_is_env_shaped() {
-        let root = Path::new("/qa/home/AppData/Local/Orthic Labs/shared");
-        // The env value differs from the account and the root lies under it: fail closed.
-        assert!(root_under_differing_env(
-            root,
-            &[pair(Some("/qa/home"), "/users/real")]
-        ));
-        assert!(root_under_differing_env(
-            root,
-            &[
-                pair(None, "/users/real"),
-                pair(Some("/qa/home/AppData/Local"), "/x")
-            ]
-        ));
-        // The env value equals the account value, is unset, or the root is not under it.
-        assert!(!root_under_differing_env(
-            root,
-            &[pair(Some("/qa/home"), "/qa/home")]
-        ));
-        assert!(!root_under_differing_env(root, &[pair(None, "/qa/home")]));
-        assert!(!root_under_differing_env(
-            root,
-            &[pair(Some("/elsewhere"), "/qa/home")]
-        ));
-        // Whole components only: `/qa/hom` is not an ancestor of `/qa/home/...`.
-        assert!(!root_under_differing_env(
-            root,
-            &[pair(Some("/qa/hom"), "/users/real")]
-        ));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn env_comparison_ignores_case_separators_and_the_verbatim_prefix_on_windows() {
-        let root = Path::new(r"\\?\C:\Users\QA\AppData\Local\Orthic Labs\shared");
-        assert!(root_under_differing_env(
-            root,
-            &[pair(Some("c:/users/qa"), r"C:\Users\Real")]
-        ));
-        assert!(!root_under_differing_env(
-            root,
-            &[pair(Some(r"C:\USERS\QA"), r"c:\users\qa")]
-        ));
-    }
-
-    #[test]
-    fn the_default_protected_paths_keep_the_orthic_folder_and_content_dirs() {
-        let real = Suite::at(Path::new(if cfg!(windows) {
-            r"C:\Users\acct\AppData\Local\Orthic Labs\shared"
-        } else {
-            "/users/acct/AppData/Local/Orthic Labs/shared"
-        }))
-        .unwrap();
-        let paths = default_protected_paths(&real);
-        assert!(paths.iter().any(|p| p.ends_with("Orthic Labs")));
-        assert!(paths.iter().any(|p| p.ends_with("Documents")));
     }
 }

@@ -7,7 +7,7 @@ description = "Signed owner approvals for privileged and reserved actions: owner
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_owner_approvals"
@@ -15,9 +15,6 @@ path = "src/lib.rs"
 
 [features]
 default = []
-# Test builds only: an approver key marked `dev` is trusted, and a keychain item of any non-Apple
-# partition is accepted. A compile error is not raised here; never enable it in a shipped build.
-test-overrides = []
 
 [dependencies]
 ring = "0.17"

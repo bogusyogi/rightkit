@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.2.0 (unreleased)
 
 - Breaking: replace product-specific OverlayKind with caller-owned OverlayModel<Kind>; serialization follows caller kind, preserving existing wire values when caller retains its enum mapping.

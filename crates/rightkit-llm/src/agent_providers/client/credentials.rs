@@ -24,13 +24,13 @@ pub fn load_api_key(provider_id: &str) -> Option<String> {
 }
 
 /// The environment fallback, used only when nothing is stored.
-#[cfg(not(any(test, feature = "agent_providers-host-env")))]
+#[cfg(not(feature = "agent_providers-host-env"))]
 pub fn env_api_key(_provider_id: &str) -> Option<String> {
     // The mobile runtime takes its key from the host app, never the environment.
     None
 }
 
-#[cfg(any(test, feature = "agent_providers-host-env"))]
+#[cfg(feature = "agent_providers-host-env")]
 pub fn env_api_key(provider_id: &str) -> Option<String> {
     let env_vars: &[&str] = match provider_id {
         "openai" => &["OPENAI_API_KEY"],
@@ -158,52 +158,4 @@ pub fn account_key_present(account_id: &str) -> Result<bool, KeyStoreError> {
 #[cfg(feature = "agent_providers-os-keyring")]
 pub fn delete_account_key(account_id: &str) -> Result<(), KeyStoreError> {
     delete_account_key_with(&crate::agent_providers::keystore::OsKeyStore, account_id)
-}
-
-#[cfg(test)]
-mod account_key_tests {
-    use super::*;
-    use crate::agent_providers::keystore::InMemoryKeyStore;
-
-    #[test]
-    fn keys_are_per_account_not_per_provider() {
-        let kv = InMemoryKeyStore::new();
-        store_account_key_with(&kv, "api_key/openai/a", " sk-a ").unwrap();
-        store_account_key_with(&kv, "api_key/openai/b", "sk-b").unwrap();
-        assert_eq!(
-            load_account_key_with(&kv, "api_key/openai/a")
-                .unwrap()
-                .as_deref(),
-            Some("sk-a")
-        );
-        assert_eq!(
-            load_account_key_with(&kv, "api_key/openai/b")
-                .unwrap()
-                .as_deref(),
-            Some("sk-b")
-        );
-        assert_eq!(
-            load_account_key_with(&kv, "api_key/openai/c").unwrap(),
-            None
-        );
-    }
-
-    #[test]
-    fn delete_is_idempotent_and_presence_hides_value() {
-        let kv = InMemoryKeyStore::new();
-        store_account_key_with(&kv, "api_key/openai/a", "sk-a").unwrap();
-        assert!(account_key_present_with(&kv, "api_key/openai/a").unwrap());
-        delete_account_key_with(&kv, "api_key/openai/a").unwrap();
-        delete_account_key_with(&kv, "api_key/openai/a").unwrap();
-        assert!(!account_key_present_with(&kv, "api_key/openai/a").unwrap());
-    }
-
-    #[test]
-    fn rejects_non_api_key_ids_and_empty_keys() {
-        let kv = InMemoryKeyStore::new();
-        assert!(store_account_key_with(&kv, "subscription/claude/x", "k").is_err());
-        assert!(store_account_key_with(&kv, "garbage", "k").is_err());
-        assert!(store_account_key_with(&kv, "api_key/openai/a", "  ").is_err());
-        assert!(account_key_name("api_key/openai/a/../b").is_none());
-    }
 }

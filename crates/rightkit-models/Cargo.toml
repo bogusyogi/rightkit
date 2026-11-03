@@ -9,7 +9,7 @@ repository = "https://github.com/bogusyogi/rightkit"
 description = "Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit."
 keywords = ["models","installer","download","onnx"]
 categories = ["filesystem"]
-include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_models"
@@ -22,10 +22,6 @@ rightapps = ["dep:ed25519-dalek", "dep:base64", "dep:url", "dep:chrono"]
 # host and port be reached for a local debug worker. Never enable it in a release build; without
 # it the allowance is ignored and loopback stays refused.
 dev-worker-override = []
-# Compiles the suite-root override switches (`RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR`,
-# `ORTHIC_SHARED_DIR`) by forwarding `rightkit-daemon/test-mode`. Apps enable it from their own
-# test-mode feature. Never enable it in a release build: without it no override is read.
-test-mode = ["rightkit-daemon/test-mode"]
 agent_local_models = ["dep:rightkit-sandbox", "dep:tokio"]
 
 [dependencies]
@@ -48,15 +44,6 @@ getrandom = "0.4"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 rightkit-sandbox = {version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"], optional = true}
 tokio = {version = "1", features = ["io-util", "macros", "time"], optional = true}
-
-[dev-dependencies]
-# Independent SHA-256 reference for tests (the crate itself hashes via rightkit-fs).
-sha2 = "0.11"
-tempfile = "3"
-# Existing HTTP testing owner provides transport; test support supplies model fixtures. 0.3.8 is the
-# first rightkit-http with `MockServer::start_declared_length`.
-rightkit-http = { version = "0.3.9", path = "../rightkit-http", default-features = false, features = ["testing"] }
-serde_json = {version = "1"}
 
 [package.metadata.rightkit]
 continuous = false

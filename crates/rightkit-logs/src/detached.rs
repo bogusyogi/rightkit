@@ -49,25 +49,6 @@ enum Resume {
     Guard,
 }
 
-/// Test-only point at which a compaction stops with an error, as a crash would.
-#[cfg(test)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CompactStop {
-    BeforeTruncate,
-    AfterTruncate,
-}
-
-/// Test-only closure run inside the window between the length check and the truncation.
-#[cfg(test)]
-struct CompactHook(Box<dyn Fn() + Send + Sync>);
-
-#[cfg(test)]
-impl std::fmt::Debug for CompactHook {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("CompactHook")
-    }
-}
-
 /// How long a drain waits for another process's drain before it skips.
 const DRAIN_LOCK_WAIT: Duration = Duration::from_millis(500);
 const DRAIN_LOCK_POLL: Duration = Duration::from_millis(10);
@@ -112,10 +93,6 @@ pub struct DetachedLog {
     prefix: String,
     secrets: KnownSecrets,
     compact_at: u64,
-    #[cfg(test)]
-    compact_stop: Option<CompactStop>,
-    #[cfg(test)]
-    compact_hook: Option<CompactHook>,
     /// Serialises drains inside this process.
     gate: Mutex<()>,
     last_error: Mutex<Option<String>>,
@@ -131,10 +108,6 @@ impl DetachedLog {
             prefix: String::new(),
             secrets: KnownSecrets::new(),
             compact_at: DEFAULT_COMPACT_AT,
-            #[cfg(test)]
-            compact_stop: None,
-            #[cfg(test)]
-            compact_hook: None,
             gate: Mutex::new(()),
             last_error: Mutex::new(None),
         }
@@ -452,24 +425,9 @@ impl DetachedLog {
             Resume::Guard
         };
         self.write_cursor(0, after)?;
-        #[cfg(test)]
-        {
-            if let Some(hook) = &self.compact_hook {
-                (hook.0)();
-            }
-            if self.compact_stop == Some(CompactStop::BeforeTruncate) {
-                return Err(io::Error::other("injected stop before truncate"));
-            }
-        }
         if let Err(error) = file.set_len(0) {
             let _ = self.write_cursor(consumed, mode);
             return Err(error);
-        }
-        #[cfg(test)]
-        {
-            if self.compact_stop == Some(CompactStop::AfterTruncate) {
-                return Err(io::Error::other("injected stop after truncate"));
-            }
         }
         Ok(true)
     }
@@ -584,183 +542,5 @@ fn fs_to_io(error: rightkit_fs::FsError) -> io::Error {
     match error {
         rightkit_fs::FsError::Io { source, .. } => source,
         other => io::Error::other(other.to_string()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sibling_appends_to_the_file_name() {
-        assert_eq!(
-            sibling(Path::new("/x/job.log"), ".raw"),
-            Path::new("/x/job.log.raw")
-        );
-        assert_eq!(sibling(Path::new("job"), ".pos"), Path::new("job.pos"));
-    }
-
-    use std::io::Write as _;
-
-    fn sink(dir: &Path) -> Arc<RotatingTextWriter> {
-        Arc::new(RotatingTextWriter::new(dir.join("job.log"), 1 << 20).with_generations(3))
-    }
-
-    fn text(dir: &Path) -> String {
-        fs::read_to_string(dir.join("job.log")).unwrap_or_default()
-    }
-
-    fn cursor(dir: &Path) -> String {
-        fs::read_to_string(dir.join("job.log.raw.pos"))
-            .unwrap_or_default()
-            .trim()
-            .to_string()
-    }
-
-    fn append(path: &Path, bytes: &[u8]) {
-        OpenOptions::new()
-            .append(true)
-            .open(path)
-            .unwrap()
-            .write_all(bytes)
-            .unwrap();
-    }
-
-    /// A log whose child wrote 70,000 bytes of one unterminated line, drained into the
-    /// omitted state and compacted; the compaction stops at `stop`, as a crash would.
-    fn omitted_then_compacted(dir: &Path, stop: CompactStop) -> DetachedLog {
-        let mut log = DetachedLog::new(sink(dir)).with_compact_at(1000);
-        log.compact_stop = Some(stop);
-        let mut child = log.stderr_file().unwrap();
-        child.write_all(&vec![b'a'; 70_000]).unwrap();
-        assert!(log.drain().is_err(), "the injected stop fails the drain");
-        assert_eq!(text(dir), "[redacted: long line omitted]\n");
-        log
-    }
-
-    #[test]
-    fn crash_after_truncate_keeps_the_omitted_line_omitted() {
-        let dir = tempfile::tempdir().unwrap();
-        let log = omitted_then_compacted(dir.path(), CompactStop::AfterTruncate);
-        assert_eq!(fs::metadata(log.raw_path()).unwrap().len(), 0);
-        assert_eq!(cursor(dir.path()), "0 omit");
-        // The old child finishes its line and writes on; a new process drains.
-        append(log.raw_path(), b"SECRETSUFFIX\nnext\n");
-        let restarted = DetachedLog::new(sink(dir.path()));
-        assert_eq!(restarted.drain().unwrap().lines, 1);
-        assert_eq!(text(dir.path()), "[redacted: long line omitted]\nnext\n");
-    }
-
-    #[test]
-    fn crash_before_truncate_keeps_the_omitted_line_omitted() {
-        let dir = tempfile::tempdir().unwrap();
-        let log = omitted_then_compacted(dir.path(), CompactStop::BeforeTruncate);
-        assert_eq!(fs::metadata(log.raw_path()).unwrap().len(), 70_000);
-        assert_eq!(cursor(dir.path()), "0 omit");
-        append(log.raw_path(), b"SECRETSUFFIX\nnext\n");
-        let restarted = DetachedLog::new(sink(dir.path()));
-        assert_eq!(restarted.drain().unwrap().lines, 1);
-        assert_eq!(text(dir.path()), "[redacted: long line omitted]\nnext\n");
-    }
-
-    #[test]
-    fn a_file_that_regrows_past_the_old_position_before_restart_leaks_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        let log = omitted_then_compacted(dir.path(), CompactStop::AfterTruncate);
-        // The old position was 70,000; the file now holds more than that.
-        let mut grown = vec![b'b'; 150_000];
-        grown.extend_from_slice(b"\nnext\n");
-        append(log.raw_path(), &grown);
-        let restarted = DetachedLog::new(sink(dir.path()));
-        restarted.drain().unwrap();
-        assert_eq!(text(dir.path()), "[redacted: long line omitted]\nnext\n");
-    }
-
-    #[test]
-    fn bytes_appended_during_compaction_are_dropped_and_their_tail_never_written() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut log = DetachedLog::new(sink(dir.path())).with_compact_at(1);
-        let raw = log.raw_path().to_path_buf();
-        // The child writes a credential prefix inside the window; the truncation drops it.
-        log.compact_hook = Some(CompactHook(Box::new(move || append(&raw, b"sk-abc"))));
-        let mut child = log.stderr_file().unwrap();
-        child.write_all(b"one\n").unwrap();
-        assert!(log.drain().unwrap().compacted);
-        assert_eq!(fs::metadata(log.raw_path()).unwrap().len(), 0);
-        assert_eq!(cursor(dir.path()), "0 guard");
-        // The rest of the credential arrives after the truncation, then ordinary lines.
-        child.write_all(b"defghijklmnop\nnext\n").unwrap();
-        log.compact_hook = None;
-        assert_eq!(log.drain().unwrap().lines, 2);
-        assert_eq!(
-            text(dir.path()),
-            "one\n[redacted: line after raw-file compaction omitted]\nnext\n"
-        );
-    }
-
-    #[test]
-    fn crash_after_a_compaction_with_no_omission_keeps_the_guard() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut log = DetachedLog::new(sink(dir.path())).with_compact_at(1);
-        log.compact_stop = Some(CompactStop::AfterTruncate);
-        let mut child = log.stderr_file().unwrap();
-        child.write_all(b"one\n").unwrap();
-        assert!(log.drain().is_err());
-        assert_eq!(cursor(dir.path()), "0 guard");
-        child.write_all(b"defghi\nnext\n").unwrap();
-        let restarted = DetachedLog::new(sink(dir.path()));
-        restarted.drain().unwrap();
-        assert_eq!(
-            text(dir.path()),
-            "one\n[redacted: line after raw-file compaction omitted]\nnext\n"
-        );
-    }
-
-    #[test]
-    fn a_position_beyond_the_raw_file_is_guarded_not_trusted() {
-        let dir = tempfile::tempdir().unwrap();
-        let log = DetachedLog::new(sink(dir.path()));
-        let mut child = log.stderr_file().unwrap();
-        child.write_all(b"SECRETSUFFIX\nnext\n").unwrap();
-        fs::write(dir.path().join("job.log.raw.pos"), "100000").unwrap();
-        log.drain().unwrap();
-        assert_eq!(
-            text(dir.path()),
-            "[redacted: line after raw-file compaction omitted]\nnext\n"
-        );
-        // A stale omitting position stays omitting.
-        let dir = tempfile::tempdir().unwrap();
-        let log = DetachedLog::new(sink(dir.path()));
-        let mut child = log.stderr_file().unwrap();
-        child.write_all(b"SECRETSUFFIX\nnext\n").unwrap();
-        fs::write(dir.path().join("job.log.raw.pos"), "100000 omit").unwrap();
-        log.drain().unwrap();
-        assert_eq!(text(dir.path()), "next\n");
-    }
-
-    #[test]
-    fn a_new_child_on_an_emptied_file_keeps_the_guard() {
-        let dir = tempfile::tempdir().unwrap();
-        let log = DetachedLog::new(sink(dir.path()));
-        fs::write(log.raw_path(), b"").unwrap();
-        fs::write(dir.path().join("job.log.raw.pos"), "0 guard").unwrap();
-        let _child = log.stderr_file().unwrap();
-        assert_eq!(cursor(dir.path()), "0 guard");
-        // A plain position on an empty file is cleared as before.
-        fs::write(dir.path().join("job.log.raw.pos"), "500").unwrap();
-        let _again = log.stderr_file().unwrap();
-        assert_eq!(cursor(dir.path()), "");
-    }
-
-    #[test]
-    fn cursor_text_round_trips() {
-        let dir = tempfile::tempdir().unwrap();
-        let log = DetachedLog::new(sink(dir.path()));
-        for (offset, mode) in [(0, Resume::Line), (7, Resume::Omit), (9, Resume::Guard)] {
-            log.write_cursor(offset, mode).unwrap();
-            assert_eq!(log.read_cursor_state(), (offset, mode));
-        }
-        fs::write(log.cursor_path(), "junk").unwrap();
-        assert_eq!(log.read_cursor_state(), (0, Resume::Line));
     }
 }

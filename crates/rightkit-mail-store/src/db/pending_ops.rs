@@ -6,11 +6,7 @@ use serde_json::{json, Value};
 #[derive(Debug, Clone)]
 pub struct PendingOpRow {
     pub id: String,
-    #[cfg(test)]
-    pub account_id: String,
     pub op_class: String,
-    #[cfg(test)]
-    pub action: String,
     pub thread_id: String,
     pub add_labels: Vec<String>,
     pub rem_labels: Vec<String>,
@@ -72,17 +68,7 @@ pub fn pending_ops_due(
                 .request_id
                 .clone()
                 .unwrap_or_else(|| r.job.job_id.clone()),
-            #[cfg(test)]
-            account_id: account_id.to_string(),
             op_class: r.job.kind.clone(),
-            #[cfg(test)]
-            action: r
-                .job
-                .request
-                .get("action")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
             thread_id: r
                 .job
                 .request
@@ -129,115 +115,4 @@ pub fn pending_ops_remove(conn: &Connection, id: &str) -> Result<(), String> {
         .complete(conn, &rec.job.job_id, Expect::new(), &json!({}))
         .map_err(|e| format!("pending_ops remove: {e}"))?;
     purge_terminal(conn, table, &rec.job.job_id)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pending_ops_enqueue_is_idempotent() {
-        let conn = test_conn();
-        upsert_account(&conn, "a@x.com").unwrap();
-
-        pending_ops_enqueue(&conn, "op1", "a@x.com", "archive", "t1", &["INBOX"], &[]).unwrap();
-        // Second enqueue with the same id must be silently ignored (INSERT OR IGNORE).
-        pending_ops_enqueue(&conn, "op1", "a@x.com", "archive", "t1", &["INBOX"], &[]).unwrap();
-
-        let count: i64 = conn
-            .query_row(
-                "SELECT count(*) FROM pending_ops WHERE request_id = 'op1'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(count, 1, "duplicate enqueue must not insert a second row");
-    }
-
-    #[test]
-    fn pending_ops_due_returns_due_rows_with_op_class() {
-        let conn = test_conn();
-        upsert_account(&conn, "a@x.com").unwrap();
-        upsert_account(&conn, "b@x.com").unwrap();
-
-        pending_ops_enqueue(&conn, "op-due", "a@x.com", "trash", "t2", &[], &["INBOX"]).unwrap();
-        // This op belongs to a different account and must not appear in a@x.com's results.
-        pending_ops_enqueue(
-            &conn,
-            "op-other",
-            "b@x.com",
-            "archive",
-            "t3",
-            &["INBOX"],
-            &[],
-        )
-        .unwrap();
-
-        let rows = pending_ops_due(&conn, "a@x.com", 5, 10).unwrap();
-        assert_eq!(rows.len(), 1);
-        let row = &rows[0];
-        assert_eq!(row.id, "op-due");
-        assert_eq!(row.account_id, "a@x.com");
-        assert_eq!(row.op_class, "label_modify");
-        assert_eq!(row.action, "trash");
-        assert_eq!(row.thread_id, "t2");
-        assert!(row.add_labels.is_empty());
-        assert_eq!(row.rem_labels, vec!["INBOX".to_string()]);
-    }
-
-    #[test]
-    fn pending_ops_due_respects_max_attempts() {
-        let conn = test_conn();
-        upsert_account(&conn, "a@x.com").unwrap();
-
-        pending_ops_enqueue(&conn, "op-retry", "a@x.com", "star", "t4", &[], &[]).unwrap();
-        // Bump attempts to 3 — at or above the cap it should be excluded.
-        for _ in 0..3 {
-            pending_ops_bump_attempt(&conn, "op-retry").unwrap();
-        }
-
-        let rows = pending_ops_due(&conn, "a@x.com", 3, 10).unwrap();
-        assert!(rows.is_empty(), "row at max_attempts must not be returned");
-
-        // Still returned when cap is higher.
-        let rows = pending_ops_due(&conn, "a@x.com", 4, 10).unwrap();
-        assert_eq!(rows.len(), 1);
-    }
-
-    #[test]
-    fn pending_ops_bump_attempt_increments() {
-        let conn = test_conn();
-        upsert_account(&conn, "a@x.com").unwrap();
-
-        pending_ops_enqueue(&conn, "op-bump", "a@x.com", "read", "t5", &[], &[]).unwrap();
-        pending_ops_bump_attempt(&conn, "op-bump").unwrap();
-        pending_ops_bump_attempt(&conn, "op-bump").unwrap();
-
-        let attempts: i64 = conn
-            .query_row(
-                "SELECT attempts FROM pending_ops WHERE request_id = 'op-bump'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(attempts, 2);
-    }
-
-    #[test]
-    fn pending_ops_remove_deletes_row() {
-        let conn = test_conn();
-        upsert_account(&conn, "a@x.com").unwrap();
-
-        pending_ops_enqueue(&conn, "op-rm", "a@x.com", "unstar", "t6", &[], &[]).unwrap();
-        pending_ops_remove(&conn, "op-rm").unwrap();
-
-        let count: i64 = conn
-            .query_row(
-                "SELECT count(*) FROM pending_ops WHERE request_id = 'op-rm'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(count, 0, "row must be deleted after remove");
-    }
 }

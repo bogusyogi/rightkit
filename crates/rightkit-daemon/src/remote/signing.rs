@@ -2,8 +2,7 @@
 //! uses the same functions to verify, so a client built on this module cannot
 //! drift from the server.
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as _;
+use base64::Engine;
 use ring::hmac;
 use ring::signature::{Ed25519KeyPair, UnparsedPublicKey, ED25519};
 

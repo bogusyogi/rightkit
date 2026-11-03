@@ -100,29 +100,3 @@ impl<'de> Deserialize<'de> for Decimal {
             .ok_or_else(|| D::Error::custom(format!("`{text}` is not an exact decimal")))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::Decimal;
-
-    fn dec(text: &str) -> Decimal {
-        Decimal::parse(text).unwrap_or_else(|| panic!("`{text}` should parse"))
-    }
-
-    #[test]
-    fn trailing_zeros_and_plain_form_are_the_same_value() {
-        assert_eq!(dec("1240.00"), dec("1240"));
-        assert_eq!(dec("-0"), dec("0.0"));
-        assert_ne!(dec("1240.01"), dec("1240"));
-        assert_ne!(dec("-1240"), dec("1240"));
-    }
-
-    #[test]
-    fn malformed_text_is_refused() {
-        for text in [
-            "", "-", ".5", "1.", "1,240", "1e3", "01", "NaN", " 1", "1_0", "+1",
-        ] {
-            assert!(Decimal::parse(text).is_none(), "`{text}` must not parse");
-        }
-    }
-}

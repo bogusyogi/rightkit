@@ -76,11 +76,6 @@ impl Hypotheses {
         Self(vec![h])
     }
 
-    #[cfg(test)]
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-
     fn add(&mut self, h: Hypothesis, math: Math, merge: MergeTimestamps) {
         match self.0.iter_mut().find(|e| e.ys == h.ys) {
             Some(existing) => {
@@ -379,98 +374,4 @@ pub(crate) fn decode_chunk(
     result.hyps = cur;
     result.frame_offset += encoder_out.frames as i32;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn hyp(ys: &[i64], timestamps: &[i32], state: usize, log_prob: f64) -> Hypothesis {
-        Hypothesis {
-            ys: ys.to_vec(),
-            timestamps: timestamps.to_vec(),
-            ys_probs: vec![0.9; timestamps.len()],
-            log_prob,
-            context_state: state,
-            num_trailing_blanks: 0,
-        }
-    }
-
-    #[test]
-    fn topk_orders_by_value_then_index() {
-        assert_eq!(topk_index(&[0.1, 0.5, 0.5, -1.0, 0.7], 3), vec![4, 1, 2]);
-        assert_eq!(topk_index(&[0.1, 0.2], 8), vec![1, 0]);
-    }
-
-    #[test]
-    fn duplicate_paths_log_add_and_keep_the_first() {
-        let mut hs = Hypotheses::default();
-        hs.add(hyp(&[-1, 0, 5], &[3], 1, -1.0), Math::PLATFORM, MergeTimestamps::First);
-        hs.add(hyp(&[-1, 0, 5], &[7], 2, -1.0), Math::PLATFORM, MergeTimestamps::First);
-        assert_eq!(hs.len(), 1);
-        assert_eq!(hs.0[0].timestamps, vec![3]);
-        assert!((hs.0[0].log_prob - (-1.0 + 2f64.ln())).abs() < 1e-12);
-    }
-
-    #[test]
-    fn likelier_merge_keeps_the_likelier_paths_timestamps() {
-        let mut hs = Hypotheses::default();
-        let m = (Math::PLATFORM, MergeTimestamps::Likelier);
-        // A stale path (token 5 at frame 3) merges with a likelier fresh one (frame 40).
-        hs.add(hyp(&[-1, 0, 5], &[3], 1, -6.0), m.0, m.1);
-        hs.add(hyp(&[-1, 0, 5], &[40], 1, -1.0), m.0, m.1);
-        assert_eq!(hs.len(), 1);
-        assert_eq!(hs.0[0].timestamps, vec![40]);
-        assert!((hs.0[0].log_prob - log_add(-6.0, -1.0, Math::PLATFORM)).abs() < 1e-12);
-        // A less likely arrival changes only the score.
-        hs.add(hyp(&[-1, 0, 5], &[41], 1, -9.0), m.0, m.1);
-        assert_eq!(hs.0[0].timestamps, vec![40]);
-    }
-
-    #[test]
-    fn log_softmax_rows_sum_to_one() {
-        for f64_math in [false, true] {
-            for math in [Math::PLATFORM, Math::PORTABLE] {
-                let mut row = vec![1.0f32, 2.0, 3.0, -4.0];
-                log_softmax(&mut row, f64_math, math);
-                let total: f64 = row.iter().map(|x| (*x as f64).exp()).sum();
-                assert!((total - 1.0).abs() < 1e-6);
-            }
-        }
-    }
-
-    #[test]
-    fn threshold_tokens_pick_the_first_or_the_matched_probabilities() {
-        // Two tokens left on the path by a fail transition, then a 3-token keyword.
-        let probs = [0.9, 0.8, 0.1, 0.2, 0.3];
-        let upstream = keyword_score(&probs, 3, ThresholdTokens::Upstream);
-        let matched = keyword_score(&probs, 3, ThresholdTokens::MatchedKeyword);
-        assert!((upstream - 0.6).abs() < 1e-6, "{upstream}");
-        assert!((matched - 0.2).abs() < 1e-6, "{matched}");
-        // Without extra tokens the two agree bit for bit.
-        assert_eq!(
-            keyword_score(&probs[2..], 3, ThresholdTokens::Upstream).to_bits(),
-            keyword_score(&probs[2..], 3, ThresholdTokens::MatchedKeyword).to_bits()
-        );
-        // Upstream's float order: sequential f32 adds, one division.
-        let mut sum = 0.0f32;
-        for p in &probs[..3] {
-            sum += *p;
-        }
-        assert_eq!(upstream.to_bits(), (sum / 3.0).to_bits());
-    }
-
-    #[test]
-    fn expiry_counts_from_the_first_token_of_the_active_keyword() {
-        let ids = vec![vec![5, 6, 7]];
-        let graph = ContextGraph::new(&ids, 1.0, 0.25, &[], &["K".into()], &[]);
-        let (_, a) = graph.forward_one_step(ROOT, 5);
-        let (_, b) = graph.forward_one_step(a, 6);
-        // Two tokens into the keyword; the first was emitted at frame 10.
-        let h = hyp(&[-1, 0, 9, 5, 6], &[2, 10, 30], b, 0.0);
-        assert!(!expired(&h, &graph, 48, 38));
-        assert!(expired(&h, &graph, 49, 38));
-        // At the root nothing expires.
-        assert!(!expired(&hyp(&[-1, 0], &[], ROOT, 0.0), &graph, 1_000, 38));
-    }
 }

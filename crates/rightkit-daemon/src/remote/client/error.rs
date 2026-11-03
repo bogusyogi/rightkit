@@ -3,8 +3,6 @@
 
 use std::fmt;
 
-use serde_json::Value;
-
 /// The `error` code of a daemon refusal. Mirrors the codes the server returns
 /// (and the daemon-api v1 error enum); anything else is [`ErrorCode::Other`].
 #[derive(Debug, Clone, PartialEq, Eq)]

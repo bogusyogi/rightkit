@@ -7,10 +7,6 @@
 //! (docs/agent-rules.md: pure move, no logic changes).
 
 use core_foundation::base::{CFHash, CFType, TCFType};
-use core_foundation::boolean::CFBoolean;
-use core_foundation::dictionary::CFDictionary;
-use core_foundation::string::CFString;
-use std::time::Duration;
 
 use super::super::ffi::{
     ax_app_element, ax_copy, ax_copy_with_error, ax_element_pid, ax_set_bool, ax_string,
@@ -561,7 +557,3 @@ pub(in crate::desktop::macos) fn focus_pin_running_identity_matches(pin: &FocusP
     running_process_instance(pin.pid) == Some(pin.process_instance)
         && same_running_application(pin.pid, &pin.bundle_identifier, &pin.bundle_path)
 }
-
-#[cfg(test)]
-#[path = "pin_tests.rs"]
-mod tests;

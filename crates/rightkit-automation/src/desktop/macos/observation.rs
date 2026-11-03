@@ -2,8 +2,6 @@
 //! identity, and the Chromium prewake watcher.
 
 use core_foundation::base::TCFType;
-use objc2::rc::Retained;
-use objc2::runtime::AnyObject;
 use objc2::{define_class, msg_send, sel, AnyThread};
 use objc2_app_kit::{
     NSRunningApplication, NSWorkspace, NSWorkspaceApplicationKey,
@@ -12,7 +10,6 @@ use objc2_app_kit::{
 use objc2_foundation::{NSNotification, NSObject};
 
 use super::ffi::{ax_app_element, ax_bool, ax_set_bool, AXIsProcessTrusted, AXUIElementRef};
-use super::frontmost::frontmost_pid;
 
 /// Temporary AX tree observation enabled for Chromium/Electron targets.
 ///
@@ -614,7 +611,3 @@ impl Drop for AccessibilityObservationLease {
         // uncertain, so leave it enabled instead of risking disabling AT.
     }
 }
-
-#[cfg(test)]
-#[path = "observation_tests.rs"]
-mod tests;

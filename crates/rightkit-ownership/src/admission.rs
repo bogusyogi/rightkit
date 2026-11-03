@@ -615,16 +615,3 @@ pub(crate) fn utc_date(ms: u64) -> String {
     let year = yoe + era * 400 + i64::from(month <= 2);
     format!("{year:04}-{month:02}-{day:02}")
 }
-
-#[cfg(test)]
-mod expiry_tests {
-    use super::utc_date;
-
-    #[test]
-    fn cache_day_is_the_utc_date() {
-        assert_eq!(utc_date(0), "1970-01-01");
-        assert_eq!(utc_date(1_791_504_000_000), "2026-10-09");
-        assert_eq!(utc_date(1_791_590_399_999), "2026-10-09");
-        assert_eq!(utc_date(1_791_590_400_000), "2026-10-10");
-    }
-}

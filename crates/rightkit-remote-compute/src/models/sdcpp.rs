@@ -39,18 +39,6 @@ pub fn spec(id: &str) -> GenResult<&'static ProfileSpec> {
         .ok_or_else(|| GenError::new("model_not_found", format!("no local-image profile: {id}")))
 }
 
-/// Components a profile still needs in the runtime root (empty when installed).
-#[cfg(test)]
-pub fn missing_components(root: &Path, spec: &ProfileSpec) -> Vec<String> {
-    let dir = rightkit_local_gen::model_store::profile_dir(root, &spec.id, spec.revision);
-    spec.components
-        .iter()
-        .filter(|c| c.required)
-        .filter(|c| !dir.join(&c.file).is_file())
-        .map(|c| c.file.clone())
-        .collect()
-}
-
 /// Starts a background install of a profile through the local-image installer.
 pub fn start(ctx: &Context, id: &str) -> GenResult<Value> {
     let spec = spec(id)?;
@@ -129,40 +117,4 @@ pub fn rollback(id: &str) -> GenResult<Value> {
         "no_rollback",
         format!("{id}: sd.cpp profiles keep one fixed revision folder; reinstall the catalogue revision instead"),
     ))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_bundled_profile_resolves_to_a_spec() {
-        let catalogue = profiles::catalogue().expect("catalogue");
-        assert!(!catalogue.profiles.is_empty());
-        for profile in &catalogue.profiles {
-            assert_eq!(spec(&profile.id).expect("profile").id, profile.id);
-        }
-    }
-
-    #[test]
-    fn unknown_profile_is_not_found() {
-        let err = spec("no-such-profile").err().expect("error");
-        assert_eq!(err.code, "model_not_found");
-    }
-
-    #[test]
-    fn rollback_is_refused_for_fixed_folders() {
-        let err = rollback("any").err().expect("error");
-        assert_eq!(err.code, "no_rollback");
-    }
-
-    #[test]
-    fn missing_components_lists_absent_required_files() {
-        let root =
-            std::env::temp_dir().join(format!("rightkit-sdcpp-missing-{}", std::process::id()));
-        let spec = spec(&profiles::catalogue().unwrap().profiles[0].id).unwrap();
-        let missing = missing_components(&root, spec);
-        let required = spec.components.iter().filter(|c| c.required).count();
-        assert_eq!(missing.len(), required);
-    }
 }

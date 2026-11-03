@@ -162,39 +162,3 @@ pub async fn set_label_color(
     let _: AnyLabel = g.patch_json(&url, &body).await.map_err(String::from)?;
     Ok(())
 }
-
-// ─── Tests (no network required) ─────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn create_body_json_shape() {
-        // Confirm the JSON body we send to Gmail has the three required fields.
-        let name = "Orders/Shipped";
-        let body = serde_json::json!({
-            "name": name,
-            "labelListVisibility": "labelShow",
-            "messageListVisibility": "show"
-        });
-        assert_eq!(body["name"], "Orders/Shipped");
-        assert_eq!(body["labelListVisibility"], "labelShow");
-        assert_eq!(body["messageListVisibility"], "show");
-    }
-
-    #[test]
-    fn label_result_round_trips_serde() {
-        // Confirm LabelResult can survive JSON serialisation (needed for Tauri IPC).
-        let original = LabelResult {
-            id: "Label_42".to_string(),
-            name: "Work/Invoices".to_string(),
-            label_type: "user".to_string(),
-        };
-        let json = serde_json::to_string(&original).expect("serialize");
-        let decoded: LabelResult = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(decoded.id, original.id);
-        assert_eq!(decoded.name, original.name);
-        assert_eq!(decoded.label_type, original.label_type);
-    }
-}

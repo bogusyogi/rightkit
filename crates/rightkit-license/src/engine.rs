@@ -30,8 +30,7 @@
 //!    point of use of each gated capability, on every start path (window, stdio,
 //!    headless, cross-app). The returned [`Entitlement`] is the verdict; do not copy it
 //!    into a settings or config struct that another process can write.
-//! 4. A test or debug override belongs behind a Cargo feature or `cfg(test)` that
-//!    release builds cannot enable; do not branch on an environment variable.
+//! 4. No test or debug override ships in any build; do not branch on an environment variable.
 //!
 //! ## The native client's record (M12)
 //! A credential source may return the stored record text instead of a bare token: an envelope

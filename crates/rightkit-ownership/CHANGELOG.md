@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.4.4 (unpublished)
 
 - pnpm: a `link:` to a directory of the scanned repository outside the lock's importers (RightKit's sample apps link `packages/*`) is a local node, not a `lockfile-unresolved-dependency` gap; a link leaving the repository still is one. Same rule as the Node scanner in `@rightkit/release` 0.6.17.

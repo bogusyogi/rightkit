@@ -11,17 +11,6 @@
     clippy::type_complexity
 )]
 
-/// The OS temp dir with symlinks resolved (macOS `/var` is a link, which the safe-filesystem owner refuses).
-#[cfg(test)]
-pub(crate) fn test_temp_dir() -> std::path::PathBuf {
-    let dir = std::env::temp_dir();
-    if cfg!(windows) {
-        dir
-    } else {
-        dir.canonicalize().unwrap_or(dir)
-    }
-}
-
 pub mod api;
 pub mod avatars;
 pub mod balances;
@@ -160,25 +149,3 @@ impl std::fmt::Display for GenError {
 impl std::error::Error for GenError {}
 
 pub type GenResult<T> = Result<T, GenError>;
-
-// Test binaries are unsigned ad-hoc artifacts; touching the real credential
-// store from them raises interactive prompts. This runs before any test in
-// this binary, so Context::new can never reach the OS store.
-#[cfg(test)]
-mod no_keychain_in_tests {
-    #[ctor::ctor(unsafe)]
-    fn guard() {
-        std::env::set_var("RIGHTKIT_NO_KEYCHAIN", "1");
-        // A test process never defaults to the user's real data folder: with no folder set,
-        // voice-model checks ran against the installed models and rewrote their cache file there.
-        if std::env::var_os("RIGHTKIT_APP_DATA")
-            .filter(|v| !v.is_empty())
-            .is_none()
-        {
-            let dir = std::env::temp_dir()
-                .join(format!("rightkit-media-gen-unit-{}", std::process::id()));
-            std::fs::create_dir_all(&dir).expect("isolated test data folder");
-            std::env::set_var("RIGHTKIT_APP_DATA", dir);
-        }
-    }
-}

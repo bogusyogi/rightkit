@@ -17,7 +17,7 @@
 //! Library registration: every run has a caller (`--caller <name>`, else `<PREFIX>_CALLER`, else
 //! `cli`). An INSTALLED engine (release build, no `<PREFIX>_QA`) also registers each delivered image
 //! in the user's own library under that caller, so the Gallery lists it ("From <caller>")
-//! beside the project copy under `<project>/exports/`. QA-marked and debug-build engines never touch
+//! beside the project copy under `<project>/exports/`. QA-marked engines never touch
 //! the user's library (see `registration_for`). Registration problems are reported on the
 //! deliverable row (`library`) and never fail a delivery whose project files are already placed.
 //!
@@ -87,7 +87,7 @@ struct Args {
     timeout_secs: Option<u64>,
     dry_run: bool,
     /// Keep job state in the user's own library instead of `<project>/.<namespace>/`.
-    /// For the user's own app only; refused for QA-marked and debug-build engines.
+    /// For the user's own app only; refused for QA-marked engines.
     use_user_library: bool,
     /// `--caller`; resolved against `<PREFIX>_CALLER` and the `cli` default in `run_cli`.
     caller: Option<String>,
@@ -229,7 +229,7 @@ pub fn run_cli(args: &[String]) -> i32 {
             &decided,
             &rightkit_media_gen::host::user_data_root(),
             qa_marked(),
-            cfg!(debug_assertions),
+            false,
         ),
         caller,
     };
@@ -296,9 +296,7 @@ impl DataRoot {
 /// 1. A folder the caller chose (`<PREFIX>_APP_DATA` / `--data-dir`) wins; QA harnesses and
 ///    isolated dispatchers (a dispatcher under QA) set it.
 /// 2. A QA-marked engine (`<PREFIX>_QA`) with no folder is refused: `data_folder_required`.
-/// 3. `--use-user-library` is for the user's own app: it keeps the per-user default, and is
-///    refused for debug builds (a debug engine run by another app is exactly what logged into
-///    the real folder once).
+/// 3. `--use-user-library` is for the user's own app: it keeps the per-user default.
 /// 4. Otherwise (the cross-app dispatch default) state lives in `<project>/.<namespace>/`: the
 ///    project is where the caller reads the envelope and images, deleting the project deletes the
 ///    state, and the user's library is not touched. Installed models are still read from the
@@ -321,9 +319,6 @@ fn decide_data_root(args: &Args) -> Result<DataRoot, String> {
         ));
     }
     if args.use_user_library {
-        if cfg!(debug_assertions) {
-            return Err("--use-user-library is refused by a debug build; a debug engine never uses the user's real data folder. Set the APP_DATA override or pass --data-dir <dir>".into());
-        }
         return Ok(DataRoot::UserLibrary);
     }
     if !args.project.is_dir() {
@@ -363,9 +358,9 @@ impl LibraryTarget {
 }
 
 /// The one rule for touching the user's real library: only an installed engine, never a QA-marked
-/// or debug-build one, and never a run the caller isolated in its own folder.
+/// one, and never a run the caller isolated in its own folder.
 ///
-/// - QA-marked (`<PREFIX>_QA`) or debug build: never (row 225's guard; a test must not write real data).
+/// - QA-marked (`<PREFIX>_QA`): never (row 225's guard; a test must not write real data).
 /// - the dispatched default (`<project>/.<namespace>`): copy into the user's library.
 /// - `--use-user-library`, or an explicit folder that IS the user's folder: the files are already in
 ///   the library; tag them.
@@ -413,7 +408,7 @@ fn register_image(target: &LibraryTarget, p: &Produced, bytes: &[u8], aspect: &s
         },
         Registration::IntoUserLibrary => {
             // Defence in depth: re-check right where the real folder would be written.
-            if qa_marked() || cfg!(debug_assertions) {
+            if qa_marked() {
                 return skipped("qa_or_debug");
             }
             let ctx = Context::new(rightkit_media_gen::host::user_data_root());
@@ -1472,246 +1467,5 @@ fn rel(dir: &Path, path: &Path) -> String {
             .collect::<Vec<_>>()
             .join("/"),
         Err(_) => path.display().to_string(),
-    }
-}
-
-#[cfg(test)]
-mod caller_tests {
-    use super::*;
-
-    fn user() -> PathBuf {
-        std::env::temp_dir().join("rightkit-caller-user-root-does-not-exist")
-    }
-
-    fn produced(src: PathBuf) -> Produced {
-        Produced {
-            src,
-            sha256: String::new(),
-            mime: "image/png".into(),
-            media: Value::Null,
-            prompt: "a cat".into(),
-            slide_copy: None,
-            provenance: json!({"provider": "local-image", "model": "m", "job_id": "j1"}),
-        }
-    }
-
-    #[test]
-    fn caller_flag_parses_and_defaults_to_none() {
-        let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let with = parse_args(&args(&[
-            "run",
-            "--project",
-            "p",
-            "--input",
-            "i",
-            "--caller",
-            "PostApp",
-        ]))
-        .unwrap()
-        .unwrap();
-        assert_eq!(with.caller.as_deref(), Some("PostApp"));
-        let without = parse_args(&args(&["run", "--project", "p", "--input", "i"]))
-            .unwrap()
-            .unwrap();
-        assert_eq!(without.caller, None);
-        assert!(parse_args(&args(&[
-            "run",
-            "--project",
-            "p",
-            "--input",
-            "i",
-            "--caller"
-        ]))
-        .is_err());
-    }
-
-    #[test]
-    fn only_an_installed_unmarked_engine_registers_into_the_library() {
-        let project = DataRoot::Project(PathBuf::from("p/.rightkit"));
-        // installed (release), no QA mark
-        assert_eq!(
-            registration_for(&project, &user(), false, false),
-            Registration::IntoUserLibrary
-        );
-        assert_eq!(
-            registration_for(&DataRoot::UserLibrary, &user(), false, false),
-            Registration::TagInPlace
-        );
-        // QA-marked or debug: never, whatever the folder decision
-        for decided in [
-            project.clone(),
-            DataRoot::UserLibrary,
-            DataRoot::Explicit(PathBuf::from("x")),
-            DataRoot::Unresolved,
-        ] {
-            assert_eq!(
-                registration_for(&decided, &user(), true, false),
-                Registration::Skip("qa_marked")
-            );
-            assert_eq!(
-                registration_for(&decided, &user(), true, true),
-                Registration::Skip("qa_marked")
-            );
-            assert_eq!(
-                registration_for(&decided, &user(), false, true),
-                Registration::Skip("debug_build")
-            );
-        }
-        // an isolated caller folder stays isolated; a missing project registers nothing
-        assert_eq!(
-            registration_for(
-                &DataRoot::Explicit(PathBuf::from("isolated")),
-                &user(),
-                false,
-                false
-            ),
-            Registration::Skip("explicit_data_folder")
-        );
-        assert_eq!(
-            registration_for(&DataRoot::Unresolved, &user(), false, false),
-            Registration::Skip("no_project")
-        );
-    }
-
-    #[test]
-    fn an_explicit_folder_that_is_the_user_folder_is_tagged_in_place() {
-        let dir = std::env::temp_dir().join(format!("rightkit-caller-same-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        assert_eq!(
-            registration_for(&DataRoot::Explicit(dir.clone()), &dir, false, false),
-            Registration::TagInPlace
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[cfg(debug_assertions)]
-    #[test]
-    fn a_debug_build_never_writes_the_user_library_even_if_asked_to() {
-        // Registration::IntoUserLibrary cannot be built by `registration_for` here, but the write path
-        // re-checks anyway: this test binary is a debug build.
-        let target = LibraryTarget {
-            caller: rightkit_media_gen::host::parse_caller("postapp").unwrap(),
-            mode: Registration::IntoUserLibrary,
-        };
-        let row = register_image(&target, &produced(PathBuf::from("none.png")), b"x", "1:1");
-        assert_eq!(row["status"], "skipped");
-        assert_eq!(row["reason"], "qa_or_debug");
-    }
-
-    #[test]
-    fn skipped_runs_report_why_and_tag_in_place_tags_the_file() {
-        let skip = LibraryTarget {
-            caller: rightkit_media_gen::host::Caller::cli(),
-            mode: Registration::Skip("qa_marked"),
-        };
-        let row = register_image(&skip, &produced(PathBuf::from("none.png")), b"x", "1:1");
-        assert_eq!(
-            (row["status"].as_str(), row["reason"].as_str()),
-            (Some("skipped"), Some("qa_marked"))
-        );
-
-        let dir = std::env::temp_dir().join(format!("rightkit-caller-tag-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("a.png");
-        std::fs::write(&file, b"x").unwrap();
-        let tag = LibraryTarget {
-            caller: rightkit_media_gen::host::parse_caller("PostApp").unwrap(),
-            mode: Registration::TagInPlace,
-        };
-        let row = register_image(&tag, &produced(file.clone()), b"x", "1:1");
-        assert_eq!(row["status"], "tagged");
-        let body: Value =
-            serde_json::from_slice(&std::fs::read(dir.join("a.png.caller.json")).unwrap()).unwrap();
-        assert_eq!(
-            (body["caller"].as_str(), body["label"].as_str()),
-            (Some("postapp"), Some("PostApp"))
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn the_sidecar_name_matches_between_engine_and_gallery_index() {
-        assert_eq!(
-            rightkit_media_gen::host::CALLER_SIDECAR_SUFFIX,
-            rightkit_media_gen::host::CALLER_SIDECAR_SUFFIX
-        );
-    }
-
-    #[test]
-    fn dry_run_summary_names_the_caller_and_mode() {
-        let target = LibraryTarget {
-            caller: rightkit_media_gen::host::parse_caller("CutApp").unwrap(),
-            mode: Registration::Skip("debug_build"),
-        };
-        let v = library_summary(&target);
-        assert_eq!(
-            (
-                v["caller"].as_str(),
-                v["mode"].as_str(),
-                v["reason"].as_str()
-            ),
-            (Some("cutapp"), Some("skip"), Some("debug_build"))
-        );
-    }
-
-    fn platforms(names: &[&str]) -> Vec<String> {
-        names.iter().map(|s| s.to_string()).collect()
-    }
-
-    #[test]
-    fn carousel_is_4_5_only_when_every_platform_is_an_instagram_feed_variant() {
-        assert_eq!(carousel_aspect(&platforms(&["instagram"])), "4:5");
-        assert_eq!(
-            carousel_aspect(&platforms(&[
-                "instagram",
-                "instagram_carousel",
-                "instagram_feed"
-            ])),
-            "4:5"
-        );
-        // A mix with any non-feed platform keeps the shared rule (square here).
-        assert_eq!(carousel_aspect(&platforms(&["instagram", "tiktok"])), "1:1");
-        assert_eq!(
-            carousel_aspect(&platforms(&["instagram", "instagram_reels"])),
-            "1:1"
-        );
-        assert_eq!(carousel_aspect(&platforms(&["youtube"])), "16:9");
-        assert_eq!(carousel_aspect(&platforms(&[])), "1:1");
-    }
-
-    #[test]
-    fn stills_keep_the_shared_aspect_even_for_instagram() {
-        assert_eq!(
-            aspect_for(Deliverable::Stills, &platforms(&["instagram"])),
-            "1:1"
-        );
-        assert_eq!(
-            aspect_for(Deliverable::Stills, &platforms(&["youtube"])),
-            "16:9"
-        );
-        assert_eq!(
-            aspect_for(Deliverable::Carousel, &platforms(&["instagram"])),
-            "4:5"
-        );
-        assert_eq!(
-            aspect_for(Deliverable::Carousel, &platforms(&["tiktok"])),
-            "9:16"
-        );
-    }
-
-    #[test]
-    fn four_by_five_is_sent_as_an_exact_1024_by_1280_frame() {
-        let p = image_params("4:5");
-        assert_eq!(
-            (p["width"].as_u64(), p["height"].as_u64()),
-            (Some(1024), Some(1280))
-        );
-        assert!(p.get("aspect").is_none());
-        assert_eq!(image_params("1:1"), json!({"aspect": "1:1"}));
-        assert_eq!(image_params("9:16"), json!({"aspect": "9:16"}));
-        // 4:5 exactly: 1280 * 4 == 1024 * 5.
-        assert_eq!(1280 * 4, 1024 * 5);
-        assert_eq!(1024 % 256, 0);
-        assert_eq!(1280 % 256, 0);
     }
 }

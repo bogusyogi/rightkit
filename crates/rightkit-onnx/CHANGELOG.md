@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.2.9 (unreleased)
 
 - Feature `agent_ort`: shared ONNX Runtime session helpers for agent hosts, moved from CodeRight `coderight-ort-common`.

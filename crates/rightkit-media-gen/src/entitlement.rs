@@ -26,12 +26,10 @@ pub fn install(gate: Box<dyn Gate>) {
     let _ = GATE.set(gate);
 }
 
-/// Refuse unless the installed gate allows `feature`. With no gate installed this refuses,
-/// except in this crate's own unit tests, which exercise providers through mocks.
+/// Refuse unless the installed gate allows `feature`. With no gate installed this refuses.
 pub fn require(feature: &str) -> GenResult<()> {
     match GATE.get() {
         Some(gate) => gate.require(feature),
-        None if cfg!(test) => Ok(()),
         None => Err(GenError::new(
             "license_unverified",
             format!("{feature}: no licence check is installed in this process"),

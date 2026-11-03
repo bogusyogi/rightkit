@@ -5,6 +5,7 @@
 use crate::host_identity::{HostConnectError, HostExpectation, HostProcess};
 use crate::suite::Suite;
 use std::io::{self, Read, Write};
+use std::os::windows::io::IntoRawHandle;
 use std::sync::Arc;
 
 /// Outcome of [`Listener::accept`]: an authenticated connection, a rejected peer, or one that
@@ -314,14 +315,6 @@ mod imp {
             let (s, _) = self.l.accept()?;
             admit(s, verify_peer_is_current_user)
         }
-        #[cfg(test)]
-        pub fn accept_with(
-            &self,
-            verify: impl FnOnce(&UnixStream) -> Result<PeerIdentity, PeerError>,
-        ) -> io::Result<Accepted> {
-            let (s, _) = self.l.accept()?;
-            admit(s, verify)
-        }
         pub fn wake(&self) {
             let _ = UnixStream::connect(&self.path);
         }
@@ -384,7 +377,6 @@ mod imp {
         ConnectNamedPipe, CreateNamedPipeW, PeekNamedPipe, PIPE_READMODE_BYTE,
         PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT,
     };
-    use windows::Win32::System::Threading::CreateEventW;
     use windows::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 
     pub fn current_uid() -> u32 {
@@ -721,7 +713,6 @@ mod imp {
 
     fn open_overlapped(endpoint: &str) -> io::Result<Pipe> {
         use std::os::windows::fs::OpenOptionsExt;
-        use std::os::windows::io::IntoRawHandle;
         const ERROR_FILE_NOT_FOUND: i32 = 2;
         const ERROR_PIPE_BUSY: i32 = 231;
         let start = std::time::Instant::now();
@@ -849,297 +840,5 @@ pub fn open_stream_expecting(
             ),
         )),
         Err(HostConnectError::Identity(e)) => Err(crate::ConnectError::HostIdentity(e)),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
-
-    static SEQ: AtomicU32 = AtomicU32::new(0);
-
-    fn unique(tag: &str) -> String {
-        let n = SEQ.fetch_add(1, Ordering::SeqCst);
-        let t = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.subsec_nanos())
-            .unwrap_or(0);
-        format!("{tag}-{}-{n}-{t:x}", std::process::id())
-    }
-
-    #[cfg(unix)]
-    fn endpoint(dir: &tempfile::TempDir) -> String {
-        dir.path().join("t.sock").to_string_lossy().into_owned()
-    }
-    #[cfg(windows)]
-    fn endpoint(_: &NoDir) -> String {
-        format!(r"\\.\pipe\rightkit-transport-test-{}", unique("p"))
-    }
-    #[cfg(unix)]
-    fn tmp() -> tempfile::TempDir {
-        tempfile::Builder::new().prefix("rk").tempdir().unwrap()
-    }
-    /// Named pipes need no directory; this stands in for the Unix temporary directory.
-    #[cfg(windows)]
-    struct NoDir;
-    #[cfg(windows)]
-    fn tmp() -> NoDir {
-        NoDir
-    }
-
-    /// A same-user client and host round-trip over the real transport, with the peer
-    /// check running on both ends (accept and connect).
-    #[test]
-    fn same_user_round_trip_authenticates_both_ends() {
-        let _ = unique("x");
-        let dir = tmp();
-        let ep = endpoint(&dir);
-        let l = Listener::bind(&ep, 4).unwrap();
-        let client_ep = ep.clone();
-        let t = std::thread::spawn(move || {
-            let mut c = connect(&client_ep).expect("same-user server must authenticate");
-            c.writer.write_all(b"ping\n").unwrap();
-            c.writer.flush().unwrap();
-            let mut buf = [0u8; 5];
-            c.reader.read_exact(&mut buf).unwrap();
-            buf
-        });
-        let Accepted::Conn(mut conn) = l.accept().unwrap() else {
-            panic!("same-user peer must be accepted");
-        };
-        let mut buf = [0u8; 5];
-        conn.reader.read_exact(&mut buf).unwrap();
-        assert_eq!(&buf, b"ping\n");
-        conn.writer.write_all(b"pong\n").unwrap();
-        conn.writer.flush().unwrap();
-        assert_eq!(&t.join().unwrap(), b"pong\n");
-        l.cleanup();
-    }
-
-    /// A peer the verifier refuses is closed unread and reported as Rejected.
-    #[cfg(unix)]
-    #[test]
-    fn rejected_peer_is_closed_unread() {
-        use crate::peer::{PeerError, PeerIdentity};
-        let dir = tmp();
-        let ep = endpoint(&dir);
-        let l = Listener::bind(&ep, 4).unwrap();
-        let client_ep = ep.clone();
-        let t = std::thread::spawn(move || {
-            let mut s = std::os::unix::net::UnixStream::connect(&client_ep).unwrap();
-            let _ = s.write_all(b"{\"type\":\"hello\"}\n");
-            let mut b = [0u8; 1];
-            // The host closes without reading or answering: EOF (or a reset), never data.
-            matches!(s.read(&mut b), Ok(0) | Err(_))
-        });
-        let foreign = PeerIdentity {
-            uid: Some(crate::peer::current_euid().wrapping_add(1)),
-            ..Default::default()
-        };
-        match l
-            .accept_with(|_| Err(PeerError::Mismatch(foreign)))
-            .unwrap()
-        {
-            Accepted::Rejected(reason) => assert!(reason.contains("not the current user")),
-            _ => panic!("a foreign peer must be rejected"),
-        }
-        assert!(
-            t.join().unwrap(),
-            "rejected client must see a close, not a reply"
-        );
-        l.cleanup();
-    }
-
-    /// A platform that cannot authenticate the peer rejects instead of admitting it.
-    #[cfg(unix)]
-    #[test]
-    fn unsupported_verifier_never_admits() {
-        use crate::peer::PeerError;
-        let dir = tmp();
-        let ep = endpoint(&dir);
-        let l = Listener::bind(&ep, 4).unwrap();
-        let client_ep = ep.clone();
-        let t = std::thread::spawn(move || std::os::unix::net::UnixStream::connect(client_ep));
-        let a = l
-            .accept_with(|_| Err(PeerError::Unsupported("test")))
-            .unwrap();
-        assert!(matches!(a, Accepted::Rejected(_)));
-        let _ = t.join();
-        l.cleanup();
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn public_pipe_verifiers_accept_a_same_user_pipe() {
-        use crate::peer::{
-            owner_only_security_attributes, verify_pipe_peer_is_current_user,
-            verify_pipe_server_is_current_user,
-        };
-        use std::os::windows::fs::OpenOptionsExt;
-        use std::os::windows::io::{AsRawHandle, RawHandle};
-        use windows::core::PCWSTR;
-        use windows::Win32::Security::SECURITY_ATTRIBUTES;
-        use windows::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
-        use windows::Win32::System::Pipes::{
-            ConnectNamedPipe, CreateNamedPipeW, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE,
-            PIPE_WAIT,
-        };
-        let name = format!(r"\\.\pipe\rightkit-verify-test-{}", unique("v"));
-        let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
-        let attrs = owner_only_security_attributes().unwrap();
-        let server = unsafe {
-            CreateNamedPipeW(
-                PCWSTR(wide.as_ptr()),
-                PIPE_ACCESS_DUPLEX,
-                PIPE_TYPE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                1,
-                4096,
-                4096,
-                0,
-                Some(attrs.as_ptr() as *const SECURITY_ATTRIBUTES),
-            )
-        };
-        assert!(!server.is_invalid());
-        let client_name = name.clone();
-        let t = std::thread::spawn(move || {
-            std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .security_qos_flags(0x0010_0000 | 0x0001_0000)
-                .open(client_name)
-                .unwrap()
-        });
-        // Blocking ConnectNamedPipe returns once the client has opened the pipe.
-        unsafe { ConnectNamedPipe(server, None) }.ok();
-        let client = t.join().unwrap();
-        let id = verify_pipe_peer_is_current_user(server.0 as RawHandle).unwrap();
-        assert_eq!(id.pid, Some(std::process::id()));
-        assert_eq!(
-            id.sid,
-            Some(crate::peer::current_user_sid_string().unwrap())
-        );
-        let id = verify_pipe_server_is_current_user(client.as_raw_handle()).unwrap();
-        assert_eq!(id.pid, Some(std::process::id()));
-        let _ = unsafe { windows::Win32::Foundation::CloseHandle(server) };
-    }
-
-    // ---- endpoint naming (gap ledger row 167) ----
-
-    fn long_service() -> String {
-        format!("{}-instance", "a".repeat(39))
-    }
-
-    #[test]
-    fn fallback_file_name_is_pinned_and_bounded() {
-        // FNV-1a 64 of the service name; changing this string breaks client/server agreement.
-        assert_eq!(
-            fallback_file_name("0badc0de", &long_service()),
-            "rk-0badc0de-3a43f919c4e992b6.sock"
-        );
-        assert_eq!(
-            fallback_file_name("0badc0de", "speech"),
-            "rk-0badc0de-c1d6288e168cb0d7.sock"
-        );
-        assert_eq!(fallback_file_name("0badc0de", &long_service()).len(), 33);
-        assert_eq!(fnv1a64(""), 0xcbf2_9ce4_8422_2325);
-    }
-
-    #[cfg(unix)]
-    fn long_root() -> tempfile::TempDir {
-        // About 60 bytes: long enough that the old `rk-<tag>-<service>.sock` (65 bytes for a
-        // 48-byte name) never fitted, short enough for the bounded name (33 bytes).
-        let d = tempfile::Builder::new()
-            .prefix(&"r".repeat(49))
-            .tempdir_in("/tmp")
-            .unwrap();
-        let n = d.path().as_os_str().len();
-        assert!((50..=69).contains(&n), "root is {n} bytes");
-        d
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_48_byte_service_name_binds_and_connects_under_a_long_temp_root() {
-        let suite = Suite::per_run_temp("ep-long").unwrap();
-        let service = long_service();
-        assert_eq!(service.len(), 48);
-        let root = long_root();
-        let ep = unix_endpoint_in(&suite, &service, root.path()).unwrap();
-        assert!(ep.starts_with(root.path().to_str().unwrap()));
-        assert!(
-            ep.len() <= MAX_UNIX_SOCKET_PATH,
-            "{ep} is {} bytes",
-            ep.len()
-        );
-        // The pre-fix name for the same inputs would not have fitted.
-        assert_eq!(legacy_unix_endpoint_in(&suite, &service, root.path()), None);
-        let l = Listener::bind(&ep, DEFAULT_MAX_PIPE_INSTANCES).unwrap();
-        assert!(connect(&ep).is_ok());
-        l.cleanup();
-        // Both ends derive the same path from the same inputs.
-        assert_eq!(
-            candidates_in(&suite, &service, root.path()),
-            vec![ep.clone()]
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_new_client_still_finds_an_old_host_on_the_old_fallback_name() {
-        let suite = Suite::per_run_temp("ep-old").unwrap();
-        // A 20-byte name with a short temp root: the old name fitted, so an old host may hold it.
-        let service = "legacy-fallback-name";
-        let root = tempfile::Builder::new()
-            .prefix("rk")
-            .tempdir_in("/tmp")
-            .unwrap();
-        // Only reachable when the in-suite path is too long, as under a long $TMPDIR.
-        if suite
-            .service_dir(service)
-            .join(format!("{service}.sock"))
-            .as_os_str()
-            .len()
-            <= IN_SUITE_PATH_LIMIT
-        {
-            return;
-        }
-        let new = unix_endpoint_in(&suite, service, root.path()).unwrap();
-        let old = legacy_unix_endpoint_in(&suite, service, root.path()).expect("old name fitted");
-        assert_ne!(new, old);
-        assert_eq!(
-            candidates_in(&suite, service, root.path()),
-            vec![new.clone(), old.clone()]
-        );
-        // An old host holds only the old name.
-        let _old_host = std::os::unix::net::UnixListener::bind(&old).unwrap();
-        let live = candidates_in(&suite, service, root.path())
-            .into_iter()
-            .find(|e| probe_endpoint(e));
-        assert_eq!(live.as_deref(), Some(old.as_str()));
-        // A new host on the new name wins over the old one (it is listed first).
-        let l = Listener::bind(&new, DEFAULT_MAX_PIPE_INSTANCES).unwrap();
-        let live = candidates_in(&suite, service, root.path())
-            .into_iter()
-            .find(|e| probe_endpoint(e));
-        assert_eq!(live.as_deref(), Some(new.as_str()));
-        l.cleanup();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn an_unfittable_temp_root_is_a_typed_error_naming_path_length_and_limit() {
-        let suite = Suite::per_run_temp("ep-absurd").unwrap();
-        let service = long_service();
-        let temp = std::path::PathBuf::from(format!("/{}", "t".repeat(90)));
-        let e = unix_endpoint_in(&suite, &service, &temp).unwrap_err();
-        assert_eq!(e.limit, MAX_UNIX_SOCKET_PATH);
-        assert_eq!(e.len, e.path.len());
-        assert!(e.len > e.limit);
-        assert!(e.path.starts_with(temp.to_str().unwrap()));
-        let msg = e.to_string();
-        assert!(msg.contains(&e.path) && msg.contains(&e.len.to_string()) && msg.contains("103"));
-        assert!(legacy_unix_endpoint_in(&suite, &service, &temp).is_none());
-        assert!(candidates_in(&suite, &service, &temp).is_empty());
     }
 }

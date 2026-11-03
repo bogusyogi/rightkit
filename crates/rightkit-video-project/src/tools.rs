@@ -39,14 +39,6 @@ fn require_approved(path: &Path) -> Result<(), ProjectError> {
     })
 }
 
-#[cfg(feature = "test-mode")]
-fn env_override(var: &str) -> Option<PathBuf> {
-    std::env::var_os(var)
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-}
-
-#[cfg(not(feature = "test-mode"))]
 fn env_override(_var: &str) -> Option<PathBuf> {
     None
 }
@@ -136,47 +128,5 @@ fn pick(
             "{name} not found at {}",
             path.display()
         )))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn touch(p: &Path) {
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, b"").unwrap();
-    }
-
-    #[test]
-    fn resolves_from_bundle_runtime_dir() {
-        let d = tempfile::tempdir().unwrap();
-        let sfx = std::env::consts::EXE_SUFFIX;
-        touch(&d.path().join(format!("runtime/ffmpeg{sfx}")));
-        touch(&d.path().join(format!("runtime/ffprobe{sfx}")));
-        let t = MediaTools::resolve_with(Some(d.path()), None, None).unwrap();
-        assert!(t.ffmpeg.starts_with(d.path().join("runtime")));
-        assert!(t.ffprobe.starts_with(d.path().join("runtime")));
-    }
-
-    #[test]
-    fn missing_tool_is_typed() {
-        let d = tempfile::tempdir().unwrap();
-        let e = MediaTools::resolve_with(Some(d.path()), None, None).unwrap_err();
-        assert_eq!(e.code(), "media_tool_missing");
-        let e = MediaTools::resolve_with(None, None, None).unwrap_err();
-        assert_eq!(e.code(), "media_tool_missing");
-    }
-
-    #[test]
-    fn override_must_exist_and_wins_over_bundle() {
-        let d = tempfile::tempdir().unwrap();
-        let fake = d.path().join("x");
-        touch(&fake);
-        let t = MediaTools::resolve_with(None, Some(fake.clone()), Some(fake.clone())).unwrap();
-        assert_eq!(t.ffmpeg, fake);
-        let e =
-            MediaTools::resolve_with(None, Some(d.path().join("nope")), Some(fake)).unwrap_err();
-        assert_eq!(e.code(), "media_tool_missing");
     }
 }

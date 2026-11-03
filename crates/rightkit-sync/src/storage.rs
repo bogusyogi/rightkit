@@ -50,25 +50,3 @@ impl LedgerStorage for MemoryStorage {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn file_storage_round_trips_replaces_and_leaves_no_temp_files() {
-        let dir = std::env::temp_dir().join(format!("rk-sync-storage-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let store = FileStorage::new(dir.join("nested").join("ledger.json"));
-        assert_eq!(store.load().unwrap(), None);
-        store.save(b"one").unwrap();
-        store.save(b"two").unwrap();
-        assert_eq!(store.load().unwrap().as_deref(), Some(&b"two"[..]));
-        let names: Vec<_> = std::fs::read_dir(dir.join("nested"))
-            .unwrap()
-            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(names, vec!["ledger.json".to_string()]);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}

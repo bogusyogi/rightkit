@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.2.14 (unpublished)
 
 - Fix: the crate compiles with `default-features = false`. `Artifact::archive` named `native::ArchiveRef`, which exists only with feature `native` (E0433, reported by Pulse). `ArchiveRef` now lives in the always-compiled `archive` module; `native::ArchiveRef` stays as a re-export, so no caller changes.

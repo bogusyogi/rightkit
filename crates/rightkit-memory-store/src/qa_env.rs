@@ -5,72 +5,30 @@
 
 use std::ffi::OsString;
 
-#[cfg(debug_assertions)]
-pub fn event_db() -> Option<OsString> {
-    std::env::var_os("RIGHTKIT_CONTEXT_EVENT_DB")
-}
-
-#[cfg(not(debug_assertions))]
 pub fn event_db() -> Option<OsString> {
     None
 }
 
-#[cfg(debug_assertions)]
-pub fn memory_db() -> Option<OsString> {
-    std::env::var_os("RIGHTKIT_CONTEXT_MEMORY_DB")
-}
-
-#[cfg(not(debug_assertions))]
 pub fn memory_db() -> Option<OsString> {
     None
 }
 
-#[cfg(debug_assertions)]
-pub fn workspace_root() -> Option<OsString> {
-    std::env::var_os("RIGHTKIT_CONTEXT_WORKSPACE_ROOT")
-}
-
-#[cfg(not(debug_assertions))]
 pub fn workspace_root() -> Option<OsString> {
     None
 }
 
-#[cfg(debug_assertions)]
-pub fn workspace_config() -> Option<OsString> {
-    std::env::var_os("RIGHTKIT_CONTEXT_WORKSPACE_CONFIG")
-}
-
-#[cfg(not(debug_assertions))]
 pub fn workspace_config() -> Option<OsString> {
     None
 }
 
-#[cfg(debug_assertions)]
-pub fn telemetry_ingress() -> Option<OsString> {
-    std::env::var_os("RIGHTKIT_CONTEXT_TELEMETRY_INGRESS")
-}
-
-#[cfg(not(debug_assertions))]
 pub fn telemetry_ingress() -> Option<OsString> {
     None
 }
 
-#[cfg(debug_assertions)]
-pub fn installation_file() -> Option<OsString> {
-    std::env::var_os("RIGHTKIT_CONTEXT_INSTALLATION_FILE")
-}
-
-#[cfg(not(debug_assertions))]
 pub fn installation_file() -> Option<OsString> {
     None
 }
 
-#[cfg(debug_assertions)]
-pub fn mirror() -> Option<OsString> {
-    std::env::var_os("RIGHTKIT_CONTEXT_MIRROR")
-}
-
-#[cfg(not(debug_assertions))]
 pub fn mirror() -> Option<OsString> {
     None
 }

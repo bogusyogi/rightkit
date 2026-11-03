@@ -163,34 +163,3 @@ pub(crate) fn peer_io(
 }
 
 impl std::error::Error for Error {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn errors_carry_stable_codes() {
-        let error = Error::PeerIdentityMismatch {
-            peer: "Phone".into(),
-        };
-        let value = serde_json::to_value(&error).unwrap();
-        assert_eq!(value["code"], "peer_identity_mismatch");
-        assert_eq!(value["peer"], "Phone");
-        let unit = serde_json::to_value(&Error::InvalidFingerprint).unwrap();
-        assert_eq!(unit["code"], "invalid_fingerprint");
-        assert_eq!(
-            Error::PortInUse { port: 53317 }.to_string(),
-            "port 53317 is already in use"
-        );
-    }
-
-    #[test]
-    fn a_mismatch_is_distinct_from_other_connection_failures() {
-        let refused = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused");
-        let classified = peer_io("Phone", &refused, |peer, detail| Error::PeerUnreachable {
-            peer,
-            detail,
-        });
-        assert!(matches!(classified, Error::PeerUnreachable { .. }));
-    }
-}

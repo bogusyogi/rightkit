@@ -344,7 +344,3 @@ fn normalize_markdown_hash_location_suffix(suffix: &str) -> Option<String> {
     }
     Some(normalized)
 }
-
-#[cfg(test)]
-#[path = "local_links_tests.rs"]
-mod tests;

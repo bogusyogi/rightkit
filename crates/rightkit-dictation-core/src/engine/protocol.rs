@@ -2,9 +2,7 @@
 // Pure serde + validation; the process spawning / stdin-stdout machinery
 // lives in the host application.
 
-use super::secret::SecretString;
 use super::validation::{reject_ui_concepts, validate_frame};
-use rightkit_speech_client::TimedWord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

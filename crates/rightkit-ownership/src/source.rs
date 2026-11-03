@@ -320,31 +320,3 @@ fn raw_string_open(rest: &str) -> Option<(usize, usize)> {
         .starts_with('"')
         .then_some((after.0 + hashes + 1, hashes))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn non_code_marks_comments_and_strings() {
-        let text = "a(); // b()\nc(\"d()\"); /* e() */ f();";
-        let mask = source_non_code(text, true);
-        let at = |needle: &str| mask[text.find(needle).unwrap()];
-        assert!(!at("a()") && at("b()") && !at("c(") && at("d()") && at("e()") && !at("f()"));
-    }
-
-    #[test]
-    fn rust_lifetimes_are_not_char_literals() {
-        let text = "fn f<'a>(x: &'a str) { g() } 'x' h()";
-        let mask = source_non_code(text, true);
-        assert!(!mask[text.find("g()").unwrap()]);
-        assert!(mask[text.find("'x'").unwrap()]);
-    }
-
-    #[test]
-    fn extname_follows_node() {
-        assert_eq!(extname("src/MAIN.RS"), ".rs");
-        assert_eq!(extname(".gitignore"), "");
-        assert_eq!(extname("a/b"), "");
-    }
-}

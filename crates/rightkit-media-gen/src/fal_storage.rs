@@ -520,38 +520,3 @@ pub fn priced_param_refs(params: &Value, refs: &[ParamRef]) -> Value {
     }
     out
 }
-
-#[cfg(test)]
-mod param_ref_tests {
-    use super::*;
-
-    #[test]
-    fn finds_local_files_in_strings_and_lists_only() {
-        let p = json!({"image_url": "/tmp/a.png", "mask_url": "https://x/m.png", "image_urls": ["https://x/1.png", "C:\\pics\\b.png"], "prompt": "/not/a/param"});
-        let names = vec![
-            "image_url".to_string(),
-            "mask_url".into(),
-            "image_urls".into(),
-        ];
-        let refs = local_param_refs(&p, &names);
-        assert_eq!(refs.len(), 2);
-        assert_eq!(refs[0].param, "image_url");
-        assert_eq!(refs[1].index, Some(1));
-    }
-
-    #[test]
-    fn refuses_without_confirmation_listing_files_and_prices_with_placeholder() {
-        let p = json!({"image_url": "/tmp/a.png"});
-        let refs = local_param_refs(&p, &["image_url".to_string()]);
-        let e = require_param_confirmation(&refs, false, "wavespeed").unwrap_err();
-        assert_eq!(e.code, CONFIRMATION_REQUIRED);
-        assert!(require_param_confirmation(&refs, true, "wavespeed").is_ok());
-        assert_eq!(
-            priced_param_refs(&p, &refs)["image_url"],
-            PRICING_PLACEHOLDER
-        );
-        let mut q = p.clone();
-        set_param(&mut q, &refs[0], "https://cdn/x.png");
-        assert_eq!(q["image_url"], "https://cdn/x.png");
-    }
-}

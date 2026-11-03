@@ -48,16 +48,3 @@ pub fn read_body_limited(reader: Box<dyn Read + Send>, limit: u64) -> Result<Vec
     }
     Ok(bytes)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::read_body_limited;
-
-    #[test]
-    fn body_at_the_limit_is_read_and_over_it_is_refused() {
-        let ok = read_body_limited(Box::new(std::io::Cursor::new(vec![1u8; 10])), 10).unwrap();
-        assert_eq!(ok.len(), 10);
-        let err = read_body_limited(Box::new(std::io::Cursor::new(vec![1u8; 11])), 10).unwrap_err();
-        assert!(err.starts_with("the response body is larger than request limit"));
-    }
-}

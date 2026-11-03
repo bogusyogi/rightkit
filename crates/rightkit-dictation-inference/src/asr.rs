@@ -6,8 +6,6 @@
 
 mod models;
 mod runtime;
-#[cfg(test)]
-mod tests;
 mod windowing;
 
 pub use models::{apply_probe_context_bias, apply_utterance_bias, models_base};

@@ -4,14 +4,9 @@
 //! requests. It never leaves the credential store except as the 32-byte seed the process
 //! reads into memory to build the signing key; the registry file holds public keys only.
 
-#[cfg(test)]
-use std::sync::{Mutex, PoisonError};
-
 use ring::signature::{ED25519, Ed25519KeyPair, KeyPair, UnparsedPublicKey};
 
 use super::LinkError;
-#[cfg(test)]
-use super::wire::random;
 use rightkit_crypto::sha256;
 use rightkit_device_link_types::DEVICE_REF_SCHEMA_VERSION;
 use rightkit_device_link_types::{DevicePlatform, DeviceRef};
@@ -149,39 +144,6 @@ impl KeyVault for LinuxVault {
             return Ok(seed);
         }
         self.file.load_or_create_seed()
-    }
-}
-
-/// In-process vault. Not durable: for tests and journeys that run two devices in one process.
-/// Compiled only under `cfg(test)`: a release host with no credential store must fail
-/// closed (`OsKeyVault::open` refuses), not mint an identity that ends with the process.
-#[cfg(test)]
-pub struct MemoryKeyVault(Mutex<Option<[u8; 32]>>);
-
-#[cfg(test)]
-impl MemoryKeyVault {
-    pub fn new() -> Self {
-        Self(Mutex::new(None))
-    }
-}
-
-#[cfg(test)]
-impl Default for MemoryKeyVault {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(test)]
-impl KeyVault for MemoryKeyVault {
-    fn load_or_create_seed(&self) -> Result<[u8; 32], LinkError> {
-        let mut slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(seed) = *slot {
-            return Ok(seed);
-        }
-        let seed = random::<32>()?;
-        *slot = Some(seed);
-        Ok(seed)
     }
 }
 

@@ -41,11 +41,6 @@ pub fn best_color_for_level(target: (u8, u8, u8), color_level: StdoutColorLevel)
 }
 
 pub(crate) fn effective_stdout_color_level() -> StdoutColorLevel {
-    #[cfg(test)]
-    if TEST_DEFAULT_COLORS.with(|colors| colors.get().is_some()) {
-        return StdoutColorLevel::TrueColor;
-    }
-
     stdout_color_level_for_terminal(
         stdout_color_level(),
         terminal_info().name,
@@ -94,37 +89,8 @@ pub struct DefaultColors {
     pub(crate) bg: (u8, u8, u8),
 }
 
-#[cfg(test)]
-thread_local! {
-    static TEST_DEFAULT_COLORS: std::cell::Cell<Option<DefaultColors>> = const {
-        std::cell::Cell::new(None)
-    };
-}
-
 pub fn default_colors() -> Option<DefaultColors> {
-    #[cfg(test)]
-    if let Some(colors) = TEST_DEFAULT_COLORS.with(std::cell::Cell::get) {
-        return Some(colors);
-    }
-
     imp::default_colors()
-}
-
-/// Scope a truecolor terminal palette to the current test thread while rendering a real widget.
-#[cfg(test)]
-pub(crate) fn with_test_default_colors<T>(
-    colors: crate::transcript::terminal_palette::DefaultColors,
-    render: impl FnOnce() -> T,
-) -> T {
-    TEST_DEFAULT_COLORS.with(|override_colors| {
-        let previous = override_colors.replace(Some(DefaultColors {
-            fg: colors.fg,
-            bg: colors.bg,
-        }));
-        let result = render();
-        override_colors.set(previous);
-        result
-    })
 }
 
 pub fn default_fg() -> Option<(u8, u8, u8)> {
@@ -135,15 +101,7 @@ pub fn default_bg() -> Option<(u8, u8, u8)> {
     default_colors().map(|c| c.bg)
 }
 
-#[cfg(any(unix, windows))]
-#[cfg(test)]
-pub(crate) fn set_default_colors_from_startup_probe(
-    colors: Option<crate::transcript::terminal_palette::DefaultColors>,
-) {
-    imp::set_default_colors_from_startup_probe(colors);
-}
-
-#[cfg(all(unix, not(test)))]
+#[cfg(unix)]
 mod imp {
     use super::DefaultColors;
     use std::sync::Mutex;
@@ -184,19 +142,6 @@ mod imp {
         cache.get_or_init_with(query_default_colors)
     }
 
-    #[cfg(test)]
-    pub(super) fn set_default_colors_from_startup_probe(
-        colors: Option<crate::transcript::terminal_palette::DefaultColors>,
-    ) {
-        if let Ok(mut cache) = default_colors_cache().lock() {
-            cache.value = colors.map(|colors| DefaultColors {
-                fg: colors.fg,
-                bg: colors.bg,
-            });
-            cache.attempted = true;
-        }
-    }
-
     /// Queries terminal default colors through the bounded startup probe path.
     ///
     /// The palette cache treats `None` as an attempted-but-unavailable result, so this function
@@ -204,7 +149,6 @@ mod imp {
     /// that simply do not support OSC 10/11 queries.
     fn query_default_colors() -> Option<DefaultColors> {
         // The host owns terminal input. No OSC query may race its sole reader.
-        // A startup-probe result can be supplied via set_default_colors_from_startup_probe.
         None
     }
 }
@@ -250,19 +194,6 @@ mod imp {
         cache.get_or_init_with(query_default_colors)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))] // only the cfg(test) wrapper calls it
-    pub(super) fn set_default_colors_from_startup_probe(
-        colors: Option<crate::transcript::terminal_palette::DefaultColors>,
-    ) {
-        if let Ok(mut cache) = default_colors_cache().lock() {
-            cache.value = colors.map(|colors| DefaultColors {
-                fg: colors.fg,
-                bg: colors.bg,
-            });
-            cache.attempted = true;
-        }
-    }
-
     fn query_default_colors() -> Option<DefaultColors> {
         // Terminal input belongs to the host's sole reader. Use startup-provided
         // colors only; querying OSC from the renderer would race that reader.
@@ -270,18 +201,12 @@ mod imp {
     }
 }
 
-#[cfg(not(any(all(unix, not(test)), windows)))]
+#[cfg(not(any(unix, windows)))]
 mod imp {
     use super::DefaultColors;
 
     pub(super) fn default_colors() -> Option<DefaultColors> {
         None
-    }
-
-    #[cfg(any(unix, windows))]
-    pub(super) fn set_default_colors_from_startup_probe(
-        _colors: Option<crate::transcript::terminal_palette::DefaultColors>,
-    ) {
     }
 }
 
@@ -552,64 +477,3 @@ pub const XTERM_COLORS: [(u8, u8, u8); 256] = [
     (228, 228, 228), // 254 Grey89
     (238, 238, 238), // 255 Grey93
 ];
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pretty_assertions::assert_eq;
-
-    #[test]
-    fn best_color_uses_truecolor_without_quantization() {
-        assert_eq!(
-            best_color_for_color_level((12, 34, 56), StdoutColorLevel::TrueColor),
-            rgb_color((12, 34, 56))
-        );
-    }
-
-    #[test]
-    fn best_color_resets_for_ansi16() {
-        assert_eq!(
-            best_color_for_color_level((12, 34, 56), StdoutColorLevel::Ansi16),
-            Color::Reset
-        );
-    }
-
-    #[test]
-    fn windows_terminal_wt_session_promotes_to_truecolor() {
-        assert_eq!(
-            stdout_color_level_for_terminal(
-                StdoutColorLevel::Ansi16,
-                TerminalName::Unknown,
-                /*has_wt_session*/ true,
-                /*has_force_color_override*/ false,
-            ),
-            StdoutColorLevel::TrueColor
-        );
-    }
-
-    #[test]
-    fn windows_terminal_name_promotes_ansi16_to_truecolor() {
-        assert_eq!(
-            stdout_color_level_for_terminal(
-                StdoutColorLevel::Ansi16,
-                TerminalName::WindowsTerminal,
-                /*has_wt_session*/ false,
-                /*has_force_color_override*/ false,
-            ),
-            StdoutColorLevel::TrueColor
-        );
-    }
-
-    #[test]
-    fn force_color_keeps_reported_stdout_level() {
-        assert_eq!(
-            stdout_color_level_for_terminal(
-                StdoutColorLevel::Ansi16,
-                TerminalName::WindowsTerminal,
-                /*has_wt_session*/ true,
-                /*has_force_color_override*/ true,
-            ),
-            StdoutColorLevel::Ansi16
-        );
-    }
-}

@@ -22,16 +22,14 @@
 mod error;
 mod transport;
 
+use rustls::pki_types::pem::PemObject;
 use std::io::{Read, Seek, SeekFrom};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use ring::rand::SystemRandom;
 use ring::signature::{Ed25519KeyPair, KeyPair};
-use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, ServerName};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -685,53 +683,5 @@ impl DeviceSession {
             ));
         }
         Ok(receipt)
-    }
-}
-
-/// Requests a conforming client never sends, so a test can assert that the daemon refuses them.
-/// Behind the `testing` feature only: absent from a default or `client`-only build, and the
-/// daemon's own verification is untouched.
-#[cfg(feature = "testing")]
-impl DeviceSession {
-    /// Like [`send`](Self::send) but unsigned: the request claims this device
-    /// (`Authorization: RK-Device <id>`) and carries no timestamp, nonce or signature. A daemon
-    /// must refuse it with [`ErrorCode::Unauthenticated`], so an `Err(Error::Refused(..))` is the
-    /// expected result. Caller headers are checked as in `send`.
-    pub fn send_unsigned(
-        &self,
-        method: &str,
-        path_and_query: &str,
-        extra_headers: &[(&str, &str)],
-        body: &[u8],
-    ) -> Result<Response, Error> {
-        let method = method.to_ascii_uppercase();
-        reject_reserved(extra_headers)?;
-        let headers = vec![("authorization".to_string(), self.authorization())];
-        self.exchange(&method, path_and_query, headers, extra_headers, body)
-    }
-
-    /// Like [`send`](Self::send) but with the caller's `nonce` in place of a random one, still
-    /// signed correctly over it. Sending the same nonce twice must be refused the second time
-    /// with [`ErrorCode::Unauthenticated`] (a replay). The nonce goes out as given: an empty or
-    /// over-long one reaches the daemon's own nonce check.
-    pub fn send_with_nonce(
-        &self,
-        nonce: &str,
-        method: &str,
-        path_and_query: &str,
-        extra_headers: &[(&str, &str)],
-        body: &[u8],
-    ) -> Result<Response, Error> {
-        let method = method.to_ascii_uppercase();
-        reject_reserved(extra_headers)?;
-        let headers = self.client.signed_headers_with_nonce(
-            &self.key,
-            self.authorization(),
-            &method,
-            path_and_query,
-            body,
-            nonce,
-        );
-        self.exchange(&method, path_and_query, headers, extra_headers, body)
     }
 }

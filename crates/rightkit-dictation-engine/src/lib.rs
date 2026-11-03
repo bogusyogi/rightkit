@@ -15,10 +15,6 @@
 
 pub use rightkit_dictation_runtime::{crash_capture, ipc, owner_diagnostics, runtime, worker};
 
-/// QA build only: records the `RIGHTKIT_*` levers this engine received (see the module).
-#[cfg(feature = "test-mode")]
-pub mod levers;
-
 #[cfg(target_os = "macos")]
 pub use rightkit_dictation_command_host::macos_input;
 pub use rightkit_dictation_command_host::{

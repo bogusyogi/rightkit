@@ -7,7 +7,7 @@ description = "Engine binary framework: one command registry served as a headles
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_engine_host"
@@ -31,13 +31,7 @@ default = []
 # Project-method support (`project`): JSON/transcript helpers, analysis layout, clip ranges, flat settings files, project
 # font, media tools and the renders listing, for command modules built on rightkit-video-project.
 project-cmd = ["dep:rightkit-video-project", "dep:rightkit-timeline", "dep:rightkit-transcript", "dep:rightkit-app-settings", "dep:rightkit-fs", "dep:rightkit-cache"]
-# Honours RIGHTKIT_FONT in `project::title_font`. Never in a shipped build.
-test-mode = []
 
-[dev-dependencies]
-tempfile = "3"
-
-# Citationberg is pulled by rightkit-typeset through rightkit-captions (video-project); see the vendored fix.
 [patch.crates-io]
 citationberg = { path = "../../vendor/citationberg" }
 

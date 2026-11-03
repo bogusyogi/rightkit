@@ -10,7 +10,6 @@ repository = "https://github.com/bogusyogi/rightkit"
 include = [
   "src/**",
   "assets/**",
-  "tests/**",
   "Cargo.toml",
   "README.md",
   "CHANGELOG.md",
@@ -74,13 +73,6 @@ block2 = { version = "0.6.2", optional = true }
 # that: the file replacement itself is rightkit-fs's.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
-
-[dev-dependencies]
-serde_json = "1.0.154"
-image = { version = "0.25", default-features = false, features = ["png"] }
-# Fault seam around the replace call (debug and test builds only; a release build with it fails to
-# compile): proves a failed publish leaves the original file. Same pattern as rightkit-app-settings.
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }
 
 [package.metadata.rightkit]
 continuous = false

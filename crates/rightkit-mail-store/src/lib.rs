@@ -18,6 +18,3 @@ pub mod db_schema_v21;
 pub mod host;
 pub mod safety;
 mod utc_stamp;
-
-#[cfg(test)]
-mod test_host;

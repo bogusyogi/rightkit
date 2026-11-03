@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.3.7 (unreleased)
 
 - Feature `agent_telemetry`: agent runtime telemetry (resource metrics, turn latency, SQLite op latency, wakeups) moved from CodeRight `coderight-telemetry`.

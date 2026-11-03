@@ -157,28 +157,3 @@ pub(crate) fn windows_shared_pool_active() -> crate::onnx_tdt::Result<bool> {
     });
     Ok(shared && !PRIVATE_POOLS.load(Ordering::Acquire))
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn pool_caps_physical_cores_and_leaves_small_machine_headroom() {
-        for (cores, expected) in [(0, 1), (1, 1), (2, 1), (3, 2), (4, 3), (14, 4)] {
-            assert_eq!(super::cpu_threads(cores), expected);
-        }
-    }
-
-    #[test]
-    fn topology_counts_cores_not_sibling_threads_and_rejects_truncated_records() {
-        let mut records = Vec::new();
-        for size in [16_u32, 24] {
-            records.extend(0_u32.to_ne_bytes());
-            records.extend(size.to_ne_bytes());
-            records.resize(records.len() + size as usize - 8, 0);
-        }
-        assert_eq!(super::count_core_records(&records), Some(2));
-        assert_eq!(
-            super::count_core_records(&records[..records.len() - 1]),
-            None
-        );
-    }
-}

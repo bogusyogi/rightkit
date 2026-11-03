@@ -180,21 +180,3 @@ pub fn to_json(outcome: &Result<Value, AgentError>) -> Value {
         }
     }
 }
-
-#[cfg(test)]
-mod debug_tests {
-    #[test]
-    fn debug_never_prints_the_key() {
-        let r = super::Request {
-            key: "s3cr3t-pairing-key".into(),
-            method: "search".into(),
-            params: serde_json::json!({"q": "private words"}),
-        };
-        let out = format!("{r:?}");
-        assert!(
-            !out.contains("s3cr3t") && !out.contains("private words"),
-            "{out}"
-        );
-        assert!(out.contains("<redacted>") && out.contains("search"));
-    }
-}

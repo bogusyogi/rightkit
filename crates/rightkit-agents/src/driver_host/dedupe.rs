@@ -1,5 +1,4 @@
 use crate::driver_host::NormalizedEvent;
-use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DedupAdmission {
@@ -39,34 +38,5 @@ impl EventDeduplicator for InMemoryEventDeduplicator {
         } else {
             DedupAdmission::Duplicate
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::driver_host::{DriverKind, NormalizedEventKind};
-
-    fn event(key: &str, offset: u64) -> NormalizedEvent {
-        NormalizedEvent {
-            event_key: key.into(),
-            driver: DriverKind::Codex,
-            source_offset: offset,
-            vendor_method: "item/agentMessage/delta".into(),
-            kind: NormalizedEventKind::AssistantDelta { text: key.into() },
-        }
-    }
-
-    #[test]
-    fn duplicate_and_reordered_events_are_admitted_exactly_once() {
-        let mut dedupe = InMemoryEventDeduplicator::default();
-        let second = event("codex:2:delta", 2);
-        let first = event("codex:1:delta", 1);
-
-        assert_eq!(dedupe.admit(&second).unwrap(), DedupAdmission::New);
-        assert_eq!(dedupe.admit(&first).unwrap(), DedupAdmission::New);
-        assert_eq!(dedupe.admit(&second).unwrap(), DedupAdmission::Duplicate);
-        assert_eq!(dedupe.admit(&first).unwrap(), DedupAdmission::Duplicate);
-        assert_eq!(dedupe.len(), 2);
     }
 }

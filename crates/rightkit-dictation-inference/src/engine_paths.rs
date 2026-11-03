@@ -154,42 +154,8 @@ pub fn launch_model_choice() -> LaunchModelChoice {
     choice_without_frame()
 }
 
-#[cfg(any(test, feature = "test-mode"))]
-fn choice_without_frame() -> LaunchModelChoice {
-    let read = |value: Option<std::ffi::OsString>| value.filter(|value| !value.is_empty());
-    LaunchModelChoice {
-        backend: rightkit_dictation_core::dev_var!("RIGHTKIT_ASR_BACKEND").ok(),
-        coreml_model_dir: read(rightkit_dictation_core::dev_var_os!(
-            "RIGHTKIT_COREML_MODEL_DIR"
-        ))
-        .map(PathBuf::from),
-        asr_model_subdir: read(rightkit_dictation_core::dev_var_os!(
-            "RIGHTKIT_ASR_MODEL_SUBDIR"
-        ))
-        .map(|value| value.to_string_lossy().trim().to_string())
-        .filter(|value| !value.is_empty()),
-        load_check: read(rightkit_dictation_core::dev_var_os!(
-            "RIGHTKIT_MODEL_STORE_LOAD_CHECK"
-        ))
-        .is_some_and(|value| value == "1"),
-    }
-}
-
 /// Release: no frame means no choice was made for this process; the persisted setting decides
 /// the backend and the engine derives the Parakeet directory.
-#[cfg(not(any(test, feature = "test-mode")))]
 fn choice_without_frame() -> LaunchModelChoice {
     LaunchModelChoice::default()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn empty_override_is_ignored() {
-        assert_eq!(dev_override(Some(std::ffi::OsString::new())), None);
-        assert_eq!(dev_override(Some("x".into())), Some(PathBuf::from("x")));
-        assert_eq!(dev_override(None), None);
-    }
 }

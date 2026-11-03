@@ -7,7 +7,7 @@ description = "Dictation inference: Parakeet TDT on CoreML and ONNX Runtime, Whi
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "data/**", "examples/**", "build.rs", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "data/**", "examples/**", "build.rs", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_dictation_inference"
@@ -16,7 +16,6 @@ path = "src/lib.rs"
 [features]
 default = []
 cuda-bench = ["rightkit-asr/cuda", "rightkit-onnx/cuda"]
-test-mode = ["rightkit-asr/test-mode", "rightkit-dictation-core/test-mode", "rightkit-dictation-text-pipeline/test-mode"]
 
 [dependencies]
 rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
@@ -36,7 +35,7 @@ rightkit-vad = { version = "0.1.2", path = "../rightkit-vad" }
 rightkit-asr = { version = "0.4.0", default-features = false, path = "../rightkit-asr" }
 
 [dev-dependencies]
-rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core", features = ["test-mode"] }
+rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["digest"], path = "../rightkit-fs" }
 
@@ -66,26 +65,6 @@ cc = { version = "1" }
 rightkit-asr = { version = "0.4.0", default-features = false, path = "../rightkit-asr", features = ["onnx-tdt"] }
 ndarray = { version = "0.17" }
 rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session", "ndarray"], path = "../rightkit-onnx" }
-
-[[example]]
-name = "parakeet_eval_onnx"
-required-features = ["test-mode"]
-
-[[example]]
-name = "windows_decoder_threads"
-required-features = ["test-mode"]
-
-[[example]]
-name = "windows_decode_probe"
-required-features = ["test-mode"]
-
-[[example]]
-name = "windows_duration_cap_parity"
-required-features = ["test-mode"]
-
-[[example]]
-name = "windows_predictor_parity"
-required-features = ["test-mode"]
 
 [workspace]
 

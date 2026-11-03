@@ -36,9 +36,6 @@ pub mod scheduler;
 pub mod snapshot;
 pub mod transport;
 
-#[cfg(test)]
-mod parity_tests;
-
 pub use audio::{audio_descriptor, AttenuationWindow, AudioMixDescriptor, AudioSegment};
 pub use cache::{FrameCache, FrameResource};
 pub use clock::{AvSync, LoopRange, SyncAction, TimelineClock};

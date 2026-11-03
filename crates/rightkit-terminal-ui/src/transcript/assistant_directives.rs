@@ -209,7 +209,3 @@ fn spend_scan_budget(remaining: &mut usize, scanned: usize) -> Option<()> {
 fn is_name_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')
 }
-
-#[cfg(test)]
-#[path = "assistant_directives_tests.rs"]
-mod tests;

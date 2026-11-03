@@ -416,13 +416,6 @@ fn open_depth(edge: Edge, dpi: u32) -> i32 {
     ((body_depth(edge) - BAND) * scale(dpi)).round() as i32
 }
 
-/// Notch body size in device pixels on a top or bottom edge: the whole shape, ears
-/// included, plus the room past its end for the settings button and the move grip.
-#[cfg(test)]
-pub fn body_size(dpi: u32) -> (i32, i32) {
-    body_size_for(Edge::Top, dpi)
-}
-
 /// Canvas position of the point `along` the stack and `depth` in from the screen edge,
 /// both in device pixels, on a canvas `across` pixels deep.
 pub fn to_canvas(edge: Edge, along: f32, depth: f32, across: f32) -> (f32, f32) {

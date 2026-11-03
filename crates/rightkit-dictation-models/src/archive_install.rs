@@ -34,7 +34,3 @@ pub fn recover_orphaned_previous_install(
 ) -> Result<bool, String> {
     archive::recover_orphaned_install(dest_root, installed_name)
 }
-
-#[cfg(test)]
-#[path = "archive_install_tests.rs"]
-mod tests;

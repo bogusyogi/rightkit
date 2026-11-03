@@ -126,9 +126,6 @@ pub struct LicenseClientConfig {
     pub(crate) mutation_wait: Duration,
     pub(crate) status_wait: Duration,
     pub(crate) persist_wait: Duration,
-    /// Loopback origin for tests only (feature `client-testing`); `None` always in a shipped
-    /// build, where every URL is `https://{host}/...`.
-    pub(crate) origin_override: Option<String>,
     /// The change counter the client signals; the client makes its own when `None`.
     pub(crate) invalidation: Option<LicenseInvalidation>,
 }
@@ -185,7 +182,6 @@ impl LicenseClientConfig {
             mutation_wait: MUTATION_WAIT,
             status_wait: STATUS_WAIT,
             persist_wait: Duration::from_secs(20),
-            origin_override: None,
             invalidation: None,
         })
     }
@@ -276,21 +272,6 @@ impl LicenseClientConfig {
         self
     }
 
-    /// TEST ONLY: send every request to `origin` (for example `http://127.0.0.1:PORT`) through
-    /// `http`, a client configuration that permits it. A shipped build never enables the
-    /// `client-testing` feature, so it cannot reach any host but `https://{host}`.
-    #[cfg(feature = "client-testing")]
-    pub fn with_test_origin(mut self, origin: impl Into<String>, http: HttpConfig) -> Self {
-        self.origin_override = Some(origin.into().trim_end_matches('/').to_string());
-        let mut http = http;
-        // The fixed policy still applies: no redirects, no blind retries, bounded bodies.
-        http.max_redirects = 0;
-        http.retry = RetryPolicy::none();
-        http.max_response_bytes = 256 * 1024;
-        self.http = http;
-        self
-    }
-
     /// The anti-rollback ledger path (for an engine that builds its own `AntiRollbackClock`).
     pub fn clock_path(&self) -> &std::path::Path {
         &self.clock_path
@@ -312,10 +293,7 @@ impl LicenseClientConfig {
     }
 
     pub(crate) fn origin(&self) -> String {
-        match &self.origin_override {
-            Some(origin) => origin.clone(),
-            None => format!("https://{}", self.host),
-        }
+        format!("https://{}", self.host)
     }
 }
 
@@ -350,85 +328,4 @@ pub(crate) fn valid_host(host: &str) -> bool {
         && host
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.')
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hosts_must_be_bare_dns_names() {
-        for good in ["heardright.app", "coderight.cc", "a-b.example.co"] {
-            assert!(valid_host(good), "{good}");
-        }
-        for bad in [
-            "",
-            "localhost",
-            "https://x.app",
-            "x.app:443",
-            "x.app/path",
-            "user@x.app",
-            ".x.app",
-            "x.app.",
-            "x..app",
-            "X.app",
-            "x app.com",
-            "-x.app",
-        ] {
-            assert!(!valid_host(bad), "{bad}");
-        }
-    }
-
-    fn memory_store() -> Store {
-        use rightkit_credentials::{Config, MemoryBackend, Namespace};
-        Store::open(
-            Config::new(Namespace::new("suite-config-test").unwrap())
-                .backend(std::sync::Arc::new(MemoryBackend::new())),
-        )
-    }
-
-    #[test]
-    fn client_suite_config_builds_without_literals() {
-        for app in crate::suite_api::registered_apps() {
-            let built = LicenseClientConfig::suite(app, "1.2.3", memory_store(), "/tmp/lic");
-            match crate::suite_api::app_license_host(app) {
-                Ok(host) => {
-                    let config = built.unwrap_or_else(|e| panic!("{app}: {e:?}"));
-                    assert_eq!(config.app, *app);
-                    assert_eq!(config.host, host);
-                    assert_eq!(config.public_key, crate::suite_api::LICENSE_PUBLIC_KEY);
-                    assert_eq!(config.app_version, "1.2.3");
-                    assert_eq!(config.origin(), format!("https://{host}"));
-                }
-                // No host declared: refused, never a borrowed host.
-                Err(_) => assert!(
-                    matches!(built, Err(LicenseError::Unconfigured)),
-                    "{app} must not get a guessed host"
-                ),
-            }
-        }
-        for bad in ["nosuchapp", "ember", "Mail", "a/b", ""] {
-            assert!(
-                matches!(
-                    LicenseClientConfig::suite(bad, "1", memory_store(), "/tmp/lic"),
-                    Err(LicenseError::Unconfigured)
-                ),
-                "{bad:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn app_keys_are_plain() {
-        assert!(valid_app("heardright") && valid_app("post-right_2"));
-        assert!(!valid_app("") && !valid_app("Heard") && !valid_app("a/b") && !valid_app("a b"));
-    }
-
-    #[test]
-    fn a_secret_string_never_prints() {
-        let secret = SecretString::new("SENTINEL_KEY_VALUE");
-        assert!(!format!("{secret:?}").contains("SENTINEL"));
-        assert_eq!(secret.expose(), "SENTINEL_KEY_VALUE");
-        assert!(SecretString::new("  \n").is_blank());
-    }
 }

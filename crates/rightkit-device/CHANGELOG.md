@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 - **New (feature `license-client`): `impl rightkit_license::DeviceIdSource for DeviceService<CredentialStore>`** (C3-04). `device_id` is `get_or_create` (a failed store is an error, never a fresh id) and `device_id_hash` the lowercase hex SHA-256 the lease routes take, so an app no longer hand-writes the adapter.
 
 ## 0.4.0 — unpublished staging

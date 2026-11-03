@@ -5,7 +5,7 @@ use rightkit_dictation_core::engine::RecordingContext;
 #[cfg(target_os = "windows")]
 pub(crate) use rightkit_transcript_library::delivery::windows_terminal_target;
 use rightkit_transcript_library::delivery::{ForegroundTarget, TargetSnapshot};
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 use std::hash::{Hash, Hasher};
 
 /// Accessibility snapshot of the focused editable field. `Some(Self)` means
@@ -21,7 +21,7 @@ pub struct FocusedFieldContext {
 /// Content fingerprint for selected-text replacement. It intentionally uses
 /// both selected text and surrounding field text: a same-looking selection in
 /// a changed editor is not proof that replacement is still safe.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 pub(crate) fn selection_fingerprint(field: &FocusedFieldContext) -> Option<u64> {
     let selected = field
         .selected_text
@@ -372,46 +372,6 @@ pub fn field_text_without_selection(
         (false, false) => format!("{before} {after}"),
     };
     (!remaining.is_empty()).then_some(remaining)
-}
-
-#[cfg(test)]
-fn contains_folded(value: Option<&str>, expected: Option<&str>) -> bool {
-    let Some(expected) = expected.map(str::trim).filter(|value| !value.is_empty()) else {
-        return true;
-    };
-    value
-        .unwrap_or_default()
-        .to_lowercase()
-        .contains(&expected.to_lowercase())
-}
-
-#[cfg(test)]
-fn uia_probe_target_matches(
-    process_name: Option<&str>,
-    window_title: Option<&str>,
-    process_contains: Option<&str>,
-    title_contains: Option<&str>,
-) -> bool {
-    contains_folded(process_name, process_contains) && contains_folded(window_title, title_contains)
-}
-
-#[cfg(test)]
-fn uia_probe_counts_pass(
-    field_chars: usize,
-    selected_chars: usize,
-    require_selection: bool,
-) -> bool {
-    field_chars + selected_chars > 0 && (!require_selection || selected_chars > 0)
-}
-
-/// Stale-selection revalidation predicate. Selected-text AI transforms
-/// (`prompt`, `summarize`) only make sense when the user has non-empty text
-/// selected at delivery time. Treats a missing probe (`None`) as stale — the
-/// fallback copy is safer than pasting into an unknown field. Whitespace-only
-/// selection is also stale.
-#[cfg(test)]
-fn selection_present_for_revalidation(live: Option<&str>) -> bool {
-    live.map(|text| !text.trim().is_empty()).unwrap_or(false)
 }
 
 fn focused_field_context_from_values(
@@ -823,7 +783,3 @@ fn empty_target() -> TargetSnapshot {
         exe_path: None,
     }
 }
-
-#[cfg(test)]
-#[path = "focus_tests.rs"]
-mod tests;

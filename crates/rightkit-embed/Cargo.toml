@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 description = "Product-neutral local text embeddings and persistent cosine vector store."
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 # `inference` = ONNX text embedder (ort, tokenizers, model digest checks).
 # `vector` = persistent cosine vector store (rusqlite). Default keeps both.
@@ -34,10 +34,6 @@ tokenizers = { version = "0.23.2", default-features = false, features = ["onig"]
 objc2 = { version = "0.6", features = ["exception"], optional = true }
 objc2-core-ml = { version = "0.3", optional = true }
 objc2-foundation = { version = "0.3", optional = true }
-
-[dev-dependencies]
-rusqlite = { version = "0.41", features = ["bundled"] }
-tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = "held-resource"

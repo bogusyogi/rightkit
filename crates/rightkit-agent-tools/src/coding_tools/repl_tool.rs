@@ -9,7 +9,5 @@ mod artifacts;
 mod commands;
 mod helpers;
 mod session_tool;
-#[cfg(test)]
-mod tests;
 
 pub use session_tool::ReplTool;

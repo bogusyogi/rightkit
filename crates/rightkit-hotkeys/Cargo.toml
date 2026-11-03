@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["hotkey", "shortcut", "eventtap", "push-to-talk"]
 categories = ["os"]
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 
@@ -21,11 +21,6 @@ windows-sys = { version = "0.61.2", features = [
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_WindowsAndMessaging",
 ] }
-
-[[test]]
-name = "macos_e2e"
-path = "tests/macos_e2e.rs"
-harness = false
 
 [package.metadata.rightkit]
 continuous = "held-resource"

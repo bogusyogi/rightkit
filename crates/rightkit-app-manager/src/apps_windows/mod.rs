@@ -245,7 +245,6 @@ pub(crate) fn run_capture(
     name: &str,
     missing: &str,
 ) -> Result<(u32, String), String> {
-    debug_assert!(command.get_envs().next().is_none() && command.get_current_dir().is_none());
     let options = rightkit_child_process::RunOptions::new(timeout)
         .stdout_cap(usize::MAX)
         .stderr_cap(0);

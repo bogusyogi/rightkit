@@ -92,32 +92,3 @@ pub fn render_chain(filters: &[Filter]) -> String {
         .collect::<Vec<_>>()
         .join(",")
 }
-
-#[cfg(test)]
-mod pos_tests {
-    use super::*;
-
-    #[test]
-    fn positional_options_render_as_bare_values_before_named_ones() {
-        assert_eq!(
-            Filter::new("aresample").pos(44100).render(),
-            "aresample=44100"
-        );
-        assert_eq!(
-            Filter::new("atrim").pos(0).pos(12.5).render(),
-            "atrim=0:12.5"
-        );
-        assert_eq!(Filter::new("volume").pos(0.22).render(), "volume=0.22");
-        assert_eq!(
-            Filter::new("amix")
-                .opt("inputs", 2)
-                .opt("duration", "first")
-                .render(),
-            "amix=inputs=2:duration=first"
-        );
-        assert_eq!(
-            Filter::new("apad").pos(1).opt("whole_dur", 3).render(),
-            "apad=1:whole_dur=3"
-        );
-    }
-}

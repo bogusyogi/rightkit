@@ -10,10 +10,6 @@ use crate::terminal::hyperlinks::LogicalLineSource;
 use std::ops::Range;
 use std::sync::Arc;
 
-#[cfg(test)]
-#[path = "table_tests.rs"]
-mod tests;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TableLine {
     pub(crate) table: Arc<[&'static str]>,

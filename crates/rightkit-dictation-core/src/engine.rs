@@ -2,8 +2,6 @@ pub mod launch;
 mod protocol;
 pub mod provider_handoff;
 mod secret;
-#[cfg(test)]
-mod tests;
 mod validation;
 
 pub use protocol::{

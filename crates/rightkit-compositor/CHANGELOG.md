@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.2.0 (unreleased)
 
 - wgpu 30.0.1 (from 29.0.1; naga 30.0.1 for the shader tests), for CutRight's move to wgpu 30. Breaking for callers, since wgpu's types are part of this crate's API.

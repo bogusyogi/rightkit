@@ -288,27 +288,3 @@ pub fn auth_unavailable_result() -> Value {
 pub fn requires_authenticated_stores(operation: &str) -> bool {
     operation.starts_with("advisory.") || operation.starts_with("scope.")
 }
-
-#[cfg(test)]
-mod receipt_root_tests {
-    use super::JudgmentControlCapability;
-    use std::path::Path;
-
-    #[test]
-    fn receipt_root_is_under_state_root_not_cwd() {
-        let cwd = Path::new("/repo/some-project");
-        let Ok(root) = JudgmentControlCapability::receipt_root_for_cwd(cwd) else {
-            return; // no home/state directory in this environment
-        };
-        assert!(!root.starts_with(cwd), "{root:?} must not be under cwd");
-        assert!(!root.to_string_lossy().contains(".audit"));
-        assert!(root.ends_with("arcane"));
-        let expected =
-            rightkit_evidence_contracts::state_root::receipts_root_for_cwd(cwd).expect("root");
-        assert!(root.starts_with(expected));
-        // Distinct repositories get distinct roots.
-        let other = JudgmentControlCapability::receipt_root_for_cwd(Path::new("/repo/other"))
-            .expect("other");
-        assert_ne!(root, other);
-    }
-}

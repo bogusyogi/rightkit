@@ -316,36 +316,3 @@ pub fn try_acquire_grant_with_client(
         expires_at: response.expires_at,
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn imf_fixdate_parses_to_unix_seconds() {
-        // The RFC 9110 example date.
-        assert_eq!(
-            parse_imf_fixdate("Sun, 06 Nov 1994 08:49:37 GMT"),
-            Some(784_111_777)
-        );
-        assert_eq!(parse_imf_fixdate("Thu, 01 Jan 1970 00:00:00 GMT"), Some(0));
-        assert_eq!(parse_imf_fixdate("Sun, 06 Nov 1994 08:49:37 PST"), None);
-        assert_eq!(parse_imf_fixdate("Sun, 06 Nov 1994 25:49:37 GMT"), None);
-        assert_eq!(parse_imf_fixdate("Sun, 06 Foo 1994 08:49:37 GMT"), None);
-        assert_eq!(parse_imf_fixdate("Sunday, 06-Nov-94 08:49:37 GMT"), None);
-    }
-
-    #[test]
-    fn retry_after_accepts_seconds_and_dates() {
-        assert_eq!(parse_retry_after_header("7"), Some(Duration::from_secs(7)));
-        // A date long past is "retry now".
-        assert_eq!(
-            parse_retry_after_header("Sun, 06 Nov 1994 08:49:37 GMT"),
-            Some(Duration::ZERO)
-        );
-        // A date far in the future is a positive delay.
-        let future = parse_retry_after_header("Fri, 31 Dec 2100 23:59:59 GMT").unwrap();
-        assert!(future > Duration::from_secs(3600));
-        assert_eq!(parse_retry_after_header("soon"), None);
-    }
-}

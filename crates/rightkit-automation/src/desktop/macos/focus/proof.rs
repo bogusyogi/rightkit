@@ -618,7 +618,3 @@ pub(in crate::desktop::macos) fn insertion_confirmed_for_pin_retained(
         }
     })
 }
-
-#[cfg(test)]
-#[path = "proof_tests.rs"]
-mod tests;

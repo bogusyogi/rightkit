@@ -85,7 +85,6 @@ mod live {
     use std::time::Duration;
 
     use chromiumoxide::cdp::browser_protocol::page::{CaptureScreenshotFormat, Viewport};
-    use chromiumoxide::page::ScreenshotParams;
     use rightkit_browser::{
         ActionKind, AdmissionRequest, BrowserError, BrowserPage, BrowserRequest, BrowserSession,
         Decision, DownloadBehavior, LaunchOptions, NetworkPolicy, PolicyDecision, Target,

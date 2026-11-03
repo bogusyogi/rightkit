@@ -16,11 +16,8 @@
 //! a live host from a recycled pid ([`LoopbackRecord::process_matches`], the same two-second
 //! tolerance CodeRight's reader uses).
 
-use std::num::NonZeroU32;
 use std::path::Path;
-use std::time::Duration;
 
-use rightkit_child_process::AdoptedIdentity;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,102 +132,5 @@ impl LoopbackRecord {
         if ours {
             let _ = std::fs::remove_file(path);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn labels() -> RecordLabels {
-        RecordLabels {
-            database_path: "C:/data/app.db".into(),
-            protocol_version: 1,
-            schema_id: "coderight.daemon.v1".into(),
-            runtime: "rust".into(),
-            generation: 1,
-        }
-    }
-
-    #[test]
-    fn the_line_is_the_coderight_pascal_case_shape() {
-        let record = LoopbackRecord {
-            port: 5057,
-            token: "tok-123".into(),
-            database_path: "db".into(),
-            pid: 42,
-            boot_epoch_ms: 1_725_000_000_000,
-            protocol_version: 1,
-            schema_id: "coderight.daemon.v1".into(),
-            runtime: "rust".into(),
-            generation: 1,
-        };
-        let line = record.to_line();
-        assert_eq!(
-            line,
-            r#"{"Port":5057,"Token":"tok-123","DatabasePath":"db","Pid":42,"BootEpochMs":1725000000000,"ProtocolVersion":1,"SchemaId":"coderight.daemon.v1","Runtime":"rust","Generation":1}"#
-        );
-        assert_eq!(LoopbackRecord::parse(&line), Some(record.clone()));
-        assert_eq!(LoopbackRecord::parse(&format!("{line}\n")), Some(record));
-    }
-
-    #[test]
-    fn the_existing_readers_inputs_still_parse() {
-        // The shape CodeRight's own reader accepts: only Port, Token and DatabasePath required.
-        let legacy =
-            LoopbackRecord::parse(r#"{"Port":5057,"Token":"tok","DatabasePath":"db"}"#).unwrap();
-        assert_eq!(
-            (legacy.pid, legacy.boot_epoch_ms, legacy.protocol_version),
-            (0, 0, 0)
-        );
-        assert!(!legacy.process_matches());
-        assert_eq!(LoopbackRecord::parse(""), None);
-        assert_eq!(LoopbackRecord::parse("   \n"), None);
-        assert_eq!(LoopbackRecord::parse("{not json"), None);
-        assert_eq!(
-            LoopbackRecord::parse(r#"{"Port":"x","Token":"t","DatabasePath":"d"}"#),
-            None
-        );
-        assert_eq!(
-            LoopbackRecord::parse(r#"{"Token":"t","DatabasePath":"d"}"#),
-            None
-        );
-    }
-
-    #[test]
-    fn a_recycled_pid_is_not_this_host() {
-        let mut record = LoopbackRecord::for_this_process(1, "token-token-token", &labels());
-        assert_eq!(record.pid, std::process::id());
-        assert!(
-            record.process_matches(),
-            "this process started when it says"
-        );
-        record.boot_epoch_ms += 60_000;
-        assert!(!record.process_matches(), "same pid, another birth time");
-        record.boot_epoch_ms = 0;
-        assert!(!record.process_matches());
-        record.boot_epoch_ms = 5;
-        record.pid = 0;
-        assert!(!record.process_matches());
-    }
-
-    #[test]
-    fn the_file_is_written_and_removed_only_by_its_owner() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("daemon.port");
-        let mine = LoopbackRecord::for_this_process(4000, "token-token-token", &labels());
-        mine.publish(&path).unwrap();
-        assert_eq!(
-            LoopbackRecord::parse(&std::fs::read_to_string(&path).unwrap()),
-            Some(mine.clone())
-        );
-        // A successor replaced it: a late exit must not delete the successor's record.
-        let mut successor = mine.clone();
-        successor.port = 4001;
-        successor.publish(&path).unwrap();
-        mine.remove_if_ours(&path);
-        assert!(path.exists());
-        successor.remove_if_ours(&path);
-        assert!(!path.exists());
     }
 }

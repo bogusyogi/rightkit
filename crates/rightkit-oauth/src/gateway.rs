@@ -24,7 +24,6 @@ use std::time::{Duration, SystemTime};
 use rightkit_http::{CancelToken, Client, HttpError, Request, Secret};
 use serde_json::{Map, Value};
 
-use crate::pkce::validate_verifier;
 use crate::{error_from, provider_or_http, scrub_provider, OAuthError, TokenSet};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -317,50 +316,4 @@ fn string_field(obj: &Map<String, Value>, name: &str) -> Result<Option<String>, 
 
 fn bad(message: &str) -> OAuthError {
     OAuthError::Callback(message.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn parses_a_full_response() {
-        let t = parse_gateway_tokens(&json!({
-            "access_token": "a", "token_type": "bearer", "expires_in": 60,
-            "refresh_token": "r", "scope": "x y", "extra": [1]
-        }))
-        .unwrap();
-        assert_eq!(t.access_token(), "a");
-        assert_eq!(t.token_type, "bearer");
-        assert_eq!(t.expires_in, Some(Duration::from_secs(60)));
-        assert_eq!(t.refresh_token.unwrap().expose(), "r");
-        assert_eq!(t.scope.as_deref(), Some("x y"));
-    }
-
-    #[test]
-    fn minimal_response_defaults() {
-        let t = parse_gateway_tokens(&json!({"access_token": "a"})).unwrap();
-        assert_eq!(t.token_type, "Bearer");
-        assert!(t.expires_in.is_none() && t.refresh_token.is_none() && t.scope.is_none());
-    }
-
-    #[test]
-    fn wrong_types_are_errors_without_echoing_values() {
-        for v in [
-            json!([]),
-            json!({}),
-            json!({"access_token": ""}),
-            json!({"access_token": 5}),
-            json!({"access_token": "s3cret-token", "expires_in": "3600"}),
-            json!({"access_token": "s3cret-token", "expires_in": -1}),
-            json!({"access_token": "s3cret-token", "expires_in": 1.5}),
-            json!({"access_token": "s3cret-token", "refresh_token": 7}),
-            json!({"access_token": "s3cret-token", "scope": ["a"]}),
-            json!({"access_token": "s3cret-token", "token_type": {}}),
-        ] {
-            let e = parse_gateway_tokens(&v).unwrap_err();
-            assert!(!e.to_string().contains("s3cret-token"), "{e}");
-        }
-    }
 }

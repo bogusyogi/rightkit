@@ -7,7 +7,7 @@ description = "Portable video timeline core: tracks, clips, rational time, revis
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_timeline"
@@ -19,11 +19,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = { version = "2.0" }
 rightkit-ffmpeg = { version = "0.2.13", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
-
-[dev-dependencies]
-tempfile = "3"
-blake3 = "1.8"
-quick-xml = "0.41"
 
 [workspace]
 

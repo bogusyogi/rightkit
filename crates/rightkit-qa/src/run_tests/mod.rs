@@ -32,9 +32,6 @@
 /// because only they are captured by the test harness.)
 macro_rules! say {
     ($($arg:tt)*) => {{
-        #[cfg(all(test, any(target_os = "macos", windows)))]
-        println!($($arg)*);
-        #[cfg(not(all(test, any(target_os = "macos", windows))))]
         {
             use std::io::Write as _;
             let _ = writeln!(std::io::stdout(), $($arg)*);
@@ -44,9 +41,6 @@ macro_rules! say {
 
 macro_rules! shout {
     ($($arg:tt)*) => {{
-        #[cfg(all(test, any(target_os = "macos", windows)))]
-        eprintln!($($arg)*);
-        #[cfg(not(all(test, any(target_os = "macos", windows))))]
         {
             use std::io::Write as _;
             let _ = writeln!(std::io::stderr(), $($arg)*);
@@ -1035,6 +1029,3 @@ fn print_verdict(receipt: &Receipt, path: &Path) {
     }
     say!("run-tests: receipt {}", path.display());
 }
-
-#[cfg(all(test, any(target_os = "macos", windows)))]
-mod tests;

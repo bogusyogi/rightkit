@@ -151,19 +151,3 @@ impl TeamCoordinationStore {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn open_creates_schema_and_is_reopenable() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("team.sqlite");
-        let store = TeamCoordinationStore::open(&path).unwrap();
-        assert_eq!(store.path(), path.as_path());
-        // Reopening an existing database must not fail (idempotent migration).
-        let store2 = TeamCoordinationStore::open(&path).unwrap();
-        assert_eq!(store2.path(), path.as_path());
-    }
-}

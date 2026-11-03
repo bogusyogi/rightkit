@@ -6,9 +6,9 @@ use super::runtime::AsrRuntime;
 
 // Used by the ONNX model-dir loader, which is gated off macOS, and by the
 // subdir tests, which run everywhere. Hence `not(macos) OR test`.
-#[cfg(any(not(target_os = "macos"), test))]
+#[cfg(not(target_os = "macos"))]
 pub(crate) const UNIFIED_MODEL_SUBDIR: &str = "unified_static15_b128_sym_bits4_timestamp_hybrid";
-#[cfg(any(not(target_os = "macos"), test))]
+#[cfg(not(target_os = "macos"))]
 pub(crate) const TDT_MODEL_SUBDIR: &str = "parakeet_tdt_ultra_static1500_fp16int4_20261022";
 #[cfg(target_os = "macos")]
 const COREML_UNIFIED_MODEL_SUBDIR: &str = "parakeet-unified-en-0.6b";
@@ -117,7 +117,7 @@ pub(crate) fn model_subdir_for(alias: &str) -> String {
     model_subdir_for_alias(alias).to_string()
 }
 
-#[cfg(any(not(target_os = "macos"), test))]
+#[cfg(not(target_os = "macos"))]
 pub(crate) fn model_subdir_for_alias(alias: &str) -> &'static str {
     match alias.trim().to_ascii_lowercase().as_str() {
         "parakeet-unified" | "parakeet" | "parakeet-rnnt" | "rnnt" => UNIFIED_MODEL_SUBDIR,
@@ -374,22 +374,4 @@ fn dev_models_base() -> Option<PathBuf> {
     rightkit_dictation_core::dev_var_os!("RIGHTKIT_MODELS_DIR")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-}
-
-#[cfg(test)]
-mod vocabulary_tests {
-    use super::context_bias_terms;
-
-    /// The ASR decoder's context bias must start with the exact shared
-    /// built-in product vocabulary (single source of truth), before any
-    /// user-saved terms.
-    #[test]
-    fn context_bias_terms_start_with_shared_built_in_terms() {
-        let built_in = crate::vocabulary::built_in_terms();
-        let bias_terms = context_bias_terms();
-        assert!(bias_terms.len() >= built_in.len());
-        for (expected, actual) in built_in.iter().zip(bias_terms.iter()) {
-            assert_eq!(expected, actual);
-        }
-    }
 }

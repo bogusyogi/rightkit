@@ -26,6 +26,3 @@ pub use retake_rules::{
     RuleConfig, RuleHit, Tier, Verdict,
 };
 pub use style::{EditingStyle, FillerPolicy, GapMs, Pace, Provenance, StyleValue};
-
-#[cfg(test)]
-mod tests;

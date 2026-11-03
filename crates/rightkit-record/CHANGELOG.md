@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.3.3 — unpublished staging
 
 - Raises rightkit-sidecar to 0.3.0 and rightkit-credentials to 0.4.0 for dependency compatibility. rightkit-credentials 0.4.0 is not yet on crates.io (latest 0.3.0), so this crate cannot publish until it is.

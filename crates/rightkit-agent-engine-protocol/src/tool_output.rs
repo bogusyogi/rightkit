@@ -67,24 +67,3 @@ impl PartialEq for ToolOutputNotifier {
 }
 
 impl Eq for ToolOutputNotifier {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Mutex;
-
-    #[test]
-    fn notifier_delivers_and_default_is_silent() {
-        ToolOutputNotifier::default().notify(ToolOutputStream::Stdout, "ignored");
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let sink = seen.clone();
-        let notifier = ToolOutputNotifier::new(move |stream, text| {
-            sink.lock()
-                .unwrap()
-                .push((stream.as_str(), text.to_string()));
-        });
-        notifier.notify(ToolOutputStream::Stderr, "warn");
-        assert!(notifier.is_set());
-        assert_eq!(*seen.lock().unwrap(), vec![("stderr", "warn".to_string())]);
-    }
-}

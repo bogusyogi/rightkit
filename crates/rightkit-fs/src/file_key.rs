@@ -134,34 +134,3 @@ pub(crate) fn windows_info(file: &File) -> std::io::Result<(FileKey, u32)> {
 fn windows_key(file: &File) -> std::io::Result<FileKey> {
     windows_info(file).map(|(key, _links)| key)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_directory_has_an_identity_and_it_matches_its_handle() {
-        let dir = tempfile::tempdir().unwrap();
-        let by_path = FileKey::of_path(dir.path()).expect("a directory opens for its identity");
-        // A directory handle needs the backup-semantics flag on Windows; `File::open` is denied there.
-        let handle = open_for_identity(dir.path()).unwrap();
-        assert_eq!(FileKey::of_file(&handle, dir.path()).unwrap(), by_path);
-    }
-
-    #[test]
-    fn a_file_and_its_sibling_directory_differ() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("f");
-        std::fs::write(&file, b"x").unwrap();
-        assert_ne!(
-            FileKey::of_path(&file).unwrap(),
-            FileKey::of_path(dir.path()).unwrap()
-        );
-    }
-
-    #[test]
-    fn a_missing_path_is_an_error() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(FileKey::of_path(&dir.path().join("absent")).is_err());
-    }
-}

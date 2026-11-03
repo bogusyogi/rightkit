@@ -9,15 +9,11 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["sidecar", "ipc", "jsonl", "stdio"]
 categories = ["encoding"]
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-
-[dev-dependencies]
-# Tests build `serde_json::value::RawValue`, which serde_json gates behind `raw_value`.
-serde_json = { version = "1.0.154", features = ["raw_value"] }
 
 # Deadline-bounded framing: poll(2) on Unix, overlapped I/O on Windows.
 [target.'cfg(unix)'.dependencies]
@@ -31,9 +27,6 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_IO",
     "Win32_System_Threading",
 ] }
-
-[target.'cfg(windows)'.dev-dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_System_Pipes"] }
 
 [package.metadata.rightkit]
 continuous = false

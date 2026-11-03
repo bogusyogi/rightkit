@@ -3,7 +3,6 @@ use crate::error::ServiceError;
 use crate::host_identity::{
     verify_peer_process, HostExpectation, HostIdentityError, HostIdentityReason, HostProcess,
 };
-use crate::peer::PeerIdentity;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

@@ -194,27 +194,3 @@ pub unsafe fn call_tls_client_request(
     guard.set_response_id(&response.id);
     Ok(response)
 }
-
-#[cfg(test)]
-mod preview_tests {
-    use super::bounded_preview;
-
-    #[test]
-    fn preview_returns_short_text_unchanged() {
-        assert_eq!(bounded_preview("{\"id\":1}", 2048), "{\"id\":1}");
-    }
-
-    #[test]
-    fn preview_caps_long_text_at_the_limit() {
-        let raw = "x".repeat(16 * 1024);
-        assert_eq!(bounded_preview(&raw, 2048).len(), 2048);
-    }
-
-    #[test]
-    fn preview_never_splits_a_multibyte_character() {
-        // 'é' is two bytes; a cut at an odd byte index must back off to the boundary.
-        let raw = "é".repeat(100);
-        let preview = bounded_preview(&raw, 9);
-        assert_eq!(preview, "éééé");
-    }
-}

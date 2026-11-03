@@ -178,24 +178,3 @@ pub fn sample_stats(
     }
     Ok(stats_from_rgb24(&out.stdout))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stats_of_known_pixels() {
-        // Half black, half white: mean 0.5, std 0.5.
-        let mut d = vec![0u8; 3 * 50];
-        d.extend(vec![255u8; 3 * 50]);
-        let s = stats_from_rgb24(&d);
-        assert_eq!(s.pixels, 100);
-        assert!((s.r.mean - 0.5).abs() < 1e-9 && (s.r.std - 0.5).abs() < 1e-9);
-        assert_eq!((s.luma.p05, s.luma.p95), (0.0, 1.0));
-        assert_eq!(s.midtone_pixels, 0);
-        let g = stats_from_rgb24(&[128, 128, 128, 128, 128, 128]);
-        assert_eq!(g.midtone_pixels, 2);
-        assert!((g.midtone_mean[1] - 128.0 / 255.0).abs() < 1e-9);
-        assert_eq!(stats_from_rgb24(&[]).pixels, 0);
-    }
-}

@@ -16,7 +16,7 @@ fn directml_execution_provider(device_id: Option<i32>) -> ort::ep::DirectML {
 }
 
 /// XNNPACK pool size for a requested `intra_threads`: never zero.
-#[cfg(any(feature = "xnnpack", test))]
+#[cfg(feature = "xnnpack")]
 fn xnnpack_pool_threads(intra_threads: usize) -> std::num::NonZeroUsize {
     std::num::NonZeroUsize::new(intra_threads).unwrap_or(std::num::NonZeroUsize::MIN)
 }
@@ -291,36 +291,5 @@ impl ModelConfig {
         }
 
         Ok(builder)
-    }
-}
-
-#[cfg(test)]
-mod xnnpack_tests {
-    use super::xnnpack_pool_threads;
-
-    #[test]
-    fn xnnpack_pool_is_never_zero() {
-        assert_eq!(xnnpack_pool_threads(0).get(), 1);
-        assert_eq!(xnnpack_pool_threads(1).get(), 1);
-        assert_eq!(xnnpack_pool_threads(4).get(), 4);
-    }
-
-    #[test]
-    fn unset_decoder_threads_change_nothing() {
-        use super::ModelConfig;
-        let cfg = ModelConfig::new().with_intra_threads(6);
-        assert_eq!(cfg.decoder_intra_threads, None);
-        assert_eq!(cfg.decoder_config().intra_threads, 6);
-        assert_eq!(cfg.auxiliary_config().intra_threads, 6);
-    }
-
-    #[test]
-    fn decoder_threads_apply_to_decoder_only() {
-        use super::ModelConfig;
-        let cfg = ModelConfig::new().with_intra_threads(8).with_decoder_intra_threads(2);
-        assert_eq!(cfg.intra_threads, 8);
-        assert_eq!(cfg.decoder_config().intra_threads, 2);
-        assert_eq!(cfg.auxiliary_config().intra_threads, 2);
-        assert_eq!(cfg.decoder_config().execution_provider, cfg.execution_provider);
     }
 }

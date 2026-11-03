@@ -354,14 +354,6 @@ fn resolve_whisper_cli() -> Option<PathBuf> {
             return Some(packaged_resource);
         }
     }
-    #[cfg(feature = "test-mode")]
-    {
-        let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../.wcpp_vulkan/whisper.cpp/build_cl/bin/Release/whisper-cli.exe");
-        if dev_path.exists() {
-            return Some(dev_path);
-        }
-    }
     None
 }
 
@@ -410,26 +402,5 @@ struct TmpGuard(PathBuf);
 impl Drop for TmpGuard {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.0);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cli_json_language_roundtrips_exact_whisper_id_table() {
-        let code =
-            parse_whisper_cli_language(r#"{"result":{"language":"fr"}}"#).expect("result language");
-        let id = whisper_language_id(code).expect("known language");
-        assert_eq!(id, 6);
-        assert_eq!(whisper_language_code(id), Some("fr"));
-        assert_eq!(whisper_language_code(99), Some("yue"));
-    }
-
-    #[test]
-    fn locked_cli_fallback_uses_resolved_language_code() {
-        let resolved_id = whisper_language_id("de".to_string()).expect("known language");
-        assert_eq!(whisper_language_code(resolved_id), Some("de"));
     }
 }

@@ -99,38 +99,3 @@ impl Storage {
         })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn row(id: &str) -> CliAccountProfileRow {
-        CliAccountProfileRow {
-            id: id.into(),
-            provider_id: "codex".into(),
-            label: "default".into(),
-            managed_home: "/tmp/agent/codex/default".into(),
-            auth_mode: "native_cli_account".into(),
-            signed_in: true,
-            account_fingerprint: Some("sha256:account".into()),
-            last_verified_at: Some("2026-08-08T00:00:00Z".into()),
-            created_at: "2026-08-08T00:00:00Z".into(),
-            updated_at: "2026-08-08T00:00:00Z".into(),
-        }
-    }
-
-    #[test]
-    fn profile_round_trip_does_not_store_secret_material() {
-        let storage = Storage::open_in_memory().unwrap();
-        storage
-            .upsert_cli_account_profile(&row("codex/default"))
-            .unwrap();
-        let got = storage
-            .get_cli_account_profile("codex/default")
-            .unwrap()
-            .unwrap();
-        assert_eq!(got.provider_id, "codex");
-        assert!(got.signed_in);
-        assert!(storage.list_cli_account_profiles("codex").unwrap().len() == 1);
-    }
-}

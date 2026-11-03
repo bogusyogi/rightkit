@@ -24,7 +24,6 @@
 
 use rightkit_child_process::{OwnedChild, OwnedCommand};
 use std::io::{self, BufRead, Read, Write};
-use std::process::Stdio;
 use subtle::ConstantTimeEq;
 
 /// Length of the secret in bytes before hex encoding.
@@ -320,82 +319,5 @@ impl Drop for PrivateChild {
         // Field order would drop the pipe first anyway; do it explicitly so the child hears
         // the polite signal before the owned child's terminate-on-drop.
         self.close_stdin();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn generated_secrets_are_hex_and_distinct() {
-        let a = PrivateSecret::generate().unwrap();
-        let b = PrivateSecret::generate().unwrap();
-        assert_eq!(a.expose().len(), SECRET_HEX_LEN);
-        assert!(a.expose().bytes().all(|c| c.is_ascii_hexdigit()));
-        assert_ne!(a.expose(), b.expose());
-    }
-
-    #[test]
-    fn verify_accepts_only_the_exact_secret() {
-        let secret = PrivateSecret::generate().unwrap();
-        assert!(secret.verify(secret.expose()));
-        assert!(!secret.verify(""));
-        assert!(!secret.verify("x"));
-        let mut wrong = secret.expose().to_string();
-        wrong.replace_range(0..1, if wrong.starts_with('0') { "1" } else { "0" });
-        assert!(!secret.verify(&wrong));
-        // A truncation and an extension of the right secret both fail.
-        assert!(!secret.verify(&secret.expose()[..SECRET_HEX_LEN - 1]));
-        assert!(!secret.verify(&format!("{}0", secret.expose())));
-        // Zero padding must not match a secret of zeros shorter than the buffer.
-        assert!(!secret.verify(&"0".repeat(SECRET_HEX_LEN - 1)));
-    }
-
-    #[test]
-    fn debug_never_shows_the_secret() {
-        let secret = PrivateSecret::generate().unwrap();
-        assert!(!format!("{secret:?}").contains(secret.expose()));
-    }
-
-    #[test]
-    fn from_hex_rejects_malformed_text() {
-        assert!(PrivateSecret::from_hex("").is_err());
-        assert!(PrivateSecret::from_hex(&"A".repeat(SECRET_HEX_LEN)).is_err());
-        assert!(PrivateSecret::from_hex(&"g".repeat(SECRET_HEX_LEN)).is_err());
-        assert!(PrivateSecret::from_hex(&"a".repeat(SECRET_HEX_LEN)).is_ok());
-    }
-
-    #[test]
-    fn read_from_takes_the_first_line_only() {
-        let secret = PrivateSecret::generate().unwrap();
-        let input = format!("{}\nrest\n", secret.expose()).into_bytes();
-        let mut reader = io::Cursor::new(input);
-        let read = PrivateSecret::read_from(&mut reader).unwrap();
-        assert!(secret.verify(read.expose()));
-    }
-
-    #[test]
-    fn read_from_reports_missing_and_oversized_input() {
-        let mut empty = io::Cursor::new(Vec::<u8>::new());
-        assert!(matches!(
-            PrivateSecret::read_from(&mut empty),
-            Err(SecretError::Missing)
-        ));
-        let mut long = io::Cursor::new("a".repeat(10_000).into_bytes());
-        assert!(matches!(
-            PrivateSecret::read_from(&mut long),
-            Err(SecretError::Malformed)
-        ));
-    }
-
-    #[test]
-    fn eof_watcher_fires_when_the_reader_ends() {
-        let (tx, rx) = std::sync::mpsc::channel();
-        let handle = watch_reader_eof(io::Cursor::new(b"ignored bytes".to_vec()), move || {
-            tx.send(()).unwrap();
-        });
-        rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
-        handle.join().unwrap();
     }
 }

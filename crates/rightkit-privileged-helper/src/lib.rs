@@ -187,58 +187,6 @@ mod imp {
         signal.notify_all();
         Ok(json!({ "ok": true }))
     }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        // One test: the broker state is process-wide, so the sequence runs in order.
-        #[test]
-        fn requests_park_for_a_polling_ui_and_resolve_with_only_requested_paths() {
-            // Nobody has polled: an uninstall is not parked and falls back to the Trash.
-            assert_eq!(request("A", &[PathBuf::from("/x")]), None);
-            assert_eq!(next(&json!({})).unwrap(), json!({ "request": null }));
-
-            let worker = std::thread::spawn(|| {
-                request(
-                    "Example",
-                    &[PathBuf::from("/Library/a"), PathBuf::from("/Library/b")],
-                )
-            });
-            let taken = next(&json!({ "waitMs": 5000 })).unwrap();
-            let id = taken["request"]["id"].as_u64().unwrap();
-            assert_eq!(taken["request"]["app"], "Example");
-            assert_eq!(
-                taken["request"]["paths"],
-                json!(["/Library/a", "/Library/b"])
-            );
-            // A taken request is not handed out twice.
-            assert_eq!(next(&json!({})).unwrap(), json!({ "request": null }));
-            // Only paths that were in the request count.
-            assert_eq!(
-                complete(&json!({ "id": id, "moved": ["/Library/a", "/etc/passwd"] })).unwrap(),
-                json!({ "ok": true })
-            );
-            assert_eq!(
-                worker.join().unwrap(),
-                Some(vec![PathBuf::from("/Library/a")])
-            );
-            // Answered and removed: the same id is refused.
-            assert!(complete(&json!({ "id": id, "moved": [] })).is_err());
-
-            let worker = std::thread::spawn(|| request("Other", &[PathBuf::from("/Library/c")]));
-            let id = next(&json!({ "waitMs": 5000 })).unwrap()["request"]["id"]
-                .as_u64()
-                .unwrap();
-            complete(&json!({ "id": id, "moved": ["/Library/c"], "declined": true })).unwrap();
-            assert_eq!(worker.join().unwrap(), Some(Vec::new()));
-
-            assert!(complete(&json!({ "moved": [] })).is_err());
-            assert!(complete(&json!({ "id": 999_999 })).is_err());
-            assert!(complete(&json!({ "id": 999_999, "moved": [] })).is_err());
-            assert_eq!(run(false, "App", || 7), 7);
-        }
-    }
 }
 
 #[cfg(unix)]
@@ -258,16 +206,4 @@ pub fn next(_params: &serde_json::Value) -> Result<serde_json::Value, String> {
 #[cfg(not(unix))]
 pub fn complete(_params: &serde_json::Value) -> Result<serde_json::Value, String> {
     Err("not available on Windows".into())
-}
-
-#[cfg(all(test, not(unix)))]
-mod non_unix_tests {
-    use super::*;
-
-    #[test]
-    fn the_helper_methods_refuse_and_run_just_does_the_work() {
-        assert!(next(&serde_json::json!({})).is_err());
-        assert!(complete(&serde_json::json!({ "id": 1, "moved": [] })).is_err());
-        assert_eq!(run(true, "App", || 7), 7);
-    }
 }

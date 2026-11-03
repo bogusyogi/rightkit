@@ -7,14 +7,13 @@ description = "Dictation text pipeline: LLM cleanup (L1-L3) with provider transp
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "data/**", "fixtures/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "data/**", "fixtures/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_dictation_text_pipeline"
 path = "src/lib.rs"
 
 [features]
-test-mode = ["rightkit-dictation-core/test-mode"]
 
 [dependencies]
 rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
@@ -33,9 +32,6 @@ parking_lot = { version = "0.13" }
 chrono = { version = "0.4" }
 iana-time-zone = { version = "0.1" }
 sys-locale = { version = "0.3" }
-
-[dev-dependencies]
-rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core", features = ["test-mode"] }
 
 [workspace]
 

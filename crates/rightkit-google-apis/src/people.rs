@@ -225,11 +225,6 @@ fn first_match(results: &[SearchResult], queried_email: &str) -> Option<ContactC
 // Tests (offline JSON parse only — no network)
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
-mod tests;
 // ---------------------------------------------------------------------------
 // Recipient autocomplete — compose To/Cc/Bcc search
 // ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod recipient_tests;

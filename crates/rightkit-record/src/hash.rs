@@ -56,39 +56,3 @@ pub fn keyed_digest(key: &[u8], field: &str, value: &str) -> String {
     message.extend_from_slice(value.as_bytes());
     format!("{HMAC_PREFIX}{}", hex_lower(&hmac_sha256(key, &message)))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn accepts_only_canonical_blake3_text() {
-        assert!(is_blake3_text(&blake3_text(b"frame")));
-        assert!(!is_blake3_text("blake3:ABCD"));
-        assert!(!is_blake3_text(&format!("sha256:{}", "a".repeat(64))));
-        assert!(!is_blake3_text(&format!("blake3:{}", "A".repeat(64))));
-    }
-
-    #[test]
-    fn hmac_sha256_matches_the_rfc_4231_vector() {
-        // RFC 4231 test case 2.
-        assert_eq!(
-            hex_lower(&hmac_sha256(b"Jefe", b"what do ya want for nothing?")),
-            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
-        );
-    }
-
-    #[test]
-    fn keyed_digest_separates_fields_and_keys() {
-        let a = keyed_digest(b"key-one", "target.label", "x");
-        assert!(!is_blake3_text(&a));
-        let hex = a.strip_prefix(HMAC_PREFIX).expect("hmac-sha256 prefix");
-        assert_eq!(hex.len(), 64);
-        assert!(hex
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
-        assert_ne!(a, keyed_digest(b"key-one", "text", "x"));
-        assert_ne!(a, keyed_digest(b"key-two", "target.label", "x"));
-        assert_eq!(a, keyed_digest(b"key-one", "target.label", "x"));
-    }
-}

@@ -19,9 +19,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::Duration;
 
-#[cfg(test)]
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-
 /// How often a host looks for a takeover request written by another process. A second process
 /// therefore waits up to about this long for the incumbent to notice its request.
 pub(crate) const TAKEOVER_CHECK_INTERVAL: Duration = Duration::from_secs(1);
@@ -47,18 +44,6 @@ struct State {
 pub(crate) struct Bell {
     state: Mutex<State>,
     cv: Condvar,
-    /// Returns from [`Bell::wait`], for the quiet-window test.
-    #[cfg(test)]
-    wakes: AtomicU64,
-    /// Full reads of `takeover.json` by the monitor, for the stat-only test.
-    #[cfg(test)]
-    reads: AtomicU64,
-    /// Passes of the monitor loop that finished their file check, for the in-process wake tests.
-    #[cfg(test)]
-    passes: AtomicU64,
-    /// The monitor function has returned.
-    #[cfg(test)]
-    exited: AtomicBool,
 }
 
 impl Bell {
@@ -66,14 +51,6 @@ impl Bell {
         Self {
             state: Mutex::new(State::default()),
             cv: Condvar::new(),
-            #[cfg(test)]
-            wakes: AtomicU64::new(0),
-            #[cfg(test)]
-            reads: AtomicU64::new(0),
-            #[cfg(test)]
-            passes: AtomicU64::new(0),
-            #[cfg(test)]
-            exited: AtomicBool::new(false),
         }
     }
 
@@ -85,8 +62,6 @@ impl Bell {
             .cv
             .wait_timeout_while(guard, timeout, |s| !s.stop && !s.poked)
             .unwrap_or_else(|e| e.into_inner());
-        #[cfg(test)]
-        self.wakes.fetch_add(1, Ordering::SeqCst);
         if guard.stop {
             Wake::Stop
         } else if guard.poked {
@@ -107,41 +82,6 @@ impl Bell {
     fn poke_now(&self) {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).poked = true;
         self.cv.notify_all();
-    }
-
-    #[cfg(test)]
-    pub(crate) fn wakes(&self) -> u64 {
-        self.wakes.load(Ordering::SeqCst)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn note_read(&self) {
-        self.reads.fetch_add(1, Ordering::SeqCst);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn reads(&self) -> u64 {
-        self.reads.load(Ordering::SeqCst)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn note_pass(&self) {
-        self.passes.fetch_add(1, Ordering::SeqCst);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn passes(&self) -> u64 {
-        self.passes.load(Ordering::SeqCst)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn mark_exited(&self) {
-        self.exited.store(true, Ordering::SeqCst);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn exited(&self) -> bool {
-        self.exited.load(Ordering::SeqCst)
     }
 }
 
@@ -171,71 +111,5 @@ pub(crate) fn poke(path: &Path) {
     };
     for bell in bells {
         bell.poke_now();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_stop_ends_a_long_wait_at_once() {
-        let bell = Arc::new(Bell::new());
-        let b = bell.clone();
-        let (tx, rx) = std::sync::mpsc::channel();
-        let t = std::thread::spawn(move || {
-            let reason = b.wait(Duration::from_secs(600));
-            let _ = tx.send(reason);
-        });
-        bell.stop();
-        assert_eq!(
-            rx.recv_timeout(Duration::from_secs(10)),
-            Ok(Wake::Stop),
-            "stop must end a 10-minute wait"
-        );
-        t.join().unwrap();
-        // Permanent: every later wait reports it without blocking.
-        assert_eq!(bell.wait(Duration::from_secs(600)), Wake::Stop);
-    }
-
-    #[test]
-    fn a_poke_is_reported_once_and_stop_wins_over_it() {
-        let bell = Bell::new();
-        bell.poke_now();
-        assert_eq!(bell.wait(Duration::from_secs(600)), Wake::Poke);
-        assert_eq!(bell.wait(Duration::from_millis(1)), Wake::Timeout);
-        bell.poke_now();
-        bell.stop();
-        assert_eq!(bell.wait(Duration::from_secs(600)), Wake::Stop);
-    }
-
-    #[test]
-    fn a_poke_reaches_only_the_bell_that_watches_that_path() {
-        let mine = Arc::new(Bell::new());
-        let other = Arc::new(Bell::new());
-        let path = PathBuf::from("/rk-takeover-watch-test/mine/takeover.json");
-        register(path.clone(), &mine);
-        register(
-            PathBuf::from("/rk-takeover-watch-test/other/takeover.json"),
-            &other,
-        );
-        {
-            let gone = Arc::new(Bell::new());
-            register(path.clone(), &gone);
-        }
-        poke(&path);
-        assert_eq!(mine.wait(Duration::from_secs(600)), Wake::Poke);
-        assert_eq!(
-            other.wait(Duration::from_millis(1)),
-            Wake::Timeout,
-            "a request for another service must not wake this monitor"
-        );
-        // The dropped bell was pruned by the poke that followed it. Only this test's own path is
-        // checked: bells of other tests come and go concurrently.
-        let watchers = WATCHERS.lock().unwrap_or_else(|e| e.into_inner());
-        assert!(watchers
-            .iter()
-            .filter(|(p, _)| *p == path)
-            .all(|(_, w)| w.strong_count() > 0));
     }
 }

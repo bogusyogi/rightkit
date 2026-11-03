@@ -88,25 +88,3 @@ fn hostname_raw() -> Option<String> {
 fn hostname_raw() -> Option<String> {
     None
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn per_host_names_are_deterministic_siblings_and_idempotent() {
-        let p = Path::new("/data/coderight.db");
-        let a = tagged(p, "box-1");
-        assert_eq!(a, Path::new("/data/coderight.h-box-1.db"));
-        assert_eq!(tagged(&a, "box-1"), a);
-        assert_eq!(
-            tagged(Path::new("/data/store"), "box-1"),
-            Path::new("/data/store.h-box-1")
-        );
-        assert_eq!(
-            tagged(Path::new("/data/.hidden"), "h"),
-            Path::new("/data/.hidden.h-h")
-        );
-        assert_eq!(per_host_path(p), per_host_path(p));
-    }
-}

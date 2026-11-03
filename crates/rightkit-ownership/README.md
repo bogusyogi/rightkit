@@ -42,11 +42,11 @@ The finding names the file, the line of the spawn, the first uncovered API and t
 
 ## Tests
 
-`cargo test` runs the unit tests (including `src/autorelease.rs` over `tests/fixtures/appkit-autorelease/`) and `tests/ownership_fixtures.rs`, which reads every case in `packages/release/fixtures/ownership/cases` in place (no vendored copy) and reports a pass count per group.
+The ownership fixtures are read in place from `packages/release/fixtures/ownership/cases` (no vendored copy). The unit and fixture tests were removed on 2026-11-03 (end-to-end tests only).
 
 ## Windows
 
-Windows-specific code: the ACL evaluation (`evaluate_windows_acl`, `src/trust.rs:59`, a pure function over JSON that its unit test runs on any host), `CREATE_NO_WINDOW` spawning (`src/gitio.rs:97-100`, `src/runner.rs:105-109`, both `cfg(windows)`) and verbatim-path prefix stripping (`src/paths.rs:38-47`, `cfg(windows)`). This repository records no run of this code on Windows.
+Windows-specific code: the ACL evaluation (`evaluate_windows_acl`, `src/trust.rs:59`, a pure function over JSON), `CREATE_NO_WINDOW` spawning (`src/gitio.rs:97-100`, `src/runner.rs:105-109`, both `cfg(windows)`) and verbatim-path prefix stripping (`src/paths.rs:38-47`, `cfg(windows)`). This repository records no run of this code on Windows.
 
 ## Changelog
 

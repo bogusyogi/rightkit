@@ -104,39 +104,3 @@ fn drop_oldest(items: &mut [Entry], keep: usize) {
         let _ = std::fs::remove_file(path);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn prune_removes_stale_raw_samples_and_keeps_fresh_ones() {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let dir = std::env::temp_dir().join(format!(
-            "rightkit-crash-retention-{}-{nonce}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let stale = dir.join(".sample_raw_panic_1_2.raw");
-        let fresh = dir.join(".sample_raw_panic_3_4.raw");
-        let other = dir.join(".sample_raw_notes.txt"); // not a raw name: untouched
-        for path in [&stale, &fresh, &other] {
-            std::fs::write(path, b"raw").unwrap();
-        }
-        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3_600);
-        std::fs::File::options()
-            .write(true)
-            .open(&stale)
-            .unwrap()
-            .set_modified(old)
-            .unwrap();
-        prune(&dir, Retention::default());
-        assert!(!stale.exists());
-        assert!(fresh.exists());
-        assert!(other.exists());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}

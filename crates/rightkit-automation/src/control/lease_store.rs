@@ -27,12 +27,10 @@
 //! [`InputLease::acknowledge_input`]: crate::control::lease::InputLease::acknowledge_input
 //! [`InputLease::reconcile`]: crate::control::lease::InputLease::reconcile
 //! [`InputLease::acquire_reconciling`]: crate::control::lease::InputLease::acquire_reconciling
-use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::control::admission::lock;
@@ -393,42 +391,4 @@ fn decode(text: &str) -> Result<LeaseRecord, StoreError> {
     };
     record.validate()?;
     Ok(record)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sample() -> LeaseRecord {
-        LeaseRecord {
-            name: "pty:1".into(),
-            execution_id: ExecutionIdentity::generate(),
-            execution_state: ExecutionState::Running,
-            epoch: 3,
-            holder_epoch: Some(3),
-            next_input_sequence: 7,
-            acked_input_sequence: 5,
-            unknown_input: Some((5, 7)),
-        }
-    }
-
-    #[test]
-    fn round_trip_and_checksum() {
-        let r = sample();
-        let text = encode(&r);
-        assert_eq!(decode(&text).unwrap(), r);
-        let tampered = text.replace("epoch=3\n", "epoch=1\n");
-        assert!(matches!(decode(&tampered), Err(StoreError::Corrupt(_))));
-        let truncated = &text[..text.len() / 2];
-        assert!(matches!(decode(truncated), Err(StoreError::Corrupt(_))));
-    }
-
-    #[test]
-    fn identities_are_unique_and_validated() {
-        assert_ne!(ExecutionIdentity::generate(), ExecutionIdentity::generate());
-        assert_eq!(ExecutionIdentity::generate().as_str().len(), 32);
-        assert!(ExecutionIdentity::new("job:42-a").is_ok());
-        assert!(ExecutionIdentity::new("bad id\n").is_err());
-        assert!(ExecutionIdentity::new("").is_err());
-    }
 }

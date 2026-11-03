@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.1
 
 - Add `agent_host` feature: modules api_memright, blueprint_tools, memory, memory_provenance, memory_save_tool (moved from an agent host binary).

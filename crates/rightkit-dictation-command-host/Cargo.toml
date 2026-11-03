@@ -7,14 +7,11 @@ description = "Dictation command host: voice command dispatch (keys, app launch,
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "data/**", "examples/**", "build.rs", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "data/**", "examples/**", "build.rs", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_dictation_command_host"
 path = "src/lib.rs"
-
-[features]
-test-mode = ["rightkit-dictation-core/test-mode"]
 
 [dependencies]
 rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }

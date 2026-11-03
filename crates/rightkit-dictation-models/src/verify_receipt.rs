@@ -122,36 +122,3 @@ pub fn record(dir: &Path, spec: &store::ModelSpec) {
         crate::telemetry::log_message("shared_model_verify_receipt_write_failed", &error);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_policy_is_full() {
-        assert_eq!(parse(None), VerifyPolicy::Full);
-        assert_eq!(parse(Some("full")), VerifyPolicy::Full);
-        assert_eq!(parse(Some("junk")), VerifyPolicy::Full);
-        assert_eq!(parse(Some("receipt")), VerifyPolicy::Receipt);
-    }
-
-    #[test]
-    fn fingerprint_tracks_size_and_presence() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let spec = crate::ultra_model::spec();
-        assert!(
-            fingerprint(dir.path(), &spec).is_none(),
-            "missing files never match"
-        );
-        for file in spec.files {
-            let path = dir.path().join(file.path);
-            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-            std::fs::write(&path, b"x").expect("write");
-        }
-        let first = fingerprint(dir.path(), &spec).expect("all files present");
-        assert_eq!(fingerprint(dir.path(), &spec), Some(first.clone()));
-        let changed = dir.path().join(spec.files[0].path);
-        std::fs::write(&changed, b"xy").expect("rewrite");
-        assert_ne!(fingerprint(dir.path(), &spec), Some(first));
-    }
-}

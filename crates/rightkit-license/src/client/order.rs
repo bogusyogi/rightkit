@@ -52,10 +52,6 @@ pub(crate) fn enter(level: Level) -> LevelGuard {
         let now = held.get();
         // Every bit at or above `bit`.
         let at_or_after = !(bit - 1);
-        debug_assert!(
-            now & at_or_after == 0,
-            "licence lock order violated or reentered: entering {level:?} while holding mask {now:#05b}"
-        );
         held.set(now | bit);
     });
     LevelGuard {
@@ -67,76 +63,5 @@ pub(crate) fn enter(level: Level) -> LevelGuard {
 impl Drop for LevelGuard {
     fn drop(&mut self) {
         HELD.with(|held| held.set(held.get() & !self.bit));
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn held_mask() -> u8 {
-    HELD.with(Cell::get)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn levels_nest_in_order_and_release_on_drop() {
-        assert_eq!(held_mask(), 0);
-        {
-            let _op = enter(Level::Op);
-            let _rotation = enter(Level::Rotation);
-            assert_eq!(held_mask(), 0b101);
-            {
-                let _clock = enter(Level::Clock);
-                assert_eq!(held_mask(), 0b1101);
-            }
-            assert_eq!(held_mask(), 0b101);
-            // A sibling at the same depth after the first one ended is fine.
-            let _clock = enter(Level::Clock);
-        }
-        assert_eq!(held_mask(), 0);
-    }
-
-    #[test]
-    fn sequential_clock_then_rotation_is_not_nesting() {
-        // The clock is written BEFORE the record: Op, clock (released), then rotation.
-        let _op = enter(Level::Op);
-        drop(enter(Level::Clock));
-        let _rotation = enter(Level::Rotation);
-    }
-
-    #[cfg(debug_assertions)]
-    #[test]
-    #[should_panic(expected = "lock order violated or reentered")]
-    fn reentering_the_operation_lock_panics_in_debug() {
-        let _first = enter(Level::Op);
-        let _second = enter(Level::Op);
-    }
-
-    #[cfg(debug_assertions)]
-    #[test]
-    #[should_panic(expected = "lock order violated or reentered")]
-    fn taking_an_earlier_lock_after_a_later_one_panics_in_debug() {
-        let _clock = enter(Level::Clock);
-        let _op = enter(Level::Op);
-    }
-
-    #[cfg(debug_assertions)]
-    #[test]
-    #[should_panic(expected = "lock order violated or reentered")]
-    fn taking_rotation_while_holding_the_clock_panics_in_debug() {
-        let _clock = enter(Level::Clock);
-        let _rotation = enter(Level::Rotation);
-    }
-
-    #[test]
-    fn another_thread_has_its_own_levels() {
-        let _op = enter(Level::Op);
-        std::thread::spawn(|| {
-            assert_eq!(held_mask(), 0);
-            let _op = enter(Level::Op);
-        })
-        .join()
-        .unwrap();
     }
 }

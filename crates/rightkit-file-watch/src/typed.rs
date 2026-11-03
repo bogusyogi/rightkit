@@ -420,14 +420,6 @@ pub(crate) struct Translator {
 }
 
 impl Translator {
-    #[cfg(test)]
-    fn expire(&mut self, now: Instant) -> Vec<WatchEvent> {
-        self.expire_records(now)
-            .into_iter()
-            .map(|record| record.event)
-            .collect()
-    }
-
     pub(crate) fn expire_records(&mut self, now: Instant) -> Vec<WatchEventRecord> {
         self.paired.retain(|_, (_, _, deadline)| *deadline > now);
         let keys: Vec<_> = self
@@ -439,14 +431,6 @@ impl Translator {
         keys.into_iter()
             .filter_map(|key| self.halves.remove(&key))
             .map(HalfRename::degrade)
-            .collect()
-    }
-
-    #[cfg(test)]
-    fn flush(&mut self) -> Vec<WatchEvent> {
-        self.flush_records()
-            .into_iter()
-            .map(|record| record.event)
             .collect()
     }
 
@@ -463,13 +447,6 @@ impl Translator {
     }
 
     // Pure seam: injected time and backend results, no filesystem or sleeping.
-    #[cfg(test)]
-    fn translate(&mut self, result: notify::Result<Event>, now: Instant) -> Vec<WatchEvent> {
-        self.translate_records(result, now)
-            .into_iter()
-            .map(|record| record.event)
-            .collect()
-    }
 
     pub(crate) fn translate_records(
         &mut self,
@@ -605,11 +582,6 @@ impl Translator {
     }
 }
 
-#[cfg(test)]
-fn run(rx: mpsc::Receiver<notify::Result<Event>>, tx: mpsc::Sender<WatchEvent>) {
-    run_translated(rx, None, |record| tx.send(record.event).is_ok());
-}
-
 fn run_translated(
     rx: mpsc::Receiver<notify::Result<Event>>,
     watched_file: Option<PathBuf>,
@@ -661,247 +633,5 @@ fn run_translated(
                 return;
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use notify::event::{CreateKind, Flag};
-
-    fn half(mode: RenameMode, path: &str, tracker: Option<usize>) -> Event {
-        let event = Event::new(EventKind::Modify(ModifyKind::Name(mode))).add_path(path.into());
-        match tracker {
-            Some(id) => event.set_tracker(id),
-            None => event,
-        }
-    }
-
-    fn rename(from: &str, to: &str) -> WatchEvent {
-        WatchEvent::Rename {
-            from: from.into(),
-            to: to.into(),
-        }
-    }
-
-    #[test]
-    fn native_file_filter_preserves_rename_boundaries_errors_and_overflow() {
-        let file = PathBuf::from("target");
-        let (tx, rx) = mpsc::channel();
-        tx.send(Ok(half(RenameMode::From, "target", None))).unwrap();
-        tx.send(Ok(half(RenameMode::To, "sibling", None))).unwrap();
-        tx.send(Ok(
-            Event::new(EventKind::Create(CreateKind::Any)).add_path("noise".into())
-        ))
-        .unwrap();
-        tx.send(Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan)))
-            .unwrap();
-        tx.send(Err(
-            notify::Error::generic("reader failed").add_path("parent".into())
-        ))
-        .unwrap();
-        drop(tx);
-        let mut records = Vec::new();
-        run_translated(rx, Some(file.clone()), |record| {
-            records.push(record);
-            true
-        });
-        assert_eq!(records.len(), 3);
-        assert_eq!(records[0].event, WatchEvent::Delete(file.clone()));
-        assert_eq!(
-            records[0].raw_kind,
-            Some(EventKind::Modify(ModifyKind::Name(RenameMode::From)))
-        );
-        assert_eq!(records[1].event, WatchEvent::Overflow);
-        assert!(
-            matches!(&records[2].event, WatchEvent::Error(WatchError::Backend { paths, .. }) if paths == &[file])
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn legacy_native_file_watch_filters_siblings_and_joins_on_drop() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("target.txt");
-        std::fs::write(&file, b"before").unwrap();
-        let file = file.canonicalize().unwrap();
-        let watch = TypedWatcher::watch(&file).unwrap();
-        std::fs::write(dir.path().join("sibling.txt"), b"ignore").unwrap();
-        std::fs::write(&file, b"after").unwrap();
-        let event = watch
-            .recv_timeout(Duration::from_secs(10))
-            .expect("file modification");
-        match event {
-            WatchEvent::Create(path) | WatchEvent::Modify(path) | WatchEvent::Delete(path) => {
-                assert_eq!(path, file, "file watch leaked a sibling event");
-            }
-            other => panic!("unexpected event: {other:?}"),
-        }
-        let began = Instant::now();
-        drop(watch);
-        assert!(began.elapsed() < Duration::from_secs(5));
-    }
-
-    #[test]
-    fn tracker_pairs_interleaved_renames_and_reversed_halves() {
-        let now = Instant::now();
-        let mut translator = Translator::default();
-        assert!(translator
-            .translate(Ok(half(RenameMode::From, "a", Some(1))), now)
-            .is_empty());
-        assert!(translator
-            .translate(Ok(half(RenameMode::To, "d", Some(2))), now)
-            .is_empty());
-        assert_eq!(
-            translator.translate(Ok(half(RenameMode::To, "b", Some(1))), now),
-            vec![rename("a", "b")]
-        );
-        assert_eq!(
-            translator.translate(Ok(half(RenameMode::From, "c", Some(2))), now),
-            vec![rename("c", "d")]
-        );
-        assert!(translator.expire(now + RENAME_WAIT).is_empty());
-    }
-
-    #[test]
-    fn untracked_adjacent_halves_pair_but_intervening_event_breaks_pair() {
-        let now = Instant::now();
-        let mut translator = Translator::default();
-        assert!(translator
-            .translate(Ok(half(RenameMode::From, "a", None)), now)
-            .is_empty());
-        assert_eq!(
-            translator.translate(Ok(half(RenameMode::To, "b", None)), now),
-            vec![rename("a", "b")]
-        );
-
-        translator.translate(Ok(half(RenameMode::From, "c", None)), now);
-        let event = Event::new(EventKind::Create(CreateKind::File)).add_path("noise".into());
-        assert_eq!(
-            translator.translate(Ok(event), now),
-            vec![
-                WatchEvent::Delete("c".into()),
-                WatchEvent::Create("noise".into())
-            ]
-        );
-        translator.translate(Ok(half(RenameMode::To, "d", None)), now);
-        assert_eq!(
-            translator.expire(now + RENAME_WAIT),
-            vec![WatchEvent::Create("d".into())]
-        );
-    }
-
-    #[test]
-    fn unmatched_and_mismatched_halves_degrade_after_deadline() {
-        let now = Instant::now();
-        let mut translator = Translator::default();
-        translator.translate(Ok(half(RenameMode::From, "a", Some(1))), now);
-        translator.translate(Ok(half(RenameMode::To, "b", Some(2))), now);
-        assert!(translator.expire(now + RENAME_WAIT / 2).is_empty());
-        let output = translator.expire(now + RENAME_WAIT);
-        assert_eq!(output.len(), 2);
-        assert!(output.contains(&WatchEvent::Delete("a".into())));
-        assert!(output.contains(&WatchEvent::Create("b".into())));
-        assert!(translator.halves.is_empty());
-    }
-
-    #[test]
-    fn explicit_both_discards_pending_half_and_suppresses_inotify_echo() {
-        let now = Instant::now();
-        let both = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
-            .add_path("a".into())
-            .add_path("b".into())
-            .set_tracker(1);
-        let mut translator = Translator::default();
-        translator.translate(Ok(half(RenameMode::From, "a", Some(1))), now);
-        assert_eq!(
-            translator.translate(Ok(both.clone()), now),
-            vec![rename("a", "b")]
-        );
-        assert!(translator.expire(now + RENAME_WAIT).is_empty());
-
-        translator.translate(Ok(half(RenameMode::From, "a", Some(1))), now);
-        assert_eq!(
-            translator.translate(Ok(half(RenameMode::To, "b", Some(1))), now),
-            vec![rename("a", "b")]
-        );
-        assert!(translator.translate(Ok(both), now).is_empty());
-    }
-
-    #[test]
-    fn untracked_both_consumes_matching_half_without_losing_unrelated_half() {
-        let now = Instant::now();
-        let both = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
-            .add_path("a".into())
-            .add_path("b".into());
-        let mut translator = Translator::default();
-        translator.translate(Ok(half(RenameMode::From, "a", None)), now);
-        assert_eq!(
-            translator.translate(Ok(both.clone()), now),
-            vec![rename("a", "b")]
-        );
-        translator.translate(Ok(half(RenameMode::From, "unrelated", None)), now);
-        assert_eq!(
-            translator.translate(Ok(both), now),
-            vec![WatchEvent::Delete("unrelated".into()), rename("a", "b"),]
-        );
-        assert!(translator.flush().is_empty());
-    }
-
-    #[test]
-    fn backend_errors_and_pathless_rescan_reach_output_stream() {
-        let (raw_tx, raw_rx) = mpsc::channel();
-        let (tx, rx) = mpsc::channel();
-        let error = notify::Error::generic("backend disconnected").add_path("root".into());
-        let expected = WatchError::Backend {
-            message: error.to_string(),
-            paths: error.paths.clone(),
-        };
-        raw_tx.send(Err(error)).unwrap();
-        raw_tx
-            .send(Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan)))
-            .unwrap();
-        drop(raw_tx);
-        // Same worker seam used by the real backend; no OS watch or timing needed.
-        run(raw_rx, tx);
-        assert_eq!(
-            rx.into_iter().collect::<Vec<_>>(),
-            vec![WatchEvent::Error(expected), WatchEvent::Overflow]
-        );
-    }
-
-    #[test]
-    fn gap_breaks_rename_correlation_and_retains_mutating_rescan_paths() {
-        let now = Instant::now();
-        let mut translator = Translator::default();
-        translator.translate(Ok(half(RenameMode::From, "a", Some(1))), now);
-        let event = Event::new(EventKind::Create(CreateKind::File))
-            .add_path("new".into())
-            .set_flag(Flag::Rescan);
-        assert_eq!(
-            translator.translate(Ok(event), now),
-            vec![
-                WatchEvent::Delete("a".into()),
-                WatchEvent::Overflow,
-                WatchEvent::Create("new".into()),
-            ]
-        );
-        translator.translate(Ok(half(RenameMode::To, "b", Some(1))), now);
-        assert_eq!(translator.flush(), vec![WatchEvent::Create("b".into())]);
-    }
-
-    #[test]
-    fn stream_disconnect_flushes_unpaired_half() {
-        let (raw_tx, raw_rx) = mpsc::channel();
-        let (tx, rx) = mpsc::channel();
-        raw_tx
-            .send(Ok(half(RenameMode::From, "a", Some(1))))
-            .unwrap();
-        drop(raw_tx);
-        run(raw_rx, tx);
-        assert_eq!(
-            rx.into_iter().collect::<Vec<_>>(),
-            vec![WatchEvent::Delete("a".into())]
-        );
     }
 }

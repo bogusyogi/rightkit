@@ -1,7 +1,5 @@
 //! Typed edit actions, their ripple semantics, and the inverse actions undo replays.
 
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 
 use crate::error::TimelineError;

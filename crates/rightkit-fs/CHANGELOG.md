@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.4.10 (unpublished)
 
 rightkit#1180: the one bounded retry for a plain delete, rename or open that Windows refuses while a scanner or indexer holds the file, moved here from rightkit-db so the classification and the bound have one owner.

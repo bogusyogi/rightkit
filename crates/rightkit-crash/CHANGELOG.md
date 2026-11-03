@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 - Added: feature `diagnostics` (off by default) with `init_diagnostics(DiagnosticsConfig) -> Diagnostics`, one call that wires a process's crash capture and logs so apps stop hand-wiring both. `DiagnosticsConfig::new(kind, app_name, app_version, data_root)` derives `<data_root>/crashes` for reports and `<data_root>/logs/<app slug>-<kind>.YYYY-MM-DD.jsonl` for rightkit-logs' daily-rolling `tracing` files (3 kept); both halves stay public fields to adjust. The panic hook is installed first, then the global subscriber; each recorded crash report is also written to the log as one `error` event (target `rightkit_crash`, fields `kind`, `process_kind`, `location`, `crash_message`, all already redacted), after any sink the app set. A log setup failure never fails startup: one stderr line, `Diagnostics::log_error`, crash capture unaffected. `Diagnostics` exposes `crash_config`, `crash_dir`, `log_dir` and `tracing` (the `TracingGuard` for `status` and `clear`). Adds `tracing` and enables `rightkit-logs/tracing` only with the feature. Tests: `diagnostics::tests` and `tests/diagnostics.rs` (a real panic lands in the report and the daily log). CI row added in `ci/gate.config.json`.
 
 ## 0.3.6 — 2026-10-21

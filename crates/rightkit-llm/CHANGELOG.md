@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.3.2 (unreleased)
 
 - Features `agent_providers` (provider clients, credential broker, subscription auth, model metadata, replay harness; `-os-keyring`, `-host-env`, `-replay-record`) and `agent_router` (cheap/capable routing policy) moved from CodeRight `coderight-providers` and `coderight-router`.

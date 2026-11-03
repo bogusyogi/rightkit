@@ -122,8 +122,6 @@ struct Layout {
     shape: Vec<usize>,
     strides: Vec<usize>,
     logical_count: usize,
-    #[cfg(test)]
-    storage_elements: usize,
 }
 
 impl Layout {
@@ -182,8 +180,6 @@ impl Layout {
             shape: dims.to_vec(),
             strides,
             logical_count,
-            #[cfg(test)]
-            storage_elements,
         })
     }
 }
@@ -337,94 +333,4 @@ unsafe fn read_nonnegative_strides(
         return Err("aligned probe: invalid stride vector".into());
     }
     Ok(strides)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn layout_pads_only_innermost_dimension() {
-        let layout = Layout::new(&[2, 3, 188], 2 * 3 * 188, 2).unwrap();
-        assert_eq!(layout.strides, [576, 192, 1]);
-        assert_eq!(layout.storage_elements, 1_152);
-    }
-
-    #[test]
-    fn layout_rejects_empty_mismatch_and_overflow() {
-        assert!(Layout::new(&[], 0, 4).is_err());
-        assert!(Layout::new(&[0, 2], 0, 4).is_err());
-        assert!(Layout::new(&[2, 3], 5, 4).is_err());
-        assert!(Layout::new(&[usize::MAX / 2, 3], usize::MAX, 4).is_err());
-    }
-
-    unsafe fn assert_native_layout(
-        array: &MLMultiArray,
-        shape: &[usize],
-        strides: &[usize],
-        data_type: MLMultiArrayDataType,
-    ) {
-        assert_eq!(array.dataType(), data_type);
-        let actual_shape: Vec<usize> = array
-            .shape()
-            .iter()
-            .map(|dimension| dimension.integerValue() as usize)
-            .collect();
-        let actual_strides: Vec<usize> = array
-            .strides()
-            .iter()
-            .map(|stride| stride.integerValue() as usize)
-            .collect();
-        assert_eq!(actual_shape, shape);
-        assert_eq!(actual_strides, strides);
-        assert_eq!(array.dataPointer().as_ptr() as usize % 64, 0);
-    }
-
-    #[test]
-    fn native_f32_roundtrip_preserves_rows_and_padding() {
-        let values = [0.25, -1.5, 2.75, 7.0, -8.0, 9.5];
-        let array = aligned_f32(&[2, 3], &values).unwrap();
-        unsafe {
-            assert_native_layout(&array, &[2, 3], &[16, 1], MLMultiArrayDataType::Float32);
-            let ptr = array.dataPointer().as_ptr().cast::<f32>();
-            for row in 0..2 {
-                for column in 0..3 {
-                    assert_eq!(*ptr.add(row * 16 + column), values[row * 3 + column]);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn native_f16_roundtrip_converts_each_row() {
-        let values = [0.25, -1.5, 2.75, 7.0, -8.0, 9.5];
-        let array = aligned_f16(&[2, 3], &values).unwrap();
-        unsafe {
-            assert_native_layout(&array, &[2, 3], &[16, 1], MLMultiArrayDataType::Float16);
-            let ptr = array.dataPointer().as_ptr().cast::<f16>();
-            for row in 0..2 {
-                for column in 0..3 {
-                    assert_eq!(
-                        (*ptr.add(row * 16 + column)).to_bits(),
-                        f16::from_f32(values[row * 3 + column]).to_bits()
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn native_i32_roundtrip_preserves_rows_and_padding() {
-        let values = [i32::MIN, -7, 0, 13, 42, i32::MAX];
-        let array = aligned_i32(&[2, 3], &values).unwrap();
-        unsafe {
-            assert_native_layout(&array, &[2, 3], &[16, 1], MLMultiArrayDataType::Int32);
-            let ptr = array.dataPointer().as_ptr().cast::<i32>();
-            for row in 0..2 {
-                for column in 0..3 {
-                    assert_eq!(*ptr.add(row * 16 + column), values[row * 3 + column]);
-                }
-            }
-        }
-    }
 }

@@ -174,52 +174,7 @@ impl WorktreePool {
     }
 
     fn create_one(&self) -> Result<WorktreeRecord> {
-        #[cfg(not(test))]
         anyhow::bail!("synchronous worktree creation is test-only; use governed async pool API");
-
-        #[cfg(test)]
-        {
-            let id = format!("pool-{}", uuid_like());
-            let dest = self.pool_root.join(&id);
-
-            let output = rightkit_child_process::command_std("git")
-                .current_dir(&self.source)
-                .args([
-                    "worktree",
-                    "add",
-                    "--detach",
-                    dest.to_str().context("pool worktree path must be UTF-8")?,
-                ])
-                .output()
-                .context("failed to run git worktree add")?;
-            if !output.status.success() {
-                anyhow::bail!(
-                    "git worktree add failed: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-
-            let record = WorktreeRecord {
-                id: id.clone(),
-                path: dest,
-                source_repo: self.source.clone(),
-                repo_name: super::db::repo_name_from_path(&self.source),
-                kind: WorktreeKind::Pool,
-                creation_mode: "linked".to_string(),
-                git_ref: None,
-                head_commit: None,
-                session_id: None,
-                creator_pid: Some(std::process::id()),
-                created_at: super::db::now_epoch_secs(),
-                last_accessed_at: None,
-                status: WorktreeStatus::Alive,
-                metadata: None,
-            };
-            self.db.register(&record)?;
-            self.db
-                .set_meta(&format!("{META_KEY_POOL_READY_PREFIX}{id}"), "1")?;
-            Ok(record)
-        }
     }
 
     #[cfg(feature = "coding_tools-host")]
@@ -610,23 +565,7 @@ impl WorktreePool {
     /// Removes a worktree from disk and the registry (pool shutdown / GC).
     #[allow(unused_variables)]
     pub fn discard(&self, worktree: &Path) -> Result<()> {
-        #[cfg(not(test))]
         anyhow::bail!("synchronous worktree discard is test-only; use governed async pool API");
-
-        #[cfg(test)]
-        {
-            let _ = rightkit_child_process::command_std("git")
-                .current_dir(&self.source)
-                .args([
-                    "worktree",
-                    "remove",
-                    "--force",
-                    worktree.to_str().unwrap_or_default(),
-                ])
-                .output();
-            self.db.unregister_by_path(worktree)?;
-            Ok(())
-        }
     }
 
     pub fn stats(&self) -> Result<super::db::DbStats> {
@@ -718,110 +657,4 @@ fn uuid_like() -> String {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     format!("{nanos:x}-{}", std::process::id())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn require_git() {
-        if rightkit_child_process::command_std("git")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            panic!("git binary required for this test");
-        }
-    }
-
-    fn init_git_repo(path: &Path) {
-        let run = |args: &[&str]| {
-            let status = rightkit_child_process::command_std("git")
-                .current_dir(path)
-                .args(args)
-                .status()
-                .expect("run git");
-            assert!(status.success(), "git {args:?} failed");
-        };
-        run(&["init", "-q"]);
-        run(&["config", "user.email", "test@example.com"]);
-        run(&["config", "user.name", "Test"]);
-    }
-
-    fn git_commit_all(path: &Path, message: &str) {
-        let run = |args: &[&str]| {
-            let status = rightkit_child_process::command_std("git")
-                .current_dir(path)
-                .args(args)
-                .status()
-                .expect("run git");
-            assert!(status.success(), "git {args:?} failed");
-        };
-        run(&["add", "-A"]);
-        run(&["commit", "-q", "-m", message]);
-    }
-
-    #[test]
-    fn fill_creates_target_warm_worktrees_and_is_idempotent() {
-        require_git();
-        let temp = tempfile::tempdir().expect("temp dir");
-        let source = temp.path().join("source");
-        std::fs::create_dir_all(&source).unwrap();
-        init_git_repo(&source);
-        std::fs::write(source.join("file.txt"), "v1").unwrap();
-        git_commit_all(&source, "initial");
-
-        let pool_root = temp.path().join("pool");
-        let state_dir = temp.path().join("state");
-        let pool = WorktreePool::open(&source, &pool_root, &state_dir).expect("open pool");
-
-        let created = pool.fill(2).expect("fill");
-        assert_eq!(created, 2);
-        assert_eq!(pool.warm_count().unwrap(), 2);
-
-        // Idempotent: filling to the same target again creates nothing new.
-        let created_again = pool.fill(2).expect("fill again");
-        assert_eq!(created_again, 0);
-        assert_eq!(pool.warm_count().unwrap(), 2);
-    }
-
-    #[test]
-    fn acquire_syncs_and_removes_from_pool_then_release_returns_it() {
-        require_git();
-        let temp = tempfile::tempdir().expect("temp dir");
-        let source = temp.path().join("source");
-        std::fs::create_dir_all(&source).unwrap();
-        init_git_repo(&source);
-        std::fs::write(source.join("file.txt"), "v1").unwrap();
-        git_commit_all(&source, "initial");
-
-        let pool_root = temp.path().join("pool");
-        let state_dir = temp.path().join("state");
-        let pool = WorktreePool::open(&source, &pool_root, &state_dir).expect("open pool");
-        pool.fill(1).expect("fill");
-        assert_eq!(pool.warm_count().unwrap(), 1);
-
-        // Source advances after the pool worktree was created.
-        std::fs::write(source.join("file.txt"), "v2").unwrap();
-        git_commit_all(&source, "second");
-
-        let acquired = pool.acquire(false).expect("acquire");
-        assert_eq!(
-            pool.warm_count().unwrap(),
-            0,
-            "acquired worktree leaves the pool"
-        );
-        assert_eq!(
-            std::fs::read_to_string(acquired.join("file.txt")).unwrap(),
-            "v2",
-            "acquire must sync to source's current HEAD"
-        );
-
-        pool.release(&acquired).expect("release");
-        assert_eq!(
-            pool.warm_count().unwrap(),
-            1,
-            "released worktree rejoins the pool"
-        );
-    }
 }

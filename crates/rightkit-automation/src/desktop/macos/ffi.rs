@@ -3,8 +3,6 @@
 //! monolithic `macos.rs`; no behaviour change.
 
 use core_foundation::base::{CFType, TCFType};
-use core_foundation::boolean::CFBoolean;
-use core_foundation::dictionary::CFDictionaryRef;
 use core_foundation::string::{CFString, CFStringRef};
 
 use crate::macos::ax::{system_wide_with, AxOptions, El};

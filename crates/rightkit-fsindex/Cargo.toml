@@ -12,7 +12,7 @@ homepage = "https://github.com/bogusyogi/rightkit/tree/main/crates/rightkit-fsin
 documentation = "https://docs.rs/rightkit-fsindex"
 keywords = ["filesystem", "file-index", "fsevents", "disk-usage", "search"]
 categories = ["filesystem", "os::macos-apis", "os::windows-apis"]
-include = ["src/**", "tests/*.rs", "tests/common/*.rs", "benches/*.rs", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "THIRD-PARTY-NOTICES"]
+include = ["src/**", "benches/*.rs", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "THIRD-PARTY-NOTICES"]
 
 [lib]
 name = "rightkit_fsindex"

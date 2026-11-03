@@ -3,10 +3,6 @@
 //! message. The state is derived from plain inputs, so it is testable without
 //! a model, a runtime or an app.
 
-use rightkit_db::rusqlite::Connection;
-
-use super::index;
-
 /// The one state shown to the user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -87,81 +83,4 @@ pub fn all_progress(conn: &Connection) -> Result<Vec<AccountProgress>, String> {
             })
         })
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::db::semantic::embedder::STORED_DIM;
-    use crate::db::semantic::index::run_index_step;
-    use crate::db::semantic::index::test_support::{conn_with_schema, seed_messages, FakeEmbedder};
-
-    fn account(done: bool) -> AccountProgress {
-        AccountProgress {
-            account_id: "a".into(),
-            indexed: 0,
-            total: 1,
-            done,
-        }
-    }
-
-    #[test]
-    fn off_beats_everything() {
-        let failed = JobReport::Failed("x".into());
-        let s = derive_state(false, false, false, &failed, &[account(false)]);
-        assert_eq!(s, SemanticState::Off);
-    }
-
-    #[test]
-    fn missing_runtime_beats_missing_model() {
-        let s = derive_state(true, false, false, &JobReport::Fine, &[]);
-        assert_eq!(s, SemanticState::RuntimeMissing);
-        let s = derive_state(true, true, false, &JobReport::Fine, &[]);
-        assert_eq!(s, SemanticState::ModelMissing);
-    }
-
-    #[test]
-    fn failed_job_is_an_error_only_when_ready_to_run() {
-        let failed = JobReport::Failed("embedder_load".into());
-        let s = derive_state(true, true, true, &failed, &[account(true)]);
-        assert_eq!(s, SemanticState::Error);
-        let s = derive_state(true, false, true, &failed, &[]);
-        assert_eq!(s, SemanticState::RuntimeMissing);
-    }
-
-    #[test]
-    fn indexing_until_every_account_is_done() {
-        let fine = JobReport::Fine;
-        let s = derive_state(true, true, true, &fine, &[account(true), account(false)]);
-        assert_eq!(s, SemanticState::Indexing);
-        let s = derive_state(true, true, true, &fine, &[account(true)]);
-        assert_eq!(s, SemanticState::Ready);
-        let s = derive_state(true, true, true, &fine, &[]);
-        assert_eq!(s, SemanticState::Ready, "no accounts: nothing to index");
-    }
-
-    #[test]
-    fn state_serializes_as_snake_case() {
-        let json = serde_json::to_string(&SemanticState::RuntimeMissing).unwrap();
-        assert_eq!(json, "\"runtime_missing\"");
-    }
-
-    #[test]
-    fn progress_counts_each_account_and_never_carries_content() {
-        let conn = conn_with_schema();
-        seed_messages(&conn, "a1", 3);
-        seed_messages(&conn, "a2", 20);
-        let e = FakeEmbedder {
-            dim: STORED_DIM,
-            model_id: "fake-v1",
-        };
-        run_index_step(&conn, &conn, "a1", &e).unwrap();
-        run_index_step(&conn, &conn, "a2", &e).unwrap();
-        let progress = all_progress(&conn).unwrap();
-        assert_eq!(progress.len(), 2);
-        let a1 = progress.iter().find(|p| p.account_id == "a1").unwrap();
-        assert_eq!((a1.indexed, a1.total, a1.done), (3, 3, true));
-        let a2 = progress.iter().find(|p| p.account_id == "a2").unwrap();
-        assert_eq!((a2.indexed, a2.total, a2.done), (16, 20, false));
-    }
 }

@@ -37,8 +37,6 @@ pub mod relay_admit;
 pub mod transport;
 pub mod wire;
 
-#[cfg(test)]
-pub use identity::MemoryKeyVault;
 pub use identity::{
     DEFAULT_VAULT_SERVICE, DeviceIdentity, KeyVault, OsKeyVault, device_id_for_key, open_vault,
 };

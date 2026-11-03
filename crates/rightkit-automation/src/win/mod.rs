@@ -12,8 +12,6 @@ pub mod uia;
 
 use crate::model::*;
 use crate::platform::*;
-use crate::proof::FieldText;
-use std::path::Path;
 use uia::El;
 
 pub use bounded::{

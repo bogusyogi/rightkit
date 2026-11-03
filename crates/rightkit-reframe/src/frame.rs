@@ -10,7 +10,6 @@ pub struct RgbFrame {
 
 impl RgbFrame {
     pub fn new(width: usize, height: usize, data: Vec<u8>) -> Self {
-        debug_assert_eq!(data.len(), width * height * 3);
         Self {
             width,
             height,

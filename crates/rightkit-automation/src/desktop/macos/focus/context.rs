@@ -7,7 +7,6 @@
 //! (docs/agent-rules.md: pure move, no logic changes).
 
 use core_foundation::base::{CFHash, CFType, TCFType};
-use core_foundation::string::CFString;
 
 use super::super::ffi::{
     ax_app_element, ax_attribute_settable, ax_bool, ax_children, ax_copy, ax_copy_with_error,
@@ -15,7 +14,6 @@ use super::super::ffi::{
     ax_string_bounded, ax_system_element, bounded_proof_string, AXIsProcessTrusted, AXUIElementRef,
     AXUIElementSetMessagingTimeout, AX_MESSAGING_TIMEOUT_SECONDS,
 };
-use super::super::frontmost::frontmost;
 use super::pin::{focus_pin_running_identity_matches, FocusPin};
 
 /// Accessibility snapshot of the focused text field — on-device context that
@@ -668,7 +666,3 @@ pub(in crate::desktop::macos) fn ax_element_seen_or_insert(
         false
     }
 }
-
-#[cfg(test)]
-#[path = "context_tests.rs"]
-mod tests;

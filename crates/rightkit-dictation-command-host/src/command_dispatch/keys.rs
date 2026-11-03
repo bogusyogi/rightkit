@@ -527,35 +527,16 @@ fn held_modifier_keyups(snapshot: &ModifierAsyncSnapshot) -> Vec<RawInput> {
     ups
 }
 
-#[cfg(all(target_os = "windows", test))]
-fn generic_alt_release_keyups() -> Vec<RawInput> {
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{VK_LMENU, VK_MENU, VK_RMENU};
-
-    [VK_MENU, VK_LMENU, VK_RMENU]
-        .into_iter()
-        .map(|vk| key_input(vk, true, false))
-        .collect()
-}
-
 #[cfg(target_os = "windows")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ChordNullifier {
     // Only the tests build nullified chords; no production path selects one.
-    #[cfg(test)]
-    ScanCodeE8,
-    #[cfg(test)]
-    VirtualKeyE8,
 }
 
 #[cfg(target_os = "windows")]
 impl ChordNullifier {
     fn label(self) -> &'static str {
-        match self {
-            #[cfg(test)]
-            Self::ScanCodeE8 => "sc0e8",
-            #[cfg(test)]
-            Self::VirtualKeyE8 => "vkE8",
-        }
+        match self {}
     }
 }
 
@@ -602,34 +583,6 @@ impl ModifierAsyncSnapshot {
             lwin: down(VK_LWIN),
             rwin: down(VK_RWIN),
         }
-    }
-
-    #[cfg(test)]
-    fn from_states(states: [(&str, bool); 8]) -> Self {
-        let mut snapshot = Self {
-            lctrl: false,
-            rctrl: false,
-            lshift: false,
-            rshift: false,
-            lalt: false,
-            ralt: false,
-            lwin: false,
-            rwin: false,
-        };
-        for (name, down) in states {
-            match name {
-                "lctrl" => snapshot.lctrl = down,
-                "rctrl" => snapshot.rctrl = down,
-                "lshift" => snapshot.lshift = down,
-                "rshift" => snapshot.rshift = down,
-                "lalt" => snapshot.lalt = down,
-                "ralt" => snapshot.ralt = down,
-                "lwin" => snapshot.lwin = down,
-                "rwin" => snapshot.rwin = down,
-                other => panic!("unknown modifier state {other}"),
-            }
-        }
-        snapshot
     }
 
     fn to_json(self) -> serde_json::Value {
@@ -751,21 +704,11 @@ fn key_input(vk: u16, keyup: bool, use_scancode: bool) -> RawInput {
     })
 }
 
-#[cfg(all(target_os = "windows", test))]
-fn raw_scancode_input(scan: u16, keyup: bool, extended: bool) -> RawInput {
-    RawInput::scan(scan, keyup, extended)
-}
-
 #[cfg(target_os = "windows")]
 fn nullifier_input(nullifier: ChordNullifier, keyup: bool) -> RawInput {
     // Outside tests `ChordNullifier` has no variants, so `keyup` is unread.
     let _ = keyup;
-    match nullifier {
-        #[cfg(test)]
-        ChordNullifier::ScanCodeE8 => raw_scancode_input(0xE8, keyup, false),
-        #[cfg(test)]
-        ChordNullifier::VirtualKeyE8 => key_input(0xE8, keyup, false),
-    }
+    match nullifier {}
 }
 
 #[cfg(target_os = "windows")]
@@ -1087,7 +1030,3 @@ pub(super) fn dispatch_launch_app(name: &str) -> DispatchResult {
         format!("LaunchApp not implemented for this OS: {}", name),
     ))
 }
-
-#[cfg(test)]
-#[path = "keys_tests.rs"]
-mod tests;

@@ -89,29 +89,6 @@ pub(crate) enum TerminalHandoff {
     Restore,
 }
 
-/// The current screen's pointer policy; ordinary pickers retain alternate-scroll input.
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-#[cfg(all(test, unix))]
-pub(crate) enum OverlayInput {
-    #[default]
-    Default,
-    Onboarding,
-    Transcript,
-    StaticPager,
-    Usage,
-}
-
-#[cfg(all(test, unix))]
-impl OverlayInput {
-    pub(crate) fn captures_mouse(self, owned_screen: bool) -> bool {
-        match self {
-            Self::Default => owned_screen,
-            Self::Onboarding | Self::StaticPager => false,
-            Self::Transcript | Self::Usage => true,
-        }
-    }
-}
-
 /// Enter a host-owned modal with the donor's independent screen/input stack.
 pub fn enter_alternate_screen(writer: &mut impl std::io::Write) -> Result<()> {
     ALTERNATE_SCREEN.enter(writer, false)

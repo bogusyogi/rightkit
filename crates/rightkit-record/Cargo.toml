@@ -9,7 +9,7 @@ description = "Per-window screen capture for any app, chosen by window id and pi
 keywords = ["screen-capture", "recording", "screencapturekit", "graphics-capture"]
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "rightkit-ownership.json", "helpers/macos/Package.swift", "helpers/macos/build.sh", "helpers/macos/Sources/**", "helpers/macos/Tests/**"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "rightkit-ownership.json", "helpers/macos/Package.swift", "helpers/macos/build.sh", "helpers/macos/Sources/**", "helpers/macos/Tests/**"]
 
 [lib]
 name = "rightkit_record"

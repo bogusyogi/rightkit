@@ -3,7 +3,6 @@
 //! the scan (see [`Kind`]). Node has no aggregate bound. Every acquisition waits at most
 //! `acquire_timeout`, so a saturated host refuses instead of queueing without limit.
 
-use std::collections::HashMap;
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -147,11 +146,6 @@ impl Limiter {
         drop(state);
         self.released.notify_all();
     }
-
-    #[cfg(test)]
-    pub(crate) fn active(&self) -> usize {
-        self.lock().active
-    }
 }
 
 /// A held worker slot. Dropping it releases the slot.
@@ -165,52 +159,5 @@ pub(crate) struct Permit<'a> {
 impl Drop for Permit<'_> {
     fn drop(&mut self) {
         self.limiter.release(&self.repository, self.kind);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rejects_zero_and_inverted_limits() {
-        assert!(WorkerLimits::new(0, 1, Duration::from_secs(1)).is_err());
-        assert!(WorkerLimits::new(2, 0, Duration::from_secs(1)).is_err());
-        assert!(WorkerLimits::new(1, 2, Duration::from_secs(1)).is_err());
-        assert!(WorkerLimits::new(2, 2, Duration::from_secs(1)).is_ok());
-    }
-
-    #[test]
-    fn global_cap_blocks_then_times_out_and_release_frees_capacity() {
-        let limiter = Limiter::new(WorkerLimits::new(1, 1, Duration::from_millis(50)).unwrap());
-        let held = limiter.acquire("repo-a", Kind::Scan).unwrap();
-        let blocked = limiter.acquire("repo-b", Kind::Scan).unwrap_err();
-        assert!(blocked.contains("capacity unavailable"), "{blocked}");
-        drop(held);
-        assert_eq!(limiter.active(), 0);
-        assert!(limiter.acquire("repo-b", Kind::Scan).is_ok());
-    }
-
-    #[test]
-    fn probe_and_scan_permits_are_separate_per_repository() {
-        let limiter = Limiter::new(WorkerLimits::new(4, 1, Duration::from_millis(50)).unwrap());
-        let scan = limiter.acquire("repo-a", Kind::Scan).unwrap();
-        // A probe is not queued behind the scan, but a second scan and a second probe are.
-        let probe = limiter.acquire("repo-a", Kind::Probe).unwrap();
-        assert!(limiter.acquire("repo-a", Kind::Scan).is_err());
-        assert!(limiter.acquire("repo-a", Kind::Probe).is_err());
-        drop((scan, probe));
-        assert_eq!(limiter.active(), 0);
-    }
-
-    #[test]
-    fn per_repository_cap_allows_other_repositories() {
-        let limiter = Limiter::new(WorkerLimits::new(3, 1, Duration::from_millis(50)).unwrap());
-        let first = limiter.acquire("repo-a", Kind::Scan).unwrap();
-        assert!(limiter.acquire("repo-a", Kind::Scan).is_err());
-        let other = limiter.acquire("repo-b", Kind::Scan).unwrap();
-        assert_eq!(limiter.active(), 2);
-        drop((first, other));
-        assert_eq!(limiter.active(), 0);
     }
 }

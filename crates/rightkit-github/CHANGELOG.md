@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.1 (unreleased)
 
 - Added the `observer` feature: `delivery_observer` (one bounded read-only GitHub pull-request observation normalised into a delivery assessment) and `engineering` (bounded imported-evidence reads, work-plan, review-loop and delivery assessments, diagnostic exit codes), moved from Legion's `commands/github_observer.rs` and `commands/engineering.rs`. Additive; off by default.

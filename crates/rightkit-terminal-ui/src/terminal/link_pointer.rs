@@ -15,44 +15,7 @@ use std::io::Write;
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering;
 
-#[cfg(test)]
-use crate::component::Event;
 use crate::terminal::capability::TerminalName;
-#[cfg(test)]
-use crossterm::event::MouseEvent;
-#[cfg(test)]
-use crossterm::event::MouseEventKind;
-
-/// Last-seen pointer position while capturing, cleared on any event that
-/// invalidates screen coordinates.
-#[derive(Default)]
-#[cfg(test)]
-pub(crate) struct LinkHover {
-    pub(crate) mouse: Option<MouseEvent>,
-}
-
-#[cfg(test)]
-impl LinkHover {
-    #[cfg(test)]
-    pub(crate) fn observe(&mut self, event: &Event) {
-        match event {
-            Event::Mouse(mouse) => {
-                self.mouse = (!matches!(
-                    mouse.kind,
-                    MouseEventKind::Down(_) | MouseEventKind::Drag(_)
-                ))
-                .then_some(*mouse);
-            }
-            Event::Key(key) => {
-                if let Some(mouse) = &mut self.mouse {
-                    mouse.modifiers = key.modifiers;
-                }
-            }
-            Event::Focus(false) | Event::Resize { .. } | Event::Resume => self.mouse = None,
-            _ => {}
-        }
-    }
-}
 
 // 0: untouched/restored, 1: captured arrow, 2: link hand, 3: uncertain after a write failure.
 // Keep cleanup armed until flush succeeds.
@@ -62,27 +25,6 @@ pub(super) struct LinkPointer(AtomicU8);
 impl LinkPointer {
     pub(super) const fn new() -> Self {
         Self(AtomicU8::new(/*v*/ 0))
-    }
-
-    #[cfg(test)]
-    pub(super) fn update(&self, writer: &mut impl Write, over_link: bool) -> std::io::Result<()> {
-        let previous = self.0.load(Ordering::Relaxed);
-        let next = if over_link { 2 } else { 1 };
-        if previous == next || (previous == 0 && !over_link) {
-            return Ok(());
-        }
-        self.0.store(next, Ordering::Relaxed);
-        let result = writer
-            .write_all(if over_link {
-                b"\x1b]22;pointer\x1b\\"
-            } else {
-                b"\x1b]22;default\x1b\\"
-            })
-            .and_then(|()| writer.flush());
-        if result.is_err() {
-            self.0.store(/*val*/ 3, Ordering::Relaxed);
-        }
-        result
     }
 
     pub(super) fn restore(
@@ -104,7 +46,3 @@ impl LinkPointer {
         Ok(())
     }
 }
-
-#[cfg(test)]
-#[path = "link_pointer_tests.rs"]
-mod tests;

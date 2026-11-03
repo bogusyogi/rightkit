@@ -220,23 +220,3 @@ impl BackendBinding {
         self.identity.kind
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scope_helpers_preserve_existing_cortex_identity_and_order() {
-        assert_eq!(path_to_scope(r"d:\Claude\myapp"), "D--Claude-myapp");
-        assert_eq!(path_to_scope("D:/Claude/myapp"), "D--Claude-myapp");
-        assert_eq!(path_to_scope("  D:/Claude/myapp  "), "D--Claude-myapp");
-        assert_eq!(normalize_scope("d--Claude"), "D--Claude");
-        assert_eq!(
-            scope_chain(
-                "D--Claude-myapp",
-                &["D--Claude".into(), "global".into(), "D--Other".into()]
-            ),
-            vec!["D--Claude-myapp", "D--Claude", "global"]
-        );
-    }
-}

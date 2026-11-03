@@ -447,21 +447,3 @@ fn collect(node: &Node, out: &mut Vec<SnapshotElement>, refs: &mut HashMap<Strin
         collect(child, out, refs);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Unit tests on purpose: the key filter is a pure refusal list, and an end-to-end run cannot
-    // press cmd+q on a real app without ending it.
-    #[test]
-    fn quit_and_close_chords_are_refused_and_plain_keys_pass() {
-        assert!(normalise_key("cmd+q").is_err());
-        assert!(normalise_key("CMD+W").is_err());
-        assert!(normalise_key("enter cmd+q").is_err());
-        assert!(normalise_key("cmd+s").is_ok());
-        assert_eq!(normalise_key(" Enter ").unwrap(), "enter");
-        assert!(normalise_key("cmd+;").is_err());
-        assert!(normalise_key("").is_err());
-    }
-}

@@ -59,20 +59,3 @@ pub fn any_alive(folder: &Path) -> bool {
             .any(|entry| age(&entry, now).is_some_and(|age| age < TTL))
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn renew_then_alive_and_names_are_sanitised() {
-        let dir = std::env::temp_dir().join(format!("rightkit-lease-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(!any_alive(&dir));
-        assert!(!renew(&dir, "../!!"));
-        assert!(renew(&dir, "hub/activity"));
-        assert!(dir.join("hubactivity").is_file());
-        assert!(any_alive(&dir));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}

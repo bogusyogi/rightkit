@@ -523,7 +523,3 @@ pub fn migration_verified(records: &[DeliveryRecord], db_row_count: i64) -> bool
         records.iter().map(|r| r.delivery_id.as_str()).collect();
     db_row_count >= 0 && db_row_count == distinct.len() as i64
 }
-
-#[cfg(test)]
-#[path = "history_tests.rs"]
-mod tests;

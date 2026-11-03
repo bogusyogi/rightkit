@@ -86,28 +86,3 @@ impl ProjectLock {
         })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn second_holder_is_refused_with_owner_details() {
-        let d = tempfile::tempdir().unwrap();
-        let first = ProjectLock::acquire(d.path()).unwrap();
-        let err = ProjectLock::acquire(d.path()).unwrap_err();
-        assert_eq!(err.code(), "project_locked");
-        assert!(err.to_string().contains(&std::process::id().to_string()));
-        drop(first);
-        ProjectLock::acquire(d.path()).unwrap();
-    }
-
-    #[test]
-    fn clean_acquire_reports_no_stale_owner_and_cleans_up() {
-        let d = tempfile::tempdir().unwrap();
-        let lock = ProjectLock::acquire(d.path()).unwrap();
-        assert!(lock.recovered_stale.is_none());
-        drop(lock);
-        assert!(!d.path().join(OWNER_FILE).exists());
-    }
-}

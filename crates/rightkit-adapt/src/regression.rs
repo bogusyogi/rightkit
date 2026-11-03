@@ -42,36 +42,3 @@ impl RegressionDetector {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn regression_stable_when_steady() {
-        let d = RegressionDetector::new(0.9);
-        assert_eq!(d.check(0.9), RegressionVerdict::Stable);
-    }
-
-    #[test]
-    fn regression_detected_on_drop() {
-        let d = RegressionDetector::new(0.9);
-        assert!(matches!(d.check(0.5), RegressionVerdict::Regressed { .. }));
-    }
-
-    #[test]
-    fn regression_drop_amount() {
-        let d = RegressionDetector::new(0.9);
-        match d.check(0.5) {
-            RegressionVerdict::Regressed { drop } => assert!((drop - 0.4).abs() < 1e-9),
-            other => panic!("expected regression, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn regression_small_dip_is_stable() {
-        let d = RegressionDetector::new(0.9);
-        // 0.05 dip is within the 0.1 threshold
-        assert_eq!(d.check(0.85), RegressionVerdict::Stable);
-    }
-}

@@ -7,7 +7,7 @@ description = "Agent policy rules: policy model, evaluator, precedence, frozen s
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_policy_rules"
@@ -21,9 +21,6 @@ regex = { version = "1.13.1" }
 hex = { version = "0.4.3" }
 sha2 = { version = "0.11.1" }
 thiserror = { version = "2.0.20" }
-
-[dev-dependencies]
-proptest = { version = "1.12.0" }
 
 [workspace]
 

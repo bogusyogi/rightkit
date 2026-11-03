@@ -47,8 +47,6 @@ use std::fmt;
 #[cfg(feature = "onnx")]
 use std::path::Path;
 use std::path::PathBuf;
-#[cfg(all(test, feature = "onnx"))]
-use support::ctc_greedy_decode;
 #[cfg(feature = "onnx")]
 use support::{
     build_session, crop_box, ctc_greedy_decode_scored, dedup_boxes, det_chw_data, det_net_size,
@@ -330,8 +328,6 @@ pub fn ocr_image_with_manifest(
 
 // ---------------------------------------------------------------------------
 
-#[cfg(all(test, feature = "onnx"))]
-mod tests;
 // OcrEngine — load once, reuse across slides
 // ---------------------------------------------------------------------------
 

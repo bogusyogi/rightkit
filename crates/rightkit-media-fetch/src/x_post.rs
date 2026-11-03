@@ -326,28 +326,3 @@ pub const X_POST_TEXT_JS: &str = r#"
   return JSON.stringify({ title, text: parts.join('\n\n'), href: location.href });
 })()
 "#;
-
-#[cfg(test)]
-mod image_tests {
-    use super::*;
-
-    #[test]
-    fn x_images_keep_post_media_only_at_original_size() {
-        let html = r#"<html><head>
-          <meta property="og:image" content="https://pbs.twimg.com/media/AAA?format=jpg&name=small">
-          <meta property="og:image" content="https://pbs.twimg.com/media/BBB?format=png&name=large">
-          <meta name="twitter:image" content="https://pbs.twimg.com/media/AAA?format=jpg&name=small">
-          <meta property="og:image" content="https://pbs.twimg.com/profile_images/1/me.jpg">
-          <meta property="og:image" content="https://pbs.twimg.com/amplify_video_thumb/9/img.jpg">
-        </head></html>"#;
-        let images = parse_x_post_images(html);
-        assert_eq!(
-            images,
-            vec![
-                "https://pbs.twimg.com/media/AAA?format=jpg&name=orig".to_string(),
-                "https://pbs.twimg.com/media/BBB?format=png&name=orig".to_string(),
-            ]
-        );
-        assert!(parse_x_post_images("<html></html>").is_empty());
-    }
-}

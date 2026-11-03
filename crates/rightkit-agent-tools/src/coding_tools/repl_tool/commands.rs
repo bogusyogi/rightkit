@@ -45,8 +45,6 @@ impl ReplTool {
         let governed = ctx.process_launch_adapter.is_some();
         let adapter = {
             let adapter = ctx.process_launch_adapter.clone();
-            #[cfg(test)]
-            let adapter = adapter.or_else(|| self.test_launcher.clone());
             adapter
         };
         let Some(adapter) = adapter else {

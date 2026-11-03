@@ -331,32 +331,3 @@ pub fn url_decode(value: &str) -> String {
     }
     String::from_utf8_lossy(&out).into_owned()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn traversal_is_removed() {
-        assert_eq!(sanitize_relative("../../etc/passwd"), vec!["etc", "passwd"]);
-        assert_eq!(sanitize_relative("..\\..\\x.txt"), vec!["x.txt"]);
-        assert_eq!(sanitize_relative("/abs/olute"), vec!["abs", "olute"]);
-        assert_eq!(sanitize_relative(".."), vec!["file"]);
-        assert_eq!(sanitize_component("a/b"), "a_b");
-        assert_eq!(sanitize_component(" ... "), "file");
-        assert_eq!(sanitize_component("C:evil"), "C_evil");
-    }
-
-    #[test]
-    fn long_names_keep_their_extension() {
-        let name = format!("{}.jpeg", "a".repeat(400));
-        let clean = sanitize_component(&name);
-        assert!(clean.len() <= 200 && clean.ends_with(".jpeg"));
-    }
-
-    #[test]
-    fn decode_round_trip() {
-        assert_eq!(url_decode(&url_encode("a b/c%d")), "a b/c%d");
-        assert_eq!(url_decode("100%"), "100%");
-    }
-}

@@ -1,6 +1,10 @@
 # Changelog
 
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.2.3
 
 - ort `=2.0.0-rc.14` (via `rightkit-onnx` 0.2.6, Orthic-Labs/ember#230). NOT BUILT OR RUN. Both ONNX fallback session builders (`support/session.rs`, CPU and Windows DirectML) now call `Session::builder(rightkit_onnx::ort_environment()?)`, since rc.14 sessions need an environment handle. `Cargo.toml` requires `rightkit-onnx` 0.2.6. No public API change.

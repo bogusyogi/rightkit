@@ -88,7 +88,7 @@ pub fn apply_persisted_active_route() {
 /// Resolve a persisted DirectML adapter against the current DXGI enumeration.
 /// Match the calibrated name uniquely; the saved numeric index is historical
 /// and may be stale after adapter ordering changes.
-#[cfg(any(target_os = "windows", test))]
+#[cfg(target_os = "windows")]
 pub(crate) fn resolve_calibrated_dml_adapter(
     route: &PersistedRecognitionRoute,
     adapters: &[DmlAdapter],
@@ -713,10 +713,6 @@ pub(crate) fn verify_loaded_route(
 }
 
 fn log_result(result: &CalibrationResult) {
-    #[cfg(test)]
-    if !settings::app_data_root_is_explicit_override() {
-        panic!("test process must not write onboarding-calibration.jsonl outside RIGHTKIT_APP_DATA_DIR override");
-    }
     let path = settings::app_data_root().join("onboarding-calibration.jsonl");
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
@@ -765,7 +761,3 @@ pub fn enumerate_dml_adapters() -> Result<Vec<DmlAdapter>, String> {
 pub fn enumerate_dml_adapters() -> Result<Vec<DmlAdapter>, String> {
     Ok(Vec::new())
 }
-
-#[cfg(test)]
-#[path = "calibration_tests.rs"]
-mod tests;

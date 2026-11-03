@@ -31,7 +31,7 @@ Catalog capability: `agent-sessions`. Release versions are tracked in [INDEX.md]
 
 ## Hard rules
 
-- No HTTP client, async runtime, vendor SDK, MCP or Node dependency. `tests/scope.rs` fails the build if one appears.
+- No HTTP client, async runtime, vendor SDK, MCP or Node dependency.
 - Only the user's own installed, signed-in CLI. Tokens are never read, copied or proxied. Anything sold runs on the `api` backend with the customer's key.
 - Unknown vendor messages degrade to `AgentEvent::Unknown`; they never fail parsing.
 - No dev override ships: the fake CLI exists only in test targets.

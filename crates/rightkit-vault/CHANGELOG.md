@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.2.0 — unpublished staging
 
 - BREAKING (D23): public signatures take `rightkit-credentials` 0.4 types (`Secret` in `SecretMap`, `Store` in the credential-backed stores), which changes their type identity from 0.2. Requires rightkit-credentials 0.4.0 and rightkit-http 0.3.1 (unpublished staging).

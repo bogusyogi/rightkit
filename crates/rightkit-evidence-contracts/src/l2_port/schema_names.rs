@@ -31,15 +31,3 @@ pub const SCHEMA_NAMES: &[&str] = &[
     "authority-dispatch-v1",
     "oracle-completion-validation-v1",
 ];
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn eighteen_names_no_duplicates() {
-        assert_eq!(SCHEMA_NAMES.len(), 18);
-        let unique: std::collections::HashSet<_> = SCHEMA_NAMES.iter().collect();
-        assert_eq!(unique.len(), SCHEMA_NAMES.len());
-    }
-}

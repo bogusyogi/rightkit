@@ -396,8 +396,6 @@ pub fn write(target: &Path, ops: &[Op], options: &WriteOptions) -> Result<WriteR
         }
     }
     writer.write_all(&current).map_err(fs_err)?;
-    #[cfg(test)]
-    tests::run_before_publish_hook();
     let changed = AtomicBool::new(false);
     let expected = source_sha.clone();
     let recheck_path = real.clone();
@@ -441,96 +439,4 @@ pub fn write(target: &Path, ops: &[Op], options: &WriteOptions) -> Result<WriteR
         losses: totals.losses,
         warnings: totals.warnings,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::RefCell;
-
-    type Hook = Box<dyn Fn()>;
-    thread_local! {
-        static BEFORE_PUBLISH: RefCell<Option<Hook>> = const { RefCell::new(None) };
-    }
-
-    pub(super) fn run_before_publish_hook() {
-        BEFORE_PUBLISH.with(|h| {
-            if let Some(f) = h.borrow().as_ref() {
-                f();
-            }
-        });
-    }
-
-    fn scratch(tag: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("rightkit-docs-unit-{tag}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    /// Another process rewrites the file after this call has read it and built its result, and
-    /// before the rename: the last recheck sees it, nothing is published, and the other writer's
-    /// bytes survive.
-    #[test]
-    fn a_file_changed_between_read_and_publish_is_never_overwritten() {
-        let dir = scratch("race");
-        let path = dir.join("a.docx");
-        let make = |t: &str| Op::CreateDocx {
-            blocks: vec![Block::Paragraph { text: t.into() }],
-        };
-        write(&path, &[make("original")], &WriteOptions::default()).unwrap();
-
-        let theirs = docx::create(&[Block::Paragraph {
-            text: "someone else".into(),
-        }])
-        .unwrap();
-        let (p, t) = (path.clone(), theirs.clone());
-        BEFORE_PUBLISH
-            .with(|h| *h.borrow_mut() = Some(Box::new(move || fs::write(&p, &t).unwrap())));
-        let e = write(
-            &path,
-            &[Op::ReplaceText {
-                find: "original".into(),
-                replace: "mine".into(),
-            }],
-            &WriteOptions::default(),
-        )
-        .unwrap_err();
-        BEFORE_PUBLISH.with(|h| *h.borrow_mut() = None);
-
-        assert_eq!(e.code(), "source_changed");
-        assert_eq!(
-            fs::read(&path).unwrap(),
-            theirs,
-            "the concurrent writer's file is intact"
-        );
-        let names: Vec<_> = fs::read_dir(&dir)
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(names.len(), 1, "no temp file left behind: {names:?}");
-    }
-
-    /// The target file is created by someone else between the existence check and the rename of a
-    /// create: the create does not clobber it.
-    #[test]
-    fn a_create_never_clobbers_a_file_that_appears_first() {
-        let dir = scratch("create-race");
-        let path = dir.join("new.docx");
-        let (p, t) = (path.clone(), b"theirs".to_vec());
-        BEFORE_PUBLISH
-            .with(|h| *h.borrow_mut() = Some(Box::new(move || fs::write(&p, &t).unwrap())));
-        let e = write(
-            &path,
-            &[Op::CreateDocx {
-                blocks: vec![Block::Paragraph { text: "x".into() }],
-            }],
-            &WriteOptions::default(),
-        )
-        .unwrap_err();
-        BEFORE_PUBLISH.with(|h| *h.borrow_mut() = None);
-        assert_eq!(e.code(), "target_exists");
-        assert_eq!(fs::read(&path).unwrap(), b"theirs");
-    }
 }

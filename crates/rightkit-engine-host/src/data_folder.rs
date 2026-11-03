@@ -37,7 +37,7 @@ pub fn qa_marked(spec: &EngineSpec) -> bool {
 pub fn require_isolated(spec: &EngineSpec) -> Result<(), DataFolderRefusal> {
     let data_env = spec.env_name("APP_DATA");
     let explicit = std::env::var_os(&data_env).is_some_and(|v| !v.is_empty());
-    match default_refusal(explicit, qa_marked(spec), cfg!(debug_assertions)) {
+    match default_refusal(explicit, qa_marked(spec), false) {
         None => Ok(()),
         Some(why) => Err(DataFolderRefusal {
             message: format!(

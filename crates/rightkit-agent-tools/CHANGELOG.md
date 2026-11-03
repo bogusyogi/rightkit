@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.3.2
 
 - Fix: `coding_tools` edit tools (`apply_patch`, `edit_file`, `multi_edit`, `undo_edit`, `write_file`) pass the `.rightkit` state directory to `HistoryStore::new`; with the feature on, the crate did not compile against `rightkit-agent-engine-history`. `invoke` for the web-fetch envelope uses `rightkit_http::wrap_untrusted_web_text_coderight`.

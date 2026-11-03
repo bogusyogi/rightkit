@@ -18,10 +18,6 @@ pub(crate) static SKIPS: AtomicU64 = AtomicU64::new(0);
 pub(crate) static LOCAL_FALLBACKS: AtomicU64 = AtomicU64::new(0);
 pub(crate) static CIRCUIT_OPENS: AtomicU64 = AtomicU64::new(0);
 pub(crate) static AGENTS: OnceLock<Mutex<Vec<CachedAgent>>> = OnceLock::new();
-#[cfg(test)]
-pub(crate) static CLEANUP_CACHE: OnceLock<Mutex<Vec<CachedCleanup>>> = OnceLock::new();
-#[cfg(test)]
-pub(crate) const CLEANUP_CACHE_MAX: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Provider {
@@ -123,38 +119,12 @@ pub struct CleanupHealth {
     pub circuit_opens: u64,
 }
 
-#[cfg(any(test, feature = "test-mode"))]
-#[derive(Deserialize)]
-pub(crate) struct ChatResponse {
-    pub(crate) choices: Vec<ChatChoice>,
-}
-
-#[cfg(any(test, feature = "test-mode"))]
-#[derive(Deserialize)]
-pub(crate) struct ChatChoice {
-    pub(crate) message: ChatMessage,
-    pub(crate) finish_reason: Option<String>,
-}
-
-#[cfg(any(test, feature = "test-mode"))]
-#[derive(Deserialize)]
-pub(crate) struct ChatMessage {
-    pub(crate) content: String,
-}
-
 #[derive(Clone)]
 pub(crate) struct CachedAgent {
     pub(crate) timeout_ms: u64,
     /// Base-URL override host allowed to resolve to local addresses.
     pub(crate) private_host: Option<String>,
     pub(crate) agent: Arc<rightkit_llm::http::Client>,
-}
-
-#[cfg(test)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CachedCleanup {
-    pub(crate) input: String,
-    pub(crate) cleaned: String,
 }
 
 impl Circuit {

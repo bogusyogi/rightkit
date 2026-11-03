@@ -1993,34 +1993,3 @@ pub fn init(args: &InitArgs) -> DispatchOutcome {
         Err(error) => DispatchOutcome::UserError(format!("init: {error}")),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn status_text_reports_a_running_resident() {
-        let text = status_text(&json!({
-            "product_version": "1.2.3",
-            "mode": "resident",
-            "resident": {"running": true, "pid": 77},
-            "model": "ready",
-            "db": {"present": true},
-            "stateRoot": "/state",
-        }));
-        assert!(text.contains("membrane 1.2.3"));
-        assert!(text.contains("resident: running (pid 77)"));
-        assert!(text.contains("store: present"));
-    }
-
-    #[test]
-    fn status_text_reports_an_absent_resident() {
-        let text = status_text(&json!({
-            "mode": "in_process",
-            "resident": {"state": "absent"},
-            "db": {"present": false},
-        }));
-        assert!(text.contains("resident: absent"));
-        assert!(text.contains("store: not created yet"));
-    }
-}

@@ -2465,17 +2465,3 @@ fn retry_busy_db<T>(path: &Path, f: impl FnMut() -> rightkit_db::Result<T>) -> J
     )
     .map_err(|e| JobError::from_open(e, path))
 }
-
-#[cfg(test)]
-mod now_format_tests {
-    use super::format_utc;
-
-    #[test]
-    fn formats_known_instants() {
-        assert_eq!(format_utc(0), "1970-01-01T00:00:00Z");
-        assert_eq!(format_utc(951_782_400), "2000-02-29T00:00:00Z");
-        assert_eq!(format_utc(1_709_210_096), "2024-02-29T12:34:56Z");
-        assert_eq!(format_utc(-1), "1969-12-31T23:59:59Z");
-        assert_eq!(format_utc(4_102_444_799), "2099-12-31T23:59:59Z");
-    }
-}

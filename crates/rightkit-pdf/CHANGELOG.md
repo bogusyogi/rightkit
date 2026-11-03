@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.3.4 (unpublished)
 
 - Dependency: `objc2` 0.6.4 -> 0.6.5 (minimum version). (rightkit#1284)

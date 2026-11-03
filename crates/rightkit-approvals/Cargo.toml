@@ -7,15 +7,13 @@ description = "In-app approval of paid drafts and deliveries: single-use challen
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_approvals"
 path = "src/lib.rs"
 
 [features]
-# QA and dev builds only: the approval test secret (never against the user's real folder).
-test-mode = ["rightkit-media-gen/test-mode"]
 
 [dependencies]
 rightkit-media-gen = { version = "0.1.0", path = "../rightkit-media-gen" }
@@ -24,9 +22,6 @@ rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process"
 rightkit-contracts = { version = "0.1.8", path = "../rightkit-contracts" }
 rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon" }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
-
-[dev-dependencies]
-ctor = { version = "1.0" }
 
 [workspace]
 

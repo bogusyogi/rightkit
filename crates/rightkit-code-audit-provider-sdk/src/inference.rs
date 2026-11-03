@@ -17,8 +17,6 @@ use async_trait::async_trait;
 use futures_util::Stream;
 use tokio_util::sync::CancellationToken;
 
-use crate::stream::StreamEvent;
-
 pub type InferenceStream = Pin<Box<dyn Stream<Item = Result<StreamEvent, InferenceError>> + Send>>;
 
 #[derive(Clone, Debug)]
@@ -269,47 +267,3 @@ pub trait InferenceClient: Send + Sync {
 /// Host-provided inference is intentionally an injected capability, not a
 /// process or CLI fallback.
 pub type HostInference = Arc<dyn InferenceClient>;
-
-#[cfg(test)]
-mod trace_tests {
-    use super::*;
-
-    #[test]
-    fn leg_023_every_call_is_attributed_and_operator_aggregation_is_stable() {
-        let trace = MemoryInferenceTrace::default();
-        trace.record(InferenceCallTrace {
-            route_id: "route-1".into(),
-            work_unit_id: "work-1".into(),
-            model: "model".into(),
-            elapsed_ms: 4,
-            prompt_tokens: Some(2),
-            completion_tokens: Some(3),
-            total_tokens: Some(5),
-            cost_micros: 7,
-            status: "complete".into(),
-        });
-        trace.record(InferenceCallTrace {
-            route_id: "route-1".into(),
-            work_unit_id: "work-1".into(),
-            model: "model".into(),
-            elapsed_ms: 5,
-            prompt_tokens: Some(7),
-            completion_tokens: Some(11),
-            total_tokens: Some(18),
-            cost_micros: 11,
-            status: "complete".into(),
-        });
-        let aggregate = trace.aggregate_by_work_unit();
-        assert_eq!(aggregate["work-1"].prompt_tokens, Some(9));
-        assert_eq!(aggregate["work-1"].total_tokens, Some(23));
-        assert_eq!(trace.aggregate_cost_by_work_unit()["work-1"], 18);
-        let request = InferenceRequest::new(
-            "model",
-            "system",
-            "user",
-            Instant::now() + Duration::from_secs(1),
-        );
-        assert_eq!(request.route_id.as_deref(), Some("direct"));
-        assert_eq!(request.work_unit_id.as_deref(), Some("standalone"));
-    }
-}

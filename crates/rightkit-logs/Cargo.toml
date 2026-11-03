@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["logging", "diagnostics", "privacy", "jsonl"]
 categories = ["development-tools::debugging"]
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "runtime-history/**", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "runtime-history/**", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = ["http"]
@@ -61,12 +61,9 @@ name = "budget_detached"
 harness = false
 
 [dev-dependencies]
-rightkit-logs = { path = ".", features = ["testing"] }
 tempfile = "3"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
-serde_json = {version = "1"}
-tokio = {version = "1", features = ["full"]}
 [workspace]
 
 # Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids

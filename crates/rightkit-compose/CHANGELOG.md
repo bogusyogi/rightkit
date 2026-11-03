@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.2.2 (unreleased)
 
 - The `native` feature takes rightkit-compositor 0.2.0 (wgpu 30.0.1; CutRight). `wgpu::Texture` crosses this crate's API unchanged.

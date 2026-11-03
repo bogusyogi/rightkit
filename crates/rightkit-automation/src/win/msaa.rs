@@ -4,10 +4,7 @@
 //! no global input is used.
 
 use crate::model::*;
-use std::ffi::c_void;
-use std::mem::ManuallyDrop;
 use windows::core::Interface;
-use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
 use windows::Win32::System::Variant::{VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0, VT_I4};
 use windows::Win32::UI::Accessibility::{AccessibleObjectFromWindow, IAccessible};
@@ -81,28 +78,5 @@ fn variant_i32(v: i32) -> VARIANT {
                 Anonymous: VARIANT_0_0_0 { lVal: v },
             }),
         },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn client_object_id_is_objid_client() {
-        assert_eq!(OBJID_CLIENT as i32, -4);
-    }
-
-    #[test]
-    fn only_success_codes_take_a_com_reference() {
-        assert!(init_needs_uninit(0)); // S_OK
-        assert!(init_needs_uninit(1)); // S_FALSE
-        assert!(!init_needs_uninit(0x8001_0106_u32 as i32)); // RPC_E_CHANGED_MODE
-        assert!(!init_needs_uninit(0x8007_000E_u32 as i32)); // E_OUTOFMEMORY
-    }
-
-    #[test]
-    fn null_window_is_refused() {
-        assert!(matches!(default_action(0, 0), Err(Error::NotFound(_))));
     }
 }

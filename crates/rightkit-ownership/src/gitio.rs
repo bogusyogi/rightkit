@@ -4,7 +4,6 @@
 
 use std::ffi::OsStr;
 use std::io::{Read, Write};
-use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::thread;

@@ -223,7 +223,3 @@ pub fn discard_partial(part: &Path) {
     rk::discard_partial(part);
     let _ = fs::remove_file(archive_path_for(part));
 }
-
-#[cfg(test)]
-#[path = "resumable_download_tests.rs"]
-mod tests;

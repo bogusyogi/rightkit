@@ -8,8 +8,6 @@ use super::helpers::available_languages;
 use crate::coding_tools::context::ToolContext;
 use crate::coding_tools::tool_trait::{Tool, ToolResult};
 use rightkit_sandbox::execution::ManagedChild;
-#[cfg(test)]
-use rightkit_sandbox::execution::ProcessLaunchAdapter;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -25,13 +23,6 @@ pub(super) const MAX_REPL_FRAME_BYTES: usize = 4 * 1024 * 1024;
 
 pub struct ReplTool {
     pub(super) sessions: Arc<tokio::sync::Mutex<HashMap<String, ReplSession>>>,
-    /// Test-only seam (CG-B02): a caller-provided launch adapter for tests
-    /// whose subject is REPL protocol logic — stdout capture, artifact
-    /// reporting, traceback surfacing, session reset — rather than sandbox
-    /// confinement itself. Production always consumes the governed adapter
-    /// injected through `ToolContext`.
-    #[cfg(test)]
-    pub(crate) test_launcher: Option<Arc<dyn ProcessLaunchAdapter>>,
 }
 
 pub(super) struct ReplSession {
@@ -48,19 +39,6 @@ impl ReplTool {
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-            #[cfg(test)]
-            test_launcher: None,
-        }
-    }
-
-    /// Test-only constructor that swaps in a caller-provided launch adapter
-    /// (CG-B02 seam). A confined python/node child cannot always reach the
-    /// plain `test_workspace()` fixture directory on every platform.
-    #[cfg(test)]
-    pub(crate) fn new_with_launcher(launcher: Arc<dyn ProcessLaunchAdapter>) -> Self {
-        Self {
-            sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-            test_launcher: Some(launcher),
         }
     }
 }

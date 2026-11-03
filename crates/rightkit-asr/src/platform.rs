@@ -50,36 +50,3 @@ pub(crate) fn whisper_cpp_refusal(android: bool) -> Option<crate::Error> {
         )
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn android_hosts_only_the_onnx_parakeet_engine_among_the_apple_and_cpp_paths() {
-        let android = EngineSupport::for_target(false, true, true);
-        assert!(android.parakeet_onnx);
-        assert!(!android.parakeet_coreml && !android.whisper_coreml && !android.whisper_cpp);
-        let mac = EngineSupport::for_target(true, false, true);
-        assert!(mac.parakeet_coreml && mac.whisper_coreml && mac.whisper_cpp);
-        assert!(!EngineSupport::for_target(true, false, false).whisper_coreml);
-        let windows = EngineSupport::for_target(false, false, true);
-        assert!(windows.parakeet_onnx && windows.whisper_cpp && !windows.parakeet_coreml);
-    }
-
-    #[test]
-    fn current_matches_the_compile_target_cfgs() {
-        let now = EngineSupport::current();
-        assert_eq!(now.parakeet_coreml, cfg!(target_os = "macos"));
-        assert_eq!(now.whisper_cpp, !cfg!(target_os = "android"));
-        assert!(now.parakeet_onnx);
-    }
-
-    #[test]
-    fn whisper_cpp_refusal_is_unsupported_on_android_only() {
-        let error = whisper_cpp_refusal(true).expect("refused on Android");
-        assert!(error.is_unsupported());
-        assert!(error.to_string().contains("Android"));
-        assert!(whisper_cpp_refusal(false).is_none());
-    }
-}

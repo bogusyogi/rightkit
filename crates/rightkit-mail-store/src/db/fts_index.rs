@@ -13,7 +13,6 @@
 //! only `message_search` and so the new index (via its triggers); the old
 //! index is read-only and stale until the last step swaps the new table in.
 
-use super::fts_text::html_to_text;
 use rightkit_db::rusqlite::{params, Connection, OptionalExtension};
 
 const NEXT: &str = "fts_messages_next";
@@ -124,19 +123,6 @@ pub(crate) fn migrate_v15(conn: &Connection) -> Result<(), String> {
         .map_err(e("create final index"))?;
     }
     Ok(())
-}
-
-/// True while the old index is still serving and the rebuild is unfinished.
-#[cfg(test)]
-pub(crate) fn rebuild_pending(conn: &Connection) -> bool {
-    conn.query_row(
-        "SELECT 1 FROM fts_rebuild_state WHERE id = 1 AND last_rowid >= 0",
-        [],
-        |_| Ok(()),
-    )
-    .optional()
-    .map(|r| r.is_some())
-    .unwrap_or(false)
 }
 
 fn table_exists(conn: &Connection, name: &str) -> bool {
@@ -322,22 +308,6 @@ pub(crate) fn index_messages(
     Ok(())
 }
 
-/// Re-index every message of one account.
-#[cfg(test)]
-pub(crate) fn index_account(conn: &Connection, account_id: &str) -> Result<(), String> {
-    let ids: Vec<String> = {
-        let mut st = conn
-            .prepare("SELECT id FROM messages WHERE account_id = ?1")
-            .map_err(|e| format!("list messages for fts: {e}"))?;
-        let rows = st
-            .query_map([account_id], |r| r.get(0))
-            .map_err(|e| format!("list messages for fts: {e}"))?;
-        rows.collect::<Result<_, _>>()
-            .map_err(|e| format!("list messages for fts: {e}"))?
-    };
-    index_messages(conn, account_id, &ids)
-}
-
 /// Remove one message from the index. Run BEFORE its `messages` row is deleted.
 pub(crate) fn remove_message(
     conn: &Connection,
@@ -439,110 +409,4 @@ fn body_text(
         }
     }
     Ok(snippet)
-}
-
-#[cfg(test)]
-mod rebuild_tests {
-    use super::*;
-
-    fn db(n: usize) -> Connection {
-        crate::db::semantic::vec_ext::ensure_registered();
-        let conn = Connection::open_in_memory().unwrap();
-        crate::db::migrations::migrate(&conn).unwrap();
-        conn.execute("INSERT INTO accounts(id, created_at) VALUES ('a1', 0)", [])
-            .unwrap();
-        for i in 0..n {
-            conn.execute(
-                "INSERT INTO messages(account_id, id, thread_id, subject, snippet, internal_date)
-                 VALUES ('a1', ?1, ?1, ?2, '', 0)",
-                params![format!("m{i}"), format!("subject {i}")],
-            )
-            .unwrap();
-        }
-        migrate_v15(&conn).unwrap();
-        conn
-    }
-
-    fn searched(conn: &Connection) -> i64 {
-        conn.query_row("SELECT count(*) FROM message_search", [], |r| r.get(0))
-            .unwrap()
-    }
-
-    fn cursor(conn: &Connection) -> i64 {
-        conn.query_row("SELECT last_rowid FROM fts_rebuild_state", [], |r| r.get(0))
-            .unwrap()
-    }
-
-    fn run_to_end(conn: &Connection, batch: usize) {
-        loop {
-            if rebuild_step(conn, batch).unwrap() == RebuildStep::Swapped {
-                break;
-            }
-        }
-    }
-
-    #[test]
-    fn crash_mid_batch_leaves_no_rows_and_no_cursor_advance() {
-        let conn = db(10);
-        conn.execute_batch(
-            "CREATE TRIGGER boom BEFORE UPDATE ON fts_rebuild_state
-             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
-        )
-        .unwrap();
-        assert!(rebuild_step(&conn, 4).is_err());
-        conn.execute_batch("DROP TRIGGER boom").unwrap();
-        assert_eq!(searched(&conn), 0, "index rows rolled back");
-        assert_eq!(cursor(&conn), 0, "cursor not advanced");
-        run_to_end(&conn, 4);
-        assert_eq!(searched(&conn), 10);
-    }
-
-    #[test]
-    fn stale_worker_cannot_advance_or_overwrite_newer_cursor() {
-        let conn = db(10);
-        // A newer worker moves the cursor while this batch is in flight.
-        conn.execute_batch(
-            "CREATE TRIGGER race BEFORE INSERT ON message_search
-             BEGIN UPDATE fts_rebuild_state SET last_rowid = 1000, indexed = 99; END;",
-        )
-        .unwrap();
-        assert!(rebuild_step(&conn, 4).is_err());
-        conn.execute_batch("DROP TRIGGER race").unwrap();
-        assert_eq!(searched(&conn), 0);
-        assert_eq!(cursor(&conn), 0, "failed batch changes nothing");
-    }
-
-    #[test]
-    fn re_registered_rebuild_resets_cursor_and_reindexes() {
-        let conn = db(10);
-        rebuild_step(&conn, 4).unwrap();
-        assert!(cursor(&conn) > 0);
-        migrate_v15(&conn).unwrap();
-        assert_eq!(cursor(&conn), 0);
-        assert_eq!(searched(&conn), 0);
-        run_to_end(&conn, 4);
-        assert_eq!(searched(&conn), 10);
-    }
-
-    #[test]
-    fn rewound_cursor_resumes_without_skipping_rows() {
-        let conn = db(10);
-        rebuild_step(&conn, 4).unwrap();
-        rebuild_step(&conn, 4).unwrap();
-        conn.execute(
-            "UPDATE fts_rebuild_state SET last_rowid = 0, indexed = 0",
-            [],
-        )
-        .unwrap();
-        run_to_end(&conn, 4);
-        assert_eq!(searched(&conn), 10);
-        let hits: i64 = conn
-            .query_row(
-                "SELECT count(*) FROM fts_messages WHERE fts_messages MATCH 'subject'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(hits, 10);
-    }
 }

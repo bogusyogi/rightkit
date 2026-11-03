@@ -105,28 +105,3 @@ pub struct SaveRemoteSettings {
 pub struct SaveOrchestrationSettings {
     pub conductor_routing: bool,
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::health::{SandboxSettingsRecord, WorkspaceQuery};
-
-    #[test]
-    fn workspace_query_parses_camel_case() {
-        let q: WorkspaceQuery = serde_json::from_str(r#"{"workspaceRoot":"/w"}"#).unwrap();
-        assert_eq!(q.workspace_root.as_deref(), Some("/w"));
-        let q: WorkspaceQuery = serde_json::from_str("{}").unwrap();
-        assert!(q.workspace_root.is_none());
-    }
-
-    #[test]
-    fn sandbox_settings_record_round_trips() {
-        let record = SandboxSettingsRecord {
-            tier: "strict".into(),
-            updated_at: "2026-01-01T00:00:00Z".into(),
-        };
-        let json = serde_json::to_value(&record).unwrap();
-        assert_eq!(json["updatedAt"], "2026-01-01T00:00:00Z");
-        let back: SandboxSettingsRecord = serde_json::from_value(json).unwrap();
-        assert_eq!(back.tier, "strict");
-    }
-}

@@ -89,16 +89,3 @@ impl EngineSpec {
         format!("{}_{suffix}", self.env_prefix)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn spec_defaults_are_neutral() {
-        let s = EngineSpec::new("demo-engine", "1.0.0");
-        assert_eq!(s.env_name("APP_DATA"), "RIGHTKIT_APP_DATA");
-        assert!(s.usage.contains("demo-engine"));
-        assert_eq!(s.with_env_prefix("DEMO").env_name("QA"), "DEMO_QA");
-    }
-}

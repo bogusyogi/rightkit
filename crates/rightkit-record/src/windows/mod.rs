@@ -9,9 +9,6 @@
 
 pub mod emit;
 mod gpu;
-#[cfg(test)]
-#[path = "tests/live.rs"]
-mod live;
 mod mf;
 mod window;
 

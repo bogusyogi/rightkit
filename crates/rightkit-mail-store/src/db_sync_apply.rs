@@ -2,9 +2,6 @@
 mod chunked;
 #[path = "db_sync_apply/health.rs"]
 mod health;
-#[cfg(test)]
-#[path = "db_sync_apply/repair_tests.rs"]
-mod repair_tests;
 use super::*;
 pub use chunked::*;
 pub use health::*;
@@ -119,115 +116,6 @@ fn rebuild_fts_for_message_ids(
     // Only a changed subject/body (or a new message) drops its vector; a
     // re-fetch that changed labels, read or star state keeps it.
     invalidate::invalidate_changed(conn, account_id, message_ids, &before)
-}
-/// Rebuild threads, thread_labels, and FTS for one account from the CURRENT
-/// messages table (not a passed slice), so it is correct after an incremental
-/// delta as well as a full sync. Caller must hold a txn.
-///
-/// Segment-level timings are emitted to `diagnostics.log` so we can prove
-/// where time goes on the 200k+ mailboxes that motivated the move to
-/// incremental apply (L15). Format: `ROLLUP seg=<label> account=<id> ms=<n>`.
-#[cfg(test)]
-pub(crate) fn rebuild_rollups(conn: &Connection, account_id: &str) -> Result<(), String> {
-    let total_started = std::time::Instant::now();
-
-    macro_rules! seg {
-        ($label:expr, $started:expr) => {{
-            let ms = $started.elapsed().as_millis();
-            crate::host::host().perf_diag(&format!(
-                "ROLLUP seg={} account={} ms={}",
-                $label, account_id, ms
-            ));
-        }};
-    }
-
-    let t = std::time::Instant::now();
-    conn.execute("DELETE FROM threads WHERE account_id = ?1", [account_id])
-        .map_err(|e| format!("clear threads: {e}"))?;
-    seg!("clear_threads", t);
-
-    let t = std::time::Instant::now();
-    conn.execute(
-        "INSERT INTO threads
-           (account_id, id, subject, snippet, unread, starred,
-            last_message_at, message_count)
-         SELECT m.account_id, m.thread_id,
-           (SELECT subject FROM messages
-              WHERE account_id = m.account_id AND thread_id = m.thread_id
-              ORDER BY internal_date DESC LIMIT 1),
-           (SELECT snippet FROM messages
-              WHERE account_id = m.account_id AND thread_id = m.thread_id
-              ORDER BY internal_date DESC LIMIT 1),
-           MAX(m.unread), 0, MAX(m.internal_date), COUNT(*)
-         FROM messages m
-         WHERE m.account_id = ?1
-         GROUP BY m.thread_id",
-        [account_id],
-    )
-    .map_err(|e| format!("rebuild threads: {e}"))?;
-    seg!("rebuild_threads", t);
-
-    let t = std::time::Instant::now();
-    conn.execute(
-        "DELETE FROM thread_labels WHERE account_id = ?1",
-        [account_id],
-    )
-    .map_err(|e| format!("clear thread_labels: {e}"))?;
-    seg!("clear_thread_labels", t);
-
-    let t = std::time::Instant::now();
-    conn.execute(
-        "INSERT OR IGNORE INTO thread_labels(account_id, thread_id, label)
-         SELECT m.account_id, m.thread_id, je.value
-         FROM messages m, json_each(m.label_ids) je
-         WHERE m.account_id = ?1 AND m.label_ids IS NOT NULL",
-        [account_id],
-    )
-    .map_err(|e| format!("rebuild thread_labels: {e}"))?;
-    seg!("rebuild_thread_labels", t);
-
-    let t = std::time::Instant::now();
-    conn.execute(
-        "UPDATE threads SET starred = EXISTS(
-           SELECT 1 FROM thread_labels tl
-           WHERE tl.account_id = threads.account_id AND tl.thread_id = threads.id
-             AND tl.label = 'STARRED')
-         WHERE account_id = ?1",
-        [account_id],
-    )
-    .map_err(|e| format!("rebuild starred: {e}"))?;
-    seg!("rebuild_starred", t);
-
-    let t = std::time::Instant::now();
-    conn.execute(
-        "UPDATE threads SET important = EXISTS(
-           SELECT 1 FROM thread_labels tl
-           WHERE tl.account_id = threads.account_id AND tl.thread_id = threads.id
-             AND tl.label = 'IMPORTANT')
-         WHERE account_id = ?1",
-        [account_id],
-    )
-    .map_err(|e| format!("rebuild important: {e}"))?;
-    seg!("rebuild_important", t);
-
-    let t = std::time::Instant::now();
-    crate::db::fts_index::remove_account(conn, account_id)?;
-    crate::db::semantic::invalidate::clear_account(conn, account_id)?;
-    seg!("clear_fts", t);
-
-    let t = std::time::Instant::now();
-    crate::db::fts_index::index_account(conn, account_id)?;
-    seg!("rebuild_fts", t);
-
-    seg!("total", total_started);
-    Ok(())
-}
-/// Rebuild all rollups (threads, thread_labels, FTS) for one account from the
-/// current messages table. Use after a download-all so previously snippet-only
-/// rows pick up their full bodies.
-#[cfg(test)]
-pub fn rebuild_all_rollups(conn: &Connection, account_id: &str) -> Result<(), String> {
-    in_txn(conn, || rebuild_rollups(conn, account_id))
 }
 /// Local archive progress: (total messages mirrored, messages that have a body).
 pub fn archive_counts(conn: &Connection, account_id: &str) -> Result<(i64, i64), String> {

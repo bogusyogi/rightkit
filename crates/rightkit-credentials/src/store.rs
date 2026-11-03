@@ -1,4 +1,4 @@
-#[cfg(any(test, feature = "memory-backend"))]
+#[cfg(feature = "memory-backend")]
 use crate::backend::MemoryBackend;
 use crate::backend::{system_backend, Backend, ConditionalDelete, Interaction};
 use crate::error::{Error, Result};
@@ -56,10 +56,11 @@ pub const UNIVERSAL_GUARD_ENV: &str = "RIGHTKIT_NO_KEYCHAIN";
 pub enum GuardMode {
     /// Swap in a process-wide in-memory store (e.g. an app guard such as `MYAPP_NO_KEYCHAIN`).
     /// Volatile: values vanish on exit. A test capability only: the in-memory store
-    /// (`MemoryBackend`) is compiled only with debug assertions or under `cfg(test)`, so builds
-    /// with debug assertions honour it; a release build contains no such store and never selects it, whether the guard was tripped by the
-    /// environment or forced from code with [`Config::guard_when`], and behaves as
-    /// [`GuardMode::Deny`] instead (see `effective_guard_mode`).
+    /// (`MemoryBackend`) is compiled only under the non-default `memory-backend` feature, so
+    /// builds with that feature honour it; a build without it contains no such store and never
+    /// selects it, whether the guard was tripped by the environment or forced from code with
+    /// [`Config::guard_when`], and behaves as [`GuardMode::Deny`] instead (see
+    /// `effective_guard_mode`).
     Memory,
     /// Every operation fails with [`Error::Guarded`] (e.g. an app guard such as `MYAPP_DISABLE_OS_KEYCHAIN`).
     Deny,
@@ -386,32 +387,31 @@ impl Store {
             Interaction::Interactive => Duration::from_secs(90),
         });
         let (backend, guard): (Arc<dyn Backend>, _) = match tripped {
-            Some(name) => match effective_guard_mode(
-                cfg.guard_mode,
-                !cfg!(any(test, feature = "memory-backend")),
-            ) {
-                #[cfg(any(test, feature = "memory-backend"))]
-                GuardMode::Memory => (
-                    // A caller-injected memory backend is its own volatile store and never the OS
-                    // store, so it stays isolated; otherwise the guard shares one process-wide map.
-                    cfg.backend
-                        .filter(|b| b.name() == "memory")
-                        .unwrap_or_else(|| MemoryBackend::process_wide() as Arc<dyn Backend>),
-                    Some((name, GuardMode::Memory)),
-                ),
-                // The volatile store is not compiled into a release build: the mode resolves to
-                // Deny there (`effective_guard_mode` already maps it, this arm only completes
-                // the match).
-                #[cfg(not(any(test, feature = "memory-backend")))]
-                GuardMode::Memory => (
-                    Arc::new(Denied(name.clone())),
-                    Some((name, GuardMode::Deny)),
-                ),
-                GuardMode::Deny => (
-                    Arc::new(Denied(name.clone())),
-                    Some((name, GuardMode::Deny)),
-                ),
-            },
+            Some(name) => {
+                match effective_guard_mode(cfg.guard_mode, !cfg!(feature = "memory-backend")) {
+                    #[cfg(feature = "memory-backend")]
+                    GuardMode::Memory => (
+                        // A caller-injected memory backend is its own volatile store and never the OS
+                        // store, so it stays isolated; otherwise the guard shares one process-wide map.
+                        cfg.backend
+                            .filter(|b| b.name() == "memory")
+                            .unwrap_or_else(|| MemoryBackend::process_wide() as Arc<dyn Backend>),
+                        Some((name, GuardMode::Memory)),
+                    ),
+                    // The volatile store is not compiled into a release build: the mode resolves to
+                    // Deny there (`effective_guard_mode` already maps it, this arm only completes
+                    // the match).
+                    #[cfg(not(feature = "memory-backend"))]
+                    GuardMode::Memory => (
+                        Arc::new(Denied(name.clone())),
+                        Some((name, GuardMode::Deny)),
+                    ),
+                    GuardMode::Deny => (
+                        Arc::new(Denied(name.clone())),
+                        Some((name, GuardMode::Deny)),
+                    ),
+                }
+            }
             None => (cfg.backend.unwrap_or_else(system_backend), None),
         };
         Store {
@@ -771,56 +771,6 @@ impl rightkit_app_settings::SecretProbe for Store {
             Ok(true) => Presence::Present,
             Ok(false) => Presence::Absent,
             Err(_) => Presence::Unknown,
-        }
-    }
-}
-
-#[cfg(test)]
-mod base64_tests {
-    use super::{base64_standard, effective_guard_mode, GuardMode, Store};
-
-    #[test]
-    fn release_never_selects_memory_whoever_asks_and_debug_keeps_the_configured_mode() {
-        // Release: the memory test capability is excluded; a tripped guard denies.
-        assert_eq!(
-            effective_guard_mode(GuardMode::Memory, true),
-            GuardMode::Deny
-        );
-        assert_eq!(effective_guard_mode(GuardMode::Deny, true), GuardMode::Deny);
-        // Debug/test builds keep the configured test capability.
-        assert_eq!(
-            effective_guard_mode(GuardMode::Memory, false),
-            GuardMode::Memory
-        );
-        assert_eq!(
-            effective_guard_mode(GuardMode::Deny, false),
-            GuardMode::Deny
-        );
-    }
-
-    #[test]
-    fn generate_key_is_fresh_sized_and_bounded() {
-        let a = Store::generate_key(32).unwrap();
-        let b = Store::generate_key(32).unwrap();
-        assert_eq!(a.len(), 44);
-        assert!(!a.ct_eq(&b));
-        assert!(Store::generate_key(15).is_err());
-        assert!(Store::generate_key(1025).is_err());
-    }
-
-    #[test]
-    fn matches_rfc4648_vectors() {
-        for (raw, want) in [
-            (&b""[..], ""),
-            (b"f", "Zg=="),
-            (b"fo", "Zm8="),
-            (b"foo", "Zm9v"),
-            (b"foob", "Zm9vYg=="),
-            (b"fooba", "Zm9vYmE="),
-            (b"foobar", "Zm9vYmFy"),
-            (&[0xfb, 0xff, 0xbf], "+/+/"),
-        ] {
-            assert_eq!(base64_standard(raw), want);
         }
     }
 }

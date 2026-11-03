@@ -121,7 +121,3 @@ impl TextArea {
         true
     }
 }
-
-#[cfg(test)]
-#[path = "mouse_tests.rs"]
-mod tests;

@@ -33,11 +33,7 @@ impl BuildIdentity {
         built_utc: Option<&str>,
         version: &str,
     ) -> Self {
-        let fallback_profile = if cfg!(debug_assertions) {
-            "debug"
-        } else {
-            "release"
-        };
+        let fallback_profile = "release";
         BuildIdentity {
             version: version.to_string(),
             git_rev: git_rev.unwrap_or("unknown").to_string(),
@@ -218,27 +214,5 @@ pub mod build_script {
         for p in ["src", "Cargo.toml", "build.rs"] {
             println!("cargo:rerun-if-changed={p}");
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stamp_known_values() {
-        assert_eq!(utc_stamp(0), "1970-01-01T00:00:00Z");
-        assert_eq!(utc_stamp(951_782_400), "2000-02-29T00:00:00Z");
-        assert_eq!(utc_stamp(1_760_000_000), "2025-10-09T08:53:20Z");
-    }
-
-    #[test]
-    fn defaults_and_override() {
-        let b = BuildIdentity::from_compile_time(None, Some("1"), None, None, None, "1.0.0");
-        assert_eq!(b.git_rev, "unknown");
-        assert!(b.dirty);
-        let b = b.with_runtime_override(|k| (k == ENV_CHANNEL).then(|| "beta".to_string()));
-        assert_eq!(b.channel, "beta");
-        assert!(b.display().starts_with("1.0.0+unknown-dirty"));
     }
 }

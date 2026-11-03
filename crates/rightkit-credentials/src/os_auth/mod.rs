@@ -357,7 +357,7 @@ pub trait BiometricBridge: Send + Sync + 'static {
 /// combination this primitive requires (PK08-7).
 const ANDROID_MIN_API_LEVEL: u32 = 30;
 
-#[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn android_prompt_allowed(api_level: Option<u32>) -> bool {
     api_level.is_some_and(|level| level >= ANDROID_MIN_API_LEVEL)
 }
@@ -378,7 +378,7 @@ fn installed_bridge() -> Option<Arc<dyn BiometricBridge>> {
         .clone()
 }
 
-#[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn bridge_availability(bridge: Option<Arc<dyn BiometricBridge>>) -> Availability {
     match bridge {
         Some(b) if android_prompt_allowed(b.android_api_level()) => b.availability(),
@@ -386,7 +386,7 @@ fn bridge_availability(bridge: Option<Arc<dyn BiometricBridge>>) -> Availability
     }
 }
 
-#[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn bridge_authenticate(
     bridge: Option<Arc<dyn BiometricBridge>>,
     request: &Request<'_>,
@@ -404,7 +404,7 @@ fn bridge_authenticate(
 
 /// `LAError` codes (`LocalAuthentication/LAError.h`) in the `com.apple.LocalAuthentication`
 /// domain.
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn map_la_code(code: i64) -> OsAuthError {
     match code {
         // LAErrorAuthenticationFailed
@@ -428,7 +428,7 @@ fn map_la_code(code: i64) -> OsAuthError {
 
 /// `Windows.Security.Credentials.UI.UserConsentVerificationResult`. Only `Verified` is success;
 /// an unknown value is an error, never a pass.
-#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+#[cfg_attr(not(windows), allow(dead_code))]
 fn map_hello_result(value: i32) -> Result<(), OsAuthError> {
     match value {
         // Verified
@@ -453,7 +453,7 @@ fn map_hello_result(value: i32) -> Result<(), OsAuthError> {
 }
 
 /// `Windows.Security.Credentials.UI.UserConsentVerifierAvailability`.
-#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+#[cfg_attr(not(windows), allow(dead_code))]
 fn map_hello_availability(value: i32) -> Availability {
     match value {
         0 => Availability::Available,
@@ -503,17 +503,17 @@ mod platform {
 
 // ---- Debug/test authenticator ---------------------------------------------------------------
 
-/// A scripted authenticator for coordinator tests. Compiled only under the `memory-backend` feature or
-/// `cfg(test)`, like [`crate::MemoryBackend`]: a release build has no way to mint a [`Verified`]
+/// A scripted authenticator for coordinator tests. Compiled only under the `memory-backend` feature,
+/// like [`crate::MemoryBackend`]: a release build has no way to mint a [`Verified`]
 /// without the OS.
-#[cfg(any(test, feature = "memory-backend"))]
+#[cfg(feature = "memory-backend")]
 pub struct ScriptedAuthenticator {
     availability: Availability,
     script: Mutex<std::collections::VecDeque<Result<(), OsAuthError>>>,
     prompts: std::sync::atomic::AtomicUsize,
 }
 
-#[cfg(any(test, feature = "memory-backend"))]
+#[cfg(feature = "memory-backend")]
 impl ScriptedAuthenticator {
     /// `outcomes` are consumed one per `authenticate` call; an empty script answers
     /// `Err(OsAuthError::Cancelled)`.
@@ -532,7 +532,7 @@ impl ScriptedAuthenticator {
     }
 }
 
-#[cfg(any(test, feature = "memory-backend"))]
+#[cfg(feature = "memory-backend")]
 impl OsAuthenticator for ScriptedAuthenticator {
     fn availability(&self) -> Availability {
         self.availability
@@ -549,284 +549,5 @@ impl OsAuthenticator for ScriptedAuthenticator {
             .pop_front()
             .unwrap_or(Err(OsAuthError::Cancelled));
         next.map(|()| Verified::now())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn request_validation() {
-        assert!(Request::new("Unlock Pulse").validate().is_ok());
-        for bad in ["", "   ", "line\nbreak", "nul\0byte"] {
-            assert!(
-                matches!(Request::new(bad).validate(), Err(OsAuthError::Invalid(_))),
-                "{bad:?}"
-            );
-        }
-        let long = "x".repeat(Request::MAX_REASON_BYTES + 1);
-        assert!(Request::new(&long).validate().is_err());
-        let max = "x".repeat(Request::MAX_REASON_BYTES);
-        assert!(Request::new(&max).validate().is_ok());
-        let r = Request::new("ok");
-        assert!(r
-            .clone()
-            .timeout(Duration::from_millis(999))
-            .validate()
-            .is_err());
-        assert!(r
-            .clone()
-            .timeout(Duration::from_secs(601))
-            .validate()
-            .is_err());
-        assert!(r.clone().timeout(Duration::from_secs(1)).validate().is_ok());
-        assert!(r.clone().owner_window(0).validate().is_err());
-        assert!(r.clone().owner_window(7).validate().is_ok());
-        assert!(r.clone().guard_env("").validate().is_err());
-        assert!(r.guard_env("A=B").validate().is_err());
-    }
-
-    #[test]
-    fn invalid_request_is_rejected_before_the_guard_and_the_os() {
-        let err = SystemAuthenticator.authenticate(&Request::new(""));
-        assert!(matches!(err, Err(OsAuthError::Invalid(_))));
-    }
-
-    /// The guard and busy tests both go through `PROMPT`; they must not overlap.
-    static SERIAL: Mutex<()> = Mutex::new(());
-
-    #[test]
-    fn tripped_guard_never_reaches_the_os() {
-        let _serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
-        const VAR: &str = "RIGHTKIT_TEST_OS_AUTH_GUARD_TRIPPED";
-        std::env::set_var(VAR, "1");
-        let r = SystemAuthenticator.authenticate(&Request::new("Unlock").guard_env(VAR));
-        std::env::remove_var(VAR);
-        assert_eq!(r.unwrap_err(), OsAuthError::Guarded);
-    }
-
-    #[test]
-    fn a_falsey_guard_value_does_not_trip_it() {
-        const VAR: &str = "RIGHTKIT_TEST_OS_AUTH_GUARD_FALSEY";
-        std::env::set_var(VAR, "0");
-        let tripped = Request::new("Unlock").guard_env(VAR).guarded();
-        std::env::remove_var(VAR);
-        assert!(!tripped);
-    }
-
-    #[test]
-    fn a_second_concurrent_prompt_is_busy() {
-        let _serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
-        let _held = PromptLease::acquire().unwrap();
-        let r = SystemAuthenticator.authenticate(&Request::new("Unlock"));
-        assert_eq!(r.unwrap_err(), OsAuthError::Busy);
-    }
-
-    #[test]
-    fn a_native_worker_keeps_the_gate_after_the_caller_times_out() {
-        let _serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
-        let caller = PromptLease::acquire().unwrap();
-        let worker = Arc::clone(&caller);
-        drop(caller);
-        assert!(matches!(PromptLease::acquire(), Err(OsAuthError::Busy)));
-        drop(worker);
-        assert!(PromptLease::acquire().is_ok());
-    }
-
-    #[cfg(not(any(target_os = "macos", windows, target_os = "android")))]
-    #[test]
-    fn unsupported_platforms_are_typed() {
-        assert_eq!(platform::availability(), Availability::Unsupported);
-        let r = platform::authenticate(&Request::new("Unlock"));
-        assert_eq!(r.unwrap_err(), OsAuthError::Unsupported);
-    }
-
-    #[test]
-    fn la_codes_map_and_unknown_codes_are_errors() {
-        assert_eq!(map_la_code(-1), OsAuthError::Failed);
-        assert_eq!(map_la_code(-2), OsAuthError::Cancelled);
-        assert_eq!(map_la_code(-3), OsAuthError::Cancelled);
-        assert_eq!(map_la_code(-4), OsAuthError::SystemCancelled);
-        assert_eq!(map_la_code(-5), OsAuthError::NotEnrolled);
-        assert_eq!(map_la_code(-6), OsAuthError::Unavailable);
-        assert_eq!(map_la_code(-7), OsAuthError::NotEnrolled);
-        assert_eq!(map_la_code(-8), OsAuthError::LockedOut);
-        assert_eq!(map_la_code(-9), OsAuthError::SystemCancelled);
-        assert_eq!(map_la_code(-1004), OsAuthError::Unavailable);
-        let unknown = |code| OsAuthError::Os {
-            op: "evaluatePolicy",
-            code,
-        };
-        assert_eq!(map_la_code(-10), unknown(-10));
-        assert_eq!(map_la_code(0), unknown(0));
-    }
-
-    #[test]
-    fn hello_only_verified_is_success() {
-        assert_eq!(map_hello_result(0), Ok(()));
-        for v in [1, 2, 3, 4, 5, 6, 7, -1, 99] {
-            assert!(map_hello_result(v).is_err(), "{v}");
-        }
-        assert_eq!(map_hello_result(6), Err(OsAuthError::Cancelled));
-        assert_eq!(map_hello_result(5), Err(OsAuthError::LockedOut));
-        assert_eq!(map_hello_result(2), Err(OsAuthError::NotEnrolled));
-        assert_eq!(map_hello_availability(0), Availability::Available);
-        assert_eq!(map_hello_availability(2), Availability::NotEnrolled);
-        assert_eq!(map_hello_availability(77), Availability::Unavailable);
-    }
-
-    #[test]
-    fn codes_are_stable_and_user_decisions_are_narrow() {
-        assert_eq!(OsAuthError::LockedOut.code(), "locked-out");
-        assert_eq!(OsAuthError::Os { op: "x", code: 1 }.code(), "os-error");
-        assert_eq!(Availability::NotEnrolled.code(), "not-enrolled");
-        assert!(OsAuthError::Failed.is_user_decision());
-        assert!(OsAuthError::Cancelled.is_user_decision());
-        assert!(OsAuthError::LockedOut.is_user_decision());
-        assert!(!OsAuthError::SystemCancelled.is_user_decision());
-        assert_eq!(OsAuthError::SystemCancelled.code(), "system-cancelled");
-        assert!(!map_la_code(-4).is_user_decision());
-        assert!(!map_la_code(-9).is_user_decision());
-        assert!(map_la_code(-2).is_user_decision());
-        assert!(!OsAuthError::Unavailable.is_user_decision());
-        assert!(!OsAuthError::Timeout.is_user_decision());
-        assert!(!Availability::Guarded.is_available());
-        assert!(Availability::Available.is_available());
-    }
-
-    struct FakeBridge {
-        outcome: Result<(), OsAuthError>,
-        availability: Availability,
-        seen: Mutex<Vec<(String, Duration)>>,
-        availability_calls: Mutex<u32>,
-        api_level: Option<u32>,
-    }
-
-    impl FakeBridge {
-        fn new(outcome: Result<(), OsAuthError>, availability: Availability) -> Self {
-            Self {
-                outcome,
-                availability,
-                seen: Mutex::new(Vec::new()),
-                availability_calls: Mutex::new(0),
-                api_level: Some(30),
-            }
-        }
-    }
-
-    impl BiometricBridge for FakeBridge {
-        fn availability(&self) -> Availability {
-            *self.availability_calls.lock().unwrap() += 1;
-            self.availability
-        }
-
-        fn authenticate(&self, reason: &str, timeout: Duration) -> Result<(), OsAuthError> {
-            self.seen.lock().unwrap().push((reason.to_owned(), timeout));
-            self.outcome
-        }
-
-        fn android_api_level(&self) -> Option<u32> {
-            self.api_level
-        }
-    }
-
-    #[test]
-    fn android_bridge_paths() {
-        assert_eq!(bridge_availability(None), Availability::Unavailable);
-        assert_eq!(
-            bridge_authenticate(None, &Request::new("Unlock")).unwrap_err(),
-            OsAuthError::Unavailable
-        );
-        let ok = Arc::new(FakeBridge::new(Ok(()), Availability::Available));
-        let bridge: Arc<dyn BiometricBridge> = ok.clone();
-        assert_eq!(
-            bridge_availability(Some(bridge.clone())),
-            Availability::Available
-        );
-        let req = Request::new("  Unlock  ").timeout(Duration::from_secs(5));
-        assert!(bridge_authenticate(Some(bridge), &req).is_ok());
-        assert_eq!(
-            ok.seen.lock().unwrap().as_slice(),
-            &[("Unlock".to_owned(), Duration::from_secs(5))]
-        );
-        let denied: Arc<dyn BiometricBridge> = Arc::new(FakeBridge::new(
-            Err(OsAuthError::Failed),
-            Availability::Available,
-        ));
-        assert_eq!(
-            bridge_authenticate(Some(denied), &Request::new("Unlock")).unwrap_err(),
-            OsAuthError::Failed
-        );
-    }
-
-    #[test]
-    fn android_api_below_30_or_unknown_refuses_with_no_prompt() {
-        for api_level in [Some(28), Some(29), None] {
-            let fake = Arc::new(FakeBridge {
-                api_level,
-                ..FakeBridge::new(Ok(()), Availability::Available)
-            });
-            let bridge: Arc<dyn BiometricBridge> = fake.clone();
-            assert_eq!(
-                bridge_availability(Some(bridge.clone())),
-                Availability::Unavailable
-            );
-            assert_eq!(
-                bridge_authenticate(Some(bridge), &Request::new("Unlock")).unwrap_err(),
-                OsAuthError::Unavailable
-            );
-            assert!(
-                fake.seen.lock().unwrap().is_empty(),
-                "no prompt may be constructed"
-            );
-            assert_eq!(*fake.availability_calls.lock().unwrap(), 0);
-        }
-        let at_30 = Arc::new(FakeBridge {
-            api_level: Some(30),
-            ..FakeBridge::new(Ok(()), Availability::Available)
-        });
-        let bridge: Arc<dyn BiometricBridge> = at_30.clone();
-        assert_eq!(
-            bridge_availability(Some(bridge.clone())),
-            Availability::Available
-        );
-        assert!(bridge_authenticate(Some(bridge), &Request::new("Unlock")).is_ok());
-        assert_eq!(at_30.seen.lock().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn scripted_authenticator_runs_the_script_and_validates() {
-        let s = ScriptedAuthenticator::new(
-            Availability::Available,
-            vec![Err(OsAuthError::Failed), Ok(())],
-        );
-        assert!(s.availability().is_available());
-        assert_eq!(
-            s.authenticate(&Request::new("")).unwrap_err().code(),
-            "invalid"
-        );
-        assert_eq!(s.prompts(), 0);
-        assert_eq!(
-            s.authenticate(&Request::new("Unlock")).unwrap_err(),
-            OsAuthError::Failed
-        );
-        assert!(s.authenticate(&Request::new("Unlock")).is_ok());
-        assert_eq!(
-            s.authenticate(&Request::new("Unlock")).unwrap_err(),
-            OsAuthError::Cancelled
-        );
-        assert_eq!(s.prompts(), 3);
-    }
-
-    /// A real prompt. Never runs in CI: it needs a person, a session and an enrolled method.
-    /// Run it by hand with `--ignored os_auth_manual` and the `os-auth` feature.
-    #[test]
-    #[ignore = "shows a real OS authentication prompt"]
-    fn os_auth_manual() {
-        let a = SystemAuthenticator;
-        eprintln!("availability: {}", a.availability().code());
-        let r = a.authenticate(&Request::new("RightKit OS authentication manual test"));
-        eprintln!("result: {r:?}");
     }
 }

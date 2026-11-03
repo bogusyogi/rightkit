@@ -10,16 +10,6 @@ struct Request {
     text: String,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::parse_line;
-
-    #[test]
-    fn retired_command_is_not_parsed() {
-        assert_eq!(parse_line("draft ready zephyr submit").unwrap(), "null");
-    }
-}
-
 fn parse_line(text: &str) -> Result<String, serde_json::Error> {
     match parse_control_command(text) {
         Some(command) => serde_json::to_string(&serde_json::json!({

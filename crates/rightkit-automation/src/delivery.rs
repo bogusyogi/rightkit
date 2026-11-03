@@ -4,8 +4,6 @@
 //! A posted key or a successful setter is never proof, and a posted-but-unproven
 //! insertion is never retried (no double insertion).
 
-use crate::admission::EffectKind;
-use crate::engine::Automation;
 use crate::keys;
 use crate::lease::Admitted;
 use crate::model::*;

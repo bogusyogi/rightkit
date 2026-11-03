@@ -33,9 +33,6 @@ rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = f
 rightkit-logs = { version = "0.3.7", path = "../rightkit-logs", default-features = false }
 rightkit-tauri-shell = { version = "0.7.0", path = "../rightkit-tauri-shell", default-features = false, features = ["wv2-0_39"] }
 
-[dev-dependencies]
-tempfile = "3"
-
 [[example]]
 name = "demo-fixture"
 path = "examples/demo-fixture.rs"

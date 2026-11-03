@@ -7,7 +7,7 @@ description = "Automatic editing for Right Suite video apps: transcript-driven c
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_autoedit"
@@ -32,9 +32,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
 
-[dev-dependencies]
-rightkit-ffmpeg = { version = "0.2.13", default-features = false, features = ["native", "dev-overrides"], path = "../rightkit-ffmpeg" }
-tempfile = "3"
 # rightkit-typeset's citationberg 0.7.0 pins quick-xml 0.38.4 (RUSTSEC-2026-0194, RUSTSEC-2026-0195); a [patch] does not reach
 # dependents, so every workspace that links rightkit-typeset carries the same vendored fix (vendor/citationberg/VENDORED.md).
 [patch.crates-io]

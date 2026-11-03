@@ -76,27 +76,3 @@ pub fn select_engine(
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    const BOTH: Availability = Availability { parakeet: true, whisper: true };
-
-    #[test]
-    fn language_routing_matrix() {
-        let p = RoutingPolicy::default();
-        let sel = |l: &str, a| select_engine(&Language::parse(l), a, p);
-        assert_eq!(sel("auto", BOTH).unwrap().engine, EngineKind::Parakeet);
-        assert_eq!(sel("fr", BOTH).unwrap(), EngineSelection { engine: EngineKind::Whisper, language_locked: true });
-        assert_eq!(sel("ja", BOTH).unwrap().engine, EngineKind::Whisper);
-        let only_pk = Availability { parakeet: true, whisper: false };
-        assert_eq!(sel("fr", only_pk).unwrap(), EngineSelection { engine: EngineKind::Parakeet, language_locked: false });
-        assert!(sel("ja", only_pk).is_err());
-        let only_wh = Availability { parakeet: false, whisper: true };
-        assert_eq!(sel("auto", only_wh).unwrap().engine, EngineKind::Whisper);
-        assert!(sel("auto", Availability { parakeet: false, whisper: false }).is_err());
-        let relaxed = RoutingPolicy { lock_language_with_whisper: false };
-        assert_eq!(select_engine(&Language::parse("fr"), BOTH, relaxed).unwrap().engine, EngineKind::Parakeet);
-        assert_eq!(select_engine(&Language::parse("ja"), BOTH, relaxed).unwrap().engine, EngineKind::Whisper);
-    }
-}

@@ -339,8 +339,3 @@ pub fn run_record_from_result(
         quality: if result.success { 0.8 } else { 0.0 },
     }
 }
-
-#[cfg(test)]
-#[cfg(test)]
-#[path = "evolution_tests.rs"]
-mod evolution_tests;

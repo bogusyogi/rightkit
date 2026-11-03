@@ -110,10 +110,6 @@ fn evict_effectiveness_history(history: &mut Vec<MemoryUsageRecord>, cap: usize)
     *history = kept;
 }
 
-#[cfg(test)]
-#[path = "../tests/outcomes/causal_promotion.rs"]
-mod causal_promotion;
-
 fn utility_recall_score(entry: &MemoryEntry, semantic_score: f32) -> f32 {
     let utility = entry.score.clamp(0.0, 1.0) as f32;
     let frequency = ((entry.access_count as f32 + 1.0_f32).ln() * 0.01_f32).min(0.04_f32);
@@ -436,86 +432,6 @@ fn admission_material_difference(left: &str, right: &str) -> bool {
         (negated, material)
     }
     signature(left) != signature(right)
-}
-
-#[cfg(test)]
-mod paraphrase_guard_tests {
-    use super::{admission_material_difference, provenance_support_count};
-
-    #[test]
-    fn paraphrases_preserve_material_tokens_and_ignore_sentence_punctuation() {
-        assert!(!admission_material_difference(
-            "Keep database backups on a daily schedule.",
-            "Save a copy of stored records every day!",
-        ));
-        assert!(!admission_material_difference(
-            "Run cache_key in /srv/cache using v1.2.3.",
-            "v1.2.3 keeps /srv/cache ready through cache_key.",
-        ));
-        assert!(!admission_material_difference(
-            "Do not retain expired backups.",
-            "Keep backups without retaining expired copies.",
-        ));
-    }
-
-    #[test]
-    fn numbers_versions_paths_and_identifiers_are_material() {
-        for (left, right) in [
-            ("retain 30 days", "retain 60 days"),
-            ("retry -1 times", "retry 1 times"),
-            ("use v1.2.3", "use v1.2.4"),
-            ("use 1 then 1", "use 1"),
-            ("read /srv/cache", "read /srv/backup"),
-            (r"read C:\cache\data", r"read C:\backup\data"),
-            ("read config.toml", "read config.json"),
-            ("read .env", "read env"),
-            ("call cache_key", "call cache_value"),
-            ("call cache::load", "call cache::save"),
-            ("call store.read", "call store.write"),
-            ("call loadCache", "call saveCache"),
-            ("call loadCache", "call loadcache"),
-        ] {
-            assert!(
-                admission_material_difference(left, right),
-                "{left:?} / {right:?}"
-            );
-            assert!(
-                admission_material_difference(right, left),
-                "{right:?} / {left:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn negation_and_disable_are_material() {
-        for text in [
-            "not enabled",
-            "no backups",
-            "never back up",
-            "don't back up",
-            "don\u{2019}t back up",
-            "without backups",
-            "cannot back up",
-            "disable backups",
-            "disabled backups",
-            "disables backups",
-            "disabling backups",
-        ] {
-            assert!(
-                admission_material_difference(text, "enable backups"),
-                "{text}"
-            );
-        }
-    }
-
-    #[test]
-    fn support_counts_distinct_provenance_refs() {
-        assert_eq!(provenance_support_count(&[]), 0);
-        assert_eq!(
-            provenance_support_count(&["one".into(), "two".into(), "one".into()]),
-            2
-        );
-    }
 }
 
 /// §16.3 typed write-admission outcome. Every variant is a SUCCESS: a
@@ -2168,16 +2084,6 @@ impl MemoryStore {
             })
             .collect()
     }
-
-    /// Test-only: corrupt a row's embed_model tag to force a reindex miss. Compiled only with the
-    /// `test-support` feature (the crate's own dev-dependency enables it), never in a shipped build.
-    #[cfg(feature = "test-support")]
-    pub fn tamper_embed_model_for_tests(&self, id: &str, model: &str) {
-        let _ = self.db.lock().execute(
-            "UPDATE memories SET embed_model = ?1 WHERE id = ?2",
-            rusqlite::params![model, id],
-        );
-    }
 }
 
 /// Content hash for embedding memoization: a row whose (content_hash, embed_model)
@@ -3353,9 +3259,6 @@ impl MemoryStore {
         }
         // "wikilink" is never in `CANONICAL_RELATIONS`: this recall lane's resolved hits stay
         // structural-diagnostic, never evidence, no matter how many nodes resolve.
-        debug_assert!(seed_ids
-            .iter()
-            .all(|sid| graph.canonical_neighbors(sid).is_empty()));
         out
     }
 

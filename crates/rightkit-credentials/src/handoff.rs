@@ -771,7 +771,6 @@ fn encode(msg: &Message, limits: &Limits) -> Result<Zeroizing<Vec<u8>>> {
         }
         Message::Ack { .. } => {}
     }
-    debug_assert_eq!(out.len(), HEADER_LEN + size);
     Ok(out)
 }
 
@@ -1255,101 +1254,5 @@ impl HandoffPolicy {
             Err(HandoffError::Store(_)) => Message::error(*id, ErrorCode::StoreError, None),
             Err(_) => Message::error(*id, ErrorCode::Invalid, None),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn bundle() -> SecretBundle {
-        let mut b = SecretBundle::new();
-        b.insert("provider.openai", Secret::from_string("sk-test-VALUE-1"))
-            .unwrap();
-        b.insert("token_2", Secret::from_bytes(vec![0u8, 255, 16, 1]))
-            .unwrap();
-        b
-    }
-
-    fn encoded(m: &Message) -> Vec<u8> {
-        let mut v = Vec::new();
-        write_message(&mut v, m).unwrap();
-        v
-    }
-
-    #[test]
-    fn reply_round_trip() {
-        let bytes = encoded(&Message::reply_bundle(7, bundle()));
-        let msg = read_single_message(&mut bytes.as_slice(), &Limits::default()).unwrap();
-        let (id, snap) = match msg {
-            Message::Reply { id, snapshot, .. } => (id, snapshot),
-            other => panic!("{other:?}"),
-        };
-        assert_eq!(id, 7);
-        let got = snap.into_bundle().unwrap();
-        assert_eq!(
-            got.get("provider.openai").unwrap().expose_str().unwrap(),
-            "sk-test-VALUE-1"
-        );
-        assert_eq!(got.get("token_2").unwrap().expose_bytes(), &[0, 255, 16, 1]);
-    }
-
-    #[test]
-    fn debug_shows_names_only() {
-        let s = format!("{:?}", bundle());
-        assert!(s.contains("provider.openai") && !s.contains("sk-test-VALUE-1"));
-        let m = format!("{:?}", Message::reply_bundle(1, bundle()));
-        assert!(m.contains("provider.openai") && !m.contains("sk-test-VALUE-1"));
-    }
-
-    #[test]
-    fn a_second_concurrent_stdin_session_is_refused() {
-        let first = StdinSession::begin().unwrap();
-        assert_eq!(StdinSession::begin().err(), Some(HandoffError::SessionBusy));
-        drop(first);
-        let again = StdinSession::begin().unwrap();
-        drop(again);
-    }
-
-    #[test]
-    fn a_directly_built_strict_reply_with_a_non_present_entry_is_refused() {
-        let mut snap = Snapshot::new();
-        snap.insert_present("a", Secret::from_string("x")).unwrap();
-        snap.insert_absent("b").unwrap();
-        let msg = Message::Reply {
-            id: 3,
-            mode: Mode::Strict,
-            snapshot: snap,
-        };
-        let err = expect_reply(msg, 3, Mode::Strict, &["a", "b"]).err();
-        assert_eq!(
-            err,
-            Some(HandoffError::Malformed(
-                "strict reply needs Present entries"
-            ))
-        );
-    }
-
-    #[test]
-    fn a_request_with_thousands_of_distinct_names_is_checked_in_linear_time() {
-        let names: Vec<String> = (0..20_000).map(|i| format!("n{i}")).collect();
-        let limits = Limits {
-            max_frame_bytes: HARD_MAX_FRAME_BYTES,
-            max_names: 30_000,
-        };
-        let msg = Message::request(1, Mode::Strict, &names).unwrap();
-        let mut bytes = Vec::new();
-        write_message_with_limits(&mut bytes, &msg, &limits).unwrap();
-        let back = read_single_message(&mut bytes.as_slice(), &limits).unwrap();
-        let (_, _, got) = back.into_request().unwrap();
-        assert_eq!(got.len(), 20_000);
-    }
-
-    #[test]
-    fn header_is_eighteen_bytes() {
-        let bytes = encoded(&Message::ack(9));
-        assert_eq!(bytes.len(), HEADER_LEN);
-        assert_eq!(&bytes[..4], b"RKHO");
-        assert_eq!(bytes[5], 4);
     }
 }

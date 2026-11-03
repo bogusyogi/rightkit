@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.7.0
 
 BREAKING: re-exported automation 0.6.0 types. `rightkit-automation` is now a `0.6.0` dependency, so the paths this crate re-exports (`admission`, `events`, `lease`, `lease_store`, `json`, `keys`, `mac`, `offscreen`) carry the 0.6.0 types. The optional `rightkit-qa` dependency requires `0.10.0` (signing-evidence validation, rightkit#1304), so `embedded` (feature `qa-control`) carries the 0.10.0 types. Callers that named automation 0.5.0 types through this crate must move to 0.6.0.

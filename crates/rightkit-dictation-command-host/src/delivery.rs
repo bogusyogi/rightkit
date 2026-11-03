@@ -17,9 +17,6 @@ mod insert;
 mod keystrokes;
 mod targets;
 
-#[cfg(test)]
-mod tests;
-
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 pub use clipboard::fetch_selected_text_via_copy;
 pub use deliver::{
@@ -29,13 +26,6 @@ pub use targets::{restore_and_verify, snapshot_target};
 
 pub(crate) fn test_mode() -> bool {
     // Switch class S1: the variable's name exists only in test and `test-mode` builds.
-    #[cfg(any(test, feature = "test-mode"))]
-    {
-        std::env::var("RIGHTKIT_ENGINE_TEST_MODE")
-            .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
-    }
-    #[cfg(not(any(test, feature = "test-mode")))]
     {
         false
     }

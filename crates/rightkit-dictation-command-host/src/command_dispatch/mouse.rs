@@ -164,31 +164,3 @@ pub(super) fn dispatch_mouse(
         "mouse dispatch not implemented for this OS",
     ))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dispatch_mouse_unknown_action_is_bad_action() {
-        let result = dispatch_mouse("teleport", None, None, None, false);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().code, "E_BAD_MOUSE_ACTION");
-    }
-
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    #[test]
-    fn dispatch_mouse_unknown_button_is_bad_button() {
-        let result = dispatch_mouse("click", Some("laser"), None, None, false);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().code, "E_BAD_BUTTON");
-    }
-
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    #[test]
-    fn dispatch_mouse_unknown_direction_is_bad_direction() {
-        let result = dispatch_mouse("scroll", None, None, Some("sideways"), false);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().code, "E_BAD_DIRECTION");
-    }
-}

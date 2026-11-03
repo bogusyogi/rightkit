@@ -353,5 +353,3 @@ pub async fn download_file(
 }
 // Tests (offline — no network)
 // ─────────────────────────────────────────────────────────────────────────────
-#[cfg(test)]
-mod tests;

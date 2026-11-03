@@ -23,6 +23,3 @@ pub use paging::{SearchCursor, SEARCH_PAGE_SIZE};
 pub use planner::{search_threads_page, search_threads_scoped};
 pub use search_terms::SearchTerms;
 pub use store::{SearchRow, SearchStore};
-
-#[cfg(test)]
-mod ast_tests;

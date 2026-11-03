@@ -69,21 +69,6 @@ impl Command for EnablePointerCapture {
 }
 
 impl AlternateScreen {
-    #[cfg(all(test, unix))]
-    pub(super) fn set_link_pointer(&self, writer: &mut impl Write, over_link: bool) -> Result<()> {
-        if self.mouse_active.load(Ordering::Relaxed) {
-            self.link_pointer.update(writer, over_link)
-        } else {
-            self.link_pointer
-                .restore(writer, crate::terminal::capability::terminal_info().name)
-        }
-    }
-
-    #[cfg(all(test, unix))]
-    pub(super) fn is_active(&self) -> bool {
-        self.active.load(Ordering::Relaxed)
-    }
-
     pub(super) fn enter(&self, writer: &mut impl Write, capture_mouse: bool) -> Result<()> {
         queue!(writer, EnterAlternateScreen)?;
         // Stdout retains queued bytes on a flush error; cleanup must follow that pending entry.
@@ -220,36 +205,3 @@ impl AlternateScreen {
         screen_result
     }
 }
-
-// Read only by the unix-only tests (alternate_screen_tests.rs is #![cfg(unix)]).
-#[cfg(all(test, unix))]
-impl super::session::OverlayInput {
-    /// Roll back a partial overlay setup immediately; callers still receive the original error.
-    /// The fallback keeps capture when the session owns the screen, otherwise restores the picker.
-    pub(super) fn apply(
-        &mut self,
-        screen: &AlternateScreen,
-        writer: &mut impl Write,
-        next: Self,
-        owned: bool,
-    ) -> Result<()> {
-        if *self == next && screen.input_configured.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-        *self = next;
-        if let Err(error) = screen.configure_input(writer, next.captures_mouse(owned)) {
-            *self = Self::Default;
-            let _ = screen.configure_input(writer, owned);
-            return Err(error);
-        }
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-#[path = "alternate_screen_tests.rs"]
-mod tests;
-
-#[cfg(all(test, windows))]
-#[path = "alternate_screen_windows_tests.rs"]
-mod windows_tests;

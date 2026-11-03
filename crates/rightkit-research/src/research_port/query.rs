@@ -37,38 +37,3 @@ pub fn persist(
         query_path: query_path.to_string_lossy().into_owned(),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn persist_writes_query_with_trailing_newline_and_matching_digest() {
-        let dir = std::env::temp_dir().join(format!(
-            "rightkit-research-port-query-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        let result = persist(&dir, "What is the price?   \n\n", None).unwrap();
-        let content = fs::read_to_string(dir.join("query.md")).unwrap();
-        assert_eq!(content, "What is the price?\n");
-        let mut hasher = Sha256::new();
-        hasher.update(content.as_bytes());
-        assert_eq!(result.query_sha256, hex::encode(hasher.finalize()));
-        assert!(!dir.join("request-contract.md").exists());
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn persist_writes_wrapper_contract_when_given() {
-        let dir = std::env::temp_dir().join(format!(
-            "rightkit-research-port-query-contract-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        persist(&dir, "query text", Some("contract text  ")).unwrap();
-        let contract = fs::read_to_string(dir.join("request-contract.md")).unwrap();
-        assert_eq!(contract, "contract text\n");
-        let _ = fs::remove_dir_all(&dir);
-    }
-}

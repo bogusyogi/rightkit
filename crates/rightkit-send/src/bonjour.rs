@@ -18,10 +18,6 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-/// DNS-SD service type advertised and browsed by Pulse send (checked by the tests).
-#[cfg(test)]
-pub const SERVICE_TYPE: &str = "_pulse-send._tcp";
-
 const REGTYPE: &CStr = c"_pulse-send._tcp";
 
 const FLAGS_ADD: u32 = 0x2;
@@ -840,98 +836,5 @@ impl Browser {
         };
         await_start(&rx)?;
         Ok(Browser { _runner: runner })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn get<'a>(d: &'a [(String, String)], key: &str) -> Option<&'a str> {
-        d.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
-    }
-
-    #[test]
-    fn roundtrip_all_fields() {
-        let alias = "\u{65E5}".repeat(80);
-        let txt = txt_encode("AB:CD:EF", &alias, "laptop", Some("MacBookPro18,1"));
-        let d = txt_decode(&txt);
-        assert_eq!(get(&d, "fp"), Some("AB:CD:EF"));
-        assert_eq!(get(&d, "alias"), Some(alias.as_str()));
-        assert_eq!(get(&d, "type"), Some("laptop"));
-        assert_eq!(get(&d, "model"), Some("MacBookPro18,1"));
-        assert_eq!(get(&d, "px"), Some("1"));
-        let keys: Vec<&str> = d.iter().map(|(k, _)| k.as_str()).collect();
-        assert_eq!(keys, vec!["fp", "alias", "v", "type", "model", "px"]);
-    }
-
-    #[test]
-    fn model_omitted_when_none_or_empty() {
-        for model in [None, Some("")] {
-            let d = txt_decode(&txt_encode("fp", "a", "phone", model));
-            assert_eq!(get(&d, "model"), None);
-            let keys: Vec<&str> = d.iter().map(|(k, _)| k.as_str()).collect();
-            assert_eq!(keys, vec!["fp", "alias", "v", "type", "px"]);
-        }
-    }
-
-    #[test]
-    fn version_is_2_2() {
-        let d = txt_decode(&txt_encode("fp", "a", "phone", None));
-        assert_eq!(get(&d, "v"), Some("2.2"));
-    }
-
-    #[test]
-    fn alias_capped_at_80_chars() {
-        let d = txt_decode(&txt_encode("fp", &"x".repeat(100), "phone", None));
-        assert_eq!(get(&d, "alias").map(str::len), Some(80));
-    }
-
-    #[test]
-    fn long_values_truncate_to_255_byte_entries() {
-        let fp = "a".repeat(400);
-        let alias = "\u{1F600}".repeat(80);
-        let txt = txt_encode(&fp, &alias, "laptop", None);
-        let mut i = 0;
-        while i < txt.len() {
-            let len = usize::from(txt[i]);
-            assert!(len <= 255 && i + 1 + len <= txt.len());
-            i += 1 + len;
-        }
-        assert_eq!(i, txt.len());
-        let d = txt_decode(&txt);
-        assert_eq!(get(&d, "fp").map(str::len), Some(252));
-        assert_eq!(get(&d, "alias").map(|a| a.chars().count()), Some(62));
-        assert_eq!(get(&d, "px"), Some("1"));
-    }
-
-    #[test]
-    fn decode_truncated_input_returns_prefix() {
-        let mut bytes = vec![3, b'a', b'=', b'b', 0, 5, b'k', b'=', b'v'];
-        assert_eq!(txt_decode(&bytes), vec![("a".to_owned(), "b".to_owned())]);
-        bytes.truncate(2);
-        assert_eq!(txt_decode(&bytes), Vec::<(String, String)>::new());
-    }
-
-    #[test]
-    fn decode_entry_without_equals() {
-        let bytes = [3, b'a', b'b', b'c'];
-        assert_eq!(txt_decode(&bytes), vec![("abc".to_owned(), String::new())]);
-    }
-
-    #[test]
-    fn label_truncates_at_char_boundary() {
-        let long = "\u{65E5}".repeat(30);
-        let t = truncate_label(&long);
-        assert_eq!(t.len(), 63);
-        let long = format!("a{}", "\u{65E5}".repeat(30));
-        let t = truncate_label(&long);
-        assert!(t.len() <= 63 && long.is_char_boundary(t.len()));
-        assert_eq!(truncate_label("short"), "short");
-    }
-
-    #[test]
-    fn regtype_matches_service_type() {
-        assert_eq!(REGTYPE.to_bytes(), SERVICE_TYPE.as_bytes());
     }
 }

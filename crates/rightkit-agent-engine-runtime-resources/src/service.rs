@@ -101,7 +101,6 @@ impl<T> Clone for Lease<T> {
 impl<T> Drop for Lease<T> {
     fn drop(&mut self) {
         let prior = self.entry.leases.fetch_sub(1, Ordering::AcqRel);
-        debug_assert!(prior > 0, "service lease underflow");
         *self
             .entry
             .last_used

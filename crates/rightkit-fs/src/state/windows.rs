@@ -150,7 +150,7 @@ unsafe extern "system" {
     fn GetFileInformationByHandleEx(file: Handle, class: i32, info: *mut c_void, size: u32) -> i32;
     fn SetFileInformationByHandle(file: Handle, class: i32, info: *const c_void, size: u32) -> i32;
     // Only the tests read security descriptors back and free them.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[allow(dead_code)]
     fn LocalFree(memory: *mut c_void) -> *mut c_void;
 }
 
@@ -844,7 +844,3 @@ impl Dir {
         crate::windows_temp_sweep::sweep(&self.file)
     }
 }
-
-#[cfg(all(test, windows))]
-#[path = "windows_tests.rs"]
-mod tests;

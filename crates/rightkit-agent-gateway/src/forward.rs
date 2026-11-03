@@ -439,17 +439,3 @@ pub fn resolve(conn: &Connection, q: ForwardQuery) -> Result<ForwardRequest, Age
         attachments,
     })
 }
-
-#[cfg(test)]
-mod format_date_tests {
-    use super::format_date;
-
-    #[test]
-    fn the_forwarded_header_date_keeps_its_shape() {
-        // 1994-11-06 08:49:37 UTC, the IMF-fixdate example.
-        assert_eq!(format_date(784_111_777_000), "Sun, 06 Nov 1994 08:49 UTC");
-        assert_eq!(format_date(0), "Thu, 01 Jan 1970 00:00 UTC");
-        // Seconds are dropped, never rounded up.
-        assert_eq!(format_date(59_999), "Thu, 01 Jan 1970 00:00 UTC");
-    }
-}

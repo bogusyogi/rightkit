@@ -76,31 +76,3 @@ pub fn machine_status_unavailable_response_schema() -> Value {
 pub fn machine_info_response_schema() -> Value {
     json!({"$ref":"#/components/schemas/MachineInfoResponse"})
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn components_include_core_schemas_and_tier_enum() {
-        let schemas = health_openapi_components(&["strict", "open"]);
-        assert!(schemas.contains_key("HealthResponse"));
-        assert!(schemas.contains_key("ReadinessSnapshot"));
-        assert_eq!(
-            schemas["SandboxTier"]["enum"],
-            serde_json::json!(["strict", "open"])
-        );
-    }
-
-    #[test]
-    fn response_schemas_are_refs() {
-        assert_eq!(
-            health_response_schema()["$ref"],
-            "#/components/schemas/HealthResponse"
-        );
-        assert_eq!(
-            readiness_snapshot_response_schema()["$ref"],
-            "#/components/schemas/ReadinessSnapshot"
-        );
-    }
-}

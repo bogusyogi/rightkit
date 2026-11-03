@@ -31,12 +31,6 @@ impl PolledClockStore {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn with_wait(mut self, wait: Duration) -> Self {
-        self.wait = wait;
-        self
-    }
-
     fn lock(&self, exclusive: bool) -> Result<CrossProcessLock, FileClockStoreError> {
         let path = self.inner.lock_path();
         let now = Instant::now();
@@ -96,50 +90,6 @@ impl ClockStore for PolledClockStore {
 /// Whether a clock-store failure is only "the ledger lock is held".
 pub(crate) fn is_lock_held(error: &FileClockStoreError) -> bool {
     matches!(error, FileClockStoreError::Io(e) if e.kind() == io::ErrorKind::WouldBlock)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn state(mark: i64, iat: i64) -> ClockState {
-        ClockState {
-            highest_seen: mark,
-            trusted_process: "p".into(),
-            last_server_iat: iat,
-        }
-    }
-
-    #[test]
-    fn it_reads_and_writes_the_same_file_as_a_file_clock_store() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("clock.json");
-        let polled = PolledClockStore::new(&path);
-        assert_eq!(polled.load().unwrap(), None);
-        assert!(polled.compare_and_save(None, &state(10, 5)).unwrap());
-        assert!(!polled.compare_and_save(None, &state(11, 6)).unwrap());
-        let plain = FileClockStore::new(&path);
-        assert_eq!(plain.load().unwrap(), Some(state(10, 5)));
-        plain.save(&state(20, 7)).unwrap();
-        assert_eq!(polled.load().unwrap(), Some(state(20, 7)));
-    }
-
-    #[test]
-    fn a_held_ledger_lock_is_would_block_after_the_wait_not_a_hang() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("clock.json");
-        let polled = PolledClockStore::new(&path).with_wait(Duration::from_millis(40));
-        let held = CrossProcessLock::try_acquire(FileClockStore::new(&path).lock_path())
-            .unwrap()
-            .unwrap();
-        let started = Instant::now();
-        let error = polled.load().unwrap_err();
-        assert!(is_lock_held(&error), "{error}");
-        assert!(polled.save(&state(1, 1)).is_err());
-        assert!(started.elapsed() < Duration::from_secs(5));
-        drop(held);
-        assert!(polled.save(&state(1, 1)).is_ok());
-    }
 }
 
 /// Classified native clock failure. Only `Unavailable` permits authenticated continuity.

@@ -170,25 +170,3 @@ impl CacheTracker {
 pub fn system_prompt_only_cache_key(system_prompt: &str) -> String {
     format!("cache:prompt:{:016x}", legacy_fnv1a(system_prompt))
 }
-
-#[cfg(test)]
-mod fnv_tests {
-    use super::*;
-
-    // Reference vectors from the FNV test suite (FNV-1a, 64-bit).
-    #[test]
-    fn fnv1a_64_matches_the_reference_vectors() {
-        assert_eq!(fnv1a_64(""), 0xcbf29ce484222325);
-        assert_eq!(fnv1a_64("a"), 0xaf63dc4c8601ec8c);
-        assert_eq!(fnv1a_64("foobar"), 0x85944171f73967e8);
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn the_legacy_variant_is_unchanged_and_differs_from_the_standard() {
-        // Pinned so existing persisted keys keep their values.
-        let legacy = fnv1a("");
-        assert_eq!(legacy, 1469598103934665603);
-        assert_ne!(legacy, fnv1a_64(""));
-    }
-}

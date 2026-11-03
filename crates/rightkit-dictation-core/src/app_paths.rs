@@ -11,16 +11,15 @@
 //! | macOS | `$HOME/Library/Application Support/<name>` |
 //! | other Unix | `$XDG_DATA_HOME` (else `$HOME/.local/share`) `/<name>` |
 //!
-//! Two rules compile only under `cfg(any(test, feature = "test-mode"))`: the direct-root
+//! Two rules compile only under `cfg(feature = "test-mode")`: the direct-root
 //! override variable `RIGHTKIT_APP_DATA_DIR` and the test-binary guard, which keeps any test
 //! process off the real user folder. A release build reads neither.
 
-#[cfg(any(test, feature = "test-mode"))]
-use std::ffi::OsString;
+#[cfg(feature = "test-mode")]
 use std::path::PathBuf;
 
 use rightkit_fs::app_dirs::{AppDirs, AppId, Options};
-#[cfg(any(test, feature = "test-mode"))]
+#[cfg(feature = "test-mode")]
 use rightkit_fs::app_dirs::{AppDirsError, Os};
 
 static APP_DATA_DIR_NAME: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
@@ -44,11 +43,11 @@ pub fn app_data_dir_name() -> &'static str {
     if let Some(name) = APP_DATA_DIR_NAME.get() {
         return name;
     }
-    #[cfg(any(test, feature = "test-mode"))]
+    #[cfg(feature = "test-mode")]
     {
         TEST_APP_DATA_DIR_NAME
     }
-    #[cfg(not(any(test, feature = "test-mode")))]
+    #[cfg(not(feature = "test-mode"))]
     {
         panic!("app data folder name not configured: call app_paths::configure_app_data_dir_name at startup")
     }
@@ -66,17 +65,17 @@ fn app_id() -> AppId {
 ///
 /// Release builds have no guard: the function exists so callers compile unchanged, and returns `None`.
 pub fn test_binary_data_root() -> Option<PathBuf> {
-    #[cfg(any(test, feature = "test-mode"))]
+    #[cfg(feature = "test-mode")]
     {
         test_binary_data_root_impl()
     }
-    #[cfg(not(any(test, feature = "test-mode")))]
+    #[cfg(not(feature = "test-mode"))]
     {
         None
     }
 }
 
-#[cfg(any(test, feature = "test-mode"))]
+#[cfg(feature = "test-mode")]
 fn test_binary_data_root_impl() -> Option<PathBuf> {
     static ROOT: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     ROOT.get_or_init(|| {
@@ -98,13 +97,13 @@ fn test_binary_data_root_impl() -> Option<PathBuf> {
 /// True when `app_data_root()` resolves via the explicit test override rather than the real
 /// per-user OS data directory. Always false in a release build.
 pub fn app_data_root_is_explicit_override() -> bool {
-    #[cfg(any(test, feature = "test-mode"))]
+    #[cfg(feature = "test-mode")]
     {
         std::env::var_os("RIGHTKIT_APP_DATA_DIR")
             .filter(|path| !path.is_empty())
             .is_some()
     }
-    #[cfg(not(any(test, feature = "test-mode")))]
+    #[cfg(not(feature = "test-mode"))]
     {
         false
     }
@@ -117,7 +116,7 @@ pub fn app_data_root_is_explicit_override() -> bool {
 /// namespace, no QA variables, no test root). On Windows the owner insists on `APPDATA` and
 /// `USERPROFILE` as well, but only `LOCALAPPDATA` decides this folder, so a profile that lacks
 /// the other two resolves from `LOCALAPPDATA` alone, as it always did.
-#[cfg(any(test, feature = "test-mode"))]
+#[cfg(feature = "test-mode")]
 fn local_root_from(
     os: Os,
     env: &dyn Fn(&str) -> Option<OsString>,
@@ -147,7 +146,7 @@ pub fn production_data_root() -> PathBuf {
 fn resolve_production_data_root() -> PathBuf {
     let options = Options::current().dev(false).qa_overrides(false);
     let resolved = AppDirs::resolve_with_options(app_id(), &options).map(|dirs| dirs.local);
-    #[cfg(any(test, feature = "test-mode"))]
+    #[cfg(feature = "test-mode")]
     let resolved =
         resolved.or_else(|_| local_root_from(Os::current(), &|key| std::env::var_os(key)));
     resolved.unwrap_or_else(|error| {
@@ -158,7 +157,7 @@ fn resolve_production_data_root() -> PathBuf {
 }
 
 pub fn app_data_root() -> PathBuf {
-    #[cfg(any(test, feature = "test-mode"))]
+    #[cfg(feature = "test-mode")]
     {
         if let Some(path) =
             std::env::var_os("RIGHTKIT_APP_DATA_DIR").filter(|path| !path.is_empty())
@@ -171,7 +170,3 @@ pub fn app_data_root() -> PathBuf {
     }
     production_data_root()
 }
-
-#[cfg(test)]
-#[path = "app_paths_tests.rs"]
-mod tests;

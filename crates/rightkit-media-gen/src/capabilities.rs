@@ -295,34 +295,3 @@ pub fn model_rows(ctx: &Context, providers: &[Box<dyn Provider>]) -> Vec<Value> 
     }
     rows
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn inpaint() -> Entry {
-        let v = json!({
-            "provider": "fal", "model": "fal-ai/fill", "kind": "image", "label": "Fill",
-            "endpoint": "fal-ai/fill",
-            "inputs": [
-                {"param": "prompt", "json_key": "prompt", "type": "string", "required": true},
-                {"param": "image_url", "json_key": "image_url", "type": "url", "role": "start", "required": true},
-                {"param": "mask_url", "json_key": "mask_url", "type": "url", "role": "mask", "required": true},
-                {"param": "num_images", "json_key": "num_images", "type": "integer", "default": 1, "min": 1, "max": 4}
-            ],
-            "pricing": {"kind": "per_item", "usd": 0.05, "count_param": "num_images"},
-            "priced_at": "2026-10-17",
-            "price_source": "https://example.com/pricing"
-        });
-        serde_json::from_value(v).expect("entry")
-    }
-
-    #[test]
-    fn declared_mask_and_start_params_ride_the_row() {
-        let c = from_entry(&inpaint());
-        assert_eq!(c.inputs["mask"]["param"], "mask_url");
-        assert_eq!(c.inputs["mask"]["required"], true);
-        assert_eq!(c.inputs["start"]["param"], "image_url");
-        assert!(c.inputs.get("reference").is_none());
-    }
-}

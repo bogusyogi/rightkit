@@ -4,8 +4,6 @@
 //! into deterministic rank inputs and keeps an in-memory fallback available
 //! when the projection is missing or degraded.
 
-use std::collections::HashMap;
-
 use crate::types::MemoryEntry;
 
 /// A storage-independent lexical result.

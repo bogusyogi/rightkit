@@ -171,33 +171,3 @@ pub fn parse_stats(csv: &str) -> Result<FrameStats> {
         drops,
     })
 }
-
-#[cfg(all(test, any(target_os = "macos", windows)))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stats_from_presentmon_csv() {
-        let csv = "Application,MsBetweenPresents,Dropped\napp,16.0,0\napp,17.0,1\napp,33.0,0\n";
-        let s = parse_stats(csv).unwrap();
-        assert_eq!(s.present_count, 3);
-        assert_eq!(s.drops, 1);
-        assert_eq!(s.p50_ms, 17.0);
-        assert_eq!(s.p95_ms, 33.0);
-        assert_eq!(s.p99_ms, 33.0);
-    }
-
-    #[test]
-    fn rows_without_a_number_are_skipped_and_missing_column_is_an_error() {
-        let s = parse_stats("App,MsBetweenPresents\na,10\na,oops\n").unwrap();
-        assert_eq!(s.present_count, 1);
-        assert_eq!(s.drops, 0);
-        assert!(parse_stats("App,Other\na,1\n").is_err());
-    }
-
-    #[test]
-    fn empty_trace_has_zero_stats() {
-        let s = parse_stats("App,MsBetweenPresents\n").unwrap();
-        assert_eq!((s.present_count, s.p50_ms, s.drops), (0, 0.0, 0));
-    }
-}

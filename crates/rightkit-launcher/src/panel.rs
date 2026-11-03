@@ -826,19 +826,6 @@ struct Running {
     window: isize,
 }
 
-/// The Mac's fuzzy score: `None` unless every typed character appears in order; prefix,
-/// word-start and contiguous matches score above scattered ones.
-/// A clock time such as `3:05 PM` from Unix seconds and the UTC offset.
-fn clock_text(secs: u64, utc_offset_secs: i64) -> String {
-    let local = (secs as i64 + utc_offset_secs).rem_euclid(86_400);
-    let (hour, minute) = (local / 3600, local % 3600 / 60);
-    let twelve = if hour % 12 == 0 { 12 } else { hour % 12 };
-    format!(
-        "{twelve}:{minute:02}\u{2009}{}",
-        if hour < 12 { "AM" } else { "PM" }
-    )
-}
-
 /// A byte count as GB or TB with one decimal.
 fn size_text(bytes: u64) -> String {
     const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
@@ -5179,25 +5166,7 @@ fn report_query(began: Instant, edits_before: u64) {
     });
 }
 
-/// Debug builds only: from the panel's opening to the first typed rows .
-#[cfg(debug_assertions)]
-fn log_first_rows(opened: Instant, typed: Instant, rows_ms: f32, drawn_ms: f32) {
-    let open_to_type_ms = typed.duration_since(opened).as_secs_f32() * 1000.0;
-    host::log_info(
-        "launcher_first_rows",
-        &[
-            ("open_to_type_ms", &format!("{open_to_type_ms:.1}")),
-            ("type_to_rows_ms", &format!("{rows_ms:.1}")),
-            ("type_to_drawn_ms", &format!("{drawn_ms:.1}")),
-            (
-                "open_to_drawn_ms",
-                &format!("{:.1}", open_to_type_ms + drawn_ms),
-            ),
-        ],
-    );
-}
-
-#[cfg(not(debug_assertions))]
+/// Release builds record nothing here: the first-rows timing log is a no-op.
 fn log_first_rows(_: Instant, _: Instant, _: f32, _: f32) {}
 
 /// The notch process's memory after the first opening (the 11 to 19 MB target of

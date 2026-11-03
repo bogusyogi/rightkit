@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.2.2 (unpublished)
 
 - Dependency: `jsonschema` 0.58 -> 0.60; no source change. (rightkit#1284)

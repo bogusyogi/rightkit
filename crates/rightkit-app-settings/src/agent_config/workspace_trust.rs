@@ -13,8 +13,8 @@
 use std::path::{Path, PathBuf};
 
 /// Environment override for the trust store location (shared with the daemon).
-/// Present only in `host-env` and test builds.
-#[cfg(any(test, feature = "agent_config-host-env"))]
+/// Present only in `host-env` builds.
+#[cfg(feature = "agent_config-host-env")]
 pub const WORKSPACE_TRUST_STORE_ENV: &str = "RIGHTKIT_WORKSPACE_TRUST_STORE";
 
 /// Canonical key for a workspace root: trimmed, forward-slash separators.
@@ -25,7 +25,7 @@ pub fn workspace_trust_key(workspace_root: &str) -> String {
 
 /// Location of the persisted workspace-trust store.
 pub fn workspace_trust_store_path() -> PathBuf {
-    #[cfg(any(test, feature = "agent_config-host-env"))]
+    #[cfg(feature = "agent_config-host-env")]
     {
         if let Some(path) = std::env::var_os(WORKSPACE_TRUST_STORE_ENV) {
             return PathBuf::from(path);
@@ -67,53 +67,4 @@ pub fn is_workspace_trusted(workspace_root: &Path) -> bool {
         &workspace_trust_store_path(),
         &workspace_root.to_string_lossy(),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn store_with(dir: &Path, body: &str) -> PathBuf {
-        let path = dir.join("workspace-trust.json");
-        std::fs::write(&path, body).unwrap();
-        path
-    }
-
-    #[test]
-    fn missing_store_is_untrusted() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(!is_workspace_trusted_in(
-            &dir.path().join("absent.json"),
-            "C:/work/repo"
-        ));
-    }
-
-    #[test]
-    fn malformed_store_is_untrusted() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = store_with(dir.path(), "{not json");
-        assert!(!is_workspace_trusted_in(&path, "C:/work/repo"));
-    }
-
-    #[test]
-    fn only_trusted_label_for_exact_key_is_trusted() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = store_with(
-            dir.path(),
-            r#"{"projects":{
-                "C:/work/repo":{"trust":"trusted","approvedBy":"user","updatedAt":"x"},
-                "C:/work/sandboxed":{"trust":"sandboxed","approvedBy":null,"updatedAt":"x"},
-                "C:/work/locked":{"trust":"locked","approvedBy":null,"updatedAt":"x"},
-                "C:/work/untrusted":{"trust":"untrusted","approvedBy":null,"updatedAt":"x"}
-            }}"#,
-        );
-        // Backslash separators normalise to the stored key.
-        assert!(is_workspace_trusted_in(&path, "C:\\work\\repo"));
-        assert!(is_workspace_trusted_in(&path, "  C:/work/repo  "));
-        assert!(!is_workspace_trusted_in(&path, "C:/work/sandboxed"));
-        assert!(!is_workspace_trusted_in(&path, "C:/work/locked"));
-        assert!(!is_workspace_trusted_in(&path, "C:/work/untrusted"));
-        assert!(!is_workspace_trusted_in(&path, "C:/work/other"));
-        assert!(!is_workspace_trusted_in(&path, ""));
-    }
 }

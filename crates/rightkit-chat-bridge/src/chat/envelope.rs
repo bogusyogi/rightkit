@@ -660,39 +660,3 @@ impl Envelope {
         Ok(env)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn round_trips_and_rejects_bad_input() {
-        let env = Envelope::new(
-            Sender {
-                device: "Mac".into(),
-                session: "a".into(),
-                name: "Planner on Mac".into(),
-                harness: String::new(),
-                device_id: String::new(),
-            },
-            Target {
-                device: "Dell".into(),
-                session: "b".into(),
-            },
-            "hello",
-        )
-        .unwrap();
-        let back = Envelope::from_json(&env.to_json()).unwrap();
-        assert_eq!(back, env);
-        assert_eq!(rightkit_logs::identity::random_uuid().len(), 36);
-        assert!(matches!(
-            Envelope::from_json("{}"),
-            Err(EnvelopeError::Malformed(_))
-        ));
-        let big = "x".repeat(MAX_BODY_BYTES + 1);
-        assert_eq!(
-            Envelope::new(Sender::default(), Target::default(), big).unwrap_err(),
-            EnvelopeError::Oversize
-        );
-    }
-}

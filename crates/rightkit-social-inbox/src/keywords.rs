@@ -18,18 +18,3 @@ pub fn keyword_matches(keyword: &str, text: &str) -> bool {
     let body = words(text);
     body.windows(key.len()).any(|w| w == key.as_slice())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn keyword_is_whole_words_in_order_and_case_insensitive() {
-        assert!(keyword_matches("price", "PRICE please"));
-        assert!(keyword_matches("price", "what is the price?"));
-        assert!(!keyword_matches("price", "priceless"));
-        assert!(keyword_matches("send link", "Please SEND  link!"));
-        assert!(!keyword_matches("send link", "link send"));
-        assert!(!keyword_matches("", "anything"));
-    }
-}

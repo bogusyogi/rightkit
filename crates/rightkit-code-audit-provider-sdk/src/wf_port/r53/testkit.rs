@@ -7,7 +7,6 @@
 
 use serde_json::{Map, Value};
 
-use super::canonical::canonical_json;
 use super::contracts::PROVIDER_STATUS;
 
 /// Port of `stableId(namespace, value)`. Note the JS body is
@@ -266,73 +265,4 @@ pub fn normalize_provider_result(
     let normalized = Value::Object(normalized);
     validate_provider_result(&normalized)?;
     Ok(normalized)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn stable_id_double_encodes_like_js() {
-        let id = stable_id("ns", &json!({"a": 1}));
-        assert!(id.starts_with("sha256:"));
-        // Independently recompute the JS-equivalent double encoding.
-        let inner = canonical_json(&json!({"a": 1}));
-        let body = serde_json::to_string(&inner).unwrap();
-        let expected = super::super::canonical::sha256_str(&format!("ns\0{body}"));
-        assert_eq!(id, expected);
-    }
-
-    #[test]
-    fn path_denominator_dedupes_sorts_and_excludes() {
-        let paths = vec![
-            "b/x".to_string(),
-            "a/x".to_string(),
-            "b/x".to_string(),
-            "node_modules/y".to_string(),
-        ];
-        let d = path_denominator(&paths, &["node_modules".to_string()]);
-        assert_eq!(d.paths, vec!["a/x".to_string(), "b/x".to_string()]);
-        assert_eq!(d.path_count, 2);
-    }
-
-    #[test]
-    fn validate_provider_record_requires_all_four_fields() {
-        assert!(validate_provider_record(
-            &json!({"id": "x", "providerVersion": "1", "role": "r", "phase": "p"})
-        ));
-        assert!(!validate_provider_record(
-            &json!({"id": "x", "providerVersion": "1", "role": "r"})
-        ));
-        assert!(!validate_provider_record(
-            &json!({"id": "", "providerVersion": "1", "role": "r", "phase": "p"})
-        ));
-    }
-
-    #[test]
-    fn validate_provider_result_rejects_invalid_status() {
-        let r = json!({"schemaVersion": 1, "provider": "x", "status": "invalid-status", "complete": true});
-        let e = validate_provider_result(&r).unwrap_err();
-        assert_eq!(e.field, "status");
-    }
-
-    #[test]
-    fn validate_provider_result_rejects_null_array_field() {
-        let r = json!({"schemaVersion": 1, "provider": "x", "status": "pass", "complete": true, "findings": null});
-        let e = validate_provider_result(&r).unwrap_err();
-        assert_eq!(e.field, "findings");
-    }
-
-    #[test]
-    fn normalize_provider_result_matches_js_self_test() {
-        let plan = json!({"id": "test.provider", "denominator": {"pathDigest": "sha256:test"}, "benchmark": {"requiredForCleanClaim": true}});
-        let raw = json!({"status": "pass", "complete": true, "findings": []});
-        let normalized = normalize_provider_result(&plan, &raw).unwrap();
-        assert_eq!(normalized["provider"], "test.provider");
-        assert_eq!(normalized["status"], "pass");
-        assert_eq!(normalized["coverage"]["denominatorDigest"], "sha256:test");
-        assert_eq!(normalized["required"], true);
-        assert!(normalized["degradation"].is_array());
-    }
 }

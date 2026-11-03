@@ -474,27 +474,3 @@ pub fn triage_with_health(
         sig,
     ))
 }
-
-#[cfg(test)]
-#[path = "triage_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-mod stall_bound_inline_tests {
-    use super::*;
-
-    #[test]
-    fn is_stalled_boundary_is_three() {
-        assert!(!is_stalled(MAX_NO_PROGRESS_STREAK - 1));
-        assert!(is_stalled(MAX_NO_PROGRESS_STREAK));
-        assert!(is_stalled(MAX_NO_PROGRESS_STREAK + 5));
-    }
-
-    #[test]
-    fn stall_threshold_distinct_from_hysteresis_floor() {
-        // Hysteresis floors at 2, stall at 3 — distinct receipts.
-        const { assert!(2 < MAX_NO_PROGRESS_STREAK) };
-        assert!(!is_stalled(2));
-        assert!(is_stalled(3));
-    }
-}

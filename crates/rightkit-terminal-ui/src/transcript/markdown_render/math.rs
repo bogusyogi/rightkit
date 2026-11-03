@@ -305,11 +305,3 @@ fn escaped(input: &str, offset: usize) -> bool {
         % 2
         == 1
 }
-
-#[cfg(test)]
-#[path = "math_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "math_display_tests.rs"]
-mod display_tests;

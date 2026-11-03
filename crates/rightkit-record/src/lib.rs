@@ -38,10 +38,10 @@ pub mod redact;
 pub mod support;
 pub mod verify;
 
-// Pure helpers the Windows capture uses. Compiled for tests on every OS.
-#[cfg(any(windows, test))]
+// Pure helpers the Windows capture uses.
+#[cfg(windows)]
 mod codec;
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 mod pacer;
 
 /// Windows.Graphics.Capture backend, the Windows side of the [`Backend`] seam.

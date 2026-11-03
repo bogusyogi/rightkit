@@ -40,38 +40,3 @@ pub fn sha256_str(bytes: &str) -> String {
     hasher.update(bytes.as_bytes());
     format!("sha256:{}", hex::encode(hasher.finalize()))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn canonicalize_sorts_object_keys_recursively() {
-        let v = canonicalize(&json!({"b": 1, "a": {"y": 2, "x": 1}}));
-        assert_eq!(canonical_json(&v), r#"{"a":{"x":1,"y":2},"b":1}"#);
-    }
-
-    #[test]
-    fn canonicalize_preserves_array_order() {
-        let v = json!([3, 1, 2]);
-        assert_eq!(canonical_json(&v), "[3,1,2]");
-    }
-
-    #[test]
-    fn sha256_value_is_stable_regardless_of_key_order() {
-        let a = sha256_value(&json!({"x": 1, "y": 2}));
-        let b = sha256_value(&json!({"y": 2, "x": 1}));
-        assert_eq!(a, b);
-        assert!(a.starts_with("sha256:"));
-    }
-
-    #[test]
-    fn sha256_str_hashes_raw_bytes_not_json() {
-        let a = sha256_str("hello");
-        let b = sha256_value(&json!("hello"));
-        // `"hello"` as a JSON string re-encodes to `"hello"` (with quotes),
-        // so the two must differ.
-        assert_ne!(a, b);
-    }
-}

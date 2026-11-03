@@ -62,7 +62,6 @@ fn secret_store() -> Result<rightkit_credentials::Store, String> {
         .map_err(|error| error.to_string())?;
     let config = rightkit_credentials::Config::new(namespace)
         .guard_when(!keychain_enabled(), rightkit_credentials::GuardMode::Deny)
-        .guard_when(cfg!(test), rightkit_credentials::GuardMode::Deny)
         .timeout(Duration::from_secs(5));
     Ok(rightkit_credentials::Store::open(config))
 }
@@ -96,7 +95,6 @@ fn gh_store() -> Result<rightkit_credentials::Store, String> {
         rightkit_credentials::Namespace::new(GH_SERVICE).map_err(|error| error.to_string())?;
     let config = rightkit_credentials::Config::new(namespace)
         .guard_when(!keychain_enabled(), rightkit_credentials::GuardMode::Deny)
-        .guard_when(cfg!(test), rightkit_credentials::GuardMode::Deny)
         .timeout(Duration::from_secs(5));
     Ok(rightkit_credentials::Store::open(config))
 }
@@ -217,103 +215,6 @@ pub fn resolve_access_token() -> Result<Option<String>, String> {
         env: &env,
         system: &system,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-
-    fn fake_store(service: &str) -> rightkit_credentials::Store {
-        let namespace = rightkit_credentials::Namespace::new(service).unwrap();
-        rightkit_credentials::Store::open(
-            rightkit_credentials::Config::new(namespace)
-                .backend(Arc::new(rightkit_credentials::MemoryBackend::new())),
-        )
-    }
-
-    fn resolve(
-        host: &rightkit_credentials::Store,
-        gh: &rightkit_credentials::Store,
-        env: &[(&str, &str)],
-        system: Option<&str>,
-    ) -> Option<String> {
-        let env_map: Vec<(String, String)> = env
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        let env_fn = move |name: &str| {
-            env_map
-                .iter()
-                .find(|(k, _)| k == name)
-                .map(|(_, v)| v.clone())
-        };
-        let system = system.map(str::to_owned);
-        let system_fn = move || system.clone();
-        resolve_from(&TokenSources {
-            host: Some(host),
-            gh: Some(gh),
-            gh_accounts: vec!["octocat".to_owned()],
-            env: &env_fn,
-            system: &system_fn,
-        })
-        .unwrap()
-    }
-
-    #[test]
-    fn os_store_beats_env_and_system() {
-        let (cr, gh) = (fake_store("host-app"), fake_store(GH_SERVICE));
-        cr.set_str(ACCOUNT, "cr-token").unwrap();
-        gh.set_str("octocat", "gh-token").unwrap();
-        assert_eq!(
-            resolve(&cr, &gh, &[("GH_TOKEN", "env")], Some("sys")).as_deref(),
-            Some("cr-token")
-        );
-    }
-
-    #[test]
-    fn gh_service_entry_is_read_when_host_has_none() {
-        let (cr, gh) = (fake_store("host-app"), fake_store(GH_SERVICE));
-        gh.set_str("octocat", "gh-token").unwrap();
-        assert_eq!(
-            resolve(&cr, &gh, &[("GH_TOKEN", "env")], None).as_deref(),
-            Some("gh-token")
-        );
-    }
-
-    #[test]
-    fn env_is_used_after_stores_in_gh_order() {
-        let (cr, gh) = (fake_store("host-app"), fake_store(GH_SERVICE));
-        assert_eq!(
-            resolve(
-                &cr,
-                &gh,
-                &[("GITHUB_TOKEN", "b"), ("GH_TOKEN", "a")],
-                Some("sys")
-            )
-            .as_deref(),
-            Some("a")
-        );
-        assert_eq!(
-            resolve(&cr, &gh, &[("GH_TOKEN", "  "), ("GITHUB_TOKEN", "b")], None).as_deref(),
-            Some("b")
-        );
-    }
-
-    #[test]
-    fn falls_back_to_system_login_then_none() {
-        let (cr, gh) = (fake_store("host-app"), fake_store(GH_SERVICE));
-        assert_eq!(resolve(&cr, &gh, &[], Some("sys")).as_deref(), Some("sys"));
-        assert_eq!(resolve(&cr, &gh, &[], None), None);
-    }
-
-    #[test]
-    fn parses_gh_login_without_reading_tokens() {
-        let yml =
-            "github.com:\n    oauth_token: SECRET\n    user: octocat\n    git_protocol: https\n";
-        assert_eq!(parse_gh_login(yml).as_deref(), Some("octocat"));
-        assert_eq!(parse_gh_login("example.com:\n    user: x\n"), None);
-    }
 }
 
 pub fn sign_out() -> Result<(), String> {

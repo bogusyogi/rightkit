@@ -101,7 +101,3 @@ pub(crate) fn hide_web_link_destination(destination: &str) -> bool {
     });
     DISPLAY.hide_destination(destination)
 }
-
-#[cfg(test)]
-#[path = "web_links_tests.rs"]
-mod tests;

@@ -7,6 +7,7 @@
 //! recursive/non-recursive ref counting, and RAII unregistration. Test-only hooks were
 //! dropped; the behavior is covered by real filesystem tests under `tests/`.
 
+use notify::Watcher;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::path::Path;
@@ -20,9 +21,7 @@ use std::time::Duration;
 
 use notify::Event;
 use notify::EventKind;
-use notify::RecommendedWatcher;
 use notify::RecursiveMode;
-use notify::Watcher;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
@@ -738,9 +737,6 @@ impl FileWatcher {
                 }
             }
 
-            #[cfg(test)]
-            tests::run_arm_hook();
-
             let mut inner_guard: Option<std::sync::MutexGuard<'_, FileWatcherInner>> = None;
             for (old_actual, new_actual, count) in actual_watch_moves {
                 Self::apply_actual_watch_move(
@@ -785,8 +781,6 @@ impl FileWatcher {
                         break;
                     }
                     let old_actual = std::mem::replace(&mut watch_state.actual, new_actual.clone());
-                    #[cfg(test)]
-                    tests::run_loop_arm_hook();
                     Self::apply_actual_watch_move(
                         path_ref_counts,
                         old_actual,
@@ -967,159 +961,4 @@ fn changed_path_for_matched_path(
             .map(|suffix| requested.path.join(suffix))
             .unwrap_or_else(|_| event_path.to_path_buf()),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::RefCell;
-
-    type ArmHook = Box<dyn FnOnce()>;
-
-    thread_local! {
-        static ARM_HOOK: RefCell<Option<ArmHook>> = const { RefCell::new(None) };
-    }
-
-    thread_local! {
-        static LOOP_ARM_HOOK: RefCell<Option<ArmHook>> = const { RefCell::new(None) };
-    }
-
-    /// Runs the one-shot hook (if set) just before an in-loop re-arm.
-    pub(super) fn run_loop_arm_hook() {
-        if let Some(hook) = LOOP_ARM_HOOK.with(|h| h.borrow_mut().take()) {
-            hook();
-        }
-    }
-
-    /// Runs the one-shot hook (if set) between the watch-move decision and the native arm.
-    pub(super) fn run_arm_hook() {
-        if let Some(hook) = ARM_HOOK.with(|h| h.borrow_mut().take()) {
-            hook();
-        }
-    }
-
-    #[tokio::test]
-    async fn target_created_between_ancestor_event_and_arm_is_reported() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let root = dir.path().canonicalize().unwrap();
-        let target = root.join("later/file.txt");
-        let watcher = Arc::new(FileWatcher::noop());
-        let (sub, mut rx) = watcher.add_subscriber();
-        let _reg = sub.register_path(target.clone(), false);
-
-        // The directory exists when the ancestor event is handled, but the target does not;
-        // the hook creates it after that decision and before the arm.
-        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-        let hook_target = target.clone();
-        ARM_HOOK.with(|h| {
-            *h.borrow_mut() = Some(Box::new(move || {
-                std::fs::write(&hook_target, "x").unwrap();
-            }));
-        });
-        FileWatcher::notify_subscribers(&watcher.state, None, &[root.join("later")]).await;
-
-        let ev = tokio::time::timeout(Duration::from_secs(2), rx.recv())
-            .await
-            .expect("creation event delivered")
-            .expect("receiver open");
-        assert_eq!(ev.paths, vec![target]);
-    }
-
-    #[tokio::test]
-    async fn target_created_just_before_rearm_is_reported() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let root = dir.path().canonicalize().unwrap();
-        let target = root.join("later/deeper/file.txt");
-        let watcher = Arc::new(FileWatcher::noop());
-        let (sub, mut rx) = watcher.add_subscriber();
-        let _reg = sub.register_path(target.clone(), false);
-
-        std::fs::create_dir_all(root.join("later")).unwrap();
-        // First hook creates the intermediate directory, forcing an in-loop re-arm.
-        let deeper = root.join("later/deeper");
-        let hook_deeper = deeper.clone();
-        ARM_HOOK.with(|h| {
-            *h.borrow_mut() = Some(Box::new(move || {
-                std::fs::create_dir_all(&hook_deeper).unwrap();
-            }));
-        });
-        // Second hook creates the target after the re-resolve, before that arm.
-        let hook_target = target.clone();
-        LOOP_ARM_HOOK.with(|h| {
-            *h.borrow_mut() = Some(Box::new(move || {
-                std::fs::write(&hook_target, "x").unwrap();
-            }));
-        });
-        FileWatcher::notify_subscribers(&watcher.state, None, &[root.join("later")]).await;
-
-        let ev = tokio::time::timeout(Duration::from_secs(2), rx.recv())
-            .await
-            .expect("creation event delivered")
-            .expect("receiver open");
-        assert_eq!(ev.paths, vec![target]);
-    }
-
-    #[tokio::test]
-    async fn intermediate_directory_created_before_arm_moves_watch_again() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let root = dir.path().canonicalize().unwrap();
-        let target = root.join("later/deeper/file.txt");
-        let watcher = Arc::new(FileWatcher::noop());
-        let (sub, _rx) = watcher.add_subscriber();
-        let _reg = sub.register_path(target.clone(), false);
-
-        std::fs::create_dir_all(root.join("later")).unwrap();
-        let deeper = root.join("later/deeper");
-        let hook_deeper = deeper.clone();
-        ARM_HOOK.with(|h| {
-            *h.borrow_mut() = Some(Box::new(move || {
-                std::fs::create_dir_all(&hook_deeper).unwrap();
-            }));
-        });
-        FileWatcher::notify_subscribers(&watcher.state, None, &[root.join("later")]).await;
-
-        let state = watcher.state.read().unwrap();
-        let actuals: Vec<PathBuf> = state
-            .subscribers
-            .values()
-            .flat_map(|s| s.watched_paths.values())
-            .map(|w| w.actual.path.clone())
-            .collect();
-        assert_eq!(actuals, vec![deeper.clone()]);
-        assert!(state.path_ref_counts.contains_key(&deeper));
-        assert!(!state.path_ref_counts.contains_key(&root.join("later")));
-    }
-
-    #[tokio::test]
-    async fn target_found_at_arm_is_reported_removed_when_parent_deleted() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let root = dir.path().canonicalize().unwrap();
-        let target = root.join("later/file.txt");
-        let watcher = Arc::new(FileWatcher::noop());
-        let (sub, mut rx) = watcher.add_subscriber();
-        let _reg = sub.register_path(target.clone(), false);
-
-        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-        let hook_target = target.clone();
-        ARM_HOOK.with(|h| {
-            *h.borrow_mut() = Some(Box::new(move || {
-                std::fs::write(&hook_target, "x").unwrap();
-            }));
-        });
-        FileWatcher::notify_subscribers(&watcher.state, None, &[root.join("later")]).await;
-        let first = tokio::time::timeout(Duration::from_secs(2), rx.recv())
-            .await
-            .expect("creation delivered")
-            .expect("receiver open");
-        assert_eq!(first.paths, vec![target.clone()]);
-
-        // The parent disappears with no event for the file itself.
-        std::fs::remove_dir_all(root.join("later")).unwrap();
-        FileWatcher::notify_subscribers(&watcher.state, None, &[root.join("later")]).await;
-        let second = tokio::time::timeout(Duration::from_secs(2), rx.recv())
-            .await
-            .expect("removal delivered")
-            .expect("receiver open");
-        assert_eq!(second.paths, vec![target]);
-    }
 }

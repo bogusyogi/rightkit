@@ -79,21 +79,3 @@ pub fn free_bytes(_path: &Path) -> io::Result<u64> {
         "free_bytes is implemented for unix and Windows",
     ))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_existing_directory_reports_some_space() {
-        let dir = tempfile::tempdir().unwrap();
-        let bytes = free_bytes(dir.path()).expect("the temp volume answers");
-        assert!(bytes > 0);
-    }
-
-    #[test]
-    fn a_missing_path_is_an_error_not_zero() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(free_bytes(&dir.path().join("absent-space-probe")).is_err());
-    }
-}

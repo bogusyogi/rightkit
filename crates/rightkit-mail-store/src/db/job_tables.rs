@@ -22,7 +22,6 @@
 
 use rightkit_db::rusqlite::Connection;
 use rightkit_job_queue::{ExtColumn, JobError, JobRecord, JobTable, StatusModel, StoreConfig};
-use serde_json::json;
 use std::sync::OnceLock;
 
 pub(crate) const OUTBOX_TABLE: &str = "outbox";
@@ -168,41 +167,4 @@ pub(crate) fn delete_account_rows(conn: &Connection, account_id: &str) -> Result
         .map_err(|e| format!("delete {table}: {e}"))?;
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_queue_configs_are_valid() {
-        outbox_table();
-        pending_ops_table();
-    }
-
-    #[test]
-    fn a_scan_that_reaches_the_cap_fails_instead_of_truncating() {
-        let conn = crate::db::test_conn();
-        for i in 0..3 {
-            crate::db::pending_ops_enqueue(
-                &conn,
-                &format!("op{i}"),
-                "a@x",
-                "archive",
-                "t",
-                &[],
-                &[],
-            )
-            .unwrap();
-        }
-        let table = pending_ops_table();
-        // At the cap exactly: all rows come back.
-        assert_eq!(scan_due_capped(&conn, table, 3).unwrap().len(), 3);
-        // One row over: an error, never the first `cap` rows.
-        let err = scan_due_capped(&conn, table, 2).unwrap_err();
-        assert!(
-            err.contains("pending_ops") && err.contains("truncated"),
-            "{err}"
-        );
-    }
 }

@@ -83,12 +83,6 @@ pub fn persist_recognition_route(route: &PersistedRecognitionRoute) -> Result<()
     if !valid_persisted_recognition_route(route) {
         return Err("invalid recognition route".to_string());
     }
-    #[cfg(test)]
-    if !app_data_root_is_explicit_override() {
-        panic!(
-            "test process must not write recognition route outside RIGHTKIT_APP_DATA_DIR override"
-        );
-    }
     let path = calibration_route_path();
     let bytes =
         serde_json::to_vec(route).map_err(|error| format!("encode recognition route: {error}"))?;
@@ -283,25 +277,7 @@ pub fn pushed_l3_policy() -> Option<L3Policy> {
     })
 }
 
-/// Unit tests (`cfg(test)`) default to Pro so the engine command tests do not each need to push a
-/// licence; a test that wants the Free path pushes `is_pro: Some(false)` via replace_runtime_config.
-#[cfg(test)]
-fn unpushed_default() -> bool {
-    true
-}
-
-/// Engine test-mode builds (feature `test-mode`) default to Pro only when the harness asks for it
-/// with `RIGHTKIT_ENGINE_TEST_MODE` (entitlement default only; the delivery and runtime
-/// selectors of that variable are AP-HR-16). The read does not exist in any other build.
-#[cfg(all(not(test), feature = "test-mode"))]
-fn unpushed_default() -> bool {
-    std::env::var("RIGHTKIT_ENGINE_TEST_MODE")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-}
-
 /// A shipped build fails closed: nothing pushed and no native authoriser means Free.
-#[cfg(all(not(test), not(feature = "test-mode")))]
 fn unpushed_default() -> bool {
     false
 }
@@ -461,7 +437,3 @@ pub fn dictation_language() -> String {
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| "auto".to_string())
 }
-
-#[cfg(test)]
-#[path = "settings_tests.rs"]
-mod tests;

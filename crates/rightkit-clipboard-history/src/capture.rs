@@ -260,7 +260,7 @@ fn reader_main(rx: &Receiver<Change>) {
         while let Ok(next) = rx.try_recv() {
             change = next;
         }
-        if host::switch_on("launcherClipboard") && !cfg!(test) {
+        if host::switch_on("launcherClipboard") {
             read(&change);
         }
     }

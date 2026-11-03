@@ -61,32 +61,3 @@ impl PartialEq for RetryNotifier {
 }
 
 impl Eq for RetryNotifier {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Mutex;
-
-    #[test]
-    fn notifier_delivers_and_default_is_silent() {
-        RetryNotifier::default().notify(RetryNotice {
-            provider: "p".into(),
-            reason: "r".into(),
-            attempt: 1,
-            max_attempts: 3,
-            delay_ms: 10,
-        });
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let sink = seen.clone();
-        let n = RetryNotifier::new(move |notice| sink.lock().unwrap().push(notice.attempt));
-        n.notify(RetryNotice {
-            provider: "p".into(),
-            reason: "r".into(),
-            attempt: 2,
-            max_attempts: 3,
-            delay_ms: 10,
-        });
-        assert_eq!(*seen.lock().unwrap(), vec![2]);
-        assert_eq!(n.clone(), n);
-    }
-}

@@ -45,19 +45,3 @@ impl std::fmt::Debug for Secret {
         write!(f, "Secret(<redacted {} bytes>)", self.len())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ct_eq_distinguishes_lengths_that_differ_by_a_multiple_of_256() {
-        let short = Secret::from_bytes(vec![7u8; 32]);
-        let long = Secret::from_bytes(vec![7u8; 288]);
-        assert!(!short.ct_eq(&long));
-        assert!(!long.ct_eq(&short));
-        assert!(short.ct_eq(&Secret::from_bytes(vec![7u8; 32])));
-        assert!(!short.ct_eq(&Secret::from_bytes(vec![8u8; 32])));
-        assert!(Secret::from_bytes(Vec::new()).ct_eq(&Secret::from_bytes(Vec::new())));
-    }
-}

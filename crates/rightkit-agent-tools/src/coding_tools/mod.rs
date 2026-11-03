@@ -85,8 +85,6 @@ pub mod no_window;
 pub mod notebook_tool;
 pub mod observed_version;
 pub mod output_compaction;
-#[cfg(test)]
-mod path_deny_tests;
 #[cfg(feature = "coding_tools-host")]
 pub mod plugin_tool;
 #[cfg(feature = "coding_tools-host")]

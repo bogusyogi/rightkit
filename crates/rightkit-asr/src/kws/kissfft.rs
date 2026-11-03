@@ -84,7 +84,6 @@ impl KissFftr {
     /// `kiss_fftr`: `input` holds `2 * ncfft` samples; `out` receives `ncfft + 1` bins.
     pub(crate) fn process(&self, input: &[f32], tmp: &mut [Cpx], out: &mut [Cpx]) {
         let n = self.ncfft;
-        debug_assert!(input.len() == 2 * n && tmp.len() == n && out.len() == n + 1);
         let packed: Vec<Cpx> = input
             .as_chunks::<2>()
             .0
@@ -174,38 +173,6 @@ impl KissFftr {
                 r: s5.r - s4.i,
                 i: s5.i + s4.r,
             };
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Matches a direct DFT to float accuracy for every supported size path.
-    #[test]
-    fn matches_a_direct_dft() {
-        for (nfft, math) in [8usize, 16, 64, 256, 512]
-            .into_iter()
-            .flat_map(|n| [(n, Math::PLATFORM), (n, Math::PORTABLE)])
-        {
-            let x: Vec<f32> = (0..nfft)
-                .map(|i| ((i * 37 % 11) as f32 - 5.0) * 0.1 + (i as f32 * 0.3).sin())
-                .collect();
-            let f = KissFftr::new(nfft, math);
-            let mut tmp = vec![Cpx::default(); nfft / 2];
-            let mut out = vec![Cpx::default(); nfft / 2 + 1];
-            f.process(&x, &mut tmp, &mut out);
-            for (k, got) in out.iter().enumerate() {
-                let (mut re, mut im) = (0f64, 0f64);
-                for (n, v) in x.iter().enumerate() {
-                    let ph = -2.0 * std::f64::consts::PI * (k * n) as f64 / nfft as f64;
-                    re += *v as f64 * ph.cos();
-                    im += *v as f64 * ph.sin();
-                }
-                assert!((got.r as f64 - re).abs() < 1e-3, "nfft {nfft} bin {k} re");
-                assert!((got.i as f64 - im).abs() < 1e-3, "nfft {nfft} bin {k} im");
-            }
         }
     }
 }

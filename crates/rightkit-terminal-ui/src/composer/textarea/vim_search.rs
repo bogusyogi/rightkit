@@ -8,10 +8,6 @@ use super::VimEditTarget;
 use super::VimOperator;
 use super::VimPending;
 use crate::composer::key_hint::KeyBindingListExt;
-#[cfg(test)]
-use crate::composer::keymap::KeymapContext;
-#[cfg(test)]
-use crate::composer::keymap::KeymapContextSet;
 use crate::composer::vim_search::SearchDirection;
 use crate::composer::vim_search::SearchQuery;
 use crate::composer::vim_search::matching_ranges;
@@ -73,22 +69,6 @@ enum SearchCommand {
 }
 
 impl TextArea {
-    #[cfg(test)]
-    pub(crate) fn keymap_contexts(&self) -> KeymapContextSet {
-        let context = self.keymap_context();
-        let contexts = KeymapContextSet::new(context);
-        if self.vim_search_enabled
-            && matches!(
-                context,
-                KeymapContext::VimNormal | KeymapContext::VimOperator
-            )
-        {
-            contexts.with(KeymapContext::VimSearch)
-        } else {
-            contexts
-        }
-    }
-
     pub(crate) fn enable_vim_search(&mut self) {
         self.vim_search_enabled = true;
     }

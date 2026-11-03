@@ -91,32 +91,3 @@ pub fn base64_encode(bytes: &[u8]) -> String {
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn base64_matches_rfc4648_vectors() {
-        for (i, o) in [
-            ("", ""),
-            ("f", "Zg=="),
-            ("fo", "Zm8="),
-            ("foo", "Zm9v"),
-            ("foob", "Zm9vYg=="),
-            ("fooba", "Zm9vYmE="),
-            ("foobar", "Zm9vYmFy"),
-        ] {
-            assert_eq!(base64_encode(i.as_bytes()), o);
-        }
-    }
-    #[test]
-    fn extracts_and_escapes() {
-        let b = r#"{"capabilities":{},"using":"link text","value":"a\"bA"}"#;
-        assert_eq!(str_field(b, "using").as_deref(), Some("link text"));
-        assert_eq!(str_field(b, "value").as_deref(), Some("a\"bA"));
-        assert_eq!(esc("a\"\n"), "a\\\"\\n");
-        assert_eq!(str_field(b, "missing"), None);
-        assert_eq!(num_field(r#"{"x": 12.5,"y":-3}"#, "y"), Some(-3.0));
-        assert_eq!(num_field(r#"{"x": 12.5}"#, "x"), Some(12.5));
-    }
-}

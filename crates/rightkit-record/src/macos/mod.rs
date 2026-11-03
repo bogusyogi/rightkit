@@ -33,12 +33,6 @@ use crate::backend::{
 use crate::error::{Code, RecordError, Result};
 use crate::process::ProcessBackend;
 
-#[cfg(test)]
-mod golden;
-#[cfg(test)]
-#[path = "tests/live.rs"]
-mod live;
-
 /// File name of the helper binary.
 pub const HELPER_BINARY: &str = "rightkit-record-macos-helper";
 /// Environment variable naming the helper binary.

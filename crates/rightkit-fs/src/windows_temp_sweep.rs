@@ -236,29 +236,3 @@ pub(crate) fn sweep_path_report(path: &Path) -> Result<SweepReport> {
     };
     sweep_report(&directory)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pinned_sweep_preserves_dead_pid_names_and_foreign_replacements() {
-        let dir = tempfile::tempdir().unwrap();
-        let name = dir.path().join(".x.rktmp-4294967294-1-0");
-        let old = dir.path().join("old");
-        std::fs::write(&name, b"imported record").unwrap();
-        let directory = open_directory(dir.path()).unwrap();
-        assert_eq!(sweep(&directory).unwrap(), 0);
-        std::fs::rename(&name, &old).unwrap();
-        std::fs::write(&name, b"replacement record").unwrap();
-        let report = sweep_report(&directory).unwrap();
-        assert!(report.retained_counted);
-        assert_eq!(report.removed, 0);
-        assert_eq!(
-            report.retained_live + report.retained_unknown + report.retained_other,
-            1
-        );
-        assert_eq!(std::fs::read(name).unwrap(), b"replacement record");
-        assert_eq!(std::fs::read(old).unwrap(), b"imported record");
-    }
-}

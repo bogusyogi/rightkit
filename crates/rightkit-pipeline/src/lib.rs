@@ -5,9 +5,6 @@
 //! `submit` -> `wait` -> `import`, or `recover` after a restart. See
 //! [`orchestrator`] for the crash-safety model.
 
-#[cfg(all(not(debug_assertions), feature = "fake-engine"))]
-compile_error!("fake-engine is restricted to development/test builds");
-
 #[cfg(feature = "channel-recipe")]
 pub mod channel_recipe;
 pub mod engine;

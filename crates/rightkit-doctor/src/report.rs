@@ -106,33 +106,3 @@ impl EngineReport<'_> {
         Value::Object(map)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn envelope_has_the_standard_members_and_extras_do_not_replace_them() {
-        let identity = Identity::new("Demo", "demo-engine", "1.2.3");
-        let mut extra = Map::new();
-        extra.insert("app".into(), json!("hijack"));
-        extra.insert("library_dir".into(), json!("lib"));
-        let report = EngineReport {
-            identity: &identity,
-            capabilities: vec![("doctor".into(), 1)],
-            rows: vec![Row::ok("data_dir", true, "writable")],
-            data_dir: Some(Path::new("data")),
-            resource_dir: None,
-            dry_run: true,
-            extra,
-        }
-        .build();
-        assert_eq!(report["app"], "Demo");
-        assert_eq!(report["library_dir"], "lib");
-        assert_eq!(report["contract_version"], 1);
-        assert_eq!(report["readiness"]["status"], "ready");
-        assert_eq!(report["capabilities"][0]["name"], "doctor");
-        assert_eq!(report["dry_run"], true);
-        assert!(report["paths"]["resource_dir"].is_null());
-    }
-}

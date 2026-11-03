@@ -7,14 +7,13 @@ description = "Colour grading for Right Suite video apps: grade parameters, LUTs
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "presets/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "presets/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_color"
 path = "src/lib.rs"
 
 [features]
-test-mode = ["rightkit-ffmpeg/dev-overrides"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -22,9 +21,6 @@ serde_json = { version = "1.0" }
 thiserror = { version = "2.0" }
 rightkit-ffmpeg = { version = "0.2.13", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs"], path = "../rightkit-fs" }
-
-[dev-dependencies]
-rightkit-ffmpeg = { version = "0.2.13", default-features = false, features = ["native", "dev-overrides"], path = "../rightkit-ffmpeg" }
 
 [workspace]
 

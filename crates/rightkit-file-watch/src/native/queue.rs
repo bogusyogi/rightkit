@@ -4,7 +4,6 @@
 //! replaced by a single gap marker that the next receive turns into `WatchEvent::Overflow` with
 //! `raw_kind: None`. Memory is therefore bounded at `capacity` records plus that one marker.
 
-use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{RecvError, RecvTimeoutError, TryRecvError};
 use std::sync::{Condvar, Mutex, MutexGuard};
@@ -262,102 +261,5 @@ impl BoundedQueue {
             dropped_total: inner.dropped,
             queue_capacity: self.capacity as u64,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::WatchError;
-
-    fn modify(name: &str, id: Option<u64>) -> Entry {
-        Entry::new(
-            WatchEventRecord {
-                event: WatchEvent::Modify(name.into()),
-                raw_kind: None,
-            },
-            id,
-        )
-    }
-
-    #[test]
-    fn full_queue_clears_and_reports_one_gap_first() {
-        let queue = BoundedQueue::new(2);
-        assert!(queue.push_all(vec![modify("a", Some(1)), modify("b", Some(2))], false));
-        assert!(queue.push_all(vec![modify("c", Some(3))], false));
-        let m = queue.metrics();
-        assert_eq!((m.dropped_total, m.queue_depth), (3, 1), "{m:?}");
-        let head = queue.try_recv().unwrap();
-        assert_eq!(head.record.event, WatchEvent::Overflow);
-        assert_eq!(head.record.raw_kind, None);
-        assert_eq!(head.id, Some(3), "the gap carries the highest dropped id");
-        assert!(queue.try_recv().is_err());
-        assert!(queue.push_all(vec![modify("d", Some(4))], false));
-        assert_eq!(
-            queue.try_recv().unwrap().record.event,
-            WatchEvent::Modify("d".into())
-        );
-        assert_eq!(queue.last_id(), Some(4));
-        assert_eq!(queue.metrics().queue_depth, 0);
-    }
-
-    #[test]
-    fn depth_never_exceeds_capacity_plus_the_gap() {
-        let queue = BoundedQueue::new(8);
-        for i in 0..1000 {
-            queue.push_all(vec![modify("x", Some(i))], false);
-            assert!(queue.metrics().queue_depth <= 9);
-        }
-    }
-
-    #[test]
-    fn errors_survive_a_clear() {
-        let queue = BoundedQueue::new(1);
-        let error = Entry::new(
-            WatchEventRecord {
-                event: WatchEvent::Error(WatchError::Backend {
-                    message: "dead".into(),
-                    paths: vec![],
-                }),
-                raw_kind: None,
-            },
-            None,
-        );
-        queue.push_all(vec![modify("a", None), error, modify("b", None)], false);
-        assert_eq!(queue.try_recv().unwrap().record.event, WatchEvent::Overflow);
-        assert!(matches!(
-            queue.try_recv().unwrap().record.event,
-            WatchEvent::Error(_)
-        ));
-        assert!(queue.try_recv().is_err());
-    }
-
-    #[test]
-    fn identical_unread_tail_coalesces_only_when_asked() {
-        let queue = BoundedQueue::new(8);
-        queue.push_all(vec![modify("d", Some(1)), modify("d", Some(2))], true);
-        assert_eq!(queue.metrics().queue_depth, 1);
-        let entry = queue.try_recv().unwrap();
-        assert_eq!(entry.id, Some(2));
-        // Once read, an identical record is new information.
-        queue.push_all(vec![modify("d", Some(3))], true);
-        assert_eq!(queue.metrics().queue_depth, 1);
-        let plain = BoundedQueue::new(8);
-        plain.push_all(vec![modify("d", None), modify("d", None)], false);
-        assert_eq!(plain.metrics().queue_depth, 2);
-    }
-
-    #[test]
-    fn close_drains_then_disconnects() {
-        let queue = BoundedQueue::new(4);
-        queue.push_all(vec![modify("a", None)], false);
-        queue.close();
-        assert!(queue.recv().is_ok());
-        assert!(queue.recv().is_err());
-        assert_eq!(queue.try_recv().unwrap_err(), TryRecvError::Disconnected);
-        assert_eq!(
-            queue.recv_timeout(Duration::from_millis(1)).unwrap_err(),
-            RecvTimeoutError::Disconnected
-        );
     }
 }

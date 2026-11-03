@@ -186,23 +186,3 @@ impl From<HostIdentityError> for ConnectError {
         ConnectError::HostIdentity(e)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn details_roundtrip_and_absent_or_null_read_as_none() {
-        let plain = ServiceError::new("nope", "x");
-        assert!(plain.details().is_none());
-        assert!(plain.to_value().get("details").is_none());
-        assert_eq!(ServiceError::from_value(&plain.to_value()), plain);
-        let nulled = json!({"code": "nope", "message": "x", "retryable": false, "details": null});
-        assert_eq!(ServiceError::from_value(&nulled), plain);
-        let detailed = ServiceError::retryable("needs_auth", "sign in")
-            .with_details(json!({"platform": "x", "nested": {"a": [1, 2]}}));
-        assert_eq!(detailed.to_value()["details"]["nested"]["a"], json!([1, 2]));
-        assert_eq!(ServiceError::from_value(&detailed.to_value()), detailed);
-        assert!(detailed.with_details(Value::Null).details().is_none());
-    }
-}

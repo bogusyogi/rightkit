@@ -128,8 +128,6 @@ pub struct ProviderHttpResponse {
 /// The unread body: the live response, or (tests only) fixed chunks.
 enum ProviderBody {
     Live(AsyncStreamResponse),
-    #[cfg(test)]
-    Fixed(BodyChunks),
 }
 
 impl std::fmt::Debug for ProviderHttpResponse {
@@ -164,8 +162,6 @@ impl ProviderHttpResponse {
     pub(crate) fn bytes_stream(self) -> BodyChunks {
         match self.body {
             ProviderBody::Live(response) => Box::pin(response.into_stream()),
-            #[cfg(test)]
-            ProviderBody::Fixed(chunks) => chunks,
         }
     }
 
@@ -173,29 +169,6 @@ impl ProviderHttpResponse {
     pub(crate) async fn text(self) -> Result<String, HttpError> {
         match self.body {
             ProviderBody::Live(response) => response.read_text(MAX_ERROR_BODY_BYTES).await,
-            #[cfg(test)]
-            ProviderBody::Fixed(mut chunks) => {
-                let mut out: Vec<u8> = Vec::new();
-                while let Some(chunk) = chunks.next().await {
-                    out.extend_from_slice(&chunk?);
-                }
-                out.truncate(MAX_ERROR_BODY_BYTES);
-                Ok(String::from_utf8_lossy(&out).into_owned())
-            }
-        }
-    }
-
-    /// A response with a fixed body, for tests that classify status and headers.
-    #[cfg(test)]
-    pub(crate) fn from_parts(status: u16, headers: &[(&str, &str)], body: &[u8]) -> Self {
-        let chunk = Bytes::copy_from_slice(body);
-        Self {
-            status,
-            headers: headers
-                .iter()
-                .map(|(k, v)| (k.to_ascii_lowercase(), (*v).to_string()))
-                .collect(),
-            body: ProviderBody::Fixed(Box::pin(futures::stream::iter(vec![Ok(chunk)]))),
         }
     }
 }

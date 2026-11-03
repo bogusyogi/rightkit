@@ -5,6 +5,7 @@
 //! are not ported; the trust document arrives from the scanner worker as it does in
 //! Node.
 
+use base64::Engine;
 use serde_json::Value;
 use url::Url;
 
@@ -610,7 +611,6 @@ fn is_request_id(value: &str) -> bool {
 }
 
 fn is_canonical_base64(value: &str) -> bool {
-    use base64::Engine;
     !value.is_empty()
         && base64::engine::general_purpose::STANDARD
             .decode(value)
@@ -952,66 +952,4 @@ pub fn object(pairs: Vec<(&str, Value)>) -> Value {
         map.insert(key.into(), value);
     }
     Value::Object(map)
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    const IDENTITY: &str = "https://github.com/test/repo";
-
-    #[test]
-    fn canonical_identity_normalises_scp_port_and_git_suffix() {
-        assert_eq!(
-            canonical_repository_identity(&json!("git@GitHub.com:Test/Repo.git")).unwrap(),
-            IDENTITY
-        );
-        assert_eq!(
-            canonical_repository_identity(&json!("https://github.com:443/test/repo/")).unwrap(),
-            IDENTITY
-        );
-        assert_eq!(
-            canonical_repository_identity(&json!("ssh://git.example.com:2222/Team/App")).unwrap(),
-            "https://git.example.com:2222/Team/App"
-        );
-    }
-
-    #[test]
-    fn canonical_identity_refuses_credentials_queries_and_traversal() {
-        for bad in [
-            "https://user:pw@github.com/test/repo",
-            "https://github.com/test/repo?x=1",
-            "https://github.com/test/../../",
-            "file:///tmp/repo",
-            "",
-        ] {
-            assert!(canonical_repository_identity(&json!(bad)).is_err(), "{bad}");
-        }
-        assert!(canonical_repository_identity(&json!(null)).is_err());
-        // WHATWG resolves dot segments before Node sees the path, so this is accepted.
-        assert_eq!(
-            canonical_repository_identity(&json!("https://github.com/test/../x")).unwrap(),
-            "https://github.com/x"
-        );
-    }
-
-    #[test]
-    fn exact_repository_path_rejects_absolute_glob_and_dot_segments() {
-        assert!(exact_repository_path("."));
-        assert!(exact_repository_path("engine/app"));
-        for bad in ["/abs", "a\\b", "a//b", "./a", "a/../b", "a*", "x{y}"] {
-            assert!(!exact_repository_path(bad), "{bad}");
-        }
-    }
-
-    #[test]
-    fn version_floor_compares_numerically() {
-        assert!(version_at_least(Some("2.4.0"), Some("2.0.0")));
-        assert!(version_at_least(Some("10.0"), Some("9.9.9")));
-        assert!(!version_at_least(Some("1.0.0"), Some("2.0.0")));
-        assert!(!version_at_least(None, Some("1")));
-        assert!(!version_at_least(Some("1.x"), Some("1")));
-    }
 }

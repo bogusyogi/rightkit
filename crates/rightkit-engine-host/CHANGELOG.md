@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.1 (unreleased)
 
 - New, additive: `env::Env`, the engine's process environment (operating system, executable, app data root, home) with `resource_dir()`; and `apps`, installed-app discovery for an `apps` command (`AppEntry`, `discover_installed`, `discover_with` with an injectable `Host`, `apps_report`), moved from CutRight's `cutright-engine`. Adds dependencies on `rightkit-daemon` and the `doctor` feature of `rightkit-job-queue`.

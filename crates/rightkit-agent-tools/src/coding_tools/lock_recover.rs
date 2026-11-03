@@ -25,31 +25,3 @@ pub fn lock_recover<'a, T>(mutex: &'a Mutex<T>, label: &str) -> MutexGuard<'a, T
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-
-    #[test]
-    fn recovers_value_after_poisoning() {
-        let mutex = Arc::new(Mutex::new(vec![1, 2, 3]));
-        let m2 = mutex.clone();
-        let _ = std::thread::spawn(move || {
-            let _guard = m2.lock().unwrap();
-            panic!("simulated poison");
-        })
-        .join();
-
-        assert!(mutex.is_poisoned());
-        let guard = lock_recover(&mutex, "test.vec");
-        assert_eq!(*guard, vec![1, 2, 3]);
-    }
-
-    #[test]
-    fn returns_guard_normally_when_not_poisoned() {
-        let mutex = Mutex::new(42);
-        let guard = lock_recover(&mutex, "test.int");
-        assert_eq!(*guard, 42);
-    }
-}

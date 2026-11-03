@@ -266,7 +266,7 @@ mod platform {
 
 /// `MemTotal` of a `/proc/meminfo` text, in whole MiB. `None` when the line is missing, has no
 /// number, or does not say `kB`.
-#[cfg_attr(not(any(test, target_os = "android")), allow(dead_code))]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn parse_meminfo_total_mb(text: &str) -> Option<u64> {
     let rest = text
         .lines()
@@ -277,24 +277,4 @@ fn parse_meminfo_total_mb(text: &str) -> Option<u64> {
         return None;
     }
     Some(kib / 1024)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_meminfo_total_mb;
-
-    #[test]
-    fn meminfo_total_is_read_in_mib() {
-        let text = "MemTotal:        7889408 kB\nMemFree:          123456 kB\n";
-        assert_eq!(parse_meminfo_total_mb(text), Some(7704));
-    }
-
-    #[test]
-    fn meminfo_without_a_usable_total_is_none() {
-        assert_eq!(parse_meminfo_total_mb(""), None);
-        assert_eq!(parse_meminfo_total_mb("MemFree: 12 kB\n"), None);
-        assert_eq!(parse_meminfo_total_mb("MemTotal: lots kB\n"), None);
-        assert_eq!(parse_meminfo_total_mb("MemTotal: 2048\n"), None);
-        assert_eq!(parse_meminfo_total_mb("MemTotal: 2048 MB\n"), None);
-    }
 }

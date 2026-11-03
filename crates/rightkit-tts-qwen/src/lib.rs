@@ -1086,27 +1086,3 @@ where
         self(pcm_f32)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn request_defaults() {
-        let r = SynthesizeRequest::default();
-        assert_eq!(r.temperature, 0.9);
-        assert_eq!(r.top_k, 50);
-        assert_eq!(r.language_id, 2050);
-        assert_eq!(r.talker_kv_mode, TalkerKvMode::F16);
-    }
-
-    #[test]
-    fn talker_kv_mode_parse_accepts_aliases() {
-        assert_eq!(TalkerKvMode::parse("f16").unwrap(), TalkerKvMode::F16);
-        assert_eq!(
-            TalkerKvMode::parse("turboquant").unwrap(),
-            TalkerKvMode::TurboQuant
-        );
-        assert_eq!(TalkerKvMode::parse("q8").unwrap(), TalkerKvMode::TurboQuant);
-    }
-}

@@ -100,7 +100,7 @@ pub(crate) fn quiet_cut_in(samples: &[f32], lo: usize, hi: usize) -> Option<usiz
 /// each window.
 // Only the CoreML Whisper lane and the padded-window tests call this; the
 // Whisper lane is macOS-only, so on other targets it is dead.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 pub(crate) fn transcribe_padded_window_text<F>(
     samples: &[f32],
     window_samples: usize,

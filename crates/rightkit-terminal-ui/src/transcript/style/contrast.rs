@@ -3,8 +3,6 @@
 //! and user-defined ANSI palettes retain the terminal's default foreground.
 
 use crate::transcript::color::blend;
-#[cfg(test)]
-use crate::transcript::color::is_light;
 use crate::transcript::color::perceptual_distance;
 use crate::transcript::terminal_palette::StdoutColorLevel;
 use crate::transcript::terminal_palette::XTERM_COLORS;
@@ -12,8 +10,6 @@ use crate::transcript::terminal_palette::best_color_for_level;
 use crate::transcript::terminal_palette::indexed_color;
 use crate::transcript::terminal_palette::rgb_color;
 use ratatui::style::Color;
-#[cfg(test)]
-use ratatui::style::Style;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -32,52 +28,6 @@ thread_local! {
     // Resolved backgrounds and capabilities are part of the key, so probe/theme changes cannot
     // reuse a result for the previous surface.
     static FOREGROUNDS: RefCell<HashMap<ForegroundKey, Color>> = RefCell::default();
-}
-
-#[cfg(test)]
-pub(super) fn selection_style(background: Option<(u8, u8, u8)>, level: StdoutColorLevel) -> Style {
-    let fallback = Style::default()
-        .fg(Color::Reset)
-        .bg(Color::Reset)
-        .bold()
-        .not_dim()
-        .reversed();
-    let Some(background) = background else {
-        return fallback;
-    };
-    let (preferred, alternate) = if is_light(background) {
-        (super::CHATGPT_BLUE_100, super::CHATGPT_BLUE_200)
-    } else {
-        (super::CHATGPT_BLUE_200, super::CHATGPT_BLUE_100)
-    };
-    let mut fill = best_color_for_level(preferred, level);
-    let resolve = |color| match color {
-        Color::Rgb(r, g, b) => Some((r, g, b)),
-        Color::Indexed(index) if index >= 16 => Some(XTERM_COLORS[usize::from(index)]),
-        _ => None,
-    };
-    let Some(mut fill_rgb) = resolve(fill) else {
-        return fallback;
-    };
-    // A subtle fill is intentional, but it must not disappear into a similarly blue canvas.
-    if ratio(fill_rgb, background) < 1.25 {
-        let alternate_fill = best_color_for_level(alternate, level);
-        let alternate_rgb = resolve(alternate_fill).unwrap_or(alternate);
-        if ratio(alternate_rgb, background) > ratio(fill_rgb, background) {
-            fill = alternate_fill;
-            fill_rgb = alternate_rgb;
-        }
-    }
-    Style::default()
-        .fg(foreground(
-            /*preferred*/ (0, 0, 46),
-            Some(fill_rgb),
-            level,
-        ))
-        .bg(fill)
-        .bold()
-        .not_dim()
-        .not_reversed()
 }
 
 pub(super) fn foreground(
@@ -152,7 +102,3 @@ fn luminance(rgb: (u8, u8, u8)) -> f64 {
     });
     0.2126 * r + 0.7152 * g + 0.0722 * b
 }
-
-#[cfg(test)]
-#[path = "contrast_tests.rs"]
-mod tests;

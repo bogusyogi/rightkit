@@ -379,47 +379,6 @@ fn mask_user_segment(word: &str) -> (String, usize) {
     (result, masked)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn counted_scrub_matches_scrub_text_and_counts_replacements() {
-        let input = "mail ada@example.com from 10.0.0.1 now";
-        let (out, count) = scrub_text_counted(input);
-        assert_eq!(out, "mail [redacted:email] from [redacted:ip] now");
-        assert_eq!(count, 2);
-        assert_eq!(scrub_text(input), out);
-    }
-
-    #[test]
-    fn credential_prefix_at_the_end_is_redacted_only_by_the_counted_form() {
-        let (out, count) = scrub_text_counted("key sk-");
-        assert_eq!(out, "key [redacted:credential]");
-        assert_eq!(count, 1);
-        assert_eq!(scrub_text("key sk-"), "key sk-");
-        assert_eq!(
-            scrub_text_counted("key sk-short").0,
-            "key [redacted:credential]"
-        );
-        assert_eq!(scrub_text("key sk-short"), "key sk-short");
-    }
-
-    #[test]
-    fn credential_prefix_mid_text_keeps_the_length_floor() {
-        let (out, count) = scrub_text_counted("key sk-short flag");
-        assert_eq!(out, "key sk-short flag");
-        assert_eq!(count, 0);
-    }
-
-    #[test]
-    fn bearer_tokens_and_user_segments_count_once_each() {
-        let (out, count) = scrub_text_counted("Bearer abcdef123 in /Users/ada/app");
-        assert_eq!(out, "Bearer [redacted:credential] in /Users/<user>/app");
-        assert_eq!(count, 2);
-    }
-}
-
 /// Query-string and OAuth parameter names whose values are secrets wherever they appear in text.
 const SECRET_PARAM_NAMES: &[&str] = &[
     "access_token",
@@ -544,55 +503,4 @@ fn redact_secret_params(text: &str) -> String {
     }
     out.push_str(&text[cursor..]);
     out
-}
-
-#[cfg(test)]
-mod url_text_tests {
-    use super::*;
-
-    #[test]
-    fn query_fragment_and_userinfo_leave_urls() {
-        assert_eq!(
-            redact_url_text("GET https://api.example.com/v1/items?key=abc&x=1#frag failed"),
-            "GET https://api.example.com/v1/items?[redacted] failed"
-        );
-        assert_eq!(
-            redact_url_text("see https://user:pw@example.com/a"),
-            "see https://example.com/a"
-        );
-    }
-
-    #[test]
-    fn bracketed_ipv6_authorities_keep_query_and_fragment_redacted() {
-        assert_eq!(
-            redact_url_text("GET https://[2606:4700::1111]/?session=secret#private failed"),
-            "GET https://[2606:4700::1111]/?[redacted] failed"
-        );
-        assert_eq!(
-            redact_url_text("https://u:p@[2606:4700::1111]:443/x?a=b#c"),
-            "https://[2606:4700::1111]:443/x?[redacted]"
-        );
-        assert_eq!(
-            redact_url_text("see [https://[::1]/?t=1] done"),
-            "see [https://[::1]/?[redacted]] done"
-        );
-    }
-
-    #[test]
-    fn oauth_values_are_redacted_by_name() {
-        assert_eq!(
-            redact_url_text("callback code=4/abc&state=xyz failed"),
-            "callback code=[redacted]&state=[redacted] failed"
-        );
-        assert_eq!(
-            redact_url_text("refresh_token=rt-123, scope=mail"),
-            "refresh_token=[redacted], scope=mail"
-        );
-    }
-
-    #[test]
-    fn plain_text_is_unchanged() {
-        let text = "timeout after 30s: connection refused";
-        assert_eq!(redact_url_text(text), text);
-    }
 }

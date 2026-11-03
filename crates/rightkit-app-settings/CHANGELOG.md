@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.3.1 (unreleased)
 
 - Feature `agent_config` (+ `agent_config-host-env`, `agent_config-test-mode`): agent host configuration, state root, workspace trust store and permissions config moved from CodeRight `coderight-config`; the state folder name is set with `agent_config::set_app_name`.

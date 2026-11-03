@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.0 (2026-10-17)
 
 - New crate 0.1.0. `build_info` (`BuildIdentity`, `build_identity!`, runtime override, `build_script::emit`; Orthic-Labs/rightkit#503), `installation` (`InstallationStore`, `InstallationIdentity`, `StartupClaim`, clone detection by machine binding, host display name; #420), `pairing` (signed-transcript confirmation, owner-approval state machine, resume tickets, per-device grants, `ReplayStore`; #409), `bearer` (`BearerRegistry`, `RateLimiter`; #379).

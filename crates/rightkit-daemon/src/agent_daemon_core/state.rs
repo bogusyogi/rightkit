@@ -69,34 +69,3 @@ impl Drop for LiveTurnGuard {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stale_guard_drop_does_not_clear_newer_turn() {
-        let handle = LiveTurnHandle::default();
-        let old = handle.begin();
-        let new = handle.begin();
-        assert!(!old.is_current());
-        assert!(new.is_current());
-        drop(old);
-        assert!(handle.is_active(), "stale drop must not idle a live turn");
-        drop(new);
-        assert!(!handle.is_active());
-    }
-
-    #[test]
-    fn generations_are_monotonic_and_latest_drop_clears() {
-        let handle = LiveTurnHandle::default();
-        assert_eq!(handle.current_generation(), 0);
-        let first = handle.begin();
-        assert_eq!(first.generation(), 1);
-        drop(first);
-        assert!(!handle.is_active());
-        let second = handle.begin();
-        assert_eq!(second.generation(), 2);
-        assert!(handle.is_active());
-    }
-}

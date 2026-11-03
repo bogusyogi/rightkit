@@ -75,24 +75,3 @@ pub fn install_guidance(id: &str) -> Value {
         "setup": setup(),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn install_guidance_never_offers_a_download() {
-        let value = install_guidance("local-wan2gp");
-        assert_eq!(value["installable"], json!(false));
-        assert_eq!(value["state"], json!("external"));
-        assert_eq!(value["setup"]["download_available"], json!(false));
-    }
-
-    #[test]
-    fn setup_names_the_documented_entry_and_interpreters() {
-        let value = setup();
-        assert_eq!(value["entry"], json!("wgp.py"));
-        assert_eq!(value["documented_python"], json!(["3.10", "3.11"]));
-        assert_eq!(value["wan2gp_dir_env"], json!("RIGHTKIT_WAN2GP_DIR"));
-    }
-}

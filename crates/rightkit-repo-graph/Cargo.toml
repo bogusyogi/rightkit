@@ -7,7 +7,7 @@ description = "Repository code graph: tree-sitter extraction across 30+ language
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE", "assets/**"]
+include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE", "assets/**"]
 
 [lib]
 name = "rightkit_repo_graph"
@@ -64,9 +64,6 @@ rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], pa
 rightkit-file-watch = { version = "0.4.2", path = "../rightkit-file-watch" }
 rightkit-context-core = { version = "0.1.0", path = "../rightkit-context-core" }
 rightkit-context-protocol = { version = "0.1.0", path = "../rightkit-context-protocol" }
-
-[dev-dependencies]
-tempfile = { version = "3" }
 
 [workspace]
 

@@ -46,8 +46,6 @@
 mod backend;
 #[cfg(target_os = "macos")]
 mod pdfkit;
-#[cfg(test)]
-mod tests;
 
 use std::collections::{HashMap, VecDeque};
 use std::io::Read;
@@ -484,24 +482,6 @@ impl NativeParent {
     /// True when no native view is attached.
     pub fn is_detached(&self) -> bool {
         self.webview == 0 || self.superview == 0
-    }
-
-    #[cfg(test)]
-    pub(crate) fn fake() -> Self {
-        Self {
-            webview: 1,
-            superview: 2,
-            #[cfg(target_os = "macos")]
-            window_number: 1,
-            #[cfg(target_os = "macos")]
-            frame: HostFrame {
-                x: 0.0,
-                y: 0.0,
-                width: 1200.0,
-                height: 800.0,
-            },
-            _not_send: PhantomData,
-        }
     }
 
     /// Read the parent from the platform's webview and window pointers (Tauri's

@@ -30,6 +30,3 @@ pub use types::{
     VerificationContract, VerificationVerdict,
 };
 pub use verifier::ArtifactDigestVerifier;
-
-#[cfg(test)]
-mod tests;

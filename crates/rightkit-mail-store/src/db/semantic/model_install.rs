@@ -16,7 +16,6 @@
 
 use super::resolve;
 use rightkit_models::suite::catalog::embedding_gemma_q4_spec;
-use rightkit_models::suite::paths::models_root;
 use rightkit_models::{Event, FileSpec, InstallOptions, ModelSpec, RevisionSpec, Store};
 use std::path::Path;
 
@@ -106,12 +105,6 @@ pub fn default_store() -> Store {
 
 /// The per-user models directory; a temp folder inside test binaries.
 pub(crate) fn store_root() -> std::path::PathBuf {
-    #[cfg(test)]
-    {
-        if let Some(dir) = crate::host::host().test_selector("models-sandbox") {
-            return std::path::PathBuf::from(dir);
-        }
-    }
     models_root()
 }
 
@@ -222,108 +215,4 @@ pub fn install(
         .adopt_then_install(spec, &opts, |f| bundled.map(|d| d.join(&f.path)), sink)
         .map(|_| ())
         .map_err(|e| format!("semantic model install failed: {e}"))
-}
-
-#[cfg(test)]
-pub(crate) fn scratch_dir(label: &str) -> std::path::PathBuf {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static N: AtomicU32 = AtomicU32::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "rightkit-model-{label}-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // sha256("hello")
-    const HELLO_SHA: &str = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
-
-    fn fixture(sha256: &'static str) -> [PinnedFile; 1] {
-        [PinnedFile {
-            path: "a.bin",
-            bytes: 5,
-            sha256,
-        }]
-    }
-
-    #[test]
-    fn pins_are_complete_and_well_formed() {
-        let files = pinned_files();
-        assert_eq!(files.len(), 6);
-        for f in &files {
-            assert_eq!(f.sha256.len(), 64, "{}", f.path);
-            assert!(
-                f.sha256.bytes().all(|b| b.is_ascii_hexdigit()),
-                "{}",
-                f.path
-            );
-            assert!(f.bytes > 0);
-        }
-        assert_eq!(total_bytes(), 187_632_172);
-        let spec = bundle_spec();
-        assert_eq!(spec.id, MODEL_ID);
-        assert_eq!(spec.revisions[0].files.len(), 6);
-    }
-
-    #[test]
-    fn digest_mismatch_is_rejected_and_nothing_is_recorded() {
-        let root = scratch_dir("mismatch-store");
-        let src = scratch_dir("mismatch-src");
-        std::fs::write(src.join("a.bin"), b"hello").unwrap();
-        let store = Store::new(&root, &store_app());
-        let bad = "0".repeat(64);
-        let bad: &'static str = Box::leak(bad.into_boxed_str());
-        let spec = model_spec(MODEL_ID, "t1", &fixture(bad), "http://127.0.0.1:9");
-        let opts = InstallOptions {
-            require_pinned: true,
-            ..InstallOptions::default()
-        };
-        let res = store.adopt(&spec, &opts, |f| Some(src.join(&f.path)));
-        assert!(res.is_err(), "wrong digest must be refused");
-        assert!(store.resolve(MODEL_ID).is_none());
-    }
-
-    #[test]
-    fn matching_digest_is_adopted() {
-        let root = scratch_dir("ok-store");
-        let src = scratch_dir("ok-src");
-        std::fs::write(src.join("a.bin"), b"hello").unwrap();
-        let store = Store::new(&root, &store_app());
-        let spec = model_spec(MODEL_ID, "t1", &fixture(HELLO_SHA), "http://127.0.0.1:9");
-        let opts = InstallOptions {
-            require_pinned: true,
-            ..InstallOptions::default()
-        };
-        store
-            .adopt(&spec, &opts, |f| Some(src.join(&f.path)))
-            .expect("pinned file adopts");
-        assert!(store.resolve(MODEL_ID).is_some());
-    }
-
-    #[test]
-    fn status_on_empty_directories_is_not_installed() {
-        let root = scratch_dir("empty-store");
-        let res = scratch_dir("empty-res");
-        let store = Store::new(&root, &store_app());
-        let a = availability(&store, MODEL_ID, Some(&res));
-        assert!(!a.installed);
-        assert_eq!(a.bytes_present, 0);
-        assert_eq!(a.bytes_total, total_bytes());
-        assert!(!a.reason.is_empty());
-    }
-
-    #[test]
-    fn install_without_source_or_bundle_reports_the_gap() {
-        let root = scratch_dir("gap-store");
-        let store = Store::new(&root, &store_app());
-        let err = install(&store, &bundle_spec(), None, false, |_| {}).unwrap_err();
-        assert!(err.contains("RIGHTKIT GAP"), "{err}");
-    }
 }

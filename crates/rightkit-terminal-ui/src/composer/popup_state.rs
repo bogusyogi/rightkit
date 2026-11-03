@@ -112,7 +112,3 @@ pub(super) enum ActivePopup {
 }
 
 impl ActivePopup {}
-
-#[cfg(test)]
-#[path = "popup_state_tests.rs"]
-mod tests;

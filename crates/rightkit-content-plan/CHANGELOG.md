@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.1 (unreleased)
 
 - Added `hook_test`: `hook_test.create`, `bind`, `read`, `get`, `list` over a host-implemented `HookTestStore`. Additive.

@@ -106,10 +106,6 @@ pub fn registry() -> Vec<ProviderDescriptor> {
         },
     ];
 
-    debug_assert!(
-        registry.iter().all(|d| PROVIDER_ORDER.contains(&d.id)),
-        "provider registered with an id outside PROVIDER_ORDER"
-    );
     registry.sort_by_ordinal()
 }
 

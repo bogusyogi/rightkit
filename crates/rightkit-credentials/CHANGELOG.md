@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.4.4 (GATE-CONTRACT GC-A07)
 
 - Gate: the `db-adapter` + SQLCipher feature sets moved from the tested sets to the check sets. Every tested set is linted for macOS and Windows with the zig toolchain, and a bundled SQLCipher cannot be built for those targets there (`os/log.h`, CommonCrypto missing); the sets still compile and document natively. `tests/db_adapter.rs` is run by the app that selects the SQLCipher provider.

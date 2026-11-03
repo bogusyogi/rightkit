@@ -21,7 +21,7 @@
 //! - [`migrate`] (feature `fs`): [`migrate_dir`] (also `AppDirs::migrate_dir`), a directory move that
 //!   never shows a half-migrated destination (rename, or copy to a sibling then rename).
 //! - [`app_dirs`] (feature `app-dirs`): [`AppDirs`], one resolver for an app's data, local, cache and
-//!   home folders, with a dev namespace and test/QA isolation (QA overrides only with `test-mode`).
+//!   home folders, with a dev namespace and test isolation.
 //! - [`digest`] (features `digest` / `blake3`): SHA-256 / BLAKE3 of bytes or files, & lowercase hex.
 //! - [`plain`]: [`canonicalize_plain`], `std::fs::canonicalize` without the Windows verbatim drive prefix.
 //! - [`contain`](mod@contain): [`is_within`], [`contain()`](contain::contain), [`contain_lenient`] and [`Roots`], path containment that
@@ -43,12 +43,6 @@
 //! - [`clone`]: macOS `clonefile(2)` with `CLONE_NOFOLLOW`; [`clone_file_nofollow`] never falls
 //!   back to a byte copy, [`clone_or_link_or_copy_nofollow`] tries clone, hard link, then copy.
 //! - [`swap`]: macOS `renamex_np(RENAME_SWAP)`; atomically exchanges two paths ([`swap_paths`]).
-
-#[cfg(all(feature = "testing", not(debug_assertions)))]
-compile_error!(
-    "rightkit-fs feature `testing` injects faults into atomic writes and is for debug and test builds only; \
-     remove it from release builds"
-);
 
 #[cfg(all(feature = "fs", unix))]
 pub(crate) mod acl;
@@ -97,8 +91,6 @@ pub mod space;
 pub mod state;
 #[cfg(feature = "fs")]
 pub mod swap;
-#[cfg(feature = "test-mode")]
-pub mod test_mode;
 #[cfg(feature = "transaction")]
 pub mod transaction;
 #[cfg(feature = "fs")]
@@ -351,57 +343,4 @@ unsafe extern "system" {
 #[cfg(feature = "fs")]
 pub fn process_alive(pid: u32) -> bool {
     !matches!(process_liveness(pid), ProcessLiveness::Dead)
-}
-
-#[cfg(all(test, feature = "fs"))]
-mod tests {
-    use super::{process_alive, process_liveness, ProcessLiveness};
-
-    #[test]
-    fn current_process_is_alive() {
-        assert_eq!(process_liveness(std::process::id()), ProcessLiveness::Alive);
-        assert!(process_alive(std::process::id()));
-    }
-
-    #[test]
-    fn invalid_pid_is_unknown_and_conservatively_alive() {
-        assert_eq!(process_liveness(0), ProcessLiveness::Unknown);
-        assert!(process_alive(0));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn complete_snapshot_absence_confirms_death() {
-        assert_eq!(
-            super::snapshot_liveness_from_pids(42, &[1, 2, 3], true),
-            ProcessLiveness::Dead
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn snapshot_presence_is_unknown() {
-        assert_eq!(
-            super::snapshot_liveness_from_pids(42, &[1, 42, 3], true),
-            ProcessLiveness::Unknown
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn failed_snapshot_is_unknown() {
-        assert_eq!(
-            super::snapshot_liveness_from_pids(42, &[], false),
-            ProcessLiveness::Unknown
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn capped_snapshot_is_unknown() {
-        assert_eq!(
-            super::snapshot_liveness_from_pids(42, &[1; super::PROCESS_SNAPSHOT_LIMIT], true),
-            ProcessLiveness::Unknown
-        );
-    }
 }

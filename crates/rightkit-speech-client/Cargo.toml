@@ -7,7 +7,7 @@ description = "Client and contract for the Orthic Labs shared speech service (on
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bogusyogi/rightkit"
 readme = "README.md"
-include = ["src/**", "tests/**", "README.md", "API.md", "INDEX.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "API.md", "INDEX.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon" }
@@ -15,13 +15,6 @@ rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-
-[dev-dependencies]
-tempfile = "3"
-
-# The Windows named-pipe round-trip test (tests/windows_pipe.rs) hosts a raw pipe server.
-[target.'cfg(windows)'.dev-dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Pipes"] }
 
 [package.metadata.rightkit]
 continuous = false

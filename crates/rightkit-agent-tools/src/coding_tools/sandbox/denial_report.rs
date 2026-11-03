@@ -100,35 +100,3 @@ pub fn report_confined_denial(
         requested_grant: report.requested_grant,
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn windows_http_timeout_requests_only_a_command_network_grant() {
-        let output = "Invoke-WebRequest : The operation has timed out.\n\
-                      FullyQualifiedErrorId : WebCmdletWebResponseException,\
-                      Microsoft.PowerShell.Commands.InvokeWebRequestCommand";
-        let command = "Invoke-WebRequest -TimeoutSec 5 'http://127.0.0.1:12345/'";
-        let mut info = ConfinementInfo {
-            source: DenialSource::WindowsAppContainer,
-            tier: rightkit_agent_policy::SandboxTier::Strict,
-            network_allowed: false,
-            workspace_root: PathBuf::from("workspace"),
-        };
-        let denial = report_confined_denial(output, command, false, &info)
-            .expect("network-disabled AppContainer HTTP timeout is a denial");
-        assert_eq!(denial.kind, SandboxDenialKind::Network);
-        assert_eq!(denial.requested_grant, Some(SandboxGrant::network()));
-        assert!(report_confined_denial(output, command, true, &info).is_none());
-        assert!(
-            report_confined_denial("The operation has timed out.", command, false, &info).is_none()
-        );
-        info.network_allowed = true;
-        assert!(report_confined_denial(output, command, false, &info).is_none());
-        info.network_allowed = false;
-        info.source = DenialSource::MacosSeatbelt;
-        assert!(report_confined_denial(output, command, false, &info).is_none());
-    }
-}

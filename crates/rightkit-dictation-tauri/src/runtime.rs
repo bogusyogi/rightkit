@@ -59,12 +59,10 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use crate::controller::DictationController;
 use crate::delivery::{
     copy_fallback_record, CopyFallbackReason, DeliveryBackend, DeliveryRecord, PendingStopContext,
     PendingStopContextLatch, StopOrigin,
 };
-use crate::engine::FakeEngine;
 use crate::engine_process::{EngineEvent, EngineInfoResult, WakeListenParams};
 use crate::engine_supervisor::{self, EngineSupervisor, SupervisorEvent};
 use crate::history::{HistoryFilter, HistoryPage, HistoryQuery, HistoryStore};
@@ -85,10 +83,6 @@ mod shared;
 // `pub use` so `crate::runtime::X` paths (in-crate callers AND the
 // host-application integration tests) resolve exactly as they did
 // when these items lived flat in this module via include!.
-#[cfg(debug_assertions)]
-pub use control_tail::assert_capture_warning_contract_for_test;
-#[cfg(debug_assertions)]
-pub use control_tail::RecordingDeliveryProbe;
 pub use control_tail::{
     apply_sidecar_control_tail_for_test, engine_state_snapshot_is_transcribing_session,
 };

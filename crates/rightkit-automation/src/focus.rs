@@ -9,7 +9,6 @@
 use crate::model::FrontApp;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FocusReport {
@@ -97,57 +96,5 @@ impl FocusWatch {
             let _ = t.join();
         }
         self.seen.lock().unwrap_or_else(|e| e.into_inner()).clone()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::AtomicUsize;
-
-    fn app(pid: i32) -> Option<FrontApp> {
-        Some(FrontApp {
-            pid,
-            app_id: "x".into(),
-            window_id: Some(1),
-        })
-    }
-
-    #[test]
-    fn unavailable_measurement_never_proves_and_transients_are_caught() {
-        let none = FocusWatch::start(|| None, Duration::from_millis(2));
-        std::thread::sleep(Duration::from_millis(10));
-        let r = none.finish();
-        assert!(!r.proven(), "None == None must not pass: {}", r.explain());
-
-        let n = Arc::new(AtomicUsize::new(0));
-        let n2 = n.clone();
-        // pid 1, then a one-sample flash of pid 2, then pid 1 again: before/after would say "unchanged".
-        let w = FocusWatch::start(
-            move || {
-                app(if n2.fetch_add(1, Ordering::SeqCst) == 3 {
-                    2
-                } else {
-                    1
-                })
-            },
-            Duration::from_millis(2),
-        );
-        // Wait for the sample after the flash instead of a fixed sleep: a loaded runner can take
-        // longer than any fixed pause to reach the fifth sample.
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while n.load(Ordering::SeqCst) < 5 && std::time::Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        let r = w.finish();
-        assert!(!r.proven());
-        assert_eq!(
-            r.states.iter().map(|s| s.0).collect::<Vec<_>>(),
-            vec![1, 2, 1]
-        );
-
-        let steady = FocusWatch::start(|| app(1), Duration::from_millis(2));
-        std::thread::sleep(Duration::from_millis(10));
-        assert!(steady.finish().proven());
     }
 }

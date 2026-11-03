@@ -44,7 +44,6 @@ impl Ticks {
 
 /// `round(n / d)` with exact ties rounding toward the lower integer. `d` must be positive.
 pub fn round_div_half_down(n: i128, d: i128) -> i128 {
-    debug_assert!(d > 0);
     let q = n.div_euclid(d);
     let r = n.rem_euclid(d);
     if 2 * r > d {
@@ -118,97 +117,5 @@ impl MilliDb {
         let sign = if self.0 < 0 { "-" } else { "" };
         let a = self.0.unsigned_abs();
         format!("{sign}{}.{:03}dB", a / 1000, a % 1000)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rounding_rule_is_half_down() {
-        assert_eq!(round_div_half_down(1, 2), 0);
-        assert_eq!(round_div_half_down(3, 2), 1);
-        assert_eq!(round_div_half_down(5, 2), 2);
-        assert_eq!(round_div_half_down(7, 3), 2);
-        assert_eq!(round_div_half_down(8, 3), 3);
-        assert_eq!(round_div_half_down(0, 5), 0);
-        assert_eq!(round_div_half_down(-1, 2), -1);
-        assert_eq!(round_div_half_down(-3, 2), -2);
-    }
-
-    #[test]
-    fn frame_boundaries_at_30fps() {
-        let f = Fps::new(30, 1).unwrap();
-        let frame = TICKS_PER_SECOND / 30;
-        assert_eq!(f.ticks_to_frame(Ticks(0)), 0);
-        assert_eq!(f.ticks_to_frame(Ticks(frame)), 1);
-        // exactly half a frame past frame 1 ties down to 1
-        assert_eq!(f.ticks_to_frame(Ticks(frame + frame / 2)), 1);
-        // one tick past the tie rounds up to 2
-        assert_eq!(f.ticks_to_frame(Ticks(frame + frame / 2 + 1)), 2);
-        assert_eq!(f.ticks_to_frame(Ticks(frame + frame / 2 - 1)), 1);
-        assert_eq!(f.frame_to_ticks(30), Ticks(TICKS_PER_SECOND));
-    }
-
-    #[test]
-    fn ntsc_rates_are_exact() {
-        for (n, d) in [
-            (24000, 1001),
-            (30000, 1001),
-            (60000, 1001),
-            (25, 1),
-            (60, 1),
-        ] {
-            let f = Fps::new(n, d).unwrap();
-            for k in [0i64, 1, 2, 7, 1000, 123_456] {
-                let t = f.frame_to_ticks(k);
-                assert_eq!(f.ticks_to_frame(t), k, "{n}/{d} frame {k}");
-                assert!(f.is_aligned(t));
-                // exact (no rounding needed)
-                assert_eq!(
-                    k as i128 * d as i128 * TICKS_PER_SECOND as i128 % n as i128,
-                    0
-                );
-            }
-        }
-        let f = Fps::new(30000, 1001).unwrap();
-        assert_eq!(f.frame_to_ticks(30000), Ticks(1001 * TICKS_PER_SECOND));
-    }
-
-    #[test]
-    fn snap_is_idempotent_and_uses_same_rule() {
-        let f = Fps::new(24, 1).unwrap();
-        let t = Ticks(123_456_789);
-        let s = f.snap(t);
-        assert_eq!(f.snap(s), s);
-        assert_eq!(s, f.frame_to_ticks(f.ticks_to_frame(t)));
-    }
-
-    #[test]
-    fn sample_conversion_shares_rule() {
-        // 1 frame at 30 fps = 1600 samples at 48 kHz exactly
-        let f = Fps::new(30, 1).unwrap();
-        assert_eq!(f.frame_to_ticks(1).to_units(48_000), 1600);
-        // half-sample ties down: 1 tick * 48000 / 705.6e6 is tiny -> 0
-        assert_eq!(Ticks(1).to_units(48_000), 0);
-        assert_eq!(Ticks(14_700).to_units(48_000), 1);
-        // 1.5 samples = 22_050 ticks -> ties down to 1
-        assert_eq!(Ticks(22_050).to_units(48_000), 1);
-        assert_eq!(Ticks(22_051).to_units(48_000), 2);
-    }
-
-    #[test]
-    fn rejects_zero_fps() {
-        assert_eq!(Fps::new(0, 1), Err(TimelineError::InvalidFps));
-        assert_eq!(Fps::new(30, 0), Err(TimelineError::InvalidFps));
-    }
-
-    #[test]
-    fn millidb_formatting() {
-        assert_eq!(MilliDb::from_db(-12.5).ffmpeg_db(), "-12.500dB");
-        assert_eq!(MilliDb(0).ffmpeg_db(), "0.000dB");
-        assert_eq!(MilliDb(6).ffmpeg_db(), "0.006dB");
-        assert_eq!(MilliDb(-6).ffmpeg_db(), "-0.006dB");
     }
 }

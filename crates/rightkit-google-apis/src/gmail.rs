@@ -1,12 +1,8 @@
 mod sync_full;
 pub use sync_full::fetch_sync;
 pub use sync_full::FullSyncApi;
-#[cfg(test)]
-pub use sync_full::{run_full_sync, run_sync_pass, with_pass_deadline};
 mod message_fetch;
 use message_fetch::{get_full, get_metadata};
-#[cfg(test)]
-use message_fetch::{parse_from, walk_parts};
 mod types;
 pub use types::*;
 mod batch_fetch;
@@ -18,8 +14,6 @@ mod deadline;
 
 use crate::google::{Google, GoogleError};
 mod mime;
-#[cfg(test)]
-pub use mime::PartBody;
 pub use mime::{build_raw_mime, OutgoingAttachment};
 pub use mime::{decode_b64url, encode_raw, Part};
 mod compose_api;
@@ -378,6 +372,3 @@ pub async fn batch_delete(
         .await
         .map_err(String::from)
 }
-
-#[cfg(test)]
-mod tests;

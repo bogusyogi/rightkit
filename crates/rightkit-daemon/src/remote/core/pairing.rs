@@ -24,8 +24,6 @@
 //!
 //! Lock order: the pairing lock, then the state lock, never the other way round.
 
-use std::collections::BTreeMap;
-
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use serde_json::{json, Value};
@@ -34,7 +32,6 @@ use super::{Daemon, Request, Response};
 use crate::remote::pairing::{
     pairing_code, pairing_commit, CODE_DIGITS, MAX_LABEL_CHARS, NONCE_BYTES,
 };
-use crate::remote::state::Device;
 use crate::remote::util::{ct_eq, hex, random_bytes, sha256_hex, unhex};
 
 /// How a pairing window is opened. Defaults are small on purpose.

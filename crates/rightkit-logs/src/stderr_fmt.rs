@@ -28,19 +28,3 @@ where
         .with_filter(filter)
         .boxed()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tracing_subscriber::layer::SubscriberExt;
-
-    #[test]
-    fn stderr_layer_composes_with_a_registry_without_installing_one() {
-        let subscriber = tracing_subscriber::registry()
-            .with(stderr_layer::<tracing_subscriber::Registry>("warn"));
-        tracing::subscriber::with_default(subscriber, || {
-            tracing::info!("below the warn default, so not written");
-            tracing::warn!("written to stderr by the composed layer");
-        });
-    }
-}

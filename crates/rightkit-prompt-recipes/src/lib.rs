@@ -65,23 +65,3 @@ pub fn dispatch(ctx: &Context, name: &str, input: &Value) -> Option<GenResult<Va
     }
     None
 }
-
-// Keep OS credential stores and the real data folder out of test processes.
-#[cfg(test)]
-mod no_keychain_in_tests {
-    #[ctor::ctor(unsafe)]
-    fn guard() {
-        std::env::set_var("RIGHTKIT_NO_KEYCHAIN", "1");
-        if std::env::var_os("RIGHTKIT_APP_DATA")
-            .filter(|v| !v.is_empty())
-            .is_none()
-        {
-            let dir = std::env::temp_dir().join(format!(
-                "rightkit-prompt-recipes-unit-{}",
-                std::process::id()
-            ));
-            std::fs::create_dir_all(&dir).expect("isolated test data folder");
-            std::env::set_var("RIGHTKIT_APP_DATA", dir);
-        }
-    }
-}

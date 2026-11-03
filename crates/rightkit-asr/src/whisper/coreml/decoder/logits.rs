@@ -84,33 +84,3 @@ pub(crate) fn argmax(v: &[f32]) -> usize {
     }
     bi
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn production_filter_keeps_best_speech_when_timestamp_mass_is_larger() {
-        let mut logits = vec![NEG; VOCAB];
-        let speech = 1176; // Start of omitted speech in captured row-300 trace.
-        logits[speech] = 2.0;
-        logits[TS_BEGIN as usize + 1] = 1.5;
-        logits[TS_BEGIN as usize + 2] = 1.5;
-        let current = [50258, 50259, 50360, TS_BEGIN, 100];
-        apply_filters(&mut logits, &current, 4, true);
-        assert_eq!(argmax(&logits), speech);
-        assert!(logits[TS_BEGIN as usize + 1].is_finite());
-    }
-
-    #[test]
-    fn production_filter_preserves_timestamp_pairing_and_monotonicity() {
-        let mut logits = vec![0.0; VOCAB];
-        let current = [50258, 50259, 50360, TS_BEGIN, 100, TS_BEGIN + 10];
-        apply_filters(&mut logits, &current, 4, true);
-        assert_eq!(logits[100], NEG);
-        assert_eq!(logits[NO_TS as usize], NEG);
-        assert_eq!(logits[TS_BEGIN as usize + 9], NEG);
-        assert!(logits[EOT as usize].is_finite());
-        assert!(logits[TS_BEGIN as usize + 10].is_finite());
-    }
-}

@@ -73,16 +73,3 @@ pub fn profile_aware_env_var(key: &str, profiles_dir: &str) -> Option<OsString> 
     let _ = profiles_dir;
     value
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn owner_is_found_above_the_profiles_folder() {
-        let base = std::env::temp_dir().join("acct");
-        let inside = base.join("Profiles").join("b").join("home");
-        assert_eq!(profiles_owner(&inside, "profiles"), Some(base.clone()));
-        assert_eq!(profiles_owner(&base, "profiles"), None);
-    }
-}

@@ -92,7 +92,3 @@ impl HyperlinkCache {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "hyperlinks_tests.rs"]
-mod tests;

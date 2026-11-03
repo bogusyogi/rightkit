@@ -5,7 +5,6 @@
 //! resources) never travel here, and the frame is never read from the environment or argv.
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 /// `schema` of the engine launch frame (wire id kept for compatibility with existing engines).
 pub const LAUNCH_SCHEMA: &str = "heardright.engine.launch";

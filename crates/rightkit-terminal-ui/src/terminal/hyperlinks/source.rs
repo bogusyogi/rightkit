@@ -2,8 +2,6 @@
 
 use ratatui::style::Style;
 use ratatui::text::Line;
-#[cfg(test)]
-use ratatui::text::Span;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -76,25 +74,6 @@ impl LogicalLineSource {
             .collect::<Vec<_>>()
             .into();
         source
-    }
-
-    #[cfg(test)]
-    pub(crate) fn styled_range(&self, range: Range<usize>) -> Line<'static> {
-        Line::from(
-            self.styles
-                .iter()
-                .filter_map(|(style_range, style)| {
-                    let start = style_range.start.max(range.start);
-                    let end = style_range.end.min(range.end);
-                    (start < end).then(|| {
-                        Span::styled(
-                            self.text[start..end].to_owned(),
-                            self.line_style.patch(*style).patch(self.span_style),
-                        )
-                    })
-                })
-                .collect::<Vec<_>>(),
-        )
     }
 
     pub(super) fn wrapped(&self, displayed: Range<usize>, prefix_bytes: usize) -> Self {

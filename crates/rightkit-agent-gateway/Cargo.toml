@@ -7,7 +7,7 @@ description = "Local agent gateway for a mail-style app: pairing registry, appen
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_agent_gateway"
@@ -24,9 +24,6 @@ rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-search = { version = "0.4.1", default-features = false, path = "../rightkit-search" }
 rightkit-mail = { version = "0.1.1", path = "../rightkit-mail" }
 rightkit-time = { version = "0.1.0", path = "../rightkit-time" }
-
-[dev-dependencies]
-rightkit-db = { version = "0.5.2", default-features = false, features = ["bundled"], path = "../rightkit-db" }
 
 [workspace]
 # Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids

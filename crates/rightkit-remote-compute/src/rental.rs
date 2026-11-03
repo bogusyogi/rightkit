@@ -54,9 +54,6 @@
 //! instance-side maximum lifetime or auto-stop in the create request; it needs the provider's
 //! documented field name (a fetched source), which has NOT been verified, so none is sent.
 //!
-//! Test clock: `RIGHTKIT_TEST_NOW` (unix seconds, may be fractional) replaces the current time for
-//! this module, honoured ONLY by a debug-build engine (`cfg!(debug_assertions)`); never in a release
-//! build, whatever `RIGHTKIT_QA` says.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -83,27 +80,12 @@ fn epoch_now() -> f64 {
     now_epoch()
 }
 
-/// Test clock variable (see the module doc).
-pub const NOW_ENV: &str = "RIGHTKIT_TEST_NOW";
-
-fn clock_override() -> Option<f64> {
-    if !cfg!(any(test, feature = "test-mode")) {
-        return None;
-    }
-    std::env::var(NOW_ENV)
-        .ok()
-        .and_then(|s| s.trim().parse::<f64>().ok())
-        .filter(|t| t.is_finite() && *t > 0.0)
-}
-
-/// Unix seconds now; `RIGHTKIT_TEST_NOW` in a debug-build engine only.
+/// Unix seconds now.
 pub fn now_epoch() -> f64 {
-    clock_override().unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs_f64())
-            .unwrap_or(0.0)
-    })
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
 }
 
 fn round6(x: f64) -> f64 {
@@ -1125,7 +1107,7 @@ pub fn list(ctx: &Context) -> GenResult<Value> {
         }));
     }
     Ok(json!({
-        "now_epoch": now, "clock_overridden": clock_override().is_some(),
+        "now_epoch": now, "clock_overridden": false,
         "rentals": rentals, "enforcement": HONEST_LIMITS,
     }))
 }

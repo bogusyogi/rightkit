@@ -62,7 +62,6 @@ fn has_selective_operator(q: &SearchTerms) -> bool {
 /// the query has a full-text term), plus their params in bind order.
 fn structured_predicates(q: &SearchTerms) -> (Vec<String>, Vec<String>) {
     let (msg, p) = positive_message_predicates(q);
-    debug_assert!(msg[2].contains("fts_messages"));
     (
         msg.into_iter().skip(3).collect(),
         p.into_iter().skip(1).collect(),

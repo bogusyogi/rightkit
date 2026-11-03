@@ -74,22 +74,3 @@ fn host_mcp_is_registered(agy_path: &Path) -> Result<bool, String> {
         .lines()
         .any(|line| line.split_whitespace().next() == Some(HOST_MCP_SERVER_NAME)))
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn mcp_list_name_column_matching() {
-        let table = "NAME      TYPE   STATUS   COMMAND/URL\n\
-                     membrane  stdio  enabled  C:\\path\\membrane-client.exe stdio-mcp\n\
-                     host stdio  enabled  C:\\path\\host.exe mcp-server\n";
-        let registered = table
-            .lines()
-            .any(|line| line.split_whitespace().next() == Some(super::HOST_MCP_SERVER_NAME));
-        assert!(registered);
-        let absent = "NAME      TYPE   STATUS   COMMAND/URL\n\
-                      membrane  stdio  enabled  x\n";
-        assert!(!absent
-            .lines()
-            .any(|line| { line.split_whitespace().next() == Some(super::HOST_MCP_SERVER_NAME) }));
-    }
-}

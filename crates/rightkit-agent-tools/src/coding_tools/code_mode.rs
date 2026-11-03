@@ -539,6 +539,3 @@ async fn invoke_before_deadline(
     }
     dispatcher.invoke(tool, args, context).await
 }
-
-#[cfg(test)]
-mod tests;

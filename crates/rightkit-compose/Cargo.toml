@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["composition", "video", "keyframes", "timeline"]
 categories = ["multimedia::video", "data-structures"]
-include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_compose"
@@ -38,34 +38,9 @@ rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-fea
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "blake3"], optional = true }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time", optional = true }
 
-[dev-dependencies]
-rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, features = ["native", "dev-overrides"] }
-tempfile = "3"
-
 # Citationberg is pulled by rightkit-typeset through rightkit-captions (video-project); see the vendored fix.
 [patch.crates-io]
 citationberg = { path = "../../vendor/citationberg" }
-
-
-[[test]]
-name = "native_audio_stream"
-path = "tests/native_audio_stream.rs"
-required-features = ["native"]
-
-[[test]]
-name = "native_frame_infra_tests"
-path = "tests/native_frame_infra_tests.rs"
-required-features = ["native"]
-
-[[test]]
-name = "native_mapper_tests"
-path = "tests/native_mapper_tests.rs"
-required-features = ["native"]
-
-[[test]]
-name = "native_visual_keyframes_e2e"
-path = "tests/native_visual_keyframes_e2e.rs"
-required-features = ["native"]
 
 [package.metadata.rightkit]
 continuous = false

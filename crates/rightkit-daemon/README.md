@@ -255,7 +255,7 @@ A request is bound to one effect digest, decided by a principal an app-supplied 
 
 **Not defended against:** a client that uses `Client::connect` talking to a same-user impostor (see "Verifying the host" for `Client::connect_expecting`); code already running as the current user. It passes every check by definition; the per-app allowlist is a key for routing, not a boundary against it. Root or Administrator. A process that hijacks the pid between the kernel recording it and the token lookup on Windows (the pipe DACL is the primary boundary there and the SID check is defense in depth). Local denial of service by the same user. A Unix peer is identified by effective uid; a setuid binary a different user runs appears as its owner.
 
-**Platform note.** Cross-user behaviour cannot be exercised by the unit tests (it needs a second account). The decision function is tested with a foreign uid, the listener's rejection path (peer closed unread, reported as `Rejected`) is tested with an injected verifier, and an ignored test accepts a socket served by another account (`RK_SERVICE_FOREIGN_SOCKET`).
+**Platform note.** Cross-user behaviour needs a second account and is not exercised by this crate's tests; the unit and integration tests were removed (end-to-end tests only, 2026-11-03).
 
 ## Compatibility
 

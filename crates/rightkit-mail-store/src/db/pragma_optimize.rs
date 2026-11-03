@@ -12,8 +12,6 @@
 //! planner stats. `PRAGMA optimize` itself is self-limiting (no-op when
 //! sqlite_stat1 is fresh), so re-calling at every boundary is free.
 
-use rightkit_db::rusqlite::Connection;
-
 /// Refresh planner statistics at a sync/migration/quit boundary. Best-effort
 /// — the operation never fails the caller (errors are swallowed; the planner
 /// just runs with stale stats, identical to having no `sqlite_stat1`).

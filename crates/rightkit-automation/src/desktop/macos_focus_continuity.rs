@@ -1191,7 +1191,3 @@ pub fn validate_focus_continuity_settled(
     )
     .is_valid()
 }
-
-#[cfg(test)]
-#[path = "macos_focus_continuity_tests.rs"]
-mod tests;

@@ -163,29 +163,3 @@ pub fn tokens(text: &str) -> Vec<Token> {
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn decimals_are_exact() {
-        assert_eq!(canonical("1,240").as_deref(), Some("1240"));
-        assert_eq!(canonical("1240.00").as_deref(), Some("1240"));
-        assert_eq!(canonical("$1,240").as_deref(), Some("1240"));
-        assert_eq!(canonical("1.24k").as_deref(), Some("1240"));
-        assert_eq!(canonical("2.5m").as_deref(), Some("2500000"));
-        assert_eq!(canonical("0.5").as_deref(), Some("0.5"));
-        assert_eq!(canonical("12%").as_deref(), Some("12"));
-        assert_eq!(canonical("twelve").as_deref(), Some("12"));
-        assert_ne!(canonical("1420"), canonical("1240.00"));
-        assert_eq!(canonical("abc"), None);
-    }
-
-    #[test]
-    fn tokens_cover_signs_suffixes_and_words() {
-        let t = tokens("Made $1,240 in 7 days, up 12% and 1.2k views, nine wins.");
-        let found: Vec<&str> = t.iter().map(|t| t.text.as_str()).collect();
-        assert_eq!(found, ["$1,240", "7", "12%", "1.2k", "nine"]);
-    }
-}

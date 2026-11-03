@@ -8,7 +8,6 @@
 //! [`set_state_identity`]; without that call the neutral [`StateIdentity::default`]
 //! (`RIGHTKIT_STATE_ROOT`, `RightKit`) applies.
 
-use crate::canonical::canonical_digest;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 

@@ -445,7 +445,3 @@ pub fn get_clipboard() -> Option<String> {
     let ty = unsafe { NSPasteboardTypeString };
     pb.stringForType(ty).map(|s| s.to_string())
 }
-
-#[cfg(test)]
-#[path = "clipboard_tests.rs"]
-mod tests;

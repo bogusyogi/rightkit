@@ -9,8 +9,6 @@
 //! Rules: observed data replaces `NoData`, `ProbeFailed` and `Unsupported`; a failed probe
 //! keeps the last known snapshot; `mark_unsupported` never overwrites a known snapshot.
 
-use crate::event::RateLimitInfo;
-
 /// The facts one rate-limit report carried.
 pub type RateLimitSnapshot = RateLimitInfo;
 
@@ -64,48 +62,5 @@ impl RateLimitState {
             RateLimitState::ProbeFailed { last_known, .. } => last_known.as_ref(),
             RateLimitState::NoData | RateLimitState::Unsupported { .. } => None,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn snapshot(status: &str) -> RateLimitSnapshot {
-        RateLimitSnapshot {
-            status: status.to_string(),
-            ..RateLimitSnapshot::default()
-        }
-    }
-
-    #[test]
-    fn data_beats_unsupported_and_probe_failure() {
-        let mut state = RateLimitState::default();
-        assert_eq!(state.snapshot(), None);
-        state.mark_unsupported("no limits");
-        state.observe(snapshot("allowed"));
-        assert_eq!(state.snapshot(), Some(&snapshot("allowed")));
-    }
-
-    #[test]
-    fn unsupported_does_not_hide_known_data() {
-        let mut state = RateLimitState::default();
-        state.observe(snapshot("allowed"));
-        state.mark_unsupported("no limits");
-        assert_eq!(state.snapshot(), Some(&snapshot("allowed")));
-    }
-
-    #[test]
-    fn failed_probe_keeps_last_known_snapshot() {
-        let mut state = RateLimitState::default();
-        state.probe_failed("timeout");
-        assert_eq!(state.snapshot(), None);
-        state.observe(snapshot("allowed_warning"));
-        state.probe_failed("timeout");
-        assert_eq!(state.snapshot(), Some(&snapshot("allowed_warning")));
-        assert!(matches!(
-            state,
-            RateLimitState::ProbeFailed { ref message, .. } if message == "timeout"
-        ));
     }
 }

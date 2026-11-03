@@ -266,7 +266,7 @@ use rightkit_models::{EntitlementError, ModelStore};
 use rightkit_models::suite::catalog::ModelSpec; // the suite's catalog spec, not the root `ModelSpec`
 ```
 
-- `ModelStore::shared(app_id)` binds the machine-wide shared store (the root is `rightkit_daemon::Suite::resolve`: in a build with the `test-mode` feature `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR` overrides it; a build without `test-mode` reads none of them); `ModelStore::at_models_root(root, app_id)`
+- `ModelStore::shared(app_id)` binds the machine-wide shared store (the root is `rightkit_daemon::Suite::resolve`: `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR` and `ORTHIC_SHARED_DIR` override it only in a build where `rightkit-daemon`'s `test-mode` is enabled by a dependent; this crate no longer enables it, so its own builds read none of them); `ModelStore::at_models_root(root, app_id)`
   binds an explicit directory (tests, sandboxes). `with_http_client` swaps the transport.
 - `EntitlementError` is what `try_ensure_entitled` returns. Match on it to tell "not entitled"
   (`NotEntitled`), "back off" (`RateLimited`), "retry" (`Transport`) and "local failure" (`Install`).

@@ -683,22 +683,3 @@ pub fn request_dense(
         }
     }
 }
-
-#[cfg(test)]
-mod load_path_tests {
-    use super::load_eg2;
-
-    /// Without a model directory the loader must refuse with the typed
-    /// `dense_unavailable` reason, so Recall falls back to the BM25 lane.
-    #[test]
-    fn missing_model_dir_reports_dense_unavailable() {
-        std::env::remove_var("RIGHTKIT_CONTEXT_EMBED_MODEL_DIR");
-        let error = load_eg2()
-            .err()
-            .expect("loader must refuse without a model dir");
-        assert!(
-            error.starts_with("dense_unavailable"),
-            "unexpected reason: {error}"
-        );
-    }
-}

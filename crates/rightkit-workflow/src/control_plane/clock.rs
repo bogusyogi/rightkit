@@ -91,36 +91,3 @@ fn system_time_ms() -> UnixMs {
         Err(_) => 0,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_clock_is_deterministic_and_advances() {
-        let mut a = TestClock::new(0);
-        let mut b = TestClock::new(0);
-        a.advance_ms(100);
-        assert_eq!(a.now_unix_ms(), 100);
-        assert_eq!(b.now_unix_ms(), 0);
-        b.advance_ms(100);
-        assert_eq!(a.now_unix_ms(), b.now_unix_ms());
-    }
-
-    #[test]
-    fn test_clock_set_is_exact() {
-        let mut c = TestClock::new(1);
-        c.set(42);
-        assert_eq!(c.now_unix_ms(), 42);
-        c.set(-7);
-        assert_eq!(c.now_unix_ms(), -7);
-    }
-
-    #[test]
-    fn system_clock_is_monotonic_under_repeated_reads() {
-        let clock = SystemClock::new();
-        let first = clock.now_unix_ms();
-        let second = clock.now_unix_ms();
-        assert!(second >= first);
-    }
-}

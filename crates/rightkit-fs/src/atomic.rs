@@ -20,8 +20,7 @@
 //! published: a failure leaves the destination as it was and removes the temp. A crash before step
 //! 5 leaves the destination as it was plus an orphan `.<name>.rktmp-<pid>-...` that
 //! generic sweeps retain. "Test" names a test in `tests/` (or a unit test in this file);
-//! "seam" means the row cannot be produced without fault injection and is covered by the named
-//! `atomic::testing` hook, which stands in for the OS call or state.
+//! "seam" means the row cannot be produced without fault injection; no build produces it.
 //!
 //! ## 1. Creating the temp (step 1), per platform x privacy x destination
 //!
@@ -185,8 +184,7 @@ pub enum ReplaceMode {
     ///   old content may reappear. Use [`ReplaceMode::MoveWriteThrough`] where that matters.
     ///
     /// With `durable: false` no flush is done on any platform, except that [`AtomicWriter::commit_checked`] still file-syncs the temp file before its check. [`publication_durability`] reports
-    /// which of these a given option set gets. The call and flag word each replace receives are
-    /// observable under the `testing` feature (`atomic::testing`).
+    /// which of these a given option set gets.
     #[default]
     Rename,
     /// Windows: `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`, so the
@@ -673,16 +671,6 @@ fn rename_exclusive_io_captured(
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
 
-    #[cfg(feature = "testing")]
-    if let Some(unlink_fails) = testing::link_fallback() {
-        return link_then_unlink_captured(from, to, unlink_fails, captured);
-    }
-    #[cfg(feature = "testing")]
-    if testing::no_hard_links() {
-        // A volume with neither an exclusive rename nor hard links: skip the exclusive rename; the
-        // `link` below then fails as it does there.
-        return link_then_unlink_captured(from, to, false, captured);
-    }
     let cfrom = CString::new(from.as_os_str().as_bytes())
         .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
     let cto = CString::new(to.as_os_str().as_bytes())
@@ -758,8 +746,7 @@ fn hard_links_unsupported(error: &std::io::Error) -> bool {
 /// Once the `link` succeeds `to` is published, so a failed `unlink` is returned in `cleanup`
 /// (published, with a leftover second name for the same inode), never as an error. A volume that
 /// cannot make hard links at all falls through to [`placeholder_then_rename`]. With
-/// `inject_unlink_failure` (the `testing` seam) the unlink is not attempted and an error stands in
-/// for its failure.
+/// `inject_unlink_failure` the unlink is not attempted and an error stands in for its failure.
 #[cfg(not(any(unix, windows)))]
 fn link_then_unlink(
     from: &Path,
@@ -769,7 +756,7 @@ fn link_then_unlink(
     link_then_unlink_captured(from, to, inject_unlink_failure, None)
 }
 
-#[cfg_attr(not(feature = "testing"), allow(unused_variables))]
+#[allow(unused_variables)]
 #[cfg_attr(windows, allow(dead_code))]
 fn link_then_unlink_captured(
     from: &Path,
@@ -777,13 +764,6 @@ fn link_then_unlink_captured(
     inject_unlink_failure: bool,
     captured: Option<(&File, bool)>,
 ) -> std::io::Result<Exclusive> {
-    #[cfg(all(feature = "testing", unix))]
-    let linked = if testing::no_hard_links() {
-        Err(std::io::Error::from_raw_os_error(libc::EPERM))
-    } else {
-        fs::hard_link(from, to)
-    };
-    #[cfg(not(all(feature = "testing", unix)))]
     let linked = fs::hard_link(from, to);
     match linked {
         Ok(()) => {}
@@ -791,13 +771,6 @@ fn link_then_unlink_captured(
             return placeholder_then_rename(from, to);
         }
         Err(e) => return Err(e),
-    }
-    #[cfg(feature = "testing")]
-    if inject_unlink_failure {
-        return Ok(Exclusive {
-            method: ExclusiveMethod::LinkThenUnlink,
-            cleanup: Some(std::io::Error::other("injected unlink failure")),
-        });
     }
     Ok(Exclusive {
         method: ExclusiveMethod::LinkThenUnlink,
@@ -835,8 +808,6 @@ pub struct TempWriter<'a> {
 
 impl Write for TempWriter<'_> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        #[cfg(feature = "test-seams")]
-        let buf = &buf[..seams::admit_write(buf.len())?];
         self.file.write(buf)
     }
 
@@ -1015,8 +986,7 @@ impl AtomicWriter {
     }
 
     /// The temp file as an [`std::io::Write`], for code that streams into a writer (an encoder, a
-    /// `BufWriter`). Unlike [`AtomicWriter::file_mut`] it goes through the write seam of feature
-    /// `test-seams` (`seams::fail_write_after`); without that feature it is a plain pass-through
+    /// `BufWriter`). Unlike [`AtomicWriter::file_mut`] it is a plain pass-through
     /// to the file.
     pub fn writer(&mut self) -> TempWriter<'_> {
         TempWriter {
@@ -1164,16 +1134,10 @@ impl AtomicWriter {
                 )
                 .map_err(|e| FsError::io(&self.temp, e))?,
             );
-            #[cfg(feature = "testing")]
-            testing::record(testing::Step::TempFlushed);
         } else if checked {
             // A caller's check is about to vouch for these bytes: they must be on stable
             // storage (the file only, never the directory) before it reads them, in every mode.
-            #[cfg(feature = "test-seams")]
-            seams::count_file_sync();
             file.sync_all().map_err(|e| FsError::io(&self.temp, e))?;
-            #[cfg(feature = "testing")]
-            testing::record(testing::Step::TempFlushed);
         }
         drop(file);
         #[cfg(feature = "digest")]
@@ -1341,10 +1305,6 @@ fn open_temp(
 
 #[cfg(windows)]
 fn create_owner_only_temp(temp: &Path) -> std::io::Result<File> {
-    #[cfg(feature = "testing")]
-    if let Some(error) = testing::before_harden(HardenStage::TempCreate, temp) {
-        return Err(error);
-    }
     crate::private::create_new_owner_only(temp)
 }
 
@@ -1482,12 +1442,6 @@ pub fn sync_dir(dir: &Path) {
 pub fn try_sync_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
-        #[cfg(feature = "test-seams")]
-        seams::count_dir_sync();
-        #[cfg(feature = "testing")]
-        if let Some(error) = testing::before_dir_sync(dir) {
-            return Err(error);
-        }
         // `O_DIRECTORY`: a path that is a regular file is refused without being opened, so a
         // wrong argument cannot release a record lock this process holds on that file.
         let d = {
@@ -1675,12 +1629,6 @@ pub(crate) fn flush_dir_windows(dir: &Path) -> std::io::Result<()> {
     const OPEN_EXISTING: u32 = 3;
     const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
     const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-    #[cfg(feature = "test-seams")]
-    seams::count_dir_sync();
-    #[cfg(feature = "testing")]
-    if let Some(error) = testing::before_dir_sync(dir) {
-        return Err(error);
-    }
     let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
     if wide[..wide.len() - 1].contains(&0) {
         return Err(std::io::Error::new(
@@ -1766,15 +1714,15 @@ fn publish_captured(
     Ok(Published { cleanup })
 }
 
-/// Where in an atomic write an owner-only security step runs. Reported to the `testing` hook
-/// ([`HardenCall`]). Only Windows takes these steps; Unix gets its mode bits at creation.
+/// Where in an atomic write an owner-only security step runs. Only Windows takes these steps; Unix
+/// gets its mode bits at creation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HardenStage {
     /// The temp file is created with its owner-only security descriptor (no later restriction).
     TempCreate,
 }
 
-/// One owner-only step about to run, as the `testing` hook sees it.
+/// One owner-only step about to run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HardenCall {
     pub stage: HardenStage,
@@ -1831,7 +1779,7 @@ fn transient_publish_error(windows: bool, raw: Option<i32>, include_access_denie
         }
 }
 
-/// The platform call a replace uses. Reported to the `testing` hook.
+/// The platform call a replace uses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReplaceApi {
     /// `std::fs::rename` (Unix: `rename(2)`).
@@ -1949,18 +1897,6 @@ fn replace_step_captured(
     captured: Option<(&File, bool)>,
 ) -> std::io::Result<Option<std::io::Error>> {
     let (api, flags) = plan_replace(options);
-    #[cfg(feature = "testing")]
-    {
-        testing::record(testing::Step::Replace);
-        if let Some(error) = testing::before_replace(&ReplaceCall {
-            api,
-            flags,
-            temp: temp.to_path_buf(),
-            target: target.to_path_buf(),
-        }) {
-            return Err(error);
-        }
-    }
     if let Some((file, _)) = captured {
         require_captured_temp(temp, file)?;
     }
@@ -1999,250 +1935,6 @@ fn move_file_ex(temp: &Path, target: &Path, _flags: u32) -> std::io::Result<()> 
     fs::rename(temp, target)
 }
 
-/// Fault injection for consumer tests (feature `testing`, off by default). Every hook is per
-/// thread and removed when its guard drops.
-///
-/// - `on_replace`: runs on the calling thread immediately before the replace call of every
-///   atomic write. It sees the call that is about to happen ([`ReplaceCall`]: the API, its flag
-///   word, temp and target) and may return an error, which then stands in for the OS call: the
-///   destination is untouched, and the writer removes its temp file and returns the error,
-///   exactly as for a failed `MoveFileExW` or `rename`.
-/// - `on_harden`: runs before each Windows owner-only security step ([`HardenCall`]) and may
-///   return an error in place of it, to prove a write fails closed. Unix takes no such steps.
-/// - `take_steps`: the flush, replace and directory-sync calls of this thread's writes, in
-///   order (`Step`), so tests assert the order a power-loss argument depends on.
-/// - `fail_dir_sync` and `force_link_fallback`: make the post-publication steps fail.
-///
-/// The feature cannot be used in a release build by accident: without `debug_assertions` the
-/// crate fails to compile with it enabled.
-#[cfg(feature = "testing")]
-pub mod testing {
-    use super::{HardenCall, HardenStage, ReplaceCall};
-    use std::cell::{Cell, RefCell};
-    use std::path::{Path, PathBuf};
-
-    type Hook = Box<dyn Fn(&ReplaceCall) -> Option<std::io::Error>>;
-    type HardenHook = Box<dyn Fn(&HardenCall) -> Option<std::io::Error>>;
-
-    /// One durability-relevant call of an atomic write, in the order it happened.
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    pub enum Step {
-        /// The temp file was flushed before publication (durable writes, and checked writes in any mode).
-        TempFlushed,
-        /// The replace call ran (an injected failure stands in for it).
-        Replace,
-        /// The directory was synced after publication (attempted; [`fail_dir_sync`] can make it
-        /// fail). The destination directory after publication (Unix only); on Unix and Windows
-        /// also each directory a durable `create_parents` write created, and on Windows the
-        /// parent that holds its link.
-        DirSynced(PathBuf),
-    }
-
-    thread_local! {
-        static HOOK: RefCell<Option<Hook>> = const { RefCell::new(None) };
-        static HARDEN_HOOK: RefCell<Option<HardenHook>> = const { RefCell::new(None) };
-        static STEPS: RefCell<Vec<Step>> = const { RefCell::new(Vec::new()) };
-        static DIR_SYNC_FAILURE: Cell<Option<std::io::ErrorKind>> = const { Cell::new(None) };
-        static LINK_FALLBACK: Cell<Option<bool>> = const { Cell::new(None) };
-        static NO_HARD_LINKS: Cell<bool> = const { Cell::new(false) };
-    }
-
-    /// Removes the hook when dropped.
-    pub struct HookGuard(fn());
-
-    impl Drop for HookGuard {
-        fn drop(&mut self) {
-            (self.0)();
-        }
-    }
-
-    /// Install `hook` for this thread until the guard drops. Returning `Some(error)` fails the
-    /// replace with that error; `None` lets the real call run.
-    pub fn on_replace(
-        hook: impl Fn(&ReplaceCall) -> Option<std::io::Error> + 'static,
-    ) -> HookGuard {
-        HOOK.with(|h| *h.borrow_mut() = Some(Box::new(hook)));
-        HookGuard(|| HOOK.with(|h| *h.borrow_mut() = None))
-    }
-
-    /// Install `hook` for this thread's Windows owner-only steps until the guard drops. Returning
-    /// `Some(error)` fails that step with the error; `None` lets it run. Never called on Unix.
-    pub fn on_harden(hook: impl Fn(&HardenCall) -> Option<std::io::Error> + 'static) -> HookGuard {
-        HARDEN_HOOK.with(|h| *h.borrow_mut() = Some(Box::new(hook)));
-        HookGuard(|| HARDEN_HOOK.with(|h| *h.borrow_mut() = None))
-    }
-
-    /// Make every directory sync this thread's atomic writes perform fail with `kind`, in place of
-    /// the OS call, until the guard drops. Unix; on Windows it fails the flushes of directories
-    /// made by a durable `create_parents` write.
-    pub fn fail_dir_sync(kind: std::io::ErrorKind) -> HookGuard {
-        DIR_SYNC_FAILURE.with(|f| f.set(Some(kind)));
-        HookGuard(|| DIR_SYNC_FAILURE.with(|f| f.set(None)))
-    }
-
-    /// Make `rename_exclusive` and `ReplaceMode::NoReplace` on this thread use the `link` then
-    /// `unlink` fallback even where the kernel has an exclusive rename. With `unlink_fails` the
-    /// unlink is not attempted and an injected error stands in for its failure, leaving the old
-    /// name next to the published one. Unix only.
-    pub fn force_link_fallback(unlink_fails: bool) -> HookGuard {
-        LINK_FALLBACK.with(|f| f.set(Some(unlink_fails)));
-        HookGuard(|| LINK_FALLBACK.with(|f| f.set(None)))
-    }
-
-    /// Make `rename_exclusive` and `ReplaceMode::NoReplace` on this thread behave as on a volume with
-    /// neither an exclusive rename nor hard links (FAT, exFAT, some shares): the exclusive rename is
-    /// skipped and `link(2)` fails with `EPERM`, so the publish takes the `O_EXCL` placeholder path
-    /// ([`super::ExclusiveMethod::PlaceholderThenRename`]). Unix only; a no-op on Windows, whose
-    /// exclusive move needs no hard links.
-    pub fn force_no_hard_links() -> HookGuard {
-        NO_HARD_LINKS.with(|f| f.set(true));
-        HookGuard(|| NO_HARD_LINKS.with(|f| f.set(false)))
-    }
-
-    /// The flushes, replaces and directory syncs this thread's atomic writes made since the last
-    /// call, in order. Empties the log.
-    pub fn take_steps() -> Vec<Step> {
-        STEPS.with(|steps| std::mem::take(&mut *steps.borrow_mut()))
-    }
-
-    pub(super) fn record(step: Step) {
-        STEPS.with(|steps| steps.borrow_mut().push(step));
-    }
-
-    pub(super) fn before_replace(call: &ReplaceCall) -> Option<std::io::Error> {
-        HOOK.with(|h| h.borrow().as_ref().and_then(|hook| hook(call)))
-    }
-
-    #[cfg_attr(not(windows), allow(dead_code))]
-    pub(super) fn before_harden(stage: HardenStage, path: &Path) -> Option<std::io::Error> {
-        let call = HardenCall {
-            stage,
-            path: path.to_path_buf(),
-        };
-        HARDEN_HOOK.with(|h| h.borrow().as_ref().and_then(|hook| hook(&call)))
-    }
-
-    #[cfg(any(unix, windows))]
-    pub(super) fn before_dir_sync(dir: &Path) -> Option<std::io::Error> {
-        record(Step::DirSynced(dir.to_path_buf()));
-        DIR_SYNC_FAILURE.with(|f| {
-            f.get()
-                .map(|kind| std::io::Error::new(kind, "injected directory sync failure"))
-        })
-    }
-
-    #[cfg(unix)]
-    pub(super) fn link_fallback() -> Option<bool> {
-        LINK_FALLBACK.with(Cell::get)
-    }
-
-    #[cfg(unix)]
-    pub(super) fn no_hard_links() -> bool {
-        NO_HARD_LINKS.with(Cell::get)
-    }
-}
-
-/// Release-safe seams for consumer tests (feature `test-seams`). Unlike `testing` this compiles
-/// in a release build, so an engine's release-profile tests can reach it; it is inert until a test
-/// installs something, and costs one thread-local read per write and per counted sync. Everything
-/// is per thread: a write or sync made on another thread is neither failed nor counted.
-///
-/// - `fail_write_after`: writes made through [`AtomicWriter::write_all`] or
-///   [`AtomicWriter::writer`] on this thread succeed for the first `bytes` bytes in total, then
-///   fail with the chosen error kind. A write that straddles the limit writes the bytes up to it
-///   first (what a full disk does). It does not see bytes written through
-///   [`AtomicWriter::file_mut`], or through the `File` the `atomic_write_with*` closures receive.
-///   The failed write leaves the destination untouched and the temp removed once the writer is
-///   dropped or committed, as any write error does.
-/// - `sync_counts`, `take_sync_counts`, `reset_sync_counts`: how many file flushes
-///   ([`durable_sync_with`], [`durable_sync`], and the `sync_all` of a checked commit) and
-///   directory syncs (Unix `fsync` of a directory; on Windows the flush of a directory made by a
-///   durable `create_parents` write) this thread attempted, whether or not they succeeded.
-#[cfg(feature = "test-seams")]
-pub mod seams {
-    use std::cell::Cell;
-
-    thread_local! {
-        static WRITE_BUDGET: Cell<Option<(u64, std::io::ErrorKind)>> = const { Cell::new(None) };
-        static FILE_SYNCS: Cell<u64> = const { Cell::new(0) };
-        static DIR_SYNCS: Cell<u64> = const { Cell::new(0) };
-    }
-
-    /// Removes the seam when dropped.
-    #[derive(Debug)]
-    pub struct SeamGuard(fn());
-
-    impl Drop for SeamGuard {
-        fn drop(&mut self) {
-            (self.0)();
-        }
-    }
-
-    /// File and directory syncs attempted on this thread, see the module docs.
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-    pub struct SyncCounts {
-        /// File flushes.
-        pub file_syncs: u64,
-        /// Directory syncs.
-        pub dir_syncs: u64,
-    }
-
-    /// Let the next `bytes` bytes written through this thread's [`super::AtomicWriter`] succeed,
-    /// then fail every further write with `kind` until the guard drops. The count is cumulative
-    /// across writers from the moment of this call; installing it again restarts the count.
-    pub fn fail_write_after(bytes: u64, kind: std::io::ErrorKind) -> SeamGuard {
-        WRITE_BUDGET.with(|b| b.set(Some((bytes, kind))));
-        SeamGuard(|| WRITE_BUDGET.with(|b| b.set(None)))
-    }
-
-    /// The counts since the last [`take_sync_counts`] or [`reset_sync_counts`] on this thread.
-    pub fn sync_counts() -> SyncCounts {
-        SyncCounts {
-            file_syncs: FILE_SYNCS.with(Cell::get),
-            dir_syncs: DIR_SYNCS.with(Cell::get),
-        }
-    }
-
-    /// [`sync_counts`], then zero them.
-    pub fn take_sync_counts() -> SyncCounts {
-        let counts = sync_counts();
-        reset_sync_counts();
-        counts
-    }
-
-    /// Zero this thread's counts.
-    pub fn reset_sync_counts() {
-        FILE_SYNCS.with(|c| c.set(0));
-        DIR_SYNCS.with(|c| c.set(0));
-    }
-
-    /// How many of `len` bytes this thread may write now; `Err` when the budget is spent.
-    pub(super) fn admit_write(len: usize) -> std::io::Result<usize> {
-        WRITE_BUDGET.with(|b| match b.get() {
-            None => Ok(len),
-            Some(_) if len == 0 => Ok(0),
-            Some((0, kind)) => Err(std::io::Error::new(
-                kind,
-                "injected write failure: byte budget spent",
-            )),
-            Some((left, kind)) => {
-                let n = usize::try_from(left).map_or(len, |left| left.min(len));
-                b.set(Some((left - n as u64, kind)));
-                Ok(n)
-            }
-        })
-    }
-
-    pub(super) fn count_file_sync() {
-        FILE_SYNCS.with(|c| c.set(c.get() + 1));
-    }
-
-    #[cfg_attr(not(any(unix, windows)), allow(dead_code))]
-    pub(super) fn count_dir_sync() {
-        DIR_SYNCS.with(|c| c.set(c.get() + 1));
-    }
-}
-
 /// How strong a flush [`durable_sync_with`] achieved, weakest first.
 ///
 /// - [`Full`](Self::Full): the strongest flush the platform offers: `F_FULLFSYNC` on Apple
@@ -2271,10 +1963,7 @@ pub enum SyncPolicy {
 }
 
 /// The sync ladder, with the three Apple steps passed in so the policy can be tested anywhere.
-#[cfg_attr(
-    not(any(target_vendor = "apple", feature = "testing", test)),
-    allow(dead_code)
-)]
+#[cfg_attr(not(target_vendor = "apple"), allow(dead_code))]
 pub(crate) fn sync_ladder(
     policy: SyncPolicy,
     full: impl FnOnce() -> std::io::Result<()>,
@@ -2307,13 +1996,11 @@ pub fn durable_sync(file: &File) -> std::io::Result<()> {
 /// With [`SyncPolicy::Strict`] an Apple volume that cannot `F_FULLFSYNC` is an error (the
 /// `F_FULLFSYNC` error), not a weaker success. Other platforms report [`SyncLevel::Full`].
 pub fn durable_sync_with(file: &File, policy: SyncPolicy) -> std::io::Result<SyncLevel> {
-    #[cfg(feature = "test-seams")]
-    seams::count_file_sync();
     durable_sync_with_impl(file, policy)
 }
 
-/// [`durable_sync_with`] without the `seams` file-sync count (directory syncs use it, and count
-/// themselves as directory syncs).
+/// [`durable_sync_with`] without the file-sync count (directory syncs use it, and count themselves
+/// as directory syncs).
 fn durable_sync_with_impl(file: &File, policy: SyncPolicy) -> std::io::Result<SyncLevel> {
     #[cfg(target_vendor = "apple")]
     {
@@ -2339,82 +2026,6 @@ fn durable_sync_with_impl(file: &File, policy: SyncPolicy) -> std::io::Result<Sy
     {
         let _ = policy;
         file.sync_all().map(|()| SyncLevel::Full)
-    }
-}
-
-#[cfg(test)]
-mod sync_ladder_tests {
-    use super::{sync_ladder, SyncLevel, SyncPolicy};
-    use std::cell::Cell;
-    use std::io::{Error, ErrorKind, Result};
-
-    fn ok() -> Result<()> {
-        Ok(())
-    }
-    fn no(kind: ErrorKind) -> impl FnOnce() -> Result<()> {
-        move || Err(Error::from(kind))
-    }
-
-    #[test]
-    fn full_success_stops_at_full() {
-        let barrier_ran = Cell::new(false);
-        let level = sync_ladder(
-            SyncPolicy::Fallback,
-            ok,
-            || {
-                barrier_ran.set(true);
-                Ok(())
-            },
-            ok,
-        );
-        assert_eq!(level.unwrap(), SyncLevel::Full);
-        assert!(!barrier_ran.get());
-    }
-
-    #[test]
-    fn fallback_reports_each_weaker_level() {
-        let level = |barrier: Result<()>, fsync: Result<()>| {
-            sync_ladder(
-                SyncPolicy::Fallback,
-                no(ErrorKind::Unsupported),
-                || barrier,
-                || fsync,
-            )
-        };
-        assert_eq!(level(Ok(()), Ok(())).unwrap(), SyncLevel::Barrier);
-        assert_eq!(
-            level(Err(Error::from(ErrorKind::Other)), Ok(())).unwrap(),
-            SyncLevel::Fsync
-        );
-        let all_failed = level(
-            Err(Error::from(ErrorKind::Other)),
-            Err(Error::from(ErrorKind::TimedOut)),
-        );
-        assert_eq!(all_failed.unwrap_err().kind(), ErrorKind::TimedOut);
-    }
-
-    #[test]
-    fn strict_returns_the_full_error_and_never_tries_weaker_steps() {
-        let weaker_ran = Cell::new(0);
-        let result = sync_ladder(
-            SyncPolicy::Strict,
-            no(ErrorKind::Unsupported),
-            || {
-                weaker_ran.set(weaker_ran.get() + 1);
-                Ok(())
-            },
-            || {
-                weaker_ran.set(weaker_ran.get() + 1);
-                Ok(())
-            },
-        );
-        assert_eq!(result.unwrap_err().kind(), ErrorKind::Unsupported);
-        assert_eq!(weaker_ran.get(), 0);
-    }
-
-    #[test]
-    fn levels_order_weakest_first() {
-        assert!(SyncLevel::Fsync < SyncLevel::Barrier && SyncLevel::Barrier < SyncLevel::Full);
     }
 }
 
@@ -2494,609 +2105,4 @@ fn sweep_stale_temps_path(dir: &Path) -> Result<SweepReport> {
         report.retained_other += 1;
     }
     Ok(report)
-}
-
-#[cfg(test)]
-mod plan_tests {
-    use super::*;
-
-    fn options(replace: ReplaceMode, durable: bool) -> AtomicWriteOptions {
-        AtomicWriteOptions {
-            replace,
-            durable,
-            ..AtomicWriteOptions::default()
-        }
-    }
-
-    const MODES: [ReplaceMode; 3] = [
-        ReplaceMode::Rename,
-        ReplaceMode::MoveWriteThrough,
-        ReplaceMode::NoReplace,
-    ];
-
-    #[test]
-    fn windows_write_through_is_only_ever_movefileex() {
-        let both = MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH;
-        assert_eq!(
-            plan_replace_on(true, options(ReplaceMode::MoveWriteThrough, true)),
-            (ReplaceApi::MoveFileEx, both)
-        );
-        assert_eq!(
-            plan_replace_on(true, options(ReplaceMode::MoveWriteThrough, false)),
-            (ReplaceApi::MoveFileEx, both),
-            "MoveWriteThrough is write-through whatever `durable` says"
-        );
-        assert_eq!(
-            plan_replace_on(true, options(ReplaceMode::NoReplace, true)),
-            (ReplaceApi::MoveFileEx, MOVEFILE_WRITE_THROUGH)
-        );
-        assert_eq!(
-            plan_replace_on(true, options(ReplaceMode::NoReplace, false)),
-            (ReplaceApi::MoveFileEx, 0),
-            "NoReplace never passes MOVEFILE_REPLACE_EXISTING"
-        );
-        assert_eq!(
-            plan_replace_on(true, options(ReplaceMode::Rename, true)),
-            (ReplaceApi::Rename, 0),
-            "the default mode stays std::fs::rename"
-        );
-    }
-
-    #[test]
-    fn off_windows_every_replacing_mode_is_a_rename_and_no_replace_is_exclusive() {
-        for durable in [true, false] {
-            for replace in [ReplaceMode::Rename, ReplaceMode::MoveWriteThrough] {
-                assert_eq!(
-                    plan_replace_on(false, options(replace, durable)),
-                    (ReplaceApi::Rename, 0),
-                    "{replace:?} durable={durable}"
-                );
-            }
-            assert_eq!(
-                plan_replace_on(false, options(ReplaceMode::NoReplace, durable)),
-                (ReplaceApi::RenameExclusive, 0)
-            );
-        }
-    }
-
-    #[test]
-    fn publication_durability_states_what_each_windows_mode_gives() {
-        use PublicationDurability::*;
-        let on_windows =
-            |replace, durable| publication_durability_on(true, &options(replace, durable));
-        assert_eq!(on_windows(ReplaceMode::Rename, true), FileFlushedOnly);
-        assert_eq!(
-            on_windows(ReplaceMode::MoveWriteThrough, true),
-            WriteThroughMove
-        );
-        assert_eq!(on_windows(ReplaceMode::NoReplace, true), WriteThroughMove);
-        for replace in MODES {
-            assert_eq!(on_windows(replace, false), None, "{replace:?}");
-        }
-    }
-
-    #[test]
-    fn publication_durability_off_windows_is_a_directory_flush() {
-        for replace in MODES {
-            let durable = options(replace, true);
-            assert_eq!(
-                publication_durability_on(false, &durable),
-                PublicationDurability::DirectoryFlushed
-            );
-            assert_eq!(
-                publication_durability_on(false, &options(replace, false)),
-                PublicationDurability::None
-            );
-        }
-    }
-
-    #[test]
-    fn the_destination_argument_of_the_public_answer_changes_nothing() {
-        for replace in MODES {
-            let o = options(replace, true);
-            assert_eq!(
-                publication_durability(&o, true),
-                publication_durability(&o, false)
-            );
-        }
-    }
-}
-
-#[cfg(test)]
-mod temp_name_tests {
-    use super::*;
-
-    #[test]
-    fn every_name_this_crate_generates_parses_back_to_its_pid() {
-        for attempt in 0..TEMP_ATTEMPTS {
-            let atomic = temp_name("state.json", attempt);
-            assert_eq!(
-                generated_temp_pid(&atomic),
-                Some(std::process::id()),
-                "{atomic}"
-            );
-        }
-        // The `StateDir` form has no nanosecond field.
-        assert_eq!(generated_temp_pid(".a.rktmp-123-45-0"), Some(123));
-        assert_eq!(generated_temp_pid(".a.rktmp-123-45-ff-31"), Some(123));
-        // A real name that itself contains the marker still parses by its generated tail.
-        assert_eq!(generated_temp_pid(".a.rktmp-9-9-9.rktmp-5-6-7-0"), Some(5));
-        assert_eq!(
-            generated_temp_pid("..rktmp-5-6-7"),
-            None,
-            "no name before the marker"
-        );
-    }
-
-    #[test]
-    fn long_multibyte_names_get_a_bounded_prefix_and_still_parse_back() {
-        // 40 x 'e-acute' (2 bytes) + 200 x CJK (3 bytes): far past any component limit once the
-        // suffix is added. The generated name keeps a bounded, boundary-cut prefix and the exact
-        // suffix the sweep parses.
-        let name = format!("{}{}", "\u{e9}".repeat(40), "\u{4e2d}".repeat(200));
-        let generated = temp_name(&name, 0);
-        assert_eq!(generated_temp_pid(&generated), Some(std::process::id()));
-        let prefix = generated[1..].split(TEMP_MARKER).next().unwrap();
-        assert!(prefix.len() <= TEMP_PREFIX_MAX_BYTES, "{prefix:?}");
-        assert!(!prefix.is_empty());
-        assert!(
-            name.starts_with(prefix),
-            "a cut on a char boundary: {prefix:?}"
-        );
-        assert!(
-            generated.len() <= 1 + TEMP_PREFIX_MAX_BYTES + 48,
-            "{generated}"
-        );
-        // A boundary straddling the cap loses the whole char, never splits it.
-        let straddling = format!("{}{}", "a".repeat(63), "\u{e9}".repeat(10));
-        assert_eq!(temp_prefix(&straddling), "a".repeat(63).as_str());
-        // Short names are carried whole.
-        assert_eq!(temp_prefix("state.json"), "state.json");
-    }
-
-    #[test]
-    fn windows_names_that_normalize_to_a_temp_name_are_reserved() {
-        // Win32 drops leading spaces, trailing spaces and periods and addresses `name:stream` as a
-        // stream of `name`: each of these is created as the reserved `.record.rktmp-123-1-0`.
-        for name in [
-            ".record.rktmp-123-1-0 ",
-            ".record.rktmp-123-1-0.",
-            ".record.rktmp-123-1-0. . ",
-            ".record.rktmp-123-1-0:stream",
-            ".record.rktmp-123-1-0::$DATA",
-            ".record.rktmp-123-1-ff-0 ",
-            // Leading ASCII spaces, alone and combined with every other form.
-            " .record.rktmp-123-1-0",
-            "   .record.rktmp-123-1-0",
-            " .record.rktmp-123-1-ff-0",
-            " .record.rktmp-123-1-0 ",
-            "  .record.rktmp-123-1-0. . ",
-            " .record.rktmp-123-1-0:stream",
-        ] {
-            assert!(
-                matches!(
-                    reject_reserved_name_on(true, name),
-                    Err(FsError::BadName(_))
-                ),
-                "{name:?} must be refused on Windows"
-            );
-            // Elsewhere those are different, legitimate names.
-            assert!(reject_reserved_name_on(false, name).is_ok(), "{name:?}");
-        }
-        // Ordinary names, including ones with a space or period inside or a leading space that
-        // does not lead to a reserved name, are untouched.
-        for name in [
-            "record.json",
-            "my record.json",
-            "a.b.c",
-            ".record.rktmp-1-final ",
-            " record.json",
-            " .record.rktmp-1-final",
-            ".record.rktmp-123-1-0x",
-        ] {
-            assert!(reject_reserved_name_on(true, name).is_ok(), "{name:?}");
-        }
-        assert_eq!(windows_stored_name("a. ."), "a");
-        assert_eq!(windows_stored_name("a:b"), "a");
-        assert_eq!(windows_stored_name("  a"), "a");
-        assert_eq!(windows_stored_name(" a b . "), "a b");
-        assert_eq!(windows_stored_name(" a:b"), "a");
-        assert_eq!(
-            windows_stored_name("a\t"),
-            "a\t",
-            "only ASCII spaces are dropped"
-        );
-    }
-
-    #[test]
-    fn names_that_merely_contain_the_marker_are_not_temp_names() {
-        for name in [
-            "invoice.rktmp-1-final",
-            ".invoice.rktmp-1-final",
-            "invoice.rktmp-1-2-3",
-            "a.rktmp-1",
-            ".a.rktmp-1",
-            ".a.rktmp-1-2",
-            ".a.rktmp-1-2-3-4-5",
-            ".a.rktmp--2-0",
-            ".a.rktmp-1-2-32",
-            ".a.rktmp-1-2-xyz-0",
-            ".a.rktmp-1-2-123456789-0",
-            ".a.rktmp-99999999999-2-0",
-            ".a.rktmp-1-+2-0",
-            ".rktmp-1-2-0",
-            ".a.rktmp-",
-            "a",
-        ] {
-            assert_eq!(generated_temp_pid(name), None, "{name}");
-            assert!(reject_reserved_name(name).is_ok(), "{name}");
-        }
-        assert!(matches!(
-            reject_reserved_name(".a.rktmp-1-2-0"),
-            Err(FsError::BadName(_))
-        ));
-    }
-}
-
-#[cfg(test)]
-mod retry_tests {
-    use super::{retry_with, RetryPolicy};
-    use std::cell::Cell;
-    use std::io;
-    use std::time::Duration;
-
-    fn sharing(_: &io::Error) -> bool {
-        true
-    }
-
-    #[test]
-    fn retries_until_success_within_the_budget() {
-        let calls = Cell::new(0);
-        let policy = Some(RetryPolicy::new(3, Duration::ZERO));
-        let result = retry_with(policy, sharing, || {
-            calls.set(calls.get() + 1);
-            if calls.get() < 3 {
-                Err(io::Error::from_raw_os_error(32))
-            } else {
-                Ok(())
-            }
-        });
-        assert!(result.is_ok());
-        assert_eq!(calls.get(), 3, "one attempt plus two retries");
-    }
-
-    #[test]
-    fn gives_up_after_the_retry_budget() {
-        let calls = Cell::new(0);
-        let policy = Some(RetryPolicy::new(2, Duration::ZERO));
-        let result: io::Result<()> = retry_with(policy, sharing, || {
-            calls.set(calls.get() + 1);
-            Err(io::Error::from_raw_os_error(32))
-        });
-        assert!(result.is_err());
-        assert_eq!(
-            calls.get(),
-            3,
-            "one attempt plus two retries, then the error"
-        );
-    }
-
-    #[test]
-    fn no_policy_means_one_attempt() {
-        let calls = Cell::new(0);
-        let result: io::Result<()> = retry_with(None, sharing, || {
-            calls.set(calls.get() + 1);
-            Err(io::Error::from_raw_os_error(32))
-        });
-        assert!(result.is_err());
-        assert_eq!(calls.get(), 1);
-    }
-
-    #[test]
-    fn unclassified_errors_are_not_retried() {
-        let calls = Cell::new(0);
-        let policy = Some(RetryPolicy::new(5, Duration::ZERO));
-        let never = |_: &io::Error| false;
-        let result: io::Result<()> = retry_with(policy, never, || {
-            calls.set(calls.get() + 1);
-            Err(io::Error::from_raw_os_error(32))
-        });
-        assert!(result.is_err());
-        assert_eq!(calls.get(), 1);
-    }
-}
-
-#[cfg(test)]
-mod access_denied_retry_tests {
-    use super::{
-        is_sharing_or_access_denied, is_sharing_violation, retry_with, transient_publish_error,
-        AccessDeniedRetry, RetryPolicy,
-    };
-    use std::cell::Cell;
-    use std::io;
-    use std::time::Duration;
-
-    #[test]
-    fn default_classifier_never_counts_error_5() {
-        for windows in [true, false] {
-            assert!(!transient_publish_error(windows, Some(5), false));
-        }
-    }
-
-    #[test]
-    fn opted_in_classifier_counts_error_5_only_on_windows() {
-        assert!(transient_publish_error(true, Some(5), true));
-        assert!(!transient_publish_error(false, Some(5), true));
-    }
-
-    #[test]
-    fn sharing_and_lock_violations_are_unchanged() {
-        for include in [false, true] {
-            assert!(transient_publish_error(true, Some(32), include));
-            assert!(transient_publish_error(true, Some(33), include));
-            assert!(!transient_publish_error(false, Some(32), include));
-            assert!(!transient_publish_error(false, Some(33), include));
-        }
-    }
-
-    #[test]
-    fn other_errors_are_never_transient() {
-        for include in [false, true] {
-            for raw in [
-                None,
-                Some(0),
-                Some(2),
-                Some(3),
-                Some(31),
-                Some(34),
-                Some(87),
-            ] {
-                assert!(!transient_publish_error(true, raw, include), "{raw:?}");
-            }
-        }
-    }
-
-    #[test]
-    fn the_real_classifiers_follow_the_platform() {
-        let denied = io::Error::from_raw_os_error(5);
-        assert!(!is_sharing_violation(&denied), "default never retries 5");
-        assert_eq!(is_sharing_or_access_denied(&denied), cfg!(windows));
-        let sharing = io::Error::from_raw_os_error(32);
-        assert_eq!(is_sharing_violation(&sharing), cfg!(windows));
-        assert_eq!(is_sharing_or_access_denied(&sharing), cfg!(windows));
-    }
-
-    #[test]
-    fn the_opt_in_carries_its_bound() {
-        let policy = RetryPolicy::new(4, Duration::from_millis(7));
-        assert_eq!(AccessDeniedRetry::new(policy).policy(), policy);
-    }
-
-    // The loop logic with the Windows classifiers injected, so it runs on every OS.
-    fn windows_default(e: &io::Error) -> bool {
-        transient_publish_error(true, e.raw_os_error(), false)
-    }
-    fn windows_opted_in(e: &io::Error) -> bool {
-        transient_publish_error(true, e.raw_os_error(), true)
-    }
-
-    #[test]
-    fn error_5_is_retried_up_to_the_bound_then_succeeds_when_opted_in() {
-        let calls = Cell::new(0);
-        let policy = Some(RetryPolicy::new(3, Duration::ZERO));
-        let result = retry_with(policy, windows_opted_in, || {
-            calls.set(calls.get() + 1);
-            if calls.get() <= 3 {
-                Err(io::Error::from_raw_os_error(5))
-            } else {
-                Ok(())
-            }
-        });
-        assert!(result.is_ok());
-        assert_eq!(calls.get(), 4, "one attempt plus three retries");
-    }
-
-    #[test]
-    fn error_5_returns_the_original_error_after_the_bound_when_opted_in() {
-        let calls = Cell::new(0);
-        let policy = Some(RetryPolicy::new(2, Duration::ZERO));
-        let result: io::Result<()> = retry_with(policy, windows_opted_in, || {
-            calls.set(calls.get() + 1);
-            Err(io::Error::from_raw_os_error(5))
-        });
-        assert_eq!(calls.get(), 3, "one attempt plus two retries, no more");
-        let error = result.unwrap_err();
-        assert_eq!(
-            error.raw_os_error(),
-            Some(5),
-            "the original error, unchanged"
-        );
-    }
-
-    #[test]
-    fn error_5_is_not_retried_by_default() {
-        let calls = Cell::new(0);
-        let policy = Some(RetryPolicy::new(5, Duration::ZERO));
-        let result: io::Result<()> = retry_with(policy, windows_default, || {
-            calls.set(calls.get() + 1);
-            Err(io::Error::from_raw_os_error(5))
-        });
-        assert_eq!(calls.get(), 1, "default policy: one attempt, no retry of 5");
-        assert_eq!(result.unwrap_err().raw_os_error(), Some(5));
-    }
-
-    #[test]
-    fn default_still_retries_32_and_33_within_the_bound() {
-        for code in [32, 33] {
-            let calls = Cell::new(0);
-            let policy = Some(RetryPolicy::new(2, Duration::ZERO));
-            let result: io::Result<()> = retry_with(policy, windows_default, || {
-                calls.set(calls.get() + 1);
-                Err(io::Error::from_raw_os_error(code))
-            });
-            assert_eq!(calls.get(), 3);
-            assert_eq!(result.unwrap_err().raw_os_error(), Some(code));
-        }
-    }
-
-    #[test]
-    fn opted_in_retries_a_mixed_run_of_5_and_32_on_one_budget() {
-        let calls = Cell::new(0);
-        let policy = Some(RetryPolicy::new(2, Duration::ZERO));
-        let result: io::Result<()> = retry_with(policy, windows_opted_in, || {
-            calls.set(calls.get() + 1);
-            Err(io::Error::from_raw_os_error(if calls.get() == 1 {
-                5
-            } else {
-                32
-            }))
-        });
-        assert_eq!(calls.get(), 3, "5 and 32 draw on the same two retries");
-        assert_eq!(result.unwrap_err().raw_os_error(), Some(32));
-    }
-
-    #[test]
-    fn a_non_transient_error_after_a_5_ends_the_retries() {
-        let calls = Cell::new(0);
-        let policy = Some(RetryPolicy::new(5, Duration::ZERO));
-        let result: io::Result<()> = retry_with(policy, windows_opted_in, || {
-            calls.set(calls.get() + 1);
-            Err(io::Error::from_raw_os_error(if calls.get() == 1 {
-                5
-            } else {
-                2
-            }))
-        });
-        assert_eq!(calls.get(), 2);
-        assert_eq!(result.unwrap_err().raw_os_error(), Some(2));
-    }
-
-    #[cfg(windows)]
-    mod held_destination {
-        use super::super::{
-            atomic_write_with_access_denied_retry, atomic_write_with_options, AccessDeniedRetry,
-            AtomicWriteOptions, RetryPolicy,
-        };
-        use crate::FsError;
-        use std::fs::OpenOptions;
-        use std::io::Write;
-        use std::os::windows::fs::OpenOptionsExt;
-        use std::time::Duration;
-
-        /// Opens `path` for reading with read and write sharing but NOT delete sharing, the
-        /// reader that makes a replace fail with error 5.
-        fn hold_without_delete_share(path: &std::path::Path) -> std::fs::File {
-            OpenOptions::new()
-                .read(true)
-                .share_mode(0x1 | 0x2) // FILE_SHARE_READ | FILE_SHARE_WRITE
-                .open(path)
-                .unwrap()
-        }
-
-        fn is_denied(error: &FsError) -> bool {
-            matches!(error, FsError::Io { source, .. } if source.raw_os_error() == Some(5))
-        }
-
-        #[test]
-        fn opt_in_waits_out_a_reader_and_default_does_not() {
-            let dir = tempfile::tempdir().unwrap();
-            let target = dir.path().join("held.txt");
-            std::fs::write(&target, b"old").unwrap();
-
-            // Default: error 5 is returned at once, the old content intact.
-            let holder = hold_without_delete_share(&target);
-            let default_policy = AtomicWriteOptions {
-                retry_sharing_violation: Some(RetryPolicy::new(3, Duration::from_millis(5))),
-                ..AtomicWriteOptions::default()
-            };
-            let error = atomic_write_with_options(&target, default_policy, |f| f.write_all(b"new"))
-                .unwrap_err();
-            assert!(is_denied(&error), "{error:?}");
-            assert_eq!(std::fs::read(&target).unwrap(), b"old");
-
-            // Opted in, reader never leaves: the original error 5 comes back after the bound.
-            let retry = AccessDeniedRetry::new(RetryPolicy::new(3, Duration::from_millis(5)));
-            let error = atomic_write_with_access_denied_retry(
-                &target,
-                AtomicWriteOptions::default(),
-                retry,
-                |f| f.write_all(b"new"),
-            )
-            .unwrap_err();
-            assert!(is_denied(&error), "{error:?}");
-            assert_eq!(std::fs::read(&target).unwrap(), b"old");
-
-            // Opted in, reader leaves during the retries: the write lands.
-            let release = std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(60));
-                drop(holder);
-            });
-            let patient = AccessDeniedRetry::new(RetryPolicy::new(200, Duration::from_millis(10)));
-            atomic_write_with_access_denied_retry(
-                &target,
-                AtomicWriteOptions::default(),
-                patient,
-                |f| f.write_all(b"new"),
-            )
-            .unwrap();
-            release.join().unwrap();
-            assert_eq!(std::fs::read(&target).unwrap(), b"new");
-        }
-    }
-}
-
-#[cfg(test)]
-mod commit_as_tests {
-    use super::{AtomicWriteOptions, AtomicWriter, ReplaceMode};
-    use crate::error::FsError;
-
-    #[test]
-    fn commit_as_publishes_under_the_new_name_and_leaves_no_temp() {
-        let dir = tempfile::tempdir().unwrap();
-        let provisional = dir.path().join("segment.part");
-        let final_name = dir.path().join("segment-abc123.bin");
-        let mut writer =
-            AtomicWriter::create_with(&provisional, AtomicWriteOptions::default()).unwrap();
-        writer.write_all(b"payload").unwrap();
-        writer
-            .commit_as(&final_name, ReplaceMode::NoReplace)
-            .unwrap();
-        assert_eq!(std::fs::read(&final_name).unwrap(), b"payload");
-        assert!(!provisional.exists());
-        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(leftovers.len(), 1, "{leftovers:?}");
-    }
-
-    #[test]
-    fn commit_as_no_replace_refuses_an_existing_name_and_keeps_it() {
-        let dir = tempfile::tempdir().unwrap();
-        let final_name = dir.path().join("taken.bin");
-        std::fs::write(&final_name, b"old").unwrap();
-        let mut writer =
-            AtomicWriter::create_with(&dir.path().join("x.part"), AtomicWriteOptions::default())
-                .unwrap();
-        writer.write_all(b"new").unwrap();
-        let err = writer
-            .commit_as(&final_name, ReplaceMode::NoReplace)
-            .unwrap_err();
-        assert!(matches!(err, FsError::AlreadyExists(_)), "{err:?}");
-        assert_eq!(std::fs::read(&final_name).unwrap(), b"old");
-    }
-
-    #[test]
-    fn commit_as_refuses_a_name_in_another_directory() {
-        let dir = tempfile::tempdir().unwrap();
-        let other = tempfile::tempdir().unwrap();
-        let mut writer =
-            AtomicWriter::create_with(&dir.path().join("y.part"), AtomicWriteOptions::default())
-                .unwrap();
-        writer.write_all(b"z").unwrap();
-        let err = writer
-            .commit_as(&other.path().join("elsewhere.bin"), ReplaceMode::Rename)
-            .unwrap_err();
-        assert!(matches!(err, FsError::BadName(_)), "{err:?}");
-    }
 }

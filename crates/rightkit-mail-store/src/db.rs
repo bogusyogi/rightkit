@@ -4,10 +4,6 @@ mod migrations;
 pub(crate) use migrations::ensure_runtime_schema;
 // The schema migration runs only through `migration_gate::gate_and_migrate`:
 // outside tests `migrate` is not visible beyond this module.
-#[cfg(test)]
-pub(crate) use migrations::migrate;
-#[cfg(not(test))]
-use migrations::migrate;
 pub(crate) mod data_dir;
 pub use data_dir::data_dir;
 mod migration_backup;
@@ -431,27 +427,8 @@ pub fn ensure_local_indexing(conn: &Connection) -> Result<(), String> {
     }
     Ok(())
 }
-/// Defense-in-depth on the SQLCipher key before it's interpolated into a
-/// `PRAGMA key`/`PRAGMA rekey` statement. Our keys are always OS-CSPRNG base64
-/// (standard alphabet + padding), so we can demand exactly that and reject
-/// anything containing a quote or other unexpected byte outright — closing the
-/// latent PRAGMA-injection path even if a future code path ever sourced a key
-/// from elsewhere.
-#[cfg(test)]
-fn key_is_safe(key: &str) -> bool {
-    !key.is_empty()
-        && key
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
-}
 // Schema SQL + version live in `db_schema` (T24 decomposition slice).
 use crate::db_schema::{
     SCHEMA_V1, SCHEMA_V10, SCHEMA_V11, SCHEMA_V12, SCHEMA_V13, SCHEMA_V14, SCHEMA_V2, SCHEMA_V3,
     SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9, SCHEMA_VERSION,
 };
-#[cfg(test)]
-mod test_conn;
-#[cfg(test)]
-pub use test_conn::test_conn;
-#[cfg(test)]
-mod tests;

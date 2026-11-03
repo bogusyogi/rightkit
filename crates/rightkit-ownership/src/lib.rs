@@ -65,9 +65,6 @@ pub fn catalog_value() -> &'static serde_json::Value {
     PARSED.get_or_init(|| serde_json::from_str(CATALOG).expect("embedded ownership catalog parses"))
 }
 
-#[cfg(test)]
-mod tests;
-
 pub use admission::{
     classify_ownership_report, AdmissionConfig, Classification, Mode, OwnershipAdmission, Refusal,
     Target, Verdict, Violation, DEFAULT_TIMEOUT,

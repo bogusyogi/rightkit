@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 
 - Security: the workspace patches `citationberg` 0.7.0 with a vendored copy (`vendor/citationberg`) that requires quick-xml 0.42, fixing RUSTSEC-2026-0194 and RUSTSEC-2026-0195 for CSL parsed through `bibliography(style: bytes(...))`. Limitation: the `[patch.crates-io]` entry covers only builds from this workspace. A downstream consumer of a published `rightkit-typeset` must apply the same patch (vendor `citationberg` 0.7.0 with quick-xml >=0.41) until upstream citationberg releases with quick-xml >=0.41.
 

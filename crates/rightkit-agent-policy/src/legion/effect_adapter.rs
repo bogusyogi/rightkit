@@ -8,7 +8,6 @@ use rightkit_sandbox::execution::{
     EffectExecutionError, EffectExecutionOutcome, EffectExecutionRequest, EffectExecutionStatus,
     EffectPerformer,
 };
-use std::collections::BTreeSet;
 
 /// Legion policy metadata paired with the host app's lossless execution request.
 #[derive(Clone, Debug, Eq, PartialEq)]

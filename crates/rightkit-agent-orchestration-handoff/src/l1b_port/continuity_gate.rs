@@ -447,20 +447,3 @@ fn identifier_errors(text: &str, context: &ContinuityContext, errors: &mut Vec<S
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn extracts_typed_references_only() {
-        let refs = extract_refs(
-            "see bogusyogi/rightkit#914 and PR 12, issue #7; exception M21 b1; ## 3. heading; #prefix=0",
-        );
-        let expected: BTreeSet<String> = ["#914", "#12", "#7", "exception:M21"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        assert_eq!(refs, expected);
-    }
-}

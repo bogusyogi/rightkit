@@ -234,7 +234,3 @@ fn alias_is_safe(alias: &str) -> bool {
     }
     !crate::vocab_learn::COMMON_WORD_STOPLIST.contains(&alias.to_lowercase().as_str())
 }
-
-#[cfg(test)]
-#[path = "vocabulary_tests.rs"]
-mod tests;

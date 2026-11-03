@@ -49,7 +49,3 @@ pub use requirement::{
     StructuredSignals,
 };
 pub use resolver::{MechanismResolver, SemanticOutput, SemanticVerification};
-
-#[cfg(test)]
-#[path = "mechanism_tests.rs"]
-mod mechanism_tests;

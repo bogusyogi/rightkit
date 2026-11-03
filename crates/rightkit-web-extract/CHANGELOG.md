@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.1
 
 - Added the fetch tiers (`fetch`, `net`, `browser`, `tls`, `tls_ffi`) behind the `ArticleNet` and `BrowserHost` traits. Additive: `article_extract_from_html_filtered` joins `article_extract_from_html`.

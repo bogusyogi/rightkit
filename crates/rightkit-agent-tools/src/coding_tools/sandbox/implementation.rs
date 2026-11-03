@@ -10,7 +10,6 @@ pub fn shell_job() -> std::io::Result<WindowsJob> {
     WindowsJob::new(Some(rightkit_child_process::DEFAULT_ACTIVE_PROCESS_LIMIT))
 }
 include!("windows_appcontainer.rs");
-include!("tests.rs");
 
 /// Reserved launch-environment key carrying extra read/execute roots for one
 /// confined launch. The Windows AppContainer backend consumes (and removes) it
@@ -66,34 +65,3 @@ pub fn is_interpreter_install_dir(dir: &std::path::Path) -> bool {
 /// True when `root` is, or contains, a per-user directory, the user profile or a protected
 /// secret folder (RightKit's check; stricter than the previous local one).
 pub use rightkit_sandbox::read_root_is_too_broad;
-
-#[cfg(test)]
-mod read_roots_env_tests {
-    use super::*;
-    use std::path::PathBuf;
-
-    #[test]
-    fn read_roots_round_trip_and_empty_is_no_entry() {
-        assert!(sandbox_read_roots_env(&[]).is_empty());
-        let dir = tempfile::tempdir().unwrap();
-        let install = dir.path().join("Python311");
-        let base = dir.path().join("Base");
-        for root in [&install, &base] {
-            std::fs::create_dir_all(root).unwrap();
-            std::fs::write(root.join("python.exe"), b"x").unwrap();
-        }
-        let roots = vec![install, base];
-        let env = sandbox_read_roots_env(&roots);
-        assert_eq!(env.len(), 1);
-        assert_eq!(parse_sandbox_read_roots(&env), roots);
-    }
-
-    #[test]
-    fn read_roots_without_an_interpreter_are_dropped() {
-        let dir = tempfile::tempdir().unwrap();
-        let secrets = dir.path().join("not-python");
-        std::fs::create_dir_all(&secrets).unwrap();
-        let env = sandbox_read_roots_env(&[secrets, PathBuf::from("C:/")]);
-        assert!(parse_sandbox_read_roots(&env).is_empty());
-    }
-}

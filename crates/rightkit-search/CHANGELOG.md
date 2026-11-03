@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.4.1 (unpublished)
 
 - `html_text::html_to_text`: HTML to indexable plain text (drops tags, attributes, comments, script/style/head; decodes entities; collapses whitespace). No dependency. Moved from MailRight (db/fts_text.rs). Existing API unchanged.

@@ -206,7 +206,3 @@ impl Tool for rightkit_ffmpeg::agent_media::NativeMediaTool {
 // factories use. They are filterable through the toolset gateway
 // (`--allowed-tools` / `--disallowed-tools` / `--toolset`) like every
 // other tool — no hardcoded always-on / always-off list.
-
-#[cfg(test)]
-#[path = "media_tools_tests.rs"]
-mod media_tools_tests;

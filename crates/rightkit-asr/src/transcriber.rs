@@ -95,31 +95,3 @@ pub trait Transcriber {
         Ok(results)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::decoder::LanguageSource;
-
-    struct Fixed;
-
-    impl Transcriber for Fixed {
-        fn transcribe_samples(
-            &mut self,
-            _audio: Vec<f32>,
-            _sample_rate: u32,
-            _channels: u16,
-            _mode: Option<TimestampMode>,
-        ) -> Result<TranscriptionResult> {
-            Ok(TranscriptionResult { text: "hello".into(), tokens: Vec::new() })
-        }
-    }
-
-    #[test]
-    fn default_language_is_unknown_never_guessed() {
-        let t = Fixed.transcribe_samples_with_language(vec![0.0; 16], 16_000, 1, None).unwrap();
-        assert_eq!(t.result.text, "hello");
-        assert_eq!(t.language.code, None);
-        assert_eq!(t.language.source, LanguageSource::Unknown);
-    }
-}

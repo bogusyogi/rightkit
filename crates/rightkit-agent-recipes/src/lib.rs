@@ -24,10 +24,3 @@ pub use types::{
     SubRecipeRef,
 };
 pub use validation::{validate_recipe, validate_recipe_with_catalog};
-
-#[cfg(test)]
-mod lib_tests;
-#[cfg(test)]
-mod response_schema_tests;
-#[cfg(test)]
-mod run_plan_tests;

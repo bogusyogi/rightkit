@@ -332,31 +332,19 @@ fn partition_tokens(bytes: &[u8]) -> Vec<String> {
 }
 
 /// Every build accepts exactly the host app's team, dev installs included (security record S1 / README
-/// "Where the designs met" item 5: `debug_assertions` no longer relaxes this). Only a build with the
-/// `test-overrides` feature (the gate's test run; never a dev or release install) accepts any
-/// partition except Apple's own tools, so an unsigned test engine still works. That branch is not
-/// compiled without the feature.
+/// "Where the designs met" item 5).
 fn judge(tokens: &[String]) -> Result<(), String> {
     if tokens.is_empty() {
         return Err("the keychain item carries no partition list".into());
     }
-    #[cfg(not(feature = "test-overrides"))]
-    {
-        let Some(team) = crate::signing_team() else {
-            return Err(
-                "no code-signing team is configured, so the keychain item is not trusted".into(),
-            );
-        };
-        let own = format!("teamid:{team}");
-        if tokens.iter().all(|t| *t == own) {
-            return Ok(());
-        }
-    }
-    #[cfg(feature = "test-overrides")]
-    {
-        if tokens.iter().all(|t| !t.starts_with("apple")) {
-            return Ok(());
-        }
+    let Some(team) = crate::signing_team() else {
+        return Err(
+            "no code-signing team is configured, so the keychain item is not trusted".into(),
+        );
+    };
+    let own = format!("teamid:{team}");
+    if tokens.iter().all(|t| *t == own) {
+        return Ok(());
     }
     Err("the keychain item was not created by the app's own signed code (its partition list differs), so it is not trusted".into())
 }

@@ -1776,22 +1776,6 @@ fn onset_sample(origin: usize, estimate: rust_kws::OnsetEstimate) -> usize {
     origin.saturating_add(estimate.feature_frame.max(0) as usize * FEATURE_SHIFT_SAMPLES)
 }
 
-#[cfg(test)]
-fn transcription_result(result: KeywordResult, offset_samples: usize) -> TranscriptionResult {
-    let text = command_text(&result.keyword).expect("validated keyword label");
-    let offset = offset_samples as f32 / SAMPLE_RATE as f32;
-    let start = offset + result.timestamps.first().copied().unwrap_or(0.0);
-    let end = offset + result.timestamps.last().copied().unwrap_or(start - offset) + 0.08;
-    TranscriptionResult {
-        text: text.to_string(),
-        tokens: vec![TimedToken {
-            text: " zephyr".to_string(),
-            start,
-            end: end.max(start),
-        }],
-    }
-}
-
 fn transcription_result_at_wake(
     result: KeywordResult,
     candidate: WakeCandidate,
@@ -1869,11 +1853,3 @@ fn validate_model_dir(dir: &Path) -> Result<(), String> {
     }
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "kws_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "kws_rust_tests.rs"]
-mod rust_tests;

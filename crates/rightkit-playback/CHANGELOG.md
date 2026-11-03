@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.3.0 — unpublished staging (2026-10-18)
 
 - New: `set_asset_scope` lets the host narrow the asset protocol's file scope (issue bogusyogi/rightkit#359, from CutRight). Tests: `tests/asset_scope.rs`.

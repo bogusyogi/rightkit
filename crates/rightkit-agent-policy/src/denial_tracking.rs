@@ -644,7 +644,3 @@ impl Default for RuleStore {
         Self::new()
     }
 }
-
-#[cfg(test)]
-#[path = "denial_tracking_tests.rs"]
-mod denial_tracking_tests;

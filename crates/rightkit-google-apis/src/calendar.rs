@@ -386,8 +386,3 @@ pub async fn list_events(
         .map(|e| parse_event(e, calendar_id))
         .collect())
 }
-
-/// Create a new event. Returns the full hydrated CalEvent (so the meet_link
-/// and server-assigned id come back to the caller immediately).
-#[cfg(test)]
-mod tests;

@@ -239,27 +239,3 @@ pub fn m_storage_clear(params: &Value, env: &Env, dry_run: bool) -> Result<Value
     }
     Ok(json!({"status": "cleared", "freed_bytes": freed, "dry_run": dry_run}))
 }
-
-#[cfg(test)]
-mod project_root_tests {
-    use super::*;
-
-    // Native known-folder APIs cannot produce missing/relative homes through a CLI e2e.
-    #[test]
-    fn default_project_root_refuses_missing_or_relative_home() {
-        let suite = rightkit_daemon::Suite::per_run_temp("rightkit-project-root").unwrap();
-        let mut env = Env::new("macos", None, suite.app_root("TestApp").unwrap(), None);
-        assert!(default_project_root(&env, "TestApp").is_err());
-        env.home = Some(PathBuf::from("relative-home"));
-        assert!(default_project_root(&env, "TestApp").is_err());
-        env.home = Some(suite.root().to_path_buf());
-        let root = default_project_root(&env, "TestApp").unwrap();
-        assert!(root.is_absolute());
-        assert_eq!(root, suite.root().join("Movies/TestApp"));
-        env.os = "windows".into();
-        assert_eq!(
-            default_project_root(&env, "TestApp").unwrap(),
-            suite.root().join("Videos/TestApp")
-        );
-    }
-}

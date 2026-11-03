@@ -52,36 +52,3 @@ pub(crate) fn for_each_line<R: BufRead>(
     }
     Ok(())
 }
-
-#[cfg(all(test, any(target_os = "macos", windows)))]
-mod tests {
-    use super::*;
-
-    fn lines(input: &[u8], max: usize) -> Vec<String> {
-        let mut out = vec![];
-        for_each_line(input, max, |l| out.push(l.to_string())).unwrap();
-        out
-    }
-
-    #[test]
-    fn splits_on_lf_and_crlf_and_keeps_a_final_unterminated_line() {
-        assert_eq!(lines(b"a\nb\r\nc", 64), ["a", "b", "c"]);
-        assert_eq!(lines(b"a\n\nb\n", 64), ["a", "", "b"]);
-        assert!(lines(b"", 64).is_empty());
-    }
-
-    #[test]
-    fn a_line_over_the_limit_is_skipped_whole_and_the_next_line_survives() {
-        let long = "x".repeat(100);
-        let input = format!("short\n{long}\nafter\n{long}");
-        assert_eq!(lines(input.as_bytes(), 10), ["short", "after"]);
-    }
-
-    #[test]
-    fn invalid_utf8_is_replaced_not_fatal() {
-        let got = lines(b"ok\xff\xfe\nnext\n", 64);
-        assert_eq!(got.len(), 2);
-        assert!(got[0].starts_with("ok"));
-        assert_eq!(got[1], "next");
-    }
-}

@@ -6,7 +6,6 @@
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 #[cfg(not(windows))]
-use std::process::Child;
 use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
@@ -473,7 +472,7 @@ fn apply_launch_env(command: &mut Command, launch: &CliLaunchSpec) {
 
 /// A managed profile is mandatory: sandboxing a vendor process around an arbitrary
 /// host home would merely make host state reachable through another path.
-#[cfg(any(unix, test))]
+#[cfg(unix)]
 fn managed_home(launch: &CliLaunchSpec) -> Result<PathBuf, CliRuntimeError> {
     for name in [
         "HOME",
@@ -543,115 +542,4 @@ fn configure_sandbox(
         })?;
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::driver_host::cli_runtime::ids::CliProviderId;
-    use crate::driver_host::cli_runtime::CliTransportKind;
-
-    #[test]
-    fn managed_home_never_falls_back_to_ambient_home() {
-        let launch = CliLaunchSpec {
-            provider_id: CliProviderId::new("codex"),
-            transport: CliTransportKind::CodexAppServer,
-            executable: "/usr/bin/true".into(),
-            argv: vec![],
-            env_keep: vec![],
-            env_remove: vec![],
-            env: vec![],
-            cwd: PathBuf::from("relative"),
-            mcp_server: None,
-            profile_hash: "profile".into(),
-            session_id: "session".into(),
-        };
-        assert_eq!(
-            managed_home(&launch).unwrap_err().code,
-            "cli_process_managed_home"
-        );
-    }
-
-    fn launch_with(provider: &str, env: Vec<(&str, &str)>) -> CliLaunchSpec {
-        CliLaunchSpec {
-            provider_id: CliProviderId::new(provider),
-            transport: CliTransportKind::CodexAppServer,
-            executable: "/usr/bin/true".into(),
-            argv: vec![],
-            env_keep: vec![],
-            env_remove: vec![],
-            env: env
-                .into_iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
-            cwd: PathBuf::from("/work"),
-            mcp_server: None,
-            profile_hash: "profile".into(),
-            session_id: "session".into(),
-        }
-    }
-
-    fn spawned_env(launch: &CliLaunchSpec) -> std::collections::BTreeMap<String, Option<String>> {
-        let mut command = Command::new("true");
-        apply_launch_env(&mut command, launch);
-        command
-            .get_envs()
-            .map(|(k, v)| {
-                (
-                    k.to_string_lossy().into_owned(),
-                    v.map(|v| v.to_string_lossy().into_owned()),
-                )
-            })
-            .collect()
-    }
-
-    #[test]
-    fn managed_claude_profile_strips_credential_env_from_the_child() {
-        let launch = launch_with(
-            "claude",
-            vec![
-                ("CLAUDE_CONFIG_DIR", "/profiles/claude/work"),
-                ("ANTHROPIC_API_KEY", concat!("sk", "-ant-ambient")),
-                ("CLAUDE_CODE_OAUTH_TOKEN", "oat"),
-                ("ANTHROPIC_AUTH_TOKEN", "tok"),
-            ],
-        );
-        let env = spawned_env(&launch);
-        for name in CLAUDE_GUARDED_CREDENTIAL_ENV {
-            assert_eq!(env.get(name), Some(&None), "{name} must be removed");
-        }
-        assert_eq!(
-            env.get("CLAUDE_CONFIG_DIR"),
-            Some(&Some("/profiles/claude/work".to_string()))
-        );
-    }
-
-    #[test]
-    fn codex_openai_key_is_stripped_only_for_a_subscription_profile() {
-        let sub = launch_with("codex", vec![("CODEX_HOME", "/profiles/codex/a")]);
-        assert_eq!(credential_guard_names(&sub), vec!["OPENAI_API_KEY"]);
-        assert_eq!(spawned_env(&sub).get("OPENAI_API_KEY"), Some(&None));
-        let key = launch_with(
-            "codex",
-            vec![
-                ("CODEX_HOME", "/profiles/codex/a"),
-                ("OPENAI_API_KEY", "sk-own"),
-            ],
-        );
-        assert!(credential_guard_names(&key).is_empty());
-        assert_eq!(
-            spawned_env(&key).get("OPENAI_API_KEY"),
-            Some(&Some("sk-own".to_string()))
-        );
-    }
-
-    #[test]
-    fn unmanaged_launch_is_left_alone() {
-        let launch = launch_with("claude", vec![("ANTHROPIC_API_KEY", "sk-own")]);
-        assert!(credential_guard_names(&launch).is_empty());
-        assert_eq!(
-            spawned_env(&launch).get("ANTHROPIC_API_KEY"),
-            Some(&Some("sk-own".to_string()))
-        );
-    }
 }

@@ -1,5 +1,4 @@
 use super::blob::*;
-use rightkit_transcript_library::history::HistoryRetention;
 use serde_json::Value;
 use std::collections::HashMap;
 

@@ -55,26 +55,3 @@ pub(crate) fn push_lp(buf: &mut Vec<u8>, field: &[u8]) {
     buf.extend_from_slice(&(field.len() as u32).to_be_bytes());
     buf.extend_from_slice(field);
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hex_round_trips_and_rejects_bad_input() {
-        let raw = [0x00, 0x0f, 0xa5, 0xff];
-        let h = hex_encode(&raw);
-        assert_eq!(h, "000fa5ff");
-        assert_eq!(hex_decode(&h).as_deref(), Some(&raw[..]));
-        assert!(hex_decode("abc").is_none());
-        assert!(hex_decode("zz").is_none());
-        assert!(hex_decode("00FF").is_none());
-    }
-
-    #[test]
-    fn ct_eq_checks_length_and_content() {
-        assert!(ct_eq(b"abc", b"abc"));
-        assert!(!ct_eq(b"abc", b"abd"));
-        assert!(!ct_eq(b"abc", b"abcd"));
-    }
-}

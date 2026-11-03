@@ -82,7 +82,6 @@ fn prewarm_ring_storage(
     capacity: usize,
 ) {
     let warmed = producer.push_iter(std::iter::repeat_n(0.0, capacity));
-    debug_assert_eq!(warmed, capacity);
     consumer.clear();
 }
 

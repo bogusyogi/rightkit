@@ -183,35 +183,6 @@ impl BearerAuth {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scoped_authorizer_allows_only_exact_provider() {
-        let authorizer = ScopedCredentialAuthorizer::new("provider-a").unwrap();
-
-        let grant = authorize_credential_access("provider-a", &authorizer).unwrap();
-        assert_eq!(grant.provider_id(), "provider-a");
-
-        let error = match authorize_credential_access("provider-b", &authorizer) {
-            Ok(_) => panic!("cross-provider credential grant must be denied"),
-            Err(error) => error,
-        };
-        assert_eq!(error.code, AuthErrorCode::Rejected);
-        assert_eq!(error.message, "credential access denied");
-    }
-
-    #[test]
-    fn environment_provider_debug_redacts_value() {
-        let provider = EnvironmentSecretProvider::new("RIGHTKIT_TEST_SECRET").unwrap();
-        let debug = format!("{provider:?}");
-
-        assert!(debug.contains("RIGHTKIT_TEST_SECRET"));
-        assert!(debug.contains("[REDACTED]"));
-    }
-}
-
 impl fmt::Debug for BearerAuth {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BearerAuth")

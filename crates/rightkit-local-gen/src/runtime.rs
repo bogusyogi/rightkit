@@ -1110,16 +1110,3 @@ fn backend_tail<R: std::io::Read + Send + 'static>(
         },
     )
 }
-
-#[cfg(test)]
-mod unload_now_tests {
-    use super::*;
-
-    #[test]
-    fn unload_with_no_server_stops_nothing() {
-        let dir = std::env::temp_dir();
-        let mut server: Option<SdServer> = None;
-        assert_eq!(unload_now(&mut server, &dir), Ok(false));
-        assert!(server.is_none());
-    }
-}

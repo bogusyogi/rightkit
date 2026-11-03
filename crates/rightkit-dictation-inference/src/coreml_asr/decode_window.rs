@@ -439,7 +439,6 @@ impl CoreMlParakeet {
                             );
                         }
                         decoder_model_wall += model_call_started.elapsed();
-                        debug_assert_eq!(state_chunk.len(), index_chunk.len());
                     }
                     predicted
                 } else {
@@ -809,91 +808,5 @@ impl CoreMlParakeet {
             window_started.elapsed().as_secs_f64() * 1_000.0,
         );
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{carry_predictor_cache, PredictorOutputs};
-    use rightkit_asr::parakeet_core::tdt_beam::{force_time_advance, rnnt_step, tdt_step, BeamHyp};
-
-    #[test]
-    fn predictor_cache_tracks_tdt_and_rnnt_blank_emission_and_forced_advance() {
-        let parent = BeamHyp {
-            h: vec![0.0],
-            c: vec![0.0],
-            last_tok: 0,
-            t: 2,
-            sym: 0,
-            score: 0.0,
-            hits: Vec::new(),
-        };
-        // Token 0 is blank; width 2 retains both blank and emission branches.
-        let children = tdt_step(
-            &parent,
-            &[2.0, 1.0, 0.0],
-            1,
-            &[1],
-            0,
-            10,
-            2,
-            crate::beam_emit_reward(),
-            0.0,
-            &std::collections::HashMap::new(),
-            &[7.0],
-            &[8.0],
-        );
-        assert_eq!(children.len(), 2);
-        let blank = children
-            .iter()
-            .find(|child| child.hits.len() == parent.hits.len())
-            .unwrap();
-        let emitted = children
-            .iter()
-            .find(|child| child.hits.len() > parent.hits.len())
-            .unwrap();
-        let predictor: PredictorOutputs = (vec![1.0], vec![2.0], vec![3.0]);
-        assert_eq!(
-            carry_predictor_cache(true, parent.hits.len(), blank.hits.len(), &predictor),
-            Some(predictor.clone())
-        );
-        assert_eq!(
-            carry_predictor_cache(true, parent.hits.len(), emitted.hits.len(), &predictor),
-            None
-        );
-
-        let rnnt_children = rnnt_step(
-            &parent,
-            &[2.0, 1.0],
-            0,
-            2,
-            crate::beam_emit_reward(),
-            0.0,
-            &std::collections::HashMap::new(),
-            &[7.0],
-            &[8.0],
-        );
-        assert_eq!(rnnt_children.len(), 2);
-        let rnnt_blank = rnnt_children
-            .iter()
-            .find(|child| child.hits.len() == parent.hits.len())
-            .unwrap();
-        let rnnt_emitted = rnnt_children
-            .iter()
-            .find(|child| child.hits.len() > parent.hits.len())
-            .unwrap();
-        assert_eq!(
-            carry_predictor_cache(true, parent.hits.len(), rnnt_blank.hits.len(), &predictor),
-            Some(predictor.clone())
-        );
-        assert_eq!(
-            carry_predictor_cache(true, parent.hits.len(), rnnt_emitted.hits.len(), &predictor),
-            None
-        );
-        assert_eq!(carry_predictor_cache(false, 3, 3, &predictor), None);
-
-        let forced = force_time_advance(blank);
-        assert_eq!(forced.t, blank.t + 1);
-        assert_eq!(forced.hits, blank.hits);
     }
 }

@@ -375,58 +375,6 @@ pub fn apply_replacements(
     out.into_owned()
 }
 
-/// Test fixture: a two-word brand ("HeardRight") whose ASR corruptions are ordinary English.
-#[cfg(test)]
-pub(crate) const TEST_BRAND: BrandHomophones<'static> = BrandHomophones {
-    brand: "HeardRight",
-    phrases: &[
-        ("her drive", HomophoneGuard::NeedsBrandContext),
-        (
-            "herd right",
-            HomophoneGuard::LiteralBefore(&["there", "here", "now", "along", "away"]),
-        ),
-        (
-            "heard right",
-            HomophoneGuard::LiteralAfter(&["i", "you", "we", "they", "he", "she", "who"]),
-        ),
-        (
-            "heard write",
-            HomophoneGuard::LiteralBefore(&["it", "that", "this", "down"]),
-        ),
-        ("hurt right", HomophoneGuard::NeedsBrandContext),
-        ("her right", HomophoneGuard::NeedsBrandContext),
-        ("heard rite", HomophoneGuard::Always),
-    ],
-    context_terms: &[
-        "app",
-        "apps",
-        "launch",
-        "launching",
-        "startup",
-        "start-up",
-        "install",
-        "installed",
-        "update",
-        "dictation",
-        "dictate",
-        "transcription",
-        "transcribe",
-        "pill",
-        "hub",
-        "wake",
-        "recording",
-        "zephyr",
-    ],
-};
-
-#[cfg(test)]
-#[path = "polish_brand_homophone_tests.rs"]
-mod brand_homophone_tests;
-
-#[cfg(test)]
-#[path = "polish_vocab_casing_tests.rs"]
-mod vocab_casing_tests;
-
 /// [`deterministic_polish`] for a continuation chunk: the start is not capitalized.
 pub fn deterministic_polish_tail(text: &str) -> String {
     deterministic_polish_inner(text, false, None)

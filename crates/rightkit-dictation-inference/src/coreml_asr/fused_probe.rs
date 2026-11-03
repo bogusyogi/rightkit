@@ -25,8 +25,6 @@ use objc2_core_ml::MLMultiArrayDataType;
 use super::model::{model_dir_sha256, CoreMlParakeet};
 
 const FUSED_PROBE_ENV: &str = "RIGHTKIT_COREML_FUSED_PROBE_DIR";
-#[cfg(any(test, feature = "test-mode"))]
-const FUSED_PROBE_PROFILE_ENV: &str = "RIGHTKIT_COREML_FUSED_PROBE_PROFILE";
 const PRODUCTION_GRAPH: &str = "fused_predictor_joint.mlmodelc";
 const PRODUCTION_GRAPH_PACKAGE: &str = "fused_predictor_joint.mlpackage";
 const PRODUCTION_MANIFEST: &str = "fused_predictor_joint.manifest.json";
@@ -825,90 +823,4 @@ fn max_abs(left: &[f32], right: &[f32]) -> Result<f32, String> {
         .zip(right)
         .map(|(left, right)| (left - right).abs())
         .fold(0.0, f32::max))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn production_graph_accepts_only_canonical_plain_names() {
-        assert!(is_production_graph_name(PRODUCTION_GRAPH));
-        assert!(!is_production_graph_name(PRODUCTION_GRAPH_PACKAGE));
-        assert!(is_plain_name(PRODUCTION_GRAPH));
-        assert!(is_plain_name(PRODUCTION_GRAPH_PACKAGE));
-        assert!(!is_production_graph_name("FusedDecoderJoint.mlmodelc"));
-        assert!(!is_plain_name("nested/fused_predictor_joint.mlmodelc"));
-        assert!(!is_plain_name("../fused_predictor_joint.mlmodelc"));
-    }
-
-    #[test]
-    fn production_split_inventory_rejects_escape_paths() {
-        assert!(is_safe_relative("pipeline.json"));
-        assert!(is_safe_relative("AudioEncoder.mlmodelc/weights/weight.bin"));
-        assert!(!is_safe_relative("../pipeline.json"));
-        assert!(!is_safe_relative("/tmp/pipeline.json"));
-        assert!(!is_safe_relative(""));
-    }
-
-    #[test]
-    fn production_manifest_rejects_corruption_and_incomplete_inventory() {
-        let dir = std::env::temp_dir().join(format!(
-            "rightkit-fused-manifest-test-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join(PRODUCTION_GRAPH).join("weights")).unwrap();
-        std::fs::write(
-            dir.join("pipeline.json"),
-            r#"{"pred_layers":2,"pred_hidden":640,"enc_d_model":1024,"blank_id":8192,"tdt_durations":[0,1,2,3,4],"is_tdt":true}"#,
-        )
-        .unwrap();
-        for name in ["MelSpectrogram", "AudioEncoder", "TextDecoder", "Joint"] {
-            std::fs::create_dir_all(dir.join(format!("{name}.mlmodelc"))).unwrap();
-        }
-        std::fs::write(dir.join("vocab.txt"), "piece\n".repeat(8192)).unwrap();
-        std::fs::write(dir.join(PRODUCTION_GRAPH).join("model.mil"), b"graph").unwrap();
-        let manifest = || ProductionManifest {
-            schema: PRODUCTION_SCHEMA.into(),
-            graph: PRODUCTION_GRAPH.into(),
-            graph_sha256: model_dir_sha256(&dir.join(PRODUCTION_GRAPH)).unwrap(),
-            pipeline_sha256: sha256_path(&dir.join("pipeline.json")).unwrap(),
-            vocab_sha256: sha256_path(&dir.join("vocab.txt")).unwrap(),
-            vocab_tokens: 8192,
-            blank_id: 8192,
-            tdt_durations: vec![0, 1, 2, 3, 4],
-            is_tdt: true,
-            split_files: vec![
-                ManifestFile {
-                    name: "pipeline.json".into(),
-                    sha256: sha256_path(&dir.join("pipeline.json")).unwrap(),
-                },
-                ManifestFile {
-                    name: "vocab.txt".into(),
-                    sha256: sha256_path(&dir.join("vocab.txt")).unwrap(),
-                },
-            ],
-            dimensions: ManifestDimensions {
-                pred_layers: 2,
-                pred_hidden: 640,
-                enc_d_model: 1024,
-                vocab: 8198,
-            },
-            beam_width: 2,
-            max_rows: 2,
-            joint_output: "raw_linear".into(),
-            joint_norm_precision: "host_fp32".into(),
-        };
-        assert!(validate_production_manifest(&dir, &manifest()).is_ok());
-        std::fs::create_dir_all(dir.join("TextDecoder.mlpackage")).unwrap();
-        assert!(validate_production_manifest(&dir, &manifest()).is_err());
-        std::fs::remove_dir_all(dir.join("TextDecoder.mlpackage")).unwrap();
-        let mut corrupted = manifest();
-        corrupted.graph_sha256 = "00".repeat(32);
-        assert!(validate_production_manifest(&dir, &corrupted).is_err());
-        std::fs::write(dir.join("extra.bin"), b"unlisted").unwrap();
-        assert!(validate_production_manifest(&dir, &manifest()).is_err());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 }

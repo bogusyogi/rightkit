@@ -292,7 +292,7 @@ fn normalize_loopback_host(host: &str) -> Option<String> {
 
 /// Host (lowercase, no brackets, no trailing dot) and port of an `http` or `https` URL's
 /// authority. `None` for any other scheme, for userinfo, and for an unparsable port.
-#[cfg_attr(not(any(test, feature = "dev-worker-override")), allow(dead_code))]
+#[cfg_attr(not(feature = "dev-worker-override"), allow(dead_code))]
 fn url_host_port(url: &str) -> Option<(String, u16)> {
     let (scheme, rest) = url.split_once("://")?;
     let default_port = if scheme.eq_ignore_ascii_case("http") {
@@ -659,128 +659,5 @@ impl Read for IdleReader {
         out[..n].copy_from_slice(&self.pending[self.at..self.at + n]);
         self.at += n;
         Ok(n)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn header_values_accept_printable_ascii_only() {
-        assert!(check_header_value("ua", "HeardRight/2.0.1 rightkit-models/0.3.0").is_ok());
-        for bad in [
-            "",
-            "   ",
-            " lead",
-            "trail ",
-            "a\r\nX-Injected: 1",
-            "a\nb",
-            "tab\there",
-            "nul\0",
-            "del\u{7f}",
-            "caf\u{e9}",
-        ] {
-            assert!(check_header_value("ua", bad).is_err(), "{bad:?}");
-        }
-    }
-
-    #[test]
-    fn the_error_does_not_echo_the_value() {
-        let error = check_header_value("user agent", "secret\r\nvalue").unwrap_err();
-        assert!(!error.to_string().contains("secret"), "{error}");
-    }
-
-    #[test]
-    fn loopback_hosts_are_plain_names_or_ip_literals() {
-        assert_eq!(
-            normalize_loopback_host("127.0.0.1").as_deref(),
-            Some("127.0.0.1")
-        );
-        assert_eq!(
-            normalize_loopback_host("LocalHost.").as_deref(),
-            Some("localhost")
-        );
-        assert_eq!(normalize_loopback_host("[::1]").as_deref(), Some("::1"));
-        assert_eq!(normalize_loopback_host("::1").as_deref(), Some("::1"));
-        for bad in [
-            "",
-            " ",
-            "[",
-            "[::1",
-            "a/b",
-            "a b",
-            "u@host",
-            "host:80/x",
-            "host:80",
-            "ex%61mple",
-            "*",
-        ] {
-            assert_eq!(normalize_loopback_host(bad), None, "{bad:?}");
-        }
-    }
-
-    #[test]
-    fn url_authority_is_parsed_with_default_ports() {
-        let cases = [
-            ("http://127.0.0.1:8787/v1/x", Some(("127.0.0.1", 8787))),
-            ("HTTP://LocalHost:8787", Some(("localhost", 8787))),
-            ("http://localhost/x", Some(("localhost", 80))),
-            ("https://localhost/x?a=b", Some(("localhost", 443))),
-            ("http://[::1]:9/p", Some(("::1", 9))),
-            ("http://[::1]/p", Some(("::1", 80))),
-            ("http://127.0.0.1.:8787/", Some(("127.0.0.1", 8787))),
-            ("http://u:p@127.0.0.1:8787/", None),
-            ("http://127.0.0.1:notaport/", None),
-            ("http://127.0.0.1:99999/", None),
-            ("ftp://127.0.0.1:21/", None),
-            ("127.0.0.1:8787", None),
-            ("http:///x", None),
-            ("http://::1/x", None),
-        ];
-        for (url, want) in cases {
-            assert_eq!(
-                url_host_port(url),
-                want.map(|(h, p)| (h.to_string(), p)),
-                "{url}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_loopback_test_hook_refuses_a_release_run() {
-        let release = rightkit_daemon::mode::Mode::Release;
-        let err = ModelHttpOptions::default()
-            .allow_loopback_for_tests(&release)
-            .unwrap_err();
-        assert!(matches!(err, HttpError::InvalidRequest(_)), "{err:?}");
-        assert!(ModelHttp::for_loopback_tests(ModelHttpOptions::default(), &release).is_err());
-        // The compiled capability is off without the `test-mode` feature, so no `Mode::Test`
-        // can exist here either.
-        #[cfg(not(feature = "test-mode"))]
-        const {
-            assert!(!rightkit_daemon::mode::TEST_CAPABILITY)
-        };
-    }
-
-    #[test]
-    fn defaults_keep_todays_settings() {
-        let options = ModelHttpOptions::default();
-        assert_eq!(options.connect_timeout, Some(Duration::from_secs(30)));
-        assert_eq!(options.header_timeout, Some(Duration::from_secs(60)));
-        assert_eq!(options.read_timeout, Some(Duration::from_secs(120)));
-        assert_eq!(options.total_timeout, None);
-        assert_eq!(options.retries, 2);
-        assert_eq!(options.trust, TrustRoots::Platform);
-        assert_eq!(options.loopback_host, None);
-    }
-
-    #[test]
-    fn a_wrapped_client_keeps_the_default_download_settings() {
-        let http = ModelHttp::from(Client::new(ClientConfig::default()));
-        assert_eq!(http.retries(), DEFAULT_RETRIES);
-        assert_eq!(http.total_timeout(), None);
-        assert_eq!(http.read_timeout(), Some(Duration::from_secs(120)));
-        assert_eq!(http.dev_loopback_host(), None);
     }
 }

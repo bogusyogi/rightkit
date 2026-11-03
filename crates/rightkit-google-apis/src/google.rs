@@ -502,6 +502,3 @@ pub fn classify_send_error(method: Method, error: &HttpError) -> GoogleError {
         GoogleError::Transient(message)
     }
 }
-
-#[cfg(test)]
-mod tests;

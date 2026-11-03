@@ -24,12 +24,6 @@ pub(crate) const ATTACH_NAMESPACE: &str = "attachcache";
 /// so it's easy to surface as a Settings control later (not built in this lane).
 pub const SHARED_BUDGET_BYTES: u64 = 768 * 1024 * 1024; // 768 MB
 
-/// `<data dir>/attachcache`.
-#[cfg(test)]
-pub(crate) fn cache_root() -> std::path::PathBuf {
-    crate::db::data_dir().join(ATTACH_NAMESPACE)
-}
-
 /// The one cache set shared by the attachment and remote-image caches.
 pub(crate) fn cache_set() -> Result<&'static CacheSet, String> {
     static SET: OnceLock<Result<CacheSet, String>> = OnceLock::new();
@@ -112,6 +106,3 @@ where
 pub fn clear_account(account_id: &str) -> Result<usize, String> {
     Ok(cache()?.clear_group(&[account_id]))
 }
-
-#[cfg(test)]
-mod tests;

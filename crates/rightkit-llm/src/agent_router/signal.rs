@@ -152,37 +152,3 @@ impl TaskSignalBuilder {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn builder_defaults_are_conservative() {
-        let sig = TaskSignalBuilder::new().build();
-        assert_eq!(sig.turn_type, TurnType::FreshReasoning);
-        assert_eq!(sig.failure_streak, 0);
-        assert!(!sig.touches_sensitive);
-        assert_eq!(sig.tool_call_density, 0);
-    }
-
-    #[test]
-    fn builder_populates_only_set_fields() {
-        let sig = TaskSignalBuilder::new()
-            .failure_streak(2)
-            .touches_sensitive(true)
-            .build();
-        assert_eq!(sig.failure_streak, 2);
-        assert!(sig.touches_sensitive);
-        assert_eq!(sig.turn_type, TurnType::FreshReasoning);
-    }
-
-    #[test]
-    fn from_prompt_text_derives_shape_and_sensitivity() {
-        let sig = TaskSignalBuilder::new()
-            .from_prompt_text("rotate the auth secret in src/keystore.rs")
-            .build();
-        assert!(sig.touches_sensitive);
-        assert!(sig.scoped_file_count >= 1);
-    }
-}

@@ -9,7 +9,7 @@ repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["audio", "ffmpeg", "capture", "playback", "loudness"]
 categories = ["multimedia::audio"]
 readme = "README.md"
-include = ["src/**", "tests/**", "presets/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "presets/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = ["capture"]
@@ -45,9 +45,6 @@ windows = { version = "0.62.2", optional = true, features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 windows-core = { version = "0.62.2", optional = true }
-
-[dev-dependencies]
-tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = "held-resource"

@@ -511,6 +511,3 @@ fn backfill_thread_labels(conn: &Connection) -> Result<(), SqlError> {
     )
     .map(|_| ())
 }
-
-#[cfg(test)]
-mod tests;

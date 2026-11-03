@@ -7,7 +7,7 @@ description = "Adaptive agent learning: outcome observation, guidance proposals,
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_adapt"
@@ -20,10 +20,6 @@ serde_json = { version = "1" }
 thiserror = { version = "2" }
 rightkit-agent-engine-storage = { version = "0.1.0", path = "../rightkit-agent-engine-storage" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
-
-[dev-dependencies]
-tempfile = { version = "3" }
-tokio = { version = "1", features = ["macros", "rt"] }
 
 [workspace]
 

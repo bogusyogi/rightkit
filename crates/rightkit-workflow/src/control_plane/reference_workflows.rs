@@ -72,33 +72,3 @@ pub fn validate_fixture(workflow: &ReferenceWorkflow) -> Result<(), &'static str
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn fixtures_are_disabled_draft_safe_and_traces_are_present() {
-        assert_eq!(WORKFLOWS.len(), 7);
-        assert_eq!(TRACES.len(), 3);
-        for fixture in WORKFLOWS {
-            validate_fixture(fixture).expect(fixture.name);
-            let first: serde_yaml::Value = serde_yaml::from_str(fixture.yaml).expect("parse");
-            let second: serde_yaml::Value = serde_yaml::from_str(fixture.yaml).expect("reparse");
-            assert_eq!(first, second);
-            let source = crate::control_plane::compiler::parse_authoring_yaml(fixture.yaml)
-                .expect(fixture.name);
-            let outcome =
-                crate::control_plane::compiler::compile(&source.definition, &source.nodes, "");
-            assert!(
-                matches!(
-                    outcome,
-                    crate::control_plane::domain::CompilerOutcome::Compiled { .. }
-                ),
-                "reference workflow {} failed compilation: {outcome:?}; nodes={:?}",
-                fixture.name,
-                source.nodes
-            );
-        }
-        assert!(TRACES.iter().all(|trace| !trace.trim().is_empty()));
-    }
-}

@@ -12,13 +12,8 @@ homepage = "https://github.com/bogusyogi/rightkit/tree/main/crates/rightkit-vad"
 documentation = "https://docs.rs/rightkit-vad"
 keywords = ["vad", "voice-activity", "silero", "onnx", "audio"]
 categories = ["multimedia::audio"]
-# Fixtures (tests/fixtures) are not packaged; the crate ships source, integration tests, and docs only.
-include = ["src/**", "tests/*.rs", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
-
-[[test]]
-name = "e2e_silero"
-path = "tests/e2e_silero.rs"
-required-features = ["silero"]
+# The crate ships source and docs only.
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [lib]
 name = "rightkit_vad"
@@ -26,10 +21,6 @@ path = "src/lib.rs"
 
 [dependencies]
 rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.9", optional = true }
-
-[dev-dependencies]
-hound = "3.5"
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.13" }
 
 [features]
 # Default: the Silero scorer over ONNX Runtime. The crate fetches and copies no

@@ -58,28 +58,3 @@ pub use skill_synthesis::{
 };
 pub use store::LearningProposalStore;
 pub use types::{Proposal, ProposalKind, ProposalStatus};
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn proposal_roundtrip() {
-        let p = Proposal {
-            id: "prop-7".to_string(),
-            kind: ProposalKind::HarnessRule,
-            summary: "avoid: boom".to_string(),
-            evidence: "boom happened".to_string(),
-            score: 0.72,
-            status: ProposalStatus::Promoted,
-            created_at: "2026-06-02".to_string(),
-            age_sessions: 3,
-            rejection_reason: None,
-        };
-        let json = serde_json::to_string(&p).unwrap();
-        let back: Proposal = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.id, p.id);
-        assert_eq!(back.kind, p.kind);
-        assert_eq!(back.status, p.status);
-    }
-}

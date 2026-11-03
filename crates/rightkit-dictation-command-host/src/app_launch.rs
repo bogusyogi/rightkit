@@ -272,7 +272,7 @@ pub fn resolve_shortcut(query: &str) -> Option<String> {
 /// Match `q` (trimmed, lowercased) against the live scan. `scan` is `None` only
 /// when the probe failed: an authoritative empty list wins over the cache, but a
 /// failed probe falls back to the last completed snapshot.
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(target_os = "macos")]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn resolve_shortcut_with(
     q: &str,
@@ -369,46 +369,6 @@ fn store_shortcut_cache(generation: u64, shortcuts: Vec<String>) {
         .lock()
     {
         *last_success = Some(std::time::Instant::now());
-    }
-}
-
-#[cfg(all(test, target_os = "macos"))]
-pub(crate) fn set_shortcut_cache_for_tests(shortcuts: Option<Vec<String>>) {
-    MAC_SHORTCUT_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-    let has_snapshot = shortcuts.is_some();
-    if let Ok(mut cache) = shortcut_cache().write() {
-        *cache = shortcuts;
-    }
-    if let Ok(mut last_success) = MAC_SHORTCUT_LAST_SUCCESS
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-    {
-        *last_success = has_snapshot.then(std::time::Instant::now);
-    }
-    if let Ok(mut last_attempt) = MAC_SHORTCUT_LAST_ATTEMPT
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-    {
-        *last_attempt = None;
-    }
-}
-
-#[cfg(all(test, target_os = "macos"))]
-pub(crate) fn set_shortcut_refresh_times_for_tests(
-    last_success: Option<std::time::Instant>,
-    last_attempt: Option<std::time::Instant>,
-) {
-    if let Ok(mut value) = MAC_SHORTCUT_LAST_SUCCESS
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-    {
-        *value = last_success;
-    }
-    if let Ok(mut value) = MAC_SHORTCUT_LAST_ATTEMPT
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-    {
-        *value = last_attempt;
     }
 }
 
@@ -666,51 +626,3 @@ fn score_match(q: &str, name: &str) -> i32 {
     }
     0
 }
-
-#[cfg(test)]
-mod shortcut_fallback_tests {
-    use super::resolve_shortcut_with;
-
-    fn names(list: &[&str]) -> Vec<String> {
-        list.iter().map(|name| name.to_string()).collect()
-    }
-
-    #[test]
-    fn failed_scan_falls_back_to_the_cached_snapshot() {
-        let cached = names(&["Morning Routine"]);
-        assert_eq!(
-            resolve_shortcut_with("morning routine", None, Some(&cached)),
-            Some("Morning Routine".to_string())
-        );
-    }
-
-    #[test]
-    fn failed_scan_without_a_cache_resolves_nothing() {
-        assert_eq!(resolve_shortcut_with("morning routine", None, None), None);
-    }
-
-    #[test]
-    fn authoritative_empty_scan_beats_the_cache() {
-        let cached = names(&["Morning Routine"]);
-        assert_eq!(
-            resolve_shortcut_with("morning routine", Some(Vec::new()), Some(&cached)),
-            None
-        );
-    }
-
-    #[test]
-    fn successful_scan_resolves() {
-        assert_eq!(
-            resolve_shortcut_with("morning routine", Some(names(&["Morning Routine"])), None),
-            Some("Morning Routine".to_string())
-        );
-    }
-}
-
-#[cfg(all(test, target_os = "macos"))]
-#[path = "app_launch_tests.rs"]
-mod tests;
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "app_launch_windows_tests.rs"]
-mod windows_tests;

@@ -4,7 +4,6 @@
 use crate::keys::{self, Chord, Key, Named};
 use crate::model::*;
 use crate::platform::{ClipSnapshot, InputEvent};
-use std::time::Duration;
 use windows::core::{BOOL, PCWSTR, PWSTR};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;

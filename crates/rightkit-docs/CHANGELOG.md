@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.3 (unpublished)
 
 - Feature `files` (off by default): `files` module with the document format table (`data/document_formats.tsv`), `format_of`, `document_mime`, `openable_extensions`, `text_extensions`, encoding-detecting `read`, re-encoding conflict-checked `write`, `write_bytes`, `copy_document`, `fingerprint`. Moved from ViewRight (src-tauri documents.rs). Existing API unchanged.

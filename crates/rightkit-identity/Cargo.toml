@@ -17,9 +17,6 @@ sha2 = "0.11.1"
 getrandom = "0.4"
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", features = ["fs", "lock"] }
 
-[dev-dependencies]
-tempfile = "3"
-
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "identity primitives: pure functions and in-memory state machines the caller drives with an explicit clock; spawns no thread, timer, listener or watcher, and the only file write is a caller-invoked atomic write"

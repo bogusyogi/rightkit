@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.1 (unreleased)
 
 - `zones`: local wall time to UTC for UTC, Asia/Kolkata, Europe/London and America/New_York (DST tables for 2026 and 2027), with fold handling for ambiguous times and `parse_instant` / `format_instant` / `now_secs`. Moved from PostRight (engine calendar_time.rs).

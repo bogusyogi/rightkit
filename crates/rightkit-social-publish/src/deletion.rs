@@ -463,25 +463,3 @@ fn status(store: &dyn DeletionStore, input: Value) -> Result<Value, Fail> {
         .ok_or_else(|| ("not_found", format!("no deletion request {request_id}")))?;
     encoded(serde_json::to_value(record))
 }
-
-#[cfg(test)]
-mod media_tests {
-    use super::remove_tree;
-
-    #[test]
-    fn a_nested_media_tree_is_removed_with_every_file_counted() {
-        let base = std::env::temp_dir()
-            .canonicalize()
-            .unwrap()
-            .join(format!("rk-media-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
-        let dir = base.join("x");
-        std::fs::create_dir_all(dir.join("clips").join("deeper")).unwrap();
-        std::fs::write(dir.join("a.bin"), b"a").unwrap();
-        std::fs::write(dir.join("clips").join("b.bin"), b"b").unwrap();
-        std::fs::write(dir.join("clips").join("deeper").join("c.bin"), b"c").unwrap();
-        assert_eq!(remove_tree(&dir).unwrap(), 3);
-        assert!(!dir.exists());
-        let _ = std::fs::remove_dir_all(&base);
-    }
-}

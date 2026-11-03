@@ -3,18 +3,14 @@
 //! the result object, or `{error, code}`.
 
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
 use crate::approval::{canonical_repository_identity, sha256_value};
 use crate::error::{Res, ScanError};
-use crate::evidence::create_evidence;
 use crate::gitio;
-use crate::inventory::content_inventory;
 use crate::json::{field, items, sha256_hex, str_of, truthy};
-use crate::keyauth::read_committed_key_authority;
 use crate::paths;
 use crate::runner::{ScanRequest, ScanRunner};
 use crate::scan::{catalog_digest, catalog_version, ScanContext, SCANNER_VERSION};

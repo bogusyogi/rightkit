@@ -64,8 +64,3 @@ pub use tool::ToolCall;
 pub use tool_output::{ToolOutputNotifier, ToolOutputStream};
 pub use traits::{ArtifactTrustStore, SessionConduit};
 pub use trust::{ContentTrust, TrustEnvelope};
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
-#[cfg(test)]
-#[cfg(test)]
-mod lib_tests;

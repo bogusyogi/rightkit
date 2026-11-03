@@ -238,13 +238,13 @@ impl AuthContext for ProcessAuthContext {
         Box::pin(async move {
             // The process environment supplies auth values only in `host-env`
             // and test builds; the mobile runtime resolves none from it.
-            #[cfg(any(test, feature = "agent_providers-host-env"))]
+            #[cfg(feature = "agent_providers-host-env")]
             {
                 let value = std::env::var(name).ok()?;
                 // Donor keeps the raw value when it has non-whitespace content.
                 (!value.trim().is_empty()).then_some(value)
             }
-            #[cfg(not(any(test, feature = "agent_providers-host-env")))]
+            #[cfg(not(feature = "agent_providers-host-env"))]
             {
                 let _ = name;
                 None
@@ -413,56 +413,4 @@ pub trait ApiKeyAuth: Send + Sync {
 pub fn account_fingerprint(material: &str) -> String {
     let digest = rightkit_crypto::sha256(material.as_bytes());
     rightkit_crypto::hex_encode(&digest)[..16].to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const SECRET: &str = concat!("sk", "-ant-super-secret-bytes");
-
-    #[test]
-    fn model_auth_debug_never_contains_credential_bytes() {
-        let auth = ModelAuth::api_key(SECRET);
-        let rendered = format!("{auth:?}");
-        assert!(!rendered.contains(SECRET), "{rendered}");
-        assert!(rendered.contains(REDACTED));
-
-        let bearer = ModelAuth::bearer_header(SECRET);
-        let rendered = format!("{bearer:?}");
-        assert!(!rendered.contains(SECRET), "{rendered}");
-        assert!(rendered.contains("Authorization"));
-    }
-
-    #[test]
-    fn auth_result_debug_never_contains_credential_bytes() {
-        let result = AuthResult {
-            auth: ModelAuth::api_key(SECRET),
-            env: None,
-            source: Some("stored credential".to_string()),
-        };
-        let rendered = format!("{result:?}");
-        assert!(!rendered.contains(SECRET), "{rendered}");
-    }
-
-    #[test]
-    fn account_fingerprint_is_stable_and_never_the_material() {
-        let a = account_fingerprint("account-material-1");
-        let b = account_fingerprint("account-material-1");
-        let c = account_fingerprint("account-material-2");
-        assert_eq!(a, b);
-        assert_ne!(a, c);
-        assert_eq!(a.len(), 16);
-        assert!(!a.contains("account"));
-    }
-
-    #[test]
-    fn expand_tilde_maps_home_prefix() {
-        assert_eq!(expand_tilde("/plain/path"), "/plain/path");
-        if dirs::home_dir().is_some() {
-            let expanded = expand_tilde("~/file");
-            assert!(expanded.contains("/file") || expanded.contains("\\file"));
-            assert!(!expanded.starts_with('~'));
-        }
-    }
 }

@@ -13,10 +13,8 @@ pub use ffi::Cf;
 
 use crate::model::*;
 use crate::platform::*;
-use crate::proof::FieldText;
 use ax::El;
 use ffi::*;
-use std::path::Path;
 
 #[derive(Default)]
 pub struct MacPlatform;

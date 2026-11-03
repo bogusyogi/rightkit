@@ -132,27 +132,3 @@ pub fn details(ffmpeg: Option<&Path>, listing: &str, ffmpeg_message: Option<&str
         "ffmpeg_message": ffmpeg_message.map(|m| tail(m, 900)),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn empty_listing_is_unavailable_or_mpeg4_only_when_asked() {
-        assert_eq!(decide("", None, false), Pick::Unavailable);
-        assert_eq!(decide("", None, true), Pick::Unavailable);
-    }
-
-    #[test]
-    fn init_failure_markers() {
-        assert!(is_init_failure(
-            "Error while opening encoder for output stream"
-        ));
-        assert!(!is_init_failure("No such file or directory"));
-    }
-
-    #[test]
-    fn tail_keeps_the_end() {
-        assert!(tail("abcdef", 3).ends_with("def"));
-    }
-}

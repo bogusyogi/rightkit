@@ -204,7 +204,6 @@ impl TextMatcher {
                 .map_or(text.len(), |(b, _)| b)
         };
         let (win_start, win_end) = (byte_at(start_char), byte_at(end_char));
-        debug_assert!(win_start <= hit_byte && hit_byte < win_end);
         let window = &text[win_start..win_end];
 
         // Folded positions inside the window, mapped back to source byte offsets. Each

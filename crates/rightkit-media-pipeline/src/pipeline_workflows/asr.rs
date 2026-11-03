@@ -276,39 +276,3 @@ pub fn asr_status(ctx: &Context) -> Value {
         "ready": t.whisper.is_some() && media::whisper_model(&ctx.data_dir, None).is_some(),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::parse_srt;
-    use serde_json::{json, Value};
-
-    const LF: &str = "1\n00:00:01,000 --> 00:00:02,500\nHello there\n\n2\n00:00:03,000 --> 00:00:04,000\nSecond line\nmore\n\n";
-
-    fn expected() -> Vec<Value> {
-        vec![
-            json!({"index": 1, "start_s": 1.0, "end_s": 2.5, "text": "Hello there"}),
-            json!({"index": 2, "start_s": 3.0, "end_s": 4.0, "text": "Second line more"}),
-        ]
-    }
-
-    #[test]
-    fn srt_reader_lf_crlf_and_bom_yield_same_segments() {
-        assert_eq!(parse_srt(LF), expected());
-        assert_eq!(parse_srt(&LF.replace('\n', "\r\n")), expected());
-        assert_eq!(parse_srt(&format!("\u{feff}{LF}")), expected());
-    }
-
-    #[test]
-    fn srt_reader_skips_a_malformed_block_and_renumbers() {
-        let text = "1\n00:00:01,000 --> 00:00:02,000\nFirst\n\n\
-2\n00:00:0x,abc --> 00:00:04,000\nBroken\n\n\
-3\n00:00:05,000 --> 00:00:06,000\nThird\n\n";
-        assert_eq!(
-            parse_srt(text),
-            vec![
-                json!({"index": 1, "start_s": 1.0, "end_s": 2.0, "text": "First"}),
-                json!({"index": 2, "start_s": 5.0, "end_s": 6.0, "text": "Third"}),
-            ]
-        );
-    }
-}

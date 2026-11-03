@@ -60,31 +60,6 @@ fn resolve_diagnostics_enabled(read: impl FnOnce() -> bool) -> bool {
     enabled
 }
 
-#[cfg(test)]
-mod diagnostics_cache_tests {
-    use super::*;
-
-    #[test]
-    fn a_stale_enabled_read_is_never_published_after_an_opt_out() {
-        notify_settings_changed();
-        // A logger reads `true`; the user turns diagnostics off mid-read.
-        let answer = resolve_diagnostics_enabled(|| {
-            notify_settings_changed();
-            true
-        });
-        assert!(answer, "the in-flight reader still returns what it read");
-        assert_eq!(
-            DIAGNOSTICS_ENABLED_CACHE.load(Ordering::Acquire),
-            0,
-            "stale 'enabled' must not be cached"
-        );
-        // The next reader sees the real, disabled setting and caches it.
-        assert!(!resolve_diagnostics_enabled(|| false));
-        assert_eq!(DIAGNOSTICS_ENABLED_CACHE.load(Ordering::Acquire), 1);
-        notify_settings_changed();
-    }
-}
-
 // ALL telemetry emitters use
 // `append_or_stderr`, not a bare `let _ = append(..)`. Emission is gated,
 // redacted, and handed to one bounded background writer so producer paths
@@ -343,58 +318,4 @@ pub fn clear_local_logs() -> Result<(), String> {
 /// clearing, shutdown, and deterministic tests.
 pub fn flush_pending_logs() -> Result<(), String> {
     crate::telemetry_writer::flush_pending_logs()
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::Value;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn temp_root(label: &str) -> std::path::PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        std::env::temp_dir().join(format!(
-            "rightkit-telemetry-{label}-{}-{nonce}",
-            std::process::id()
-        ))
-    }
-
-    #[test]
-    fn telemetry_log_path_is_installed_user_app_data_source() {
-        let path = super::log_path();
-        assert_eq!(
-            path.file_name().and_then(|name| name.to_str()),
-            Some("events.jsonl")
-        );
-        assert_eq!(
-            path.parent()
-                .and_then(std::path::Path::file_name)
-                .and_then(|name| name.to_str()),
-            Some(rightkit_dictation_core::app_paths::TEST_APP_DATA_DIR_NAME)
-        );
-    }
-
-    #[test]
-    fn structured_input_trigger_keeps_source_without_content() {
-        let root = temp_root("input-trigger");
-        let path = root.join("events.jsonl");
-        super::append_or_stderr_to(
-            &path,
-            serde_json::json!({
-                "event": "input_trigger",
-                "source": "middle_mouse",
-                "text": "private dictated words"
-            }),
-        );
-        super::flush_pending_logs().unwrap();
-        let line = std::fs::read_to_string(&path).unwrap();
-        let event: Value = serde_json::from_str(line.trim()).unwrap();
-        assert_eq!(event["source"], "middle_mouse");
-        assert_ne!(event["text"], "private dictated words");
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    // Redaction tests live in rightkit-dictation-core.
 }

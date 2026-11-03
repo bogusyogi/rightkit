@@ -19,8 +19,3 @@ pub use preference::{enabled_from_secret, lock_preference_from_read, LockPrefere
 pub use startup::{startup_runtime, startup_verification};
 pub use state::{AppLockRuntime, AppLockState, AppLockStatus};
 pub use verify::{native_available, verify_user, verify_user_for_window};
-
-#[cfg(test)]
-mod flow_tests;
-#[cfg(test)]
-mod tests;

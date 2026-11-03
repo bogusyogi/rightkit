@@ -66,34 +66,3 @@ impl Platform {
         filters.is_empty() || filters.iter().any(|f| self.matches(f))
     }
 }
-
-#[cfg(test)]
-mod android_tests {
-    use super::*;
-
-    #[test]
-    fn android_filters_match_only_android_hosts_and_the_triple_is_not_vetoed_by_linux() {
-        let phone = Platform::new("android", "aarch64");
-        for filter in [
-            "android",
-            "android-aarch64",
-            "aarch64-linux-android",
-            "android-arm64",
-        ] {
-            assert!(phone.matches(filter), "{filter}");
-        }
-        assert!(!phone.matches("android-x86_64"));
-        assert!(!phone.matches("aarch64-linux"));
-        assert!(!phone.matches("linux"));
-        assert!(!phone.matches("macos-aarch64"));
-        let linux = Platform::new("linux", "aarch64");
-        assert!(linux.matches("aarch64-linux"));
-        assert!(!linux.matches("android"));
-        assert!(!linux.matches("aarch64-linux-android"));
-        let emulator = Platform::new("android", "x86_64");
-        assert!(emulator.matches("x86_64-linux-android") && !emulator.matches("arm64-android"));
-        assert!(phone.allows(&[]));
-        assert!(phone.allows(&["windows".into(), "android".into()]));
-        assert!(!phone.allows(&["windows".into()]));
-    }
-}

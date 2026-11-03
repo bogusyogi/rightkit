@@ -21,10 +21,10 @@
 //!
 //! Every row is keyed by venture, channel and account, and every command checks its scope against a stored
 //! channel (`foreign_scope` otherwise). Decisions are compare-and-swap on `expected_revision`.
+use rightkit_social_publish::protocol::PublishRemote;
 use std::collections::{BTreeMap, BTreeSet};
 
 use rightkit_social_publish::calendar_time as time;
-use rightkit_social_publish::protocol::PublishRemote;
 use rightkit_social_publish::util::{
     bad, db_err, in_txn, internal, parse_input, require_channel, WriteTxn,
 };

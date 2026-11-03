@@ -7,7 +7,7 @@ description = "Dictation telemetry: local utterance timelines, telemetry writer,
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_dictation_telemetry"
@@ -24,9 +24,6 @@ serde_json = { version = "1" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 rightkit-http = { version = "0.3.9", default-features = false, features = ["gzip"], path = "../rightkit-http" }
 dirs = { version = "7" }
-
-[dev-dependencies]
-rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core", features = ["test-mode"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_Threading"] }

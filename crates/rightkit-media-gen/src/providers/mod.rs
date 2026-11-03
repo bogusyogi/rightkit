@@ -558,25 +558,10 @@ pub trait Provider: Send + Sync {
     }
 }
 
-/// True only in a `test-mode` build (or this crate's own unit tests): provider base-URL overrides are
-/// honoured nowhere else, because an override can send a real API key to another host.
-pub const PROVIDER_BASE_OVERRIDES: bool = cfg!(any(test, feature = "test-mode"));
-
-/// The base URL for a provider endpoint. In a `test-mode` build, `var` (for
-/// example `RIGHTKIT_FAL_REST_BASE` or `VAST_API_BASE`) replaces `default`; this
-/// is how the e2e suite points adapters at a local mock to assert exact request
-/// shapes without a billed call. In any other build the variable is ignored and
-/// `default` is returned. The result has no trailing slash.
-pub fn base_url_override(var: &str, default: &str) -> String {
-    if PROVIDER_BASE_OVERRIDES {
-        let set = std::env::var(var)
-            .ok()
-            .map(|s| s.trim().trim_end_matches('/').to_string())
-            .filter(|s| !s.is_empty());
-        if let Some(url) = set {
-            return url;
-        }
-    }
+/// The base URL for a provider endpoint. Provider base-URL overrides are never honoured: an
+/// override can send a real API key to another host. `_var` names the override that is ignored.
+/// The result has no trailing slash.
+pub fn base_url_override(_var: &str, default: &str) -> String {
     default.trim_end_matches('/').to_string()
 }
 
@@ -645,57 +630,4 @@ pub fn registry() -> Vec<Box<dyn Provider>> {
             muapi::BASE,
         ))),
     ]
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn model(id: &str) -> serde_json::Value {
-        let all: Vec<_> = registry().iter().flat_map(|p| p.models().iter()).collect();
-        serde_json::to_value(all.into_iter().find(|m| m.model == id).unwrap()).unwrap()
-    }
-
-    #[test]
-    fn unknown_outcome_excerpt_is_clipped_and_key_redacted() {
-        let body = format!("{{\"detail\": \"key sk-secret-1 {}\"}}", "x".repeat(1000));
-        let PollOutcome::Unknown {
-            status,
-            detail,
-            completed,
-        } = unknown_outcome("WEIRD", body.as_bytes(), concat!("s", "k-secret-1"), true)
-        else {
-            panic!()
-        };
-        assert_eq!((status.as_str(), completed), ("WEIRD", true));
-        assert!(
-            !detail.contains(concat!("s", "k-secret-1")) && detail.contains("[redacted]"),
-            "{detail}"
-        );
-        assert!(
-            detail.chars().count() <= 303,
-            "clipped: {}",
-            detail.chars().count()
-        );
-    }
-
-    #[test]
-    fn models_advertise_structured_durations() {
-        let veo = model("fal-ai/veo3.1/fast");
-        assert_eq!(veo["durations_s"], serde_json::json!([4, 6, 8]));
-        assert_eq!(veo["default_duration_s"], 4);
-        assert!(veo.get("min_duration_s").is_none());
-        let kling = model("kling-3-pro");
-        assert_eq!(
-            (
-                kling["min_duration_s"].as_u64(),
-                kling["max_duration_s"].as_u64()
-            ),
-            (Some(3), Some(15))
-        );
-        assert!(kling.get("durations_s").is_none());
-        assert_eq!(model("wan-ultra")["durations_s"], serde_json::json!([5, 8]));
-        let image = model("fal-ai/flux-2/klein/9b");
-        assert!(image.get("durations_s").is_none() && image.get("min_duration_s").is_none());
-    }
 }

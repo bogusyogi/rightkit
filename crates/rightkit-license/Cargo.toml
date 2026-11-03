@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["license", "ed25519", "offline", "entitlement"]
 categories = ["authentication", "cryptography"]
-include = ["src/**", "tests/**", "test-vectors/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = []
@@ -32,9 +32,6 @@ engine-snapshot = ["dep:rightkit-credentials", "dep:zeroize"]
 # Native update authorization (G1): `UpdateAuthProvider::authorize`, one lock acquisition per request.
 # Adds `url` (2.x, the type of `authorize`'s URL argument and the one the updater plugin uses).
 update-auth = ["client", "dep:url"]
-# TEST ONLY. Lets a test point the client at a loopback `http://` origin
-# (`LicenseClientConfig::with_test_origin`). Never enable it in a shipped build.
-client-testing = ["client"]
 
 [dependencies]
 ed25519-dalek = "3"
@@ -45,12 +42,6 @@ rightkit-http = { version = "0.3.9", path = "../rightkit-http", optional = true 
 rightkit-credentials = { version = "0.4.3", path = "../rightkit-credentials", optional = true }
 zeroize = { version = "1.9", optional = true }
 url = { version = "2", optional = true }
-
-[dev-dependencies]
-rightkit-credentials = { version = "0.4.4", path = "../rightkit-credentials", features = ["memory-backend"] }
-# Loopback mock server for tests/subject_entitlement.rs and tests/client_*.rs (gated on the features above).
-rightkit-http = { version = "0.3.9", path = "../rightkit-http", features = ["testing"] }
-tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = false

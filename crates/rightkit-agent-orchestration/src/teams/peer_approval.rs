@@ -165,26 +165,3 @@ impl ApprovedPeer {
         &self.approval.team_id
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::teams::manifest_import::import_manifest;
-
-    fn manifest() -> TeamManifest {
-        import_manifest(
-            r#"{"version":1,"team_id":"team-a","max_delegation_depth":2,"peers":[{"peer_id":"bot-a","role":"lead"},{"peer_id":"bot-b","role":"worker"}]}"#,
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn approval_is_bound_to_the_exact_pair() {
-        let mut gate = PeerApprovalGate::new();
-        let approved = gate.approve(&manifest(), "bot-a", "bot-b").unwrap();
-        assert!(gate.authorizes(&approved, "team-a", "bot-a", "bot-b"));
-        assert!(!gate.authorizes(&approved, "team-a", "bot-b", "bot-a"));
-        assert!(gate.revoke(&approved));
-        assert!(!gate.authorizes(&approved, "team-a", "bot-a", "bot-b"));
-    }
-}

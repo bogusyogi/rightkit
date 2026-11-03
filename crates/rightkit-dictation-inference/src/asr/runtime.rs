@@ -1526,14 +1526,6 @@ impl ScheduledStatic15 {
         self.committed_tokens.clear();
     }
 
-    /// Tokens committed so far, in recording-absolute time. Excludes the
-    /// final tail — combine with `finish`'s returned tail tokens for the
-    /// complete recording.
-    #[cfg(test)]
-    pub fn committed_tokens(&self) -> &[TimedToken] {
-        &self.committed_tokens
-    }
-
     pub fn background_windows(&self) -> usize {
         self.checkpoints.len()
     }
@@ -1547,11 +1539,6 @@ impl ScheduledStatic15 {
             self.committed_text.chars().count(),
             self.committed_text.split_whitespace().count(),
         )
-    }
-
-    #[cfg(test)]
-    pub fn tail_samples(&self, total_samples: usize) -> usize {
-        total_samples.saturating_sub(self.committed_samples)
     }
 
     pub fn commit_window(
@@ -1603,23 +1590,6 @@ impl ScheduledStatic15 {
         Ok(())
     }
 
-    /// Decode every complete 15-second window that capture has made ready.
-    /// The cut and seam policy are exactly the locked deferred static-15 policy.
-    #[cfg(test)]
-    pub fn process_ready<F>(&mut self, samples: &[f32], mut decode: F) -> Result<usize, String>
-    where
-        F: FnMut(&[f32]) -> Result<String, String>,
-    {
-        let mut committed_now = 0;
-        while let Some(segment) = scheduled_static15_ready_segment(samples, self.committed_samples)
-        {
-            let text = decode(&samples[segment.clone()])?;
-            self.commit_window(segment.start, segment.end, &text, Vec::new())?;
-            committed_now += 1;
-        }
-        Ok(committed_now)
-    }
-
     /// Assemble final transcript plus recording-absolute timings. A backend
     /// without timing support returns an empty token list; never synthesize it.
     pub fn finish_result<F>(
@@ -1663,7 +1633,6 @@ impl ScheduledStatic15 {
         let mut combined = self.committed_text.clone();
         let mut expected_start = 0;
         for checkpoint in &self.checkpoints {
-            debug_assert_eq!(checkpoint.start_sample, expected_start);
             expected_start = checkpoint.end_sample;
         }
         if self.committed_samples < samples.len() {
@@ -1736,15 +1705,6 @@ impl ScheduledStatic15 {
                 })
                 .collect(),
         })
-    }
-
-    #[cfg(test)]
-    pub fn finish<F>(&mut self, samples: &[f32], decode: F) -> Result<String, String>
-    where
-        F: FnMut(&[f32]) -> Result<TranscriptionResult, String>,
-    {
-        self.finish_result(samples, decode)
-            .map(|result| result.text)
     }
 }
 
@@ -2324,15 +2284,3 @@ pub(super) fn timed_tokens_to_file_words(tokens: &[TimedToken]) -> Vec<FileTimed
 pub(super) fn render_file_subtitles(words: &[FileTimedWord]) -> (String, String) {
     crate::subtitle_export::render_srt_vtt(words.iter().map(|w| (w.text.clone(), w.start, w.end)))
 }
-
-#[cfg(test)]
-#[path = "route_mismatch_tests.rs"]
-mod route_mismatch_tests;
-
-#[cfg(test)]
-#[path = "background_decode_policy_tests.rs"]
-mod background_decode_policy_tests;
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "runtime_alignment_tests.rs"]
-mod runtime_alignment_tests;

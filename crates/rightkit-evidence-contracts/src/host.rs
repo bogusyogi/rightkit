@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 use crate::{id::HostId, require_version, ContractError};
 

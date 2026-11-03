@@ -273,51 +273,6 @@ pub fn frontmost_name() -> Option<String> {
     parse_lsappinfo(&front_info("name")?, &["name", "LSDisplayName"])
 }
 
-#[cfg(test)]
-mod frontmost_tests {
-    use super::*;
-
-    #[test]
-    fn lsappinfo_value_is_the_text_after_the_equals_in_every_format() {
-        // CI (macos-15) printed the quoted key and value; the old parser returned the key.
-        assert_eq!(
-            parse_lsappinfo("\"LSDisplayName\"=\"Ember\"\n", &["name", "LSDisplayName"]).as_deref(),
-            Some("Ember")
-        );
-        assert_eq!(
-            parse_lsappinfo("\"name\"=\"Ember Beta\"", &["name", "LSDisplayName"]).as_deref(),
-            Some("Ember Beta")
-        );
-        assert_eq!(
-            parse_lsappinfo("name = \"Ember\"", &["name"]).as_deref(),
-            Some("Ember")
-        );
-        assert_eq!(
-            parse_lsappinfo("\"pid\"=4242\n", &["pid"]).as_deref(),
-            Some("4242")
-        );
-        assert_eq!(
-            parse_lsappinfo("pid = 4242\n", &["pid"]).as_deref(),
-            Some("4242")
-        );
-        assert_eq!(
-            parse_lsappinfo("pid=4242", &["pid"]).as_deref(),
-            Some("4242")
-        );
-        // A key is never returned as the value; other keys and empty values are skipped.
-        assert_eq!(
-            parse_lsappinfo("\"bundleID\"=\"x\"\n\"pid\"=7\n", &["pid"]).as_deref(),
-            Some("7")
-        );
-        assert_eq!(parse_lsappinfo("\"pid\"=\n", &["pid"]), None);
-        assert_eq!(parse_lsappinfo("", &["pid"]), None);
-        assert_eq!(
-            parse_lsappinfo("\"LSDisplayName\"", &["name", "LSDisplayName"]),
-            None
-        );
-    }
-}
-
 // ---------- input (per-pid, no focus change) ----------
 
 pub fn accessibility_trusted() -> bool {

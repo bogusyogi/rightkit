@@ -123,22 +123,3 @@ pub fn resolve_caller_from(flag: Option<&str>, env: Option<&str>) -> Result<Call
         None => Ok(Caller::cli()),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn caller_parsing() {
-        let c = parse_caller("My App").unwrap();
-        assert_eq!(c.slug, "my-app");
-        assert!(parse_caller("../x").is_err());
-        assert_eq!(resolve_caller_from(None, Some(" ")).unwrap(), Caller::cli());
-    }
-
-    #[test]
-    fn explicit_root_wins() {
-        let dir = std::env::temp_dir().join("rk-media-gen-root");
-        assert_eq!(app_data_root_for(Some(dir.clone().into())), dir);
-    }
-}

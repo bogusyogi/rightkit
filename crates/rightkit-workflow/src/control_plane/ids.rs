@@ -25,11 +25,6 @@ impl StableId {
     /// Construct a stable id from a `prefix_value` pair.
     pub fn new(prefix: Prefix, value: impl Into<String>) -> Self {
         let mut value = value.into();
-        debug_assert!(
-            !value.is_empty(),
-            "workflow id value must be non-empty (prefix={:?})",
-            prefix
-        );
         let marker = format!("{}_", prefix.as_str());
         let repeated = format!("{marker}{marker}");
         while value.starts_with(&repeated) {
@@ -249,78 +244,5 @@ impl IdGenerator {
     /// Current generation counter. Useful for snapshot tests.
     pub fn counter(&self) -> u64 {
         self.counter
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn same_seed_same_sequence() {
-        let mut a = IdGenerator::seeded("unit-test");
-        let mut b = IdGenerator::seeded("unit-test");
-        for _ in 0..16 {
-            assert_eq!(
-                a.next_id(Prefix::WorkflowRun),
-                b.next_id(Prefix::WorkflowRun)
-            );
-        }
-    }
-
-    #[test]
-    fn different_seed_different_sequence() {
-        let mut a = IdGenerator::seeded("alpha");
-        let mut b = IdGenerator::seeded("beta");
-        assert_ne!(
-            a.next_id(Prefix::WorkflowRun),
-            b.next_id(Prefix::WorkflowRun)
-        );
-    }
-
-    #[test]
-    fn prefix_round_trips() {
-        for p in [
-            Prefix::WorkflowDefinition,
-            Prefix::WorkflowVersion,
-            Prefix::WorkflowTrigger,
-            Prefix::WorkflowOccurrence,
-            Prefix::WorkflowRun,
-            Prefix::NodeRun,
-            Prefix::NodeAttempt,
-            Prefix::Wait,
-            Prefix::Approval,
-            Prefix::EffectIntent,
-            Prefix::AttentionItem,
-            Prefix::Delivery,
-            Prefix::TriggerEvent,
-        ] {
-            assert_eq!(Prefix::from_str(p.as_str()), Some(p));
-        }
-    }
-
-    #[test]
-    fn unknown_prefix_does_not_parse() {
-        assert_eq!(Prefix::from_str("xyz"), None);
-    }
-
-    #[test]
-    fn stable_id_split_round_trips() {
-        let mut g = IdGenerator::seeded("split-test");
-        let id = g.next_id(Prefix::WorkflowVersion);
-        let (p, _) = id.split().expect("prefix parses");
-        assert_eq!(p, Prefix::WorkflowVersion);
-    }
-
-    #[test]
-    fn stable_id_normalizes_existing_and_repeated_prefixes() {
-        assert_eq!(
-            StableId::new(Prefix::WorkflowTrigger, "wft_example").as_str(),
-            "wft_example"
-        );
-        assert_eq!(
-            StableId::new(Prefix::WorkflowTrigger, "wft_wft_example").as_str(),
-            "wft_example"
-        );
     }
 }

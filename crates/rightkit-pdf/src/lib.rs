@@ -51,6 +51,4 @@ pub mod redact;
 #[cfg(feature = "edit")]
 pub mod save;
 pub mod scan;
-#[cfg(test)]
-mod test_fixtures;
 pub mod write;

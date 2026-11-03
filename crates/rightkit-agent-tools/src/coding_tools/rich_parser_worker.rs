@@ -21,12 +21,9 @@ const RESPONSE_PREFIX: &str = "RIGHTKIT_RICH_PARSER_RESPONSE_V1:";
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
 const MAX_RESPONSE_BYTES: usize = 24 * 1024 * 1024;
 const MAX_DIAGNOSTIC_BYTES: usize = 16 * 1024;
-#[cfg(not(test))]
 const WORKER_TIMEOUT: Duration = Duration::from_secs(15);
 // Test budget must absorb a cold worker spawn on a loaded host; 250ms made the PDF/image
 // read tests fail with "exceeded its 0 second timeout" under concurrent cargo load.
-#[cfg(test)]
-const WORKER_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Serialize, Deserialize)]
 struct WorkerRequest {
@@ -227,45 +224,11 @@ fn decode_response(stdout: &[u8]) -> Result<ToolResult, String> {
 /// for `process_launch::UnconfinedProcessLaunchAdapter` via
 /// [`TEST_LAUNCH_ADAPTER`] since a confined child cannot reach a plain
 /// `tempdir()` fixture on every platform.
-#[cfg(not(test))]
 fn worker_launch_adapter() -> Arc<dyn ProcessLaunchAdapter> {
     Arc::new(crate::coding_tools::shell::NativeCommandSandboxAdapter)
 }
 
-#[cfg(test)]
-fn worker_launch_adapter() -> Arc<dyn ProcessLaunchAdapter> {
-    TEST_LAUNCH_ADAPTER
-        .with(|cell| cell.borrow().clone())
-        .unwrap_or_else(|| Arc::new(crate::coding_tools::shell::NativeCommandSandboxAdapter))
-}
-
-/// Test-only: override the rich parser worker's process launch adapter for
-/// the duration of the calling thread. Used by tests elsewhere in the crate
-/// (e.g. `read_file` tests) whose subject is worker/parsing logic rather
-/// than sandbox confinement.
-#[cfg(test)]
-pub(crate) fn set_test_launch_adapter(adapter: Option<Arc<dyn ProcessLaunchAdapter>>) {
-    TEST_LAUNCH_ADAPTER.with(|cell| *cell.borrow_mut() = adapter);
-}
-
-#[cfg(not(test))]
 fn configure_worker_args(_args: &mut Vec<String>, _env: &mut Vec<(String, String)>) {}
-
-#[cfg(test)]
-fn configure_worker_args(args: &mut Vec<String>, env: &mut Vec<(String, String)>) {
-    args.extend(
-        [
-            "--exact",
-            "rich_parser_worker::tests::worker_process_entry",
-            "--ignored",
-            "--nocapture",
-        ]
-        .map(String::from),
-    );
-    if let Some(behavior) = TEST_BEHAVIOR.with(|value| value.borrow().clone()) {
-        env.push(("RIGHTKIT_RICH_PARSER_TEST_BEHAVIOR".to_string(), behavior));
-    }
-}
 
 /// Run the private worker protocol when invoked by the daemon's pre-CLI gate.
 /// Returns false for every ordinary invocation.
@@ -278,13 +241,6 @@ pub fn run_if_requested() -> bool {
 }
 
 fn run_worker_stdio() {
-    #[cfg(test)]
-    match std::env::var("RIGHTKIT_RICH_PARSER_TEST_BEHAVIOR").as_deref() {
-        Ok("timeout") => std::thread::sleep(WORKER_TIMEOUT + Duration::from_secs(2)),
-        Ok("crash") => std::process::exit(73),
-        _ => {}
-    }
-
     let mut input = Vec::new();
     let read_result = std::io::stdin()
         .take(MAX_REQUEST_BYTES as u64 + 1)
@@ -335,120 +291,4 @@ fn process_request(input: &[u8]) -> ToolResult {
     });
     crate::coding_tools::read_file::read_rich_file_in_process(&path, &args)
         .unwrap_or_else(|| ToolResult::error("Rich parser received an unsupported file type"))
-}
-
-#[cfg(test)]
-thread_local! {
-    static TEST_BEHAVIOR: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
-    /// Test-only override for the worker's process launch adapter (see
-    /// `worker_launch_adapter`). Tests whose subject is worker logic (not
-    /// sandbox confinement) set this to
-    /// `process_launch::UnconfinedProcessLaunchAdapter` so the child can
-    /// reach a plain `tempdir()` fixture; tests that don't set it still run
-    /// the real enforced adapter.
-    static TEST_LAUNCH_ADAPTER: std::cell::RefCell<Option<Arc<dyn ProcessLaunchAdapter>>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::coding_tools::process_launch::UnconfinedProcessLaunchAdapter;
-    use tempfile::tempdir;
-
-    fn use_unconfined_launch_adapter() {
-        TEST_LAUNCH_ADAPTER
-            .with(|cell| *cell.borrow_mut() = Some(Arc::new(UnconfinedProcessLaunchAdapter)));
-    }
-
-    fn reset_launch_adapter() {
-        TEST_LAUNCH_ADAPTER.with(|cell| *cell.borrow_mut() = None);
-    }
-
-    #[test]
-    #[ignore]
-    fn worker_process_entry() {
-        assert!(run_if_requested());
-    }
-
-    #[tokio::test]
-    async fn isolated_worker_extracts_normal_notebook() {
-        use_unconfined_launch_adapter();
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("normal.ipynb");
-        std::fs::write(
-            &path,
-            r#"{"nbformat":4,"nbformat_minor":5,"cells":[{"cell_type":"code","source":["x = 1"]}]}"#,
-        )
-        .unwrap();
-        let result = read_rich_file(&path, &serde_json::json!({}), dir.path())
-            .await
-            .unwrap();
-        reset_launch_adapter();
-        assert!(!result.is_error, "{}", result.content);
-        assert!(result.content.contains("cell 0 [code]"));
-    }
-
-    #[tokio::test]
-    async fn isolated_worker_rejects_path_outside_workspace() {
-        use_unconfined_launch_adapter();
-        let workspace = tempdir().unwrap();
-        let outside = tempdir().unwrap();
-        let path = outside.path().join("outside.ipynb");
-        std::fs::write(&path, r#"{"nbformat":4,"cells":[]}"#).unwrap();
-        let result = read_rich_file(&path, &serde_json::json!({}), workspace.path())
-            .await
-            .unwrap();
-        reset_launch_adapter();
-        assert!(result.is_error);
-        assert!(result.content.contains("inside the workspace root"));
-    }
-
-    #[tokio::test]
-    async fn isolated_worker_reports_crash() {
-        use_unconfined_launch_adapter();
-        TEST_BEHAVIOR.with(|value| *value.borrow_mut() = Some("crash".into()));
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("crash.ipynb");
-        std::fs::write(&path, r#"{"nbformat":4,"cells":[]}"#).unwrap();
-        let result = read_rich_file(&path, &serde_json::json!({}), dir.path())
-            .await
-            .unwrap();
-        TEST_BEHAVIOR.with(|value| *value.borrow_mut() = None);
-        reset_launch_adapter();
-        assert!(result.is_error);
-        assert!(
-            result.content.contains("exited unsuccessfully"),
-            "{}",
-            result.content
-        );
-    }
-
-    #[tokio::test]
-    async fn isolated_worker_enforces_timeout() {
-        use_unconfined_launch_adapter();
-        TEST_BEHAVIOR.with(|value| *value.borrow_mut() = Some("timeout".into()));
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("timeout.ipynb");
-        std::fs::write(&path, r#"{"nbformat":4,"cells":[]}"#).unwrap();
-        let result = read_rich_file(&path, &serde_json::json!({}), dir.path())
-            .await
-            .unwrap();
-        TEST_BEHAVIOR.with(|value| *value.borrow_mut() = None);
-        reset_launch_adapter();
-        assert!(result.is_error);
-        assert!(result.content.contains("timeout"), "{}", result.content);
-    }
-
-    #[test]
-    fn worker_rejects_oversized_or_invalid_input() {
-        let oversized = vec![b'x'; MAX_REQUEST_BYTES + 1];
-        let oversized_result = process_request(&oversized);
-        assert!(oversized_result.is_error);
-        assert!(oversized_result.content.contains("safe input limit"));
-
-        let invalid = process_request(b"not-json");
-        assert!(invalid.is_error);
-        assert!(invalid.content.contains("Invalid rich parser request"));
-    }
 }

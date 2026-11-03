@@ -13,7 +13,6 @@ use crate::{process_tree, EnvPolicy, Reservation, SandboxError};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty};
 use std::ffi::OsString;
 use std::io::{Read, Write};
-use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 

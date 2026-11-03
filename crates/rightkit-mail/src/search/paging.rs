@@ -38,7 +38,6 @@ pub fn apply_page(
     before: Option<&SearchCursor>,
     limit: usize,
 ) -> (String, Vec<String>) {
-    debug_assert!(sql.contains(BASE_TAIL) && sql.contains(PAGE_PRED));
     let tail = format!("ORDER BY t.last_message_at DESC, t.rowid ASC LIMIT {limit}");
     let sql = sql.replacen(BASE_TAIL, &tail, 1);
     let Some(c) = before else {

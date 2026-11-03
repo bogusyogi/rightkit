@@ -11,7 +11,7 @@ keywords = ["sync", "e2ee", "key-management", "x25519", "xchacha20poly1305"]
 categories = ["cryptography"]
 # Parked 2026-10-16 (Adrian: own-cloud sync, CloudKit + Google Drive; no service of ours). Kept, not published.
 publish = false
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 rightkit-credentials = { version = "0.4.3", path = "../rightkit-credentials" }

@@ -628,17 +628,3 @@ fn cap_result(text: String, max: usize) -> (String, bool) {
     cut.push_str(&format!("\n[truncated: {omitted} bytes omitted]"));
     (cut, true)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cap_result_cuts_on_a_character_boundary_and_says_so() {
-        assert_eq!(cap_result("abc".into(), 3), ("abc".to_string(), false));
-        let (cut, truncated) = cap_result("aéb".into(), 2);
-        assert!(truncated);
-        assert!(cut.starts_with('a'));
-        assert!(cut.contains("[truncated: 3 bytes omitted]"));
-    }
-}

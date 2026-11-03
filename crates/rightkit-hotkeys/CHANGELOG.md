@@ -16,6 +16,7 @@ Code-only change; nothing in this section was compiled or run when written. The 
 
 ## Unreleased
 
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 Additive; nothing in this section was compiled or run when written.
 
 - Fixed (macOS, 0.1.1): app telemetry dropped by the taps (Orthic-Labs/rightkit#101). `MiddleMouseTap` passes non-middle buttons through as before and now reports each one on the new `MiddleMouseTap::spawn_with_diag` hook as `middle_mouse_other_button` with `button=<n>`; `spawn` is unchanged and reports nothing. The fn tap's `fn_input_candidate` rejection adds `source=<fn_space|fn_escape>` (the rejected chord key) and `dictation_active=<bool>` (the handle's own dictation state, set by `set_dictation_active`) after the existing fields. Unit tests cover both.

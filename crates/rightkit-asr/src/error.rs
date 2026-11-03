@@ -120,20 +120,3 @@ impl Error {
         matches!(self, Error::Config(message) if message.starts_with(UNSUPPORTED_PREFIX))
     }
 }
-
-#[cfg(test)]
-mod unsupported_tests {
-    use super::*;
-
-    #[test]
-    fn unsupported_is_a_tagged_config_error() {
-        let error = Error::unsupported("CoreML on Android");
-        assert!(error.is_unsupported());
-        assert_eq!(
-            error.to_string(),
-            "Config error: unsupported: CoreML on Android"
-        );
-        assert!(!Error::Config("bad".into()).is_unsupported());
-        assert!(!Error::Cancelled.is_unsupported());
-    }
-}

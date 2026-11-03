@@ -52,20 +52,3 @@ pub fn for_terminal(text: &str) -> Cow<'_, str> {
     }
     Cow::Owned(text.chars().map(|ch| ascii_for(ch).unwrap_or(ch)).collect())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_mapped_symbol_is_one_column_and_ascii() {
-        for ch in "✓✗⇥↳┆▌┃●○↻─╰↑↓⏎…·—→".chars() {
-            let mapped = ascii_for(ch).unwrap_or_else(|| panic!("{ch} has no fallback"));
-            assert!(
-                mapped.is_ascii() && !mapped.is_control(),
-                "{ch} -> {mapped:?}"
-            );
-        }
-        assert_eq!(ascii_for('a'), None);
-    }
-}

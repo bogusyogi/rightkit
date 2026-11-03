@@ -102,26 +102,3 @@ pub type Result<T> = std::result::Result<T, RecordError>;
 pub(crate) fn io_err(context: &str, err: &io::Error) -> RecordError {
     RecordError::new(Code::Io, format!("{context}: {err}"))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_code_round_trips_through_its_stable_string() {
-        for code in Code::ALL {
-            assert_eq!(Code::parse(code.as_str()), Some(code));
-        }
-        assert_eq!(Code::parse("window_hidden"), Some(Code::WindowHidden));
-        assert_eq!(
-            Code::parse("codec_unavailable"),
-            Some(Code::CodecUnavailable)
-        );
-        assert_eq!(Code::parse("bundle_not_complete"), Some(Code::NotComplete));
-        assert_eq!(
-            Code::parse("bundle_verify_failed"),
-            Some(Code::VerifyFailed)
-        );
-        assert_eq!(Code::parse("no_such_code"), None);
-    }
-}

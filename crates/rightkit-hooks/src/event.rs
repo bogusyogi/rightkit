@@ -9,7 +9,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use std::fmt;
 use std::io::Read;
-use std::path::Path;
 
 /// Largest hook payload read from stdin (Pulse's `STDIN_CAP`).
 pub const STDIN_CAP: u64 = 4 * 1024 * 1024;

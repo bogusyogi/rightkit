@@ -30,27 +30,3 @@ pub fn linked_worktree_source(workspace: &Path) -> Option<PathBuf> {
     }
     worktrees.parent()?.parent().map(Path::to_path_buf)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn worktree_of_caller_root_is_the_same_repository() {
-        let temp = tempfile::tempdir().unwrap();
-        let repo = temp.path().join("repo");
-        let worktree = temp.path().join("wt");
-        std::fs::create_dir_all(repo.join(".git/worktrees/wt")).unwrap();
-        std::fs::create_dir_all(&worktree).unwrap();
-        std::fs::write(
-            worktree.join(".git"),
-            format!("gitdir: {}\n", repo.join(".git/worktrees/wt").display()),
-        )
-        .unwrap();
-        let repo = repo.canonicalize().unwrap();
-        let worktree = worktree.canonicalize().unwrap();
-        assert!(is_same_repository(&repo, &repo));
-        assert!(is_same_repository(&worktree, &repo));
-        assert!(!is_same_repository(&repo, &worktree));
-    }
-}

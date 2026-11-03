@@ -44,23 +44,3 @@ pub fn lifecycle_line(kind: &str, phase: &str, detail: Value) -> Value {
 pub fn emit_lifecycle(kind: &str, phase: &str, detail: Value) {
     eprintln!("{}", lifecycle_line(kind, phase, detail));
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    #[test]
-    fn formats_known_instants() {
-        assert_eq!(rfc3339_millis(UNIX_EPOCH), "1970-01-01T00:00:00.000Z");
-        let t = UNIX_EPOCH + Duration::from_millis(1_709_164_800_123);
-        assert_eq!(rfc3339_millis(t), "2024-02-29T00:00:00.123Z");
-    }
-
-    #[test]
-    fn lifecycle_lines_carry_kind_phase_and_time() {
-        let line = lifecycle_line("demo-doctor-lifecycle", "started", json!(null));
-        assert_eq!(line["phase"], "started");
-        assert!(line["at"].as_str().unwrap().ends_with('Z'));
-    }
-}

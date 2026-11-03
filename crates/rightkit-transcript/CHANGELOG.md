@@ -3,6 +3,10 @@
 All notable changes to `rightkit-transcript`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.4.0
 
 This is a minor (0.x) bump because `TimedWord` gained a public field. Struct literals

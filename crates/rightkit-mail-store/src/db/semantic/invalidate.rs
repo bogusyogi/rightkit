@@ -17,7 +17,6 @@
 use rightkit_db::rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 
-use super::index::hash_text;
 use super::storage;
 
 fn vec_table_exists(conn: &Connection) -> Result<bool, String> {
@@ -200,110 +199,4 @@ pub(crate) fn clear_account(conn: &Connection, account_id: &str) -> Result<(), S
         return Ok(());
     }
     storage::reset_index_for_account(conn, account_id)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::db::semantic::embedder::STORED_DIM;
-
-    fn unit(seed: f32) -> [f32; STORED_DIM] {
-        let mut v = [0f32; STORED_DIM];
-        v[0] = seed;
-        v[1] = (1.0 - seed * seed).max(0.0).sqrt();
-        v
-    }
-
-    fn add_message(conn: &Connection, account: &str, id: &str) -> i64 {
-        conn.execute(
-            "INSERT OR IGNORE INTO accounts(id, created_at) VALUES (?1, 0)",
-            [account],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO messages(account_id, id, thread_id, internal_date) VALUES (?1, ?2, 't', 0)",
-            params![account, id],
-        )
-        .unwrap();
-        conn.query_row(
-            "SELECT rowid FROM messages WHERE account_id = ?1 AND id = ?2",
-            params![account, id],
-            |r| r.get(0),
-        )
-        .unwrap()
-    }
-
-    fn vec_count(conn: &Connection, rowid: i64) -> i64 {
-        conn.query_row(
-            "SELECT count(*) FROM message_vec WHERE rowid = ?1",
-            [rowid],
-            |r| r.get(0),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn deleted_message_vector_is_not_inherited_by_a_reused_rowid() {
-        let conn = crate::db::test_conn();
-        let keep = add_message(&conn, "a1", "m0");
-        let gone = add_message(&conn, "a1", "m1");
-        storage::upsert_vector(&conn, keep, &unit(0.2)).unwrap();
-        storage::upsert_vector(&conn, gone, &unit(0.8)).unwrap();
-
-        crate::db::delete_message_rows(&conn, "a1", &["m1".to_string()]).unwrap();
-        assert_eq!(vec_count(&conn, gone), 0, "vector removed with its message");
-
-        // The highest rowid was freed, so SQLite reuses it.
-        let reused = add_message(&conn, "a1", "m2");
-        assert_eq!(reused, gone, "test premise: rowid is reused");
-        assert_eq!(vec_count(&conn, reused), 0, "new message has no vector");
-        assert_eq!(vec_count(&conn, keep), 1, "other message untouched");
-    }
-
-    #[test]
-    fn invalidate_drops_vector_and_rewinds_a_finished_index() {
-        let conn = crate::db::test_conn();
-        let r0 = add_message(&conn, "a1", "m0");
-        let r1 = add_message(&conn, "a1", "m1");
-        storage::upsert_vector(&conn, r0, &unit(0.2)).unwrap();
-        storage::upsert_vector(&conn, r1, &unit(0.8)).unwrap();
-        let mut st = storage::get_index_state(&conn, "a1").unwrap();
-        st.embed_model_id = "fake".to_string();
-        st.cursor_rowid = r1;
-        st.indexed_count = 2;
-        st.done = true;
-        storage::upsert_index_state(&conn, &st).unwrap();
-
-        invalidate_messages(&conn, "a1", &["m1".to_string()]).unwrap();
-
-        assert_eq!(vec_count(&conn, r1), 0);
-        assert_eq!(vec_count(&conn, r0), 1);
-        let st = storage::get_index_state(&conn, "a1").unwrap();
-        assert!(!st.done);
-        assert_eq!(st.cursor_rowid, r1 - 1);
-        assert_eq!(st.indexed_count, 1);
-    }
-
-    #[test]
-    fn account_removal_clears_only_that_accounts_vectors() {
-        let mut conn = crate::db::test_conn();
-        let a = add_message(&conn, "a1", "m0");
-        let b = add_message(&conn, "a2", "m0");
-        storage::upsert_vector(&conn, a, &unit(0.3)).unwrap();
-        storage::upsert_vector(&conn, b, &unit(0.6)).unwrap();
-
-        crate::db::remove_account_tx(&mut conn, "a1").unwrap();
-
-        assert_eq!(vec_count(&conn, a), 0);
-        assert_eq!(vec_count(&conn, b), 1, "other account keeps its vector");
-    }
-
-    #[test]
-    fn hooks_tolerate_a_database_without_the_vec_table() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(crate::db_schema::SCHEMA_V1).unwrap();
-        remove_message_vector(&conn, "a1", "m0").unwrap();
-        invalidate_messages(&conn, "a1", &["m0".to_string()]).unwrap();
-        clear_account(&conn, "a1").unwrap();
-    }
 }

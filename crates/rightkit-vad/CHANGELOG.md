@@ -3,6 +3,10 @@
 All notable changes to `rightkit-vad`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.2
 
 Additive patch for the Android plan (Orthic-Labs/rightkit#151). NOT COMPILED OR RUN, here or for Android.

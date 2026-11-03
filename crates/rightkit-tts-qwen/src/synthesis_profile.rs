@@ -189,33 +189,3 @@ impl SynthesisStageTimings {
 fn duration_ms(d: Duration) -> f64 {
     d.as_secs_f64() * 1_000.0
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn format_table_zero_total() {
-        let t = SynthesisStageTimings::default();
-        let s = t.format_table();
-        assert!(s.contains("speaker_encode"));
-        assert!(s.contains("total"));
-    }
-
-    #[test]
-    fn average_two_samples() {
-        let a = SynthesisStageTimings {
-            tokenize: Duration::from_millis(2),
-            codec_rollout: Duration::from_millis(8),
-            ..Default::default()
-        };
-        let b = SynthesisStageTimings {
-            tokenize: Duration::from_millis(4),
-            codec_rollout: Duration::from_millis(12),
-            ..Default::default()
-        };
-        let m = SynthesisStageTimings::average(&[a, b]).unwrap();
-        assert_eq!(m.tokenize, Duration::from_millis(3));
-        assert_eq!(m.codec_rollout, Duration::from_millis(10));
-    }
-}

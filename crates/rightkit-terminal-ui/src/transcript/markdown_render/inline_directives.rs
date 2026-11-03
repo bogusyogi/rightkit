@@ -18,34 +18,6 @@ use std::borrow::Cow;
 use std::ops::Range;
 use std::path::Path;
 
-/// Preserve source Markdown when copying, replacing only recognized follow-up directives.
-#[cfg(test)]
-pub(crate) fn followup_labels(input: &str) -> Cow<'_, str> {
-    if !input.contains(":codex-followup[") {
-        return Cow::Borrowed(input);
-    }
-    let prepared = InlineDirectives::new(
-        input,
-        Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS,
-    );
-    let mut copied = String::new();
-    let mut offset = 0;
-    for (range, directive) in prepared.directives {
-        if directive.name == "codex-followup"
-            && let Some(label) = directive.label
-        {
-            copied.push_str(&input[offset..range.start]);
-            copied.push_str(label);
-            offset = range.end;
-        }
-    }
-    if offset == 0 {
-        return Cow::Borrowed(input);
-    }
-    copied.push_str(&input[offset..]);
-    Cow::Owned(copied)
-}
-
 /// Offset-preserving Markdown plus the original, fully parsed directive metadata.
 pub(super) struct InlineDirectives<'a> {
     input: &'a str,
@@ -259,11 +231,3 @@ impl<'a> InlineDirectives<'a> {
         })
     }
 }
-
-#[cfg(test)]
-#[path = "file_citations_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "followups_tests.rs"]
-mod followups_tests;

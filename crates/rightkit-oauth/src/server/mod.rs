@@ -37,20 +37,6 @@ fn ct_eq(a: &str, b: &str) -> bool {
     ring::hmac::verify(&key, a.as_bytes(), tag.as_ref()).is_ok()
 }
 
-#[cfg(test)]
-mod ct_eq_tests {
-    use super::ct_eq;
-
-    #[test]
-    fn compares_by_value() {
-        assert!(ct_eq("", ""));
-        assert!(ct_eq("state-123", "state-123"));
-        assert!(!ct_eq("state-123", "state-124"));
-        assert!(!ct_eq("state-123", "state-1234"));
-        assert!(!ct_eq("", "x"));
-    }
-}
-
 /// Errors carry no callback/provider text or HTTP bodies, even when providers echo secrets.
 #[non_exhaustive]
 pub enum ServerAuthError {

@@ -6,9 +6,6 @@ pub mod repair;
 pub mod resource;
 pub mod resource_report;
 
-#[cfg(test)]
-pub(crate) static TELEMETRY_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 /// R12 CR-38/39/40/41 baseline instrument — S0/S1/S10/S50 table.
 ///
 /// This is the *instrument*, not the numbers. No cell of the baseline table is
@@ -259,83 +256,3 @@ pub use resource::{
     wakeup_summary, EventLoopDelaySummary, RoundTripEvent, SqliteLatencySummary, SqliteOpKind,
     TurnLatencyEvent, TurnLatencyPercentiles, WakeupSummary,
 };
-
-#[cfg(test)]
-mod baseline_tests {
-    use super::baseline::*;
-
-    /// The resource and prompt-overhead sinks are process-global; serialize
-    /// every test that resets them.
-    #[test]
-    fn empty_table_has_four_scenarios_and_no_numbers() {
-        let rows = empty_table();
-        assert_eq!(
-            rows.iter().map(|r| r.scenario).collect::<Vec<_>>(),
-            vec!["S0", "S1", "S10", "S50"]
-        );
-        assert!(rows.iter().all(|r| !r.any_cell_measured()));
-    }
-
-    #[test]
-    fn unobserved_table_renders_not_measured_and_never_zero() {
-        // Sink-free: renders the static empty table, so it cannot race the
-        // process-global sinks or their per-file test locks.
-        let md = render_markdown(&empty_table());
-        assert_eq!(md.matches("not measured").count(), 28); // 7 cells x 4 rows
-        assert!(!md.contains("| 0 |"));
-        assert!(md.contains("| S50 |"));
-    }
-
-    #[test]
-    fn synthetic_reference_load_is_visible_through_snapshot() {
-        let _guard = crate::agent_telemetry::TELEMETRY_TEST_LOCK.lock().unwrap();
-        crate::agent_telemetry::resource::reset_resource_telemetry();
-        record_synthetic_reference_load(100, 3, 5);
-        let row = snapshot_row("S1");
-        // Tolerant (>= / is_some) rather than exact: the resource sink is
-        // process-global and other modules' tests may record concurrently.
-        assert!(row.p50_ms.is_some());
-        assert!(row.p95_ms.is_some());
-        assert!(row.round_trips.unwrap_or(0) >= 3);
-        assert!(crate::agent_telemetry::resource::wakeup_summary().total >= 5);
-        // Live gauges are never fabricable from this crate.
-        assert_eq!(row.rss_bytes, None);
-        assert_eq!(row.open_sse_streams, None);
-        crate::agent_telemetry::resource::reset_resource_telemetry();
-    }
-
-    #[test]
-    fn prompt_overhead_mean_reaches_the_baseline_row() {
-        let _guard = crate::agent_telemetry::TELEMETRY_TEST_LOCK.lock().unwrap();
-        use crate::agent_telemetry::prompt_overhead::{
-            record_prompt_overhead, reset_prompt_overhead_telemetry, PromptOverheadAggregate,
-            PromptOverheadEvent,
-        };
-        // Pure arithmetic — no sinks, deterministic.
-        assert_eq!(mean_overhead_tokens(&[]), None);
-        let agg = PromptOverheadAggregate {
-            observations: 2,
-            total_system_prompt_est_tokens: 100,
-            total_tool_prelude_est_tokens: 300,
-            ..Default::default()
-        };
-        assert_eq!(
-            mean_overhead_tokens(&[((Some("p".into()), None), agg)]),
-            Some(200)
-        );
-
-        // End-to-end through the real recorder and the snapshot path. Tolerant
-        // assertions only: the prompt-overhead sink is process-global and other
-        // modules' tests may record concurrently.
-        reset_prompt_overhead_telemetry();
-        record_prompt_overhead(PromptOverheadEvent {
-            provider: Some("baseline-mean-probe".into()),
-            model: None,
-            system_prompt_bytes: 400,
-            tool_prelude_bytes: 400,
-        });
-        let row = snapshot_row("S0");
-        assert!(row.prompt_overhead_est_tokens.unwrap_or(0) >= 200);
-        reset_prompt_overhead_telemetry();
-    }
-}

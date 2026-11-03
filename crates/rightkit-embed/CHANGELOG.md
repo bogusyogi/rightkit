@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.6.2 (unpublished)
 
 - Dependency: `rusqlite` 0.40 -> 0.41 (with `rightkit-db` 0.5.3); no source change. (rightkit#1284)

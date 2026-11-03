@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.10.2 (unpublished; GATE-CONTRACT GC-A07)
 
 - Changed (dev build = the release profile plus `qa-native`): the control surface no longer needs debug assertions. `embedded` and `in_app` compile under `cfg(feature = "control")` alone, and the `compile_error!` that refused `control` without `debug_assertions` is gone. The release tool, not a compile-time profile check, keeps the control server out of a release: `right-release` scans every sealed binary for `QA_CONTROL_MARKER` and refuses a release or update build that carries it or that names `qa-native` or `test-mode`.

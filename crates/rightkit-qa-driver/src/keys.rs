@@ -181,39 +181,3 @@ fn letter(s: &str) -> Option<u16> {
     let c = s.chars().next().filter(|_| s.chars().count() == 1)?;
     ANSI.iter().find(|(l, _)| *l == c).map(|(_, k)| *k)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn parses_chords() {
-        assert_eq!(chord("cmd+a"), Some((0, FLAG_CMD)));
-        assert_eq!(chord("shift+tab"), Some((0x30, FLAG_SHIFT)));
-        assert_eq!(chord("nope"), None);
-        assert_eq!(chord("cmd+,"), Some((0x2B, FLAG_CMD)));
-        assert_eq!(chord("cmd+comma"), Some((0x2B, FLAG_CMD)));
-        assert_eq!(chord("cmd+shift+/"), Some((0x2C, FLAG_CMD | FLAG_SHIFT)));
-        assert_eq!(chord("cmd+["), Some((0x21, FLAG_CMD)));
-        assert_eq!(chord("cmd+1"), Some((18, FLAG_CMD)));
-        assert_eq!(chord("cmd++"), Some((0x18, FLAG_CMD | FLAG_SHIFT)));
-        assert_eq!(chord("f5"), Some((0x60, 0)));
-        assert_eq!(chord("cmd+."), Some((0x2F, FLAG_CMD)));
-    }
-    #[test]
-    fn function_keys_carry_appkit_characters() {
-        let arrow = FLAG_FUNCTION | FLAG_NUMPAD;
-        assert_eq!(function_char("right"), Some(('\u{F703}', arrow)));
-        assert_eq!(function_char("Up"), Some(('\u{F700}', arrow)));
-        assert_eq!(function_char("home"), Some(('\u{F729}', FLAG_FUNCTION)));
-        assert_eq!(function_char("pagedown"), Some(('\u{F72D}', FLAG_FUNCTION)));
-        assert_eq!(
-            function_char("forwarddelete"),
-            Some(('\u{F728}', FLAG_FUNCTION))
-        );
-        assert_eq!(function_char("f1"), Some(('\u{F704}', FLAG_FUNCTION)));
-        assert_eq!(function_char("f12"), Some(('\u{F70F}', FLAG_FUNCTION)));
-        assert_eq!(function_char("f13"), None);
-        assert_eq!(function_char("a"), None);
-        assert_eq!(named_char("comma"), Some(','));
-    }
-}

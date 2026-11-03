@@ -1837,16 +1837,7 @@ pub fn start_resident_engine(lifecycle: LifecycleControl) -> Result<ResidentEngi
     let stage_started = Instant::now();
     // Debug builds publish the resolved bindings through the environment for the debug-only
     // overrides that read them back; a release build reads no such variable, so it sets none.
-    #[cfg(debug_assertions)]
-    {
-        std::env::set_var("RIGHTKIT_MEMORY_DB", &runtime.db);
-        std::env::set_var("RIGHTKIT_CONTEXT_WORKSPACE_ROOT", &runtime.workspace_root);
-        std::env::set_var("RIGHTKIT_CONTEXT_RUNTIME_ORIGIN", runtime.origin);
-    }
     let catalog_path = crate::catalog::default_catalog_path().map_err(|error| error.to_string())?;
-    #[cfg(debug_assertions)]
-    std::env::set_var("RIGHTKIT_CONTEXT_CATALOG", catalog_path);
-    #[cfg(not(debug_assertions))]
     let _ = catalog_path;
     emit_startup_stage("environment", stage_started);
     // State the retrieval mode once at startup: with no model, recall is lexical and

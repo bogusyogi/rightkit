@@ -6,7 +6,6 @@ use super::ffi::*;
 use crate::keys::{self, Chord};
 use crate::model::*;
 use crate::platform::InputEvent;
-use std::os::raw::c_ulong;
 use std::time::Duration;
 
 #[derive(Clone, Copy)]

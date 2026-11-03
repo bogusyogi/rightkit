@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.1 (unreleased)
 
 - Added `protocol` (channel `Scope` and the publish job and command payloads), `calendar_time`, `util` and `quota`: per-account pacing and the `next` selector over a host-implemented `PublishQuotaStore`. Additive.

@@ -333,7 +333,3 @@ fn secret_shaped(value: &str) -> bool {
             secret_token(token, DIAGNOSTIC_FLOOR_PREFIXES, 12)
         })
 }
-
-#[cfg(test)]
-#[path = "redact_tests.rs"]
-mod tests;

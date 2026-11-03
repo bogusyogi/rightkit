@@ -5,8 +5,6 @@ mod preprocess;
 mod session;
 
 pub(crate) use boxes::{crop_box, dedup_boxes, extract_boxes, group_into_lines, BBox};
-#[cfg(test)]
-pub(crate) use decode::ctc_greedy_decode;
 pub(crate) use decode::ctc_greedy_decode_scored;
 pub(crate) use model_files::{load_image, load_vocab};
 pub(crate) use preprocess::{

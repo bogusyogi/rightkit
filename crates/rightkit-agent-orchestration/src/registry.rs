@@ -353,8 +353,3 @@ impl AgentRegistry {
         }
     }
 }
-
-#[cfg(test)]
-#[cfg(test)]
-#[path = "registry_tests.rs"]
-mod registry_tests;

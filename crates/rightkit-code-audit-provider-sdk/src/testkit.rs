@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use crate::{
     context::ProviderContext,
     error::{ProviderError, ProviderErrorKind},

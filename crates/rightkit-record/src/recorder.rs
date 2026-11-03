@@ -869,20 +869,3 @@ fn capture_json(request: &StartRequest, info: &StartInfo, border: Option<Capture
     }
     capture
 }
-
-#[cfg(all(test, unix))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn enospc_is_disk_full_and_other_io_is_not() {
-        assert_eq!(
-            classify_io(io::Error::from_raw_os_error(28)),
-            Failure::DiskFull
-        );
-        assert!(matches!(
-            classify_io(io::Error::from_raw_os_error(13)),
-            Failure::Io(_)
-        ));
-    }
-}

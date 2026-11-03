@@ -20,9 +20,6 @@ thiserror = { version = "2" }
 regex = { version = "1" }
 rightkit-fs = { version = "0.4.9", features = ["digest"], path = "../rightkit-fs" }
 
-[dev-dependencies]
-tempfile = { version = "3" }
-
 [workspace]
 
 # Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids

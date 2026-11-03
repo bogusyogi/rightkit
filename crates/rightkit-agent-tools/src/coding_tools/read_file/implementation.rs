@@ -4,4 +4,3 @@ include!("pdf_basic.rs");
 include!("pdf_cmap.rs");
 include!("pdf_parsers.rs");
 include!("paths.rs");
-include!("tests.rs");

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.2 - 2026-10-10
 
 Renamed from rightkit-qts-ggml-sys; 0.1.2 remains published under the old name.

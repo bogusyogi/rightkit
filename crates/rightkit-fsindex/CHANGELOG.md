@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.6.0 (2026-10-29)
 
 Re-list gate no longer grows without bound (bogusyogi/rightkit#1276, found in Pulse #501: one gate map held 1,305,271 folders, about 286 MB of a 455 MB process after 46 h). Adrian: "those things that are wrong with right kit, can you not fix them? ... make the changes".

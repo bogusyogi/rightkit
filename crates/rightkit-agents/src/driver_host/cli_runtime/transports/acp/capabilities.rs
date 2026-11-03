@@ -17,15 +17,3 @@ pub const HOST_CLIENT_CAPABILITIES: &str = r#"{
   "fs": { "readTextFile": false, "writeTextFile": false },
   "terminal": false
 }"#;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn client_capabilities_mark_filesystem_and_terminal_unavailable() {
-        assert!(HOST_CLIENT_CAPABILITIES.contains("\"terminal\": false"));
-        assert!(HOST_CLIENT_CAPABILITIES.contains("\"readTextFile\": false"));
-        assert!(HOST_CLIENT_CAPABILITIES.contains("\"writeTextFile\": false"));
-    }
-}

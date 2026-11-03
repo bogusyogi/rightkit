@@ -207,23 +207,3 @@ pub fn teardown_legacy_vast(ctx: &Context, w: &mut Value) -> GenResult<Value> {
         json!({"released": true, "driver": "vast", "instance_id": f.instance_id, "settlement": settlement}),
     )
 }
-
-// Test binaries must never reach the OS credential store or the user's real data folder.
-#[cfg(test)]
-mod no_keychain_in_tests {
-    #[ctor::ctor(unsafe)]
-    fn guard() {
-        std::env::set_var("RIGHTKIT_NO_KEYCHAIN", "1");
-        if std::env::var_os("RIGHTKIT_APP_DATA")
-            .filter(|v| !v.is_empty())
-            .is_none()
-        {
-            let dir = std::env::temp_dir().join(format!(
-                "rightkit-remote-compute-unit-{}",
-                std::process::id()
-            ));
-            std::fs::create_dir_all(&dir).expect("isolated test data folder");
-            std::env::set_var("RIGHTKIT_APP_DATA", dir);
-        }
-    }
-}

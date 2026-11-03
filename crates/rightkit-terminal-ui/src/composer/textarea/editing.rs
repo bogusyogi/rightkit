@@ -59,11 +59,6 @@ impl TextArea {
         }
     }
 
-    #[cfg(test)]
-    pub fn insert_element(&mut self, text: &str) -> u64 {
-        self.insert_element_at_target(self.edit_target(), text)
-    }
-
     pub(crate) fn insert_element_at_target(&mut self, target: EditTarget, text: &str) -> u64 {
         let start = target.start();
         if target.replaces_text() {
@@ -76,7 +71,3 @@ impl TextArea {
         id
     }
 }
-
-#[cfg(test)]
-#[path = "editing_tests.rs"]
-mod tests;

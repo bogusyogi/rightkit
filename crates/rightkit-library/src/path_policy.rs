@@ -15,14 +15,3 @@ pub fn normalize_lossy(path: impl AsRef<str>) -> PathBuf {
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn normalizes_paths_and_collapses_parents() {
-        let p = normalize_lossy("D:/Work/Content/../Secrets/x.png");
-        assert_eq!(p, Path::new("D:/Work/Secrets/x.png"));
-    }
-}

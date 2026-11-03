@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.2.1 (unreleased)
 
 - Fix: feature `engine-commands` declares the `chrono` dependency its contact sheet uses.

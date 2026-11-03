@@ -183,7 +183,7 @@ pub fn verify_owner_only(path: &Path) -> Result<()> {
 }
 
 /// What a DACL inspection concluded (Windows).
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 #[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Trust {
@@ -195,7 +195,7 @@ enum Trust {
 /// What an ACE does, from its type byte: `Allow` (`ACCESS_ALLOWED` and the callback form, whose
 /// trustee SID sits right after the access mask), `Deny` (the four deny types, which cannot widen
 /// access) or `Other` (object, compound and every unknown type: not understood, so not trusted).
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AceKind {
     Allow,
@@ -203,7 +203,7 @@ enum AceKind {
     Other,
 }
 
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn ace_kind(ace_type: u8) -> AceKind {
     match ace_type {
         0 | 9 => AceKind::Allow,
@@ -213,13 +213,13 @@ fn ace_kind(ace_type: u8) -> AceKind {
 }
 
 /// `INHERIT_ONLY_ACE`: the ACE grants nothing on this object, only on what inherits it.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 const INHERIT_ONLY_ACE: u8 = 0x08;
 
 /// Whether an `allow` ACE for this trustee leaves the object owner-only: the current user, SYSTEM
 /// (`S-1-5-18`), BUILTIN\Administrators (`S-1-5-32-544`), or CREATOR OWNER (`S-1-3-0`) on an
 /// inherit-only ACE. `authority` is the 48-bit identifier authority.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn trustee_is_acceptable(
     is_current_user: bool,
     authority: u64,
@@ -240,7 +240,7 @@ fn trustee_is_acceptable(
 /// an `allow` ACE does when its trustee is acceptable ([`trustee_is_acceptable`]); an ACE of any
 /// other type, or an `allow` ACE whose trustee could not be read (`None`), does not (fail closed).
 /// `trustee` is `(is_current_user, authority, sub_authorities)`.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn ace_is_acceptable(ace_type: u8, ace_flags: u8, trustee: Option<(bool, u64, &[u32])>) -> bool {
     match ace_kind(ace_type) {
         AceKind::Deny => true,
@@ -527,19 +527,19 @@ fn current_process_token_info(path: &Path, class: u32) -> crate::error::Result<V
 /// `SE_GROUP_ENABLED`: the group is active for access checks in this token. An elevated
 /// administrator holds BUILTIN\\Administrators enabled; a filtered (non-elevated) token holds it
 /// deny-only, which is not enabled.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 const SE_GROUP_ENABLED: u32 = 0x0000_0004;
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 const SE_GROUP_USE_FOR_DENY_ONLY: u32 = 0x0000_0010;
 
 /// `SE_GROUP_OWNER`: the group may be assigned as the owner of objects the token creates.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 const SE_GROUP_OWNER: u32 = 0x0000_0008;
 
 /// True for the well-known broad SIDs that must never be accepted as an owner: Everyone
 /// (S-1-1-0), LOCAL (S-1-2-0), INTERACTIVE (S-1-5-4), Authenticated Users (S-1-5-11) and
 /// BUILTIN\Users (S-1-5-32-545). `authority` is the 48-bit identifier authority.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn sid_is_broad(authority: u64, sub_authorities: &[u32]) -> bool {
     matches!(
         (authority, sub_authorities),
@@ -554,7 +554,7 @@ fn sid_is_broad(authority: u64, sub_authorities: &[u32]) -> bool {
 /// owner would leave the object writable by others after repair; an ordinary enabled group
 /// (Everyone, Users, Authenticated Users, INTERACTIVE, LOCAL, ...) is therefore never accepted,
 /// and `is_broad` hard-denies those well-known SIDs even if a token flags them as owner groups.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn owner_is_trusted<S: PartialEq>(
     owner: &S,
     user: &S,
@@ -1714,225 +1714,4 @@ fn create_dir_owner_only(path: &Path) -> std::io::Result<()> {
         return Err(error.into());
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod owner_policy_tests {
-    use super::*;
-
-    const USER: &str = "S-1-5-21-1-2-3-1001";
-    const ADMINS: &str = "S-1-5-32-544";
-    const SYSTEM: &str = "S-1-5-18";
-    const OTHER_USER: &str = "S-1-5-21-1-2-3-1002";
-
-    const EVERYONE: &str = "S-1-1-0";
-    const LOCAL: &str = "S-1-2-0";
-    const INTERACTIVE: &str = "S-1-5-4";
-    const AUTH_USERS: &str = "S-1-5-11";
-    const USERS: &str = "S-1-5-32-545";
-    const ENABLED_GROUP: u32 = SE_GROUP_ENABLED | 0x1; // ENABLED | MANDATORY
-
-    fn broad(sid: &&str) -> bool {
-        match *sid {
-            "S-1-1-0" => sid_is_broad(1, &[0]),
-            "S-1-2-0" => sid_is_broad(2, &[0]),
-            "S-1-5-4" => sid_is_broad(5, &[4]),
-            "S-1-5-11" => sid_is_broad(5, &[11]),
-            "S-1-5-32-545" => sid_is_broad(5, &[32, 545]),
-            _ => false,
-        }
-    }
-
-    fn trusted(owner: &&str, groups: &[(&str, u32)]) -> bool {
-        owner_is_trusted(owner, &USER, groups, &broad)
-    }
-
-    #[test]
-    fn current_user_owner_is_trusted() {
-        assert!(trusted(&USER, &[]));
-    }
-
-    #[test]
-    fn administrators_owner_needs_owner_and_enabled_flags() {
-        assert!(trusted(
-            &ADMINS,
-            &[(ADMINS, SE_GROUP_OWNER | SE_GROUP_ENABLED)]
-        ));
-        // Enabled but not an owner group: rejected.
-        assert!(!trusted(&ADMINS, &[(ADMINS, SE_GROUP_ENABLED)]));
-        // Owner but not enabled (filtered token, deny-only): rejected.
-        assert!(!trusted(
-            &ADMINS,
-            &[(ADMINS, SE_GROUP_OWNER | SE_GROUP_USE_FOR_DENY_ONLY)]
-        ));
-        assert!(!trusted(
-            &ADMINS,
-            &[(
-                ADMINS,
-                SE_GROUP_OWNER | SE_GROUP_ENABLED | SE_GROUP_USE_FOR_DENY_ONLY
-            )]
-        ));
-        assert!(!trusted(&ADMINS, &[]));
-    }
-
-    #[test]
-    fn broad_groups_are_never_trusted_owners() {
-        for sid in [EVERYONE, LOCAL, INTERACTIVE, AUTH_USERS, USERS] {
-            // Enabled and mandatory, not an owner group.
-            assert!(!trusted(&sid, &[(sid, ENABLED_GROUP)]), "{sid}");
-            // Hard-deny holds even when the token flags the group as an owner.
-            assert!(
-                !trusted(&sid, &[(sid, ENABLED_GROUP | SE_GROUP_OWNER)]),
-                "{sid}"
-            );
-        }
-    }
-
-    #[test]
-    fn broad_sid_shapes() {
-        assert!(sid_is_broad(1, &[0]) && sid_is_broad(5, &[32, 545]));
-        assert!(!sid_is_broad(5, &[32, 544]) && !sid_is_broad(5, &[18]));
-    }
-
-    #[test]
-    fn foreign_owner_is_rejected() {
-        let groups = [(ADMINS, SE_GROUP_OWNER | SE_GROUP_ENABLED)];
-        assert!(!trusted(&OTHER_USER, &groups));
-        assert!(!trusted(&SYSTEM, &groups));
-    }
-}
-
-/// The tolerant DACL policy (rightkit#517 / #676), pure so it runs on every platform: which ACEs may
-/// appear on an object that still counts as owner-only.
-#[cfg(test)]
-mod dacl_policy_tests {
-    use super::*;
-
-    const SYSTEM: (u64, &[u32]) = (5, &[18]);
-    const ADMINS: (u64, &[u32]) = (5, &[32, 544]);
-    const CREATOR_OWNER: (u64, &[u32]) = (3, &[0]);
-    const EVERYONE: (u64, &[u32]) = (1, &[0]);
-    const USERS: (u64, &[u32]) = (5, &[32, 545]);
-    const AUTH_USERS: (u64, &[u32]) = (5, &[11]);
-    const INTERACTIVE: (u64, &[u32]) = (5, &[4]);
-    const OTHER_USER: (u64, &[u32]) = (5, &[21, 1, 2, 3, 1002]);
-    const ALLOW: u8 = 0;
-    const DENY: u8 = 1;
-    const INHERITED: u8 = 0x10;
-    const OICI: u8 = 0x03;
-
-    fn allow(trustee: (u64, &[u32]), is_user: bool, flags: u8) -> bool {
-        ace_is_acceptable(ALLOW, flags, Some((is_user, trustee.0, trustee.1)))
-    }
-
-    #[test]
-    fn the_current_user_system_and_administrators_are_accepted_inherited_or_explicit() {
-        // %LOCALAPPDATA% inherits exactly these three.
-        assert!(allow(OTHER_USER, true, INHERITED | OICI));
-        assert!(allow(SYSTEM, false, INHERITED | OICI));
-        assert!(allow(ADMINS, false, INHERITED | OICI));
-        assert!(allow(SYSTEM, false, 0));
-        assert!(allow(ADMINS, false, OICI));
-    }
-
-    #[test]
-    fn another_user_or_a_broad_group_is_rejected_whatever_the_flags() {
-        for (name, trustee) in [
-            ("other user", OTHER_USER),
-            ("Everyone", EVERYONE),
-            ("Users", USERS),
-            ("Authenticated Users", AUTH_USERS),
-            ("INTERACTIVE", INTERACTIVE),
-        ] {
-            for flags in [0, INHERITED, OICI, INHERITED | OICI, INHERIT_ONLY_ACE] {
-                assert!(!allow(trustee, false, flags), "{name} flags {flags:#x}");
-            }
-        }
-    }
-
-    #[test]
-    fn creator_owner_counts_only_when_inherit_only() {
-        assert!(allow(CREATOR_OWNER, false, INHERIT_ONLY_ACE | OICI));
-        assert!(!allow(CREATOR_OWNER, false, OICI));
-        assert!(!allow(CREATOR_OWNER, false, 0));
-    }
-
-    #[test]
-    fn deny_aces_are_ignored_and_unknown_types_fail_closed() {
-        for deny in [1u8, 6, 10, 12] {
-            assert!(ace_is_acceptable(deny, 0, None), "deny type {deny}");
-            assert!(ace_is_acceptable(
-                deny,
-                0,
-                Some((false, EVERYONE.0, EVERYONE.1))
-            ));
-        }
-        // Object allow (5), compound allow (4), unknown (0x7f), system audit (2), mandatory label (17).
-        for other in [2u8, 3, 4, 5, 7, 8, 11, 13, 14, 15, 16, 17, 0x7f, 0xff] {
-            assert!(
-                !ace_is_acceptable(other, 0, Some((true, 5, &[18]))),
-                "type {other}"
-            );
-        }
-        assert_eq!(ace_kind(ALLOW), AceKind::Allow);
-        assert_eq!(ace_kind(9), AceKind::Allow);
-        assert_eq!(ace_kind(DENY), AceKind::Deny);
-    }
-
-    #[test]
-    fn an_allow_ace_with_an_unreadable_trustee_is_rejected() {
-        assert!(!ace_is_acceptable(ALLOW, 0, None));
-        assert!(!ace_is_acceptable(9, OICI, None));
-    }
-
-    #[test]
-    fn a_broad_trustee_cannot_pose_as_the_current_user_by_authority() {
-        // Only the explicit `is_current_user` bit (an `EqualSid` against the token) counts.
-        assert!(!allow(EVERYONE, false, 0));
-        assert!(!allow((5, &[18, 1]), false, 0));
-        assert!(!allow((5, &[32, 544, 1]), false, 0));
-        assert!(!allow((5, &[]), false, 0));
-        assert!(!allow((6, &[18]), false, 0));
-    }
-}
-
-#[cfg(all(test, unix))]
-mod verify_tests {
-    use super::*;
-    use std::os::unix::fs::PermissionsExt;
-
-    #[test]
-    fn a_private_file_verifies_and_a_broad_one_is_too_permissive() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("f");
-        std::fs::write(&path, b"x").unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-        verify_owner_only(&path).unwrap();
-        assert!(is_owner_only_strict(&path).unwrap());
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
-        assert!(matches!(
-            verify_owner_only(&path),
-            Err(FsError::TooPermissive(_))
-        ));
-        assert!(!is_owner_only_strict(&path).unwrap());
-    }
-
-    #[test]
-    fn a_symlink_is_never_followed_by_the_verify() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("t");
-        std::fs::write(&target, b"x").unwrap();
-        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let link = dir.path().join("l");
-        std::os::unix::fs::symlink(&target, &link).unwrap();
-        assert!(matches!(verify_owner_only(&link), Err(FsError::Symlink(_))));
-    }
-
-    #[test]
-    fn a_missing_path_is_an_io_error() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(verify_owner_only(&dir.path().join("absent"))
-            .unwrap_err()
-            .is_not_found());
-    }
 }

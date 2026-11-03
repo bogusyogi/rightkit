@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.2.1
 
 - Dependency: `rightkit-credentials` is a caret `0.4.3` requirement (was the exact `=0.4.3`), so the suite can move to credentials 0.4.4 (no `debug_assertions` switches). No source change.

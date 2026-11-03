@@ -11,10 +11,6 @@
 
 use std::ops::Range;
 
-/// Conservative cap so one user message cannot monopolize a large context window.
-#[cfg(test)]
-pub const MAX_USER_INPUT_TEXT_CHARS: usize = 1 << 20;
-
 /// Byte range in the parent `text` buffer that this element occupies.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextElement {

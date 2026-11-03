@@ -43,13 +43,9 @@ pub const NOT_IMPLEMENTED: &str =
 /// Allowed ranges get the same 100 ms slack that `run.rs` gives them.
 pub const HOLD_SLACK_MS: i64 = 100;
 
-/// Critic binary for `run_qa`: `RIGHTKIT_CRITIC_BIN` if set (`test-mode` builds only), else the `rightkit-render-critic`
-/// binary next to the current executable. `None` when neither exists.
+/// Critic binary for `run_qa`: the `rightkit-render-critic` binary next to the current
+/// executable. `None` when it does not exist.
 pub fn default_critic_binary() -> Option<PathBuf> {
-    #[cfg(feature = "test-mode")]
-    if let Some(p) = std::env::var_os("RIGHTKIT_CRITIC_BIN") {
-        return Some(PathBuf::from(p));
-    }
     let exe = std::env::current_exe().ok()?;
     let candidate = exe.parent()?.join(format!(
         "rightkit-render-critic{}",

@@ -50,23 +50,3 @@ fn single_char(g: &str) -> Option<char> {
     let c = it.next()?;
     if it.next().is_none() { Some(c) } else { None }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ascii_is_one_column() {
-        assert_eq!(grapheme_width("a"), 1);
-    }
-
-    #[test]
-    fn a_tab_takes_a_fixed_number_of_columns() {
-        assert_eq!(grapheme_width("\t"), TAB_WIDTH);
-    }
-
-    #[test]
-    fn wide_emoji_take_two_columns() {
-        assert_eq!(grapheme_width("\u{1F600}"), 2);
-    }
-}

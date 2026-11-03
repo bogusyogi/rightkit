@@ -9,8 +9,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::agent_acp::ContentBlock;
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateSessionNotification {
@@ -149,60 +147,5 @@ pub fn outcome_to_approval(outcome: &RequestPermissionOutcome) -> bool {
     match outcome {
         RequestPermissionOutcome::Selected(selected) => selected.option_id.starts_with("allow"),
         RequestPermissionOutcome::Cancelled => false,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn session_update_serializes_with_discriminator_tag() {
-        let update = SessionUpdate::AgentMessageChunk(AgentMessageChunk {
-            content: ContentBlock::Text(crate::agent_acp::content::TextContent {
-                text: "working on it".to_string(),
-                annotations: None,
-            }),
-        });
-        let json = serde_json::to_value(&update).unwrap();
-        assert_eq!(json["sessionUpdate"], "agent_message_chunk");
-        assert_eq!(json["content"]["text"], "working on it");
-        assert_eq!(update.kind(), SessionUpdateKind::AgentMessageChunk);
-    }
-
-    #[test]
-    fn tool_call_update_round_trips() {
-        let update = SessionUpdate::ToolCallUpdate(ToolCallUpdate {
-            tool_call_id: "tc-1".to_string(),
-            title: "write_file".to_string(),
-            status: ToolCallStatus::InProgress,
-            raw_input: Some(serde_json::json!({"path": "src/main.rs"})),
-        });
-        let json = serde_json::to_value(&update).unwrap();
-        let parsed: SessionUpdate = serde_json::from_value(json).unwrap();
-        assert_eq!(parsed, update);
-    }
-
-    #[test]
-    fn outcome_to_approval_allows_only_allow_options() {
-        assert!(outcome_to_approval(&RequestPermissionOutcome::Selected(
-            SelectedPermissionOutcome {
-                option_id: "allow_once".to_string(),
-            }
-        )));
-        assert!(!outcome_to_approval(&RequestPermissionOutcome::Selected(
-            SelectedPermissionOutcome {
-                option_id: "reject_once".to_string(),
-            }
-        )));
-        assert!(!outcome_to_approval(&RequestPermissionOutcome::Cancelled));
-    }
-
-    #[test]
-    fn standard_permission_options_has_allow_and_reject() {
-        let options = standard_permission_options();
-        assert_eq!(options.len(), 2);
-        assert_eq!(options[0].kind, PermissionOptionKind::AllowOnce);
-        assert_eq!(options[1].kind, PermissionOptionKind::RejectOnce);
     }
 }

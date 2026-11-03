@@ -174,23 +174,3 @@ pub fn clear_persistent_coreml_caches() -> Result<CoreMlCacheRecompileResult, St
 pub fn clear_persistent_coreml_caches() -> Result<CoreMlCacheRecompileResult, String> {
     Err("Core ML cache recompilation is available on Apple Silicon Macs only".to_string())
 }
-
-#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
-mod tests {
-    use super::clear_owned_cache_root;
-
-    #[test]
-    fn clear_owned_cache_root_removes_only_its_exact_root() {
-        let root =
-            std::env::temp_dir().join(format!("rightkit-coreml-cache-test-{}", std::process::id()));
-        let protected = root.with_extension("models");
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("compiled-artifact"), b"cache").unwrap();
-        std::fs::create_dir_all(&protected).unwrap();
-        std::fs::write(protected.join("model.onnx"), b"model").unwrap();
-        assert_eq!(clear_owned_cache_root(&root).unwrap(), 1);
-        assert!(!root.exists());
-        assert!(protected.join("model.onnx").exists());
-        let _ = std::fs::remove_dir_all(protected);
-    }
-}

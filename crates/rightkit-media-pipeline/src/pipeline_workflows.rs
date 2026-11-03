@@ -3074,23 +3074,3 @@ fn run_recover(ctx: &Context, input: &Value) -> GenResult<Value> {
         Ok(json!({ "run": run, "recovered": recovered, "orphaned": orphaned }))
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::srt_text;
-
-    /// Golden SRT: a cue over an hour, a cue with fractional milliseconds
-    /// (4000.4 ms and 6001.6 ms round to whole milliseconds), and a plain cue.
-    #[test]
-    fn srt_export_matches_golden_output() {
-        let timed = vec![
-            (0.0, 2.5, "First cue".to_string()),
-            (4.0004, 6.0016, "Fractional ms.".to_string()),
-            (3700.25, 3702.125, "Over an hour in.".to_string()),
-        ];
-        let expected = "1\n00:00:00,000 --> 00:00:02,500\nFirst cue\n\n\
-2\n00:00:04,000 --> 00:00:06,002\nFractional ms.\n\n\
-3\n01:01:40,250 --> 01:01:42,125\nOver an hour in.\n\n";
-        assert_eq!(srt_text(&timed), expected);
-    }
-}

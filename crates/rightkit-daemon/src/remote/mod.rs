@@ -15,7 +15,6 @@
 //!   durable state and events.
 //! * The outbound link (`rk-link/1`, see [`crate::link`]): with `remote`, the host side is in `crate::remote::core`
 //!   (`Daemon::link_accept`, `enqueue_task`, durable leases) and `crate::remote::http` (the upgrade).
-//! * `testing` (implies `remote`) - a run-time test certificate and in-process host (`crate::remote::testing`).
 
 #[cfg(feature = "remote")]
 pub mod call;
@@ -39,8 +38,6 @@ pub mod routes;
 pub mod signing;
 #[cfg(feature = "remote")]
 mod state;
-#[cfg(feature = "testing")]
-pub mod testing;
 #[cfg(feature = "link")]
 pub(crate) mod util;
 

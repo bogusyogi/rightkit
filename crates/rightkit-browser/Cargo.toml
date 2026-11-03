@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["browser", "cdp", "chrome", "automation", "qa"]
 categories = ["development-tools::testing"]
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 chromiumoxide = { version = "0.9", default-features = false }
@@ -42,12 +42,6 @@ install = ["dep:rightkit-models", "dep:rightkit-fs", "dep:zip"]
 # `CookieExport`: declared-domain cookie filter, Netscape serialisation and private atomic
 # publication of the cookie artifact through rightkit-fs. Off by default (pulls rightkit-fs only).
 cookie-export = ["dep:rightkit-fs"]
-
-[dev-dependencies]
-# `#[tokio::test(flavor = "multi_thread")]` in the e2e tests; production code needs no multi-thread runtime.
-tokio = { version = "1", features = ["rt-multi-thread"] }
-# `atomic::seams` write-failure injection for the cookie-export publish-failure test (test builds only).
-rightkit-fs = { path = "../rightkit-fs", version = "0.4.9", default-features = false, features = ["test-seams"] }
 
 [package.metadata.rightkit]
 continuous = "held-resource"

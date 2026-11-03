@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.1 (unreleased)
 
 - Added `automation`: the `dm.*` commands (rules, rate, opt-out, process, sweep, outcomes, drafts) over a host-implemented `AutomationStore` (a `LinksStore` of `rightkit-social-analytics`) and a `Transport` for the one platform call. `keywords::words` is public. New dependencies `rightkit-social-analytics`, `rightkit-http`.

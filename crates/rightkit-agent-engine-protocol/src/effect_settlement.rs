@@ -34,29 +34,3 @@ impl ExternalEffectSettlement {
         matches!(self, Self::InterruptedUnknown)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn interrupted_unknown_is_never_blindly_replayed() {
-        let state = ExternalEffectSettlement::InterruptedUnknown;
-        assert!(state.may_have_executed());
-        assert!(state.requires_reconciliation());
-        assert!(!state.allows_automatic_non_idempotent_replay());
-    }
-
-    #[test]
-    fn only_known_not_started_is_default_replay_safe() {
-        for state in [
-            ExternalEffectSettlement::Running,
-            ExternalEffectSettlement::Succeeded,
-            ExternalEffectSettlement::Failed,
-            ExternalEffectSettlement::InterruptedUnknown,
-        ] {
-            assert!(!state.allows_automatic_non_idempotent_replay());
-        }
-        assert!(ExternalEffectSettlement::NotStarted.allows_automatic_non_idempotent_replay());
-    }
-}

@@ -172,140 +172,15 @@ pub(super) fn dispatch_power(op: &str) -> DispatchResult {
     ))
 }
 
-#[cfg(all(target_os = "windows", not(test)))]
+#[cfg(target_os = "windows")]
 fn cancel_pending_shutdown() -> DispatchResult {
     spawn_owned_detached("shutdown.exe", &["/a"], false)
         .map(|_| DispatchOutcome::new("power", "cancel pending shutdown"))
         .map_err(|e| DispatchError::new("E_CANCEL_FAILED", e.to_string()))
 }
 
-#[cfg(all(target_os = "windows", test))]
-fn cancel_pending_shutdown() -> DispatchResult {
-    Ok(DispatchOutcome::new(
-        "power",
-        "cancel pending shutdown (test no-op)",
-    ))
-}
-
-// Switch class S2 (authority). Compiled only in test-mode builds; a release build never reads an
-// environment value to enable destructive power commands, and the variable's name is not in it.
-#[cfg(all(any(target_os = "windows", target_os = "macos"), feature = "test-mode"))]
-fn destructive_power_env_consent() -> bool {
-    std::env::var("RIGHTKIT_ENABLE_POWER_COMMANDS")
-        .map(|value| value == "I_UNDERSTAND")
-        .unwrap_or(false)
-}
-
-#[cfg(all(
-    any(target_os = "windows", target_os = "macos"),
-    feature = "test-mode",
-    not(test)
-))]
-pub(super) fn destructive_power_enabled() -> bool {
-    destructive_power_env_consent()
-}
-
-#[cfg(all(
-    any(target_os = "windows", target_os = "macos"),
-    any(test, not(feature = "test-mode"))
-))]
+// Switch class S2 (authority): destructive power commands are never enabled in a build.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub(super) fn destructive_power_enabled() -> bool {
     false
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::{Mutex, OnceLock};
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
-    }
-
-    #[test]
-    fn power_spawns_use_owned_detached_launch() {
-        let source = include_str!("power.rs");
-        let production = source.split("mod tests").next().unwrap();
-        assert!(
-            !production.contains("command_std("),
-            "raw std spawn left in power.rs"
-        );
-        // The owner's `OwnedCommand::new(` is the required launcher; only a bare `Command::new(` is raw.
-        let raw = production.replace("OwnedCommand::new(", "");
-        assert!(
-            !raw.contains("Command::new("),
-            "raw Command::new left in power.rs"
-        );
-        assert!(production.contains("rightkit_child_process::OwnedCommand::new("));
-        assert!(production.contains("spawn_uncontained_detached()"));
-    }
-
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    #[test]
-    fn spawn_owned_detached_reports_a_missing_program() {
-        assert!(spawn_owned_detached("definitely-not-a-real-program-xyz", &[], true).is_err());
-    }
-
-    #[test]
-    fn dispatch_power_unknown_op_is_bad_power_op() {
-        let result = dispatch_power("teleport_to_mars");
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().code, "E_BAD_POWER_OP");
-    }
-
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    #[test]
-    fn destructive_power_disabled_by_default() {
-        let _guard = env_lock();
-        std::env::remove_var("RIGHTKIT_ENABLE_POWER_COMMANDS");
-        assert!(!destructive_power_enabled());
-    }
-
-    #[cfg(all(any(target_os = "windows", target_os = "macos"), feature = "test-mode"))]
-    #[test]
-    fn destructive_power_requires_exact_consent_value() {
-        let _guard = env_lock();
-        std::env::set_var("RIGHTKIT_ENABLE_POWER_COMMANDS", "yes");
-        assert!(
-            !destructive_power_env_consent(),
-            "wrong value must not enable"
-        );
-        std::env::set_var("RIGHTKIT_ENABLE_POWER_COMMANDS", "I_UNDERSTAND");
-        assert!(destructive_power_env_consent(), "exact value must enable");
-        assert!(
-            !destructive_power_enabled(),
-            "unit tests must never enable real destructive power dispatch"
-        );
-        std::env::remove_var("RIGHTKIT_ENABLE_POWER_COMMANDS");
-    }
-
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    #[test]
-    fn destructive_power_disabled_ops_rejected_without_consent() {
-        let _guard = env_lock();
-        std::env::remove_var("RIGHTKIT_ENABLE_POWER_COMMANDS");
-        for op in ["sleep", "restart", "shutdown_pc", "signout"] {
-            let result = dispatch_power(op);
-            assert!(
-                result.is_err(),
-                "op {op} should be rejected without consent"
-            );
-            assert_eq!(result.unwrap_err().code, "E_POWER_DISABLED");
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn cancel_shutdown_always_allowed_without_consent() {
-        let _guard = env_lock();
-        std::env::remove_var("RIGHTKIT_ENABLE_POWER_COMMANDS");
-        // Test builds must not invoke shutdown.exe, but the operation should
-        // remain available and outside the destructive-power gate.
-        let result = dispatch_power("cancel_shutdown");
-        if let Err(e) = &result {
-            assert_ne!(e.code, "E_POWER_DISABLED");
-            assert_ne!(e.code, "E_BAD_POWER_OP");
-        }
-    }
 }

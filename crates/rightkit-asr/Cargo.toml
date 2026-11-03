@@ -14,15 +14,6 @@ keywords = ["speech-recognition", "asr", "parakeet", "whisper", "onnx"]
 categories = ["multimedia::audio"]
 include = [
   "src/**",
-  "tests/*.rs",
-  "tests/common/**",
-  "tests/coreml_cache/**",
-  "tests/fixtures/*.json",
-  "tests/fixtures/*.wav",
-  # KWS parity: everything but the 7 MB of Sherpa fbank dumps (tests skip without them).
-  "tests/fixtures/kws/*.*",
-  "tests/fixtures/kws/audio/**",
-  "tests/fixtures/kws/encoder/**",
   "Cargo.toml",
   "README.md",
   "LICENSE",
@@ -69,18 +60,9 @@ objc2 ={ version = "0.6", features = ["exception"] }
 objc2-core-ml = "0.3"
 objc2-foundation = "0.3"
 
-[dev-dependencies]
-# The e2e_whisper test drives the Silero scorer, which rightkit-vad now gates behind `silero`.
-rightkit-vad = { version = "0.1.2", path = "../rightkit-vad", features = ["silero"] }
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.13" }
-rightkit-speech-client = { path = "../rightkit-speech-client", version = "0.4.1" }
-
 [features]
 default = ["cpu", "ort-defaults", "whisper-tokenizers"]
 cpu = []
-# Compiles this crate's test-only environment switches (`RIGHTKIT_ASR_*`, `RIGHTKIT_ONNX_*`,
-# `RIGHTKIT_CONTROL_ALIGN_ENCODER_REUSE`). Never in a release build.
-test-mode = []
 # `onnx_tdt`: ONNX Runtime execution for Parakeet TDT (mel, encoder, decoder-joint sessions with
 # per-stage threading, DirectML adapter choice and batched decoder runs).
 onnx-tdt = ["dep:tracing", "dep:windows-sys"]

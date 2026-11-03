@@ -16,7 +16,6 @@ path = "src/lib.rs"
 [features]
 default = []
 llmlingua-onnx = ["dep:tokenizers", "dep:rightkit-onnx"]
-test-support = []
 
 [dependencies]
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
@@ -58,11 +57,6 @@ tree-sitter-typescript = { version = "0.23" }
 tokenizers = { version = "0.23", optional = true }
 tempfile = { version = "3" }
 rightkit-onnx = { version = "0.2.9", optional = true, features = ["ndarray"], path = "../rightkit-onnx" }
-
-[dev-dependencies]
-# Path-only self reference (stripped on publish) so the crate's own tests see the `test-support` items.
-rightkit-context-runtime = { path = ".", features = ["test-support"] }
-rightkit-daemon = { version = "0.5.1", features = ["test-mode"], path = "../rightkit-daemon" }
 
 [build-dependencies]
 serde_json = { version = "1" }

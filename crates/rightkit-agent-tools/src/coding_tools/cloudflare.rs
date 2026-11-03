@@ -286,22 +286,3 @@ fn bounded(value: &str) -> String {
     }
     format!("{}\n[truncated]", &value[..end])
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bounded_response_never_splits_utf8() {
-        let value = format!("{}é", "x".repeat(99_999));
-        let result = bounded(&value);
-        assert!(result.ends_with("\n[truncated]"));
-        assert!(!result.contains('é'));
-    }
-
-    #[test]
-    fn required_rejects_blank_values() {
-        let args = json!({"project": "  "});
-        assert!(required(&args, "project").is_err());
-    }
-}

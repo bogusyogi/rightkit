@@ -51,8 +51,6 @@ windows-sys = { version = "0.61.2", features = [
 
 [dev-dependencies]
 rightkit-logs = { version = "0.3.7", path = "../rightkit-logs", features = ["testing"] }
-# Emits events in the `diagnostics` integration test.
-tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 [package.metadata.rightkit]
 continuous = "held-resource"

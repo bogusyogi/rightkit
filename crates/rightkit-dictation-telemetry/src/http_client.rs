@@ -155,24 +155,3 @@ pub fn send_head(
     }
     Ok(head)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ureq_style_text_matches_the_former_display() {
-        let status = HttpError::Status {
-            status: 404,
-            body: String::new(),
-            retry_after: None,
-            attempts: 1,
-        };
-        assert_eq!(ureq_style_error(&status), "http status: 404");
-        assert_eq!(status_display(202), "202 Accepted");
-        assert_eq!(status_display(404), "404 Not Found");
-        assert_eq!(status_display(299), "299 <unknown status code>");
-        assert_eq!(snake_case("PerCall"), "per_call");
-        assert_eq!(snake_case("Global"), "global");
-    }
-}

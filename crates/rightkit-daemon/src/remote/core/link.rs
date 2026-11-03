@@ -8,7 +8,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use serde_json::{json, Value};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
@@ -16,7 +15,6 @@ use tokio::sync::Notify;
 
 use super::{Daemon, Request, Response};
 use crate::link::frame::{open_c2s, s2c_line, FrameError, HEARTBEAT_SECS, SCOPE, UPGRADE_TOKEN};
-use crate::remote::routes::LINK_ROUTE;
 use crate::remote::state::TaskStatus;
 use crate::remote::util::{hex, random_bytes};
 

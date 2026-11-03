@@ -1,6 +1,5 @@
 //! Wall-clock UTC stamps for backup names and the migration log. The civil math and the RFC 3339
 //! text are `rightkit-time`'s; this module only reads the system clock.
-use rightkit_time::DateTime;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_secs() -> i64 {

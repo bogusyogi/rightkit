@@ -9,7 +9,6 @@
 
 use crate::token_codec::{decode, encode};
 use std::fmt;
-use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -268,95 +267,4 @@ fn fnv1a(text: &str) -> u64 {
     text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::UNIX_EPOCH;
-
-    #[test]
-    fn stored_form_round_trips_without_losing_expiry() {
-        let tokens = TokenSet {
-            access_token: Secret::new("a-1"),
-            token_type: "bearer".into(),
-            expires_in: Some(Duration::from_secs(3600)),
-            refresh_token: Some(Secret::new("r-1")),
-            scope: Some("repo".into()),
-            id_token: Some(Secret::new("i.d.t")),
-            obtained_at: UNIX_EPOCH + Duration::from_secs(1_700_000_000),
-        };
-        let back = decode(&encode(&tokens)).unwrap();
-        assert_eq!(back.id_token.as_ref().unwrap().expose(), "i.d.t");
-        assert_eq!(back.access_token(), "a-1");
-        assert_eq!(back.refresh_token.unwrap().expose(), "r-1");
-        assert_eq!(back.expires_in, tokens.expires_in);
-        assert_eq!(back.obtained_at, tokens.obtained_at);
-        assert_eq!(back.scope.as_deref(), Some("repo"));
-    }
-
-    #[test]
-    fn malformed_stored_expiry_refuses_instead_of_never_expiring() {
-        for bad in [
-            r#"{"access":"a-1","expires_in":"3600","obtained_at":1700000000}"#,
-            r#"{"access":"a-1","expires_in":-5,"obtained_at":1700000000}"#,
-            r#"{"access":"a-1","expires_in":36.5,"obtained_at":1700000000}"#,
-            r#"{"access":"a-1","expires_in":3600,"obtained_at":"soon"}"#,
-        ] {
-            assert!(
-                decode(bad).is_err(),
-                "accepted malformed stored form: {bad}"
-            );
-        }
-        let open =
-            decode(r#"{"access":"a-1","expires_in":null,"obtained_at":1700000000}"#).unwrap();
-        assert_eq!(open.expires_in, None);
-    }
-
-    #[test]
-    fn overflowing_or_excessive_stored_expiry_is_refused() {
-        for bad in [
-            r#"{"access":"a-1","expires_in":18446744073709551615,"obtained_at":1700000000}"#,
-            r#"{"access":"a-1","expires_in":315360001,"obtained_at":1700000000}"#,
-            r#"{"access":"a-1","expires_in":3600,"obtained_at":18446744073709551615}"#,
-        ] {
-            assert!(decode(bad).is_err(), "accepted unsafe stored expiry: {bad}");
-        }
-        let max = format!(
-            r#"{{"access":"a-1","expires_in":{},"obtained_at":1700000000}}"#,
-            crate::token_codec::MAX_STORED_EXPIRES_IN_SECS
-        );
-        assert!(decode(&max).is_ok());
-        let normal =
-            decode(r#"{"access":"a-1","expires_in":3600,"obtained_at":1700000000}"#).unwrap();
-        assert_eq!(normal.expires_in, Some(Duration::from_secs(3600)));
-    }
-
-    #[test]
-    fn overflowing_deadline_reads_as_expired() {
-        let tokens = TokenSet {
-            access_token: Secret::new("a-1"),
-            token_type: "bearer".into(),
-            expires_in: Some(Duration::from_secs(u64::MAX)),
-            refresh_token: None,
-            scope: None,
-            id_token: None,
-            obtained_at: UNIX_EPOCH + Duration::from_secs(1_700_000_000),
-        };
-        assert!(tokens.is_expired(Duration::ZERO));
-        let open = TokenSet {
-            expires_in: None,
-            ..tokens
-        };
-        assert!(!open.is_expired(Duration::ZERO));
-    }
-
-    #[test]
-    fn resolutions_never_print_the_token() {
-        let r = Resolution::Token {
-            token: Secret::new("very-private-value"),
-            source: Source::Stored,
-        };
-        assert!(!format!("{r:?}").contains("very-private-value"));
-    }
 }

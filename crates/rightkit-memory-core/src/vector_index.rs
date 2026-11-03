@@ -8,8 +8,6 @@ use std::sync::OnceLock;
 use rayon::prelude::*;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
-use crate::MemoryEntry;
-
 #[cfg(target_arch = "x86")]
 use std::arch::x86::{_mm256_fmadd_ps, _mm256_loadu_ps, _mm256_setzero_ps, _mm256_storeu_ps};
 #[cfg(target_arch = "x86_64")]

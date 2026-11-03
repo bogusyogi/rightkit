@@ -287,11 +287,6 @@ impl SpeechVad {
             _ => None,
         }
     }
-
-    #[cfg(test)]
-    fn is_ready_for_test(&self) -> bool {
-        matches!(self.state, LoadState::Ready { .. })
-    }
 }
 
 impl Default for SpeechVad {
@@ -577,13 +572,6 @@ fn resource_candidates(dir: &str, file: &str) -> Vec<PathBuf> {
             }
         }
     }
-    #[cfg(feature = "test-mode")]
-    push_resource_candidates(
-        &mut paths,
-        &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources"),
-        dir,
-        file,
-    );
     paths
 }
 
@@ -591,7 +579,3 @@ fn push_resource_candidates(paths: &mut Vec<PathBuf>, base: &Path, dir: &str, fi
     paths.push(base.join(dir).join(file));
     paths.push(base.join("resources").join(dir).join(file));
 }
-
-#[cfg(test)]
-#[path = "vad_tests.rs"]
-mod tests;

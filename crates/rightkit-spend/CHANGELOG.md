@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.2.0 (unreleased)
 
 GenRight's ledger port (bogusyogi/rightkit#473, duplicate of #462): the semantics of `genright-gen/src/ledger.rs` now live in the crate so GenRight can delete its copy. Schema version 3 (migration `spend-caps-groups-budgets-reconcile`) is purely additive: new tables `spend_cap_audit`, `spend_groups`, `spend_group_legs`, `spend_device_allowances`, `spend_budget_tags`, `spend_adjustments`, `spend_provider_reported`, `spend_invoices`, `spend_invoice_lines`; no existing table, column or migration changes. Existing method signatures are unchanged. `ReserveOptions` gained private fields (read-only through the new builders), so a struct literal of it must use `..Default::default()` or the constructors; minor bump for the new API.

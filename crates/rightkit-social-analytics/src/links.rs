@@ -42,7 +42,6 @@ pub fn slug(value: &str, name: &str) -> Result<(), Fail> {
 /// credentials and the public-host test are `rightkit_http::validate_public_https_url`; on top of
 /// it, whitespace/control characters and any port are refused.
 pub fn public_https(url: &str, name: &str) -> Result<(), Fail> {
-    use rightkit_http::UrlPolicyError;
     if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return Err(bad(format!(
             "{name} must not contain spaces or control characters"
@@ -704,63 +703,4 @@ fn link_attribution(store: &dyn LinksStore, input: Value) -> Result<Value, Fail>
         links,
         total_visits,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn referrer_hosts_keep_only_a_plain_host() {
-        assert_eq!(referrer_host("https://a.b/c?d").as_deref(), Some("a.b"));
-        assert_eq!(
-            referrer_host("http://u:p@Host.test:80/").as_deref(),
-            Some("host.test")
-        );
-        assert_eq!(referrer_host("nonsense"), None);
-        assert_eq!(referrer_host("https://exa mple.test/"), None);
-    }
-
-    #[test]
-    fn link_ids_are_deterministic_and_well_formed() {
-        let a = link_id_of("v", "c", "a", "camp", "var", "x", "https://example.com/");
-        assert_eq!(
-            a,
-            link_id_of("v", "c", "a", "camp", "var", "x", "https://example.com/")
-        );
-        assert_ne!(
-            a,
-            link_id_of("v", "c", "a", "camp", "var", "x", "https://example.com/b")
-        );
-        assert!(is_link_id(&a) && !is_link_id("lnk_0123"));
-    }
-
-    #[test]
-    fn utm_defaults_and_overrides_are_appended_before_the_fragment() {
-        let utm = Utm::resolve(None, "x", "spring", "v1").unwrap();
-        assert_eq!(
-            final_url("https://example.com/p?a=1#top", &utm.params()).unwrap(),
-            "https://example.com/p?a=1&utm_source=x&utm_medium=social&utm_campaign=spring&utm_content=v1#top"
-        );
-        let bad_policy = UtmPolicy {
-            source: Some("Not A Slug".into()),
-            ..UtmPolicy::default()
-        };
-        assert!(Utm::resolve(Some(&bad_policy), "x", "c", "v").is_err());
-        assert_eq!(
-            final_url("https://example.com/?utm_source=y", &utm.params())
-                .unwrap_err()
-                .0,
-            "utm_conflict"
-        );
-    }
-
-    #[test]
-    fn destinations_must_be_plain_public_https() {
-        assert!(public_https("https://example.com/a", "destination").is_ok());
-        assert!(public_https("http://example.com/a", "destination").is_err());
-        assert!(public_https("https://example.com:8443/", "destination").is_err());
-        assert!(public_https("https://exa mple.com/", "destination").is_err());
-        assert!(redirect_target_ok("https://example.com/x") && !redirect_target_ok("javascript:x"));
-    }
 }

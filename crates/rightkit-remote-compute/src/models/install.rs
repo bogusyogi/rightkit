@@ -50,19 +50,6 @@ impl Target {
             Some(dir) => model_store::with_legacy_alias(store, &self.spec.id, dir),
             None => store,
         };
-        // Test-only seam, compiled only with the `test-mode` feature (`cfg`, not a runtime check, so the variable name is not in
-        // the release binary): point file downloads at a loopback mock server (the store refuses any non-loopback base).
-        #[cfg(feature = "test-mode")]
-        let store = match std::env::var("RIGHTKIT_TEST_MODEL_URL_BASE")
-            .ok()
-            .filter(|b| !b.is_empty())
-        {
-            Some(base) => match store.with_url_rewrite(&base) {
-                Ok(rewritten) => rewritten,
-                Err(_) => panic!("RIGHTKIT_TEST_MODEL_URL_BASE must be a loopback URL"),
-            },
-            None => store,
-        };
         match &self.shared_root {
             Some((kind, dir)) => store
                 .with_shared_root(kind, dir)

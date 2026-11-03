@@ -22,31 +22,3 @@ pub fn breadcrumb(session_name: &str, path: &[String]) -> String {
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn names_the_session_alone_at_the_root() {
-        let b = breadcrumb("main", &[]);
-        assert_eq!(b, "main");
-    }
-
-    #[test]
-    fn grows_one_segment_per_descent() {
-        let b = breadcrumb("main", &["builder".into()]);
-        assert_eq!(b, "main \u{203a} builder");
-
-        let b = breadcrumb("main", &["builder".into(), "sub-fixer".into()]);
-        assert_eq!(b, "main \u{203a} builder \u{203a} sub-fixer");
-    }
-
-    #[test]
-    fn carries_no_model_attribution() {
-        // Attribution is the identity strip's job; a breadcrumb that also
-        // printed it was the duplicated startup presentation.
-        let b = breadcrumb("main", &["builder".into()]);
-        assert!(!b.contains('[') && !b.contains(']'), "{b:?}");
-    }
-}

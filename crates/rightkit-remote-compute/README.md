@@ -10,8 +10,7 @@ record helpers of `model_management/mod.rs`) on 2026-11-01.
 Builds on `rightkit-media-gen` (job store, spend ledger, credentials, HTTP policy). The rental label
 prefix, the Vast `client_id` and the default remote workdir use the host settings namespace
 (`rightkit_media_gen::host::HostConfig::settings_namespace`), so a host keeps finding the rentals it
-created before the move. Environment seams (`test-mode` builds only): `RIGHTKIT_RENTED_DRIVER=local-fs`,
-`RIGHTKIT_RENTED_DIR`, `RIGHTKIT_TEST_VAST_KEY_FILE`, `RIGHTKIT_TEST_NOW`.
+created before the move.
 
 `models` (moved from `genright-studio/src/model_management`) adds the local model catalogue, hardware
 fit, the memory-aware governor, installs and the `studio.models.*` commands; register

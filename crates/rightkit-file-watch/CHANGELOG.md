@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.4.2 (unpublished)
 
 - Fixed (macOS): a file reported as existing in an earlier batch and then deleted is reported in `removed`. FSEvents replays the item's accumulated `ItemCreated` flag with `ItemRemoved`, so the coalescer dropped the deletion as a file created and deleted inside one window. `ChangeCoalescer` now remembers the paths it reported. Found by the all-packages app. (rightkit#1348)

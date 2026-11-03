@@ -3,10 +3,7 @@
 //! `mock::MockPlatform` on every host; `macos` and `windows` implement it with
 //! the real accessibility, event, capture, and clipboard APIs.
 
-use crate::keys::Chord;
 use crate::model::*;
-use crate::proof::FieldText;
-use std::path::Path;
 
 /// A low-level input event for tiers 3 and 4.
 #[derive(Debug, Clone, PartialEq)]

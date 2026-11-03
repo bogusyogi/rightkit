@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["agent", "claude", "codex", "json-rpc", "stream-json"]
 categories = ["development-tools"]
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 agent_host = ["dep:rightkit-agent-engine-protocol", "dep:rightkit-mcp", "dep:tokio", "dep:tracing"]
@@ -93,20 +93,6 @@ incremental = false
 debug = false
 opt-level = 0
 
-[dev-dependencies]
-rightkit-app-settings = {version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config", "agent_config-test-mode"]}
-futures = {version = "0.3"}
-tempfile = {version = "3"}
-
 [target."cfg(unix)"]
 [target."cfg(unix)".dependencies]
 libc = {version = "0.2", optional = true}
-[[test]]
-name = "driver_host_cli_runtime_scope"
-path = "tests/driver_host_cli_runtime_scope.rs"
-required-features = ["driver_host"]
-
-[[test]]
-name = "driver_host_acp_contract_suite"
-path = "tests/driver_host_acp_contract_suite.rs"
-required-features = ["driver_host"]

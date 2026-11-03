@@ -1279,5 +1279,3 @@ pub fn health_snapshot(catalog: &ContextCatalog) -> serde_json::Value {
         }),
     }
 }
-
-// ---- Tests ---------------------------------------------------------------

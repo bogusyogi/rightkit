@@ -148,25 +148,3 @@ pub struct PrefixReceiptObserved {
     #[serde(rename = "eventsObserved")]
     pub events_observed: usize,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn flags_default_to_false() {
-        let f = EventFlags::default();
-        assert!(!f.synthetic && !f.meta && !f.private_reasoning_omitted);
-        assert!(!f.redacted && !f.is_error && !f.is_sidechain);
-    }
-
-    #[test]
-    fn classification_roundtrip() {
-        let ev_json = r#"{"eventId":"evt_x","rowIndex":1,"byteStart":0,"byteEnd":5,"blockIndex":0,"sequence":1,"kind":"tool_call","classification":"mutation","class":"mutation","projection":"default","host":"pi","sessionId":"s","transcriptId":"t","parserDigest":"sha256:x","text":"y","synthetic":false,"meta":false,"privateReasoningOmitted":false,"redacted":false,"flags":{}}"#;
-        let ev: TranscriptEventV1 = serde_json::from_str(ev_json).unwrap();
-        assert_eq!(
-            ev.classification(),
-            crate::classify::Classification::Mutation
-        );
-    }
-}

@@ -49,8 +49,8 @@
 //! `deleted`, never a first run). Every enrolment and revocation, the first included, needs the host app
 //! PIN verified in the engine (or a signature of a proven key): same-user code that impersonates the
 //! owner app or writes the item cannot make an approver. A new PIN set after a lost one discards the
-//! seal key, so keys are enrolled again. An unreadable registry fails closed. A key marked `dev` is refused unless
-//! the build has the `test-overrides` feature, so a dev or release engine never trusts one.
+//! seal key, so keys are enrolled again. An unreadable registry fails closed. A key marked `dev` is refused
+//! in every build, so a dev or release engine never trusts one.
 
 use crate::{Refusal, Result};
 pub use rightkit_device_link_types::KeyBinding;
@@ -478,8 +478,8 @@ fn verify_with(
 }
 
 /// Verifies that the enrolled key `signed.key_id` signed this request: `kind`, the engine's own
-/// request id, its digest (`approvals::request_digest`) and client key. Unknown key, a dev key in a
-/// build without `test-overrides`, a bad or replayed or expired signature are all refusals.
+/// request id, its digest (`approvals::request_digest`) and client key. Unknown key, a dev key, a bad
+/// or replayed or expired signature are all refusals.
 pub fn verify(
     kind: &str,
     request: &str,
@@ -494,7 +494,7 @@ pub fn verify(
             "no enrolled owner key made this signature; enroll the owner device's key first",
         ));
     };
-    if key.dev && !cfg!(feature = "test-overrides") {
+    if key.dev {
         return Err(Refusal::new(
             "approver_dev_key",
             "a development approver key is not trusted by this build",
@@ -540,7 +540,7 @@ fn authorise(keys: &[Approver], params: &Value, kind: &str, action: &str) -> Res
     let Some(key) = keys.iter().find(|k| k.key_id == auth.key_id) else {
         return Err(Refusal::new("approver_unknown", "that key is not enrolled"));
     };
-    if key.dev && !cfg!(feature = "test-overrides") {
+    if key.dev {
         return Err(Refusal::new(
             "approver_dev_key",
             "a development approver key is not trusted by this build",
@@ -582,7 +582,7 @@ pub fn register(params: &Value, from_app: bool) -> Result<Value> {
         ));
     }
     let dev = params["dev"].as_bool().unwrap_or(false);
-    if dev && !cfg!(feature = "test-overrides") {
+    if dev {
         return Err(Refusal::new(
             "approver_dev_key",
             "a development approver key cannot be enrolled in this build",

@@ -2,8 +2,6 @@
 //! `ownership-key-log.mjs`. Signatures are verified with RustCrypto: P-256 ECDSA/SHA-256
 //! (`p256`) and RSA-2048 PSS or PKCS#1 v1.5 with SHA-256 (`rsa`).
 
-use std::collections::HashMap;
-
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use p256::ecdsa::signature::Verifier;

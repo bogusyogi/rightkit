@@ -442,11 +442,6 @@ fn delivery_error(code: &str) -> String {
     format!("provider key delivery failed: {code}")
 }
 
-#[cfg(test)]
-pub(crate) fn delivery_error_for_test(code: &str) -> String {
-    delivery_error(code)
-}
-
 /// Why an exchange with the engine failed.
 enum ExchangeError {
     /// The request was written but no reply arrived in time.
@@ -558,13 +553,6 @@ impl EngineSupervisor {
             },
             event_rx,
         )
-    }
-
-    /// Test-only: a shorter cooldown than `SIDECAR_ABANDON_COOLDOWN` (its one test is Unix-only).
-    #[cfg(all(test, unix))]
-    pub(crate) fn with_abandon_cooldown(mut self, cooldown: Duration) -> Self {
-        self.abandon_cooldown = cooldown;
-        self
     }
 
     /// Make the engine ready for work and return its version (`already-running` when it was

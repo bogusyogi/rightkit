@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.3.0 (2026-10-29)
 
 - Dependency: `libc` 0.2.190 -> 0.2.191 (minimum version). (rightkit#1284)

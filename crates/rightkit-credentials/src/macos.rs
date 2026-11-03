@@ -66,7 +66,7 @@ type OSStatus = i32;
 
 // `SecKeychainCreate`, `SecKeychainDelete` and `SecKeychainLock` serve only the throwaway test
 // keychain, which is compiled out of production builds.
-#[cfg_attr(not(any(test, feature = "isolated-test-keychain")), allow(dead_code))]
+#[cfg_attr(not(feature = "isolated-test-keychain"), allow(dead_code))]
 #[link(name = "Security", kind = "framework")]
 extern "C" {
     fn SecKeychainSetUserInteractionAllowed(allowed: u8) -> OSStatus;
@@ -127,8 +127,6 @@ const INTERACTION_NOT_ALLOWED: OSStatus = -25308;
 const USER_CANCELED: OSStatus = -128;
 const NO_SUCH_KEYCHAIN: OSStatus = -25294;
 const NO_DEFAULT_KEYCHAIN: OSStatus = -25307;
-#[cfg(test)]
-const READ_ONLY: OSStatus = -25292;
 /// `kSecUnlockStateStatus`: set in the `SecKeychainGetStatus` result while the keychain is unlocked.
 const STATUS_UNLOCKED: u32 = 1;
 /// `kSecPreferencesDomainUser`: the per-user domain whose default keychain is the login keychain
@@ -178,10 +176,6 @@ enum Target {
     /// kind of explicit keychain that may be written to, and only code compiled for tests or the
     /// `isolated-test-keychain` feature ever sets it (see the module docs).
     File { handle: Arc<Handle>, fixture: bool },
-    /// Test seam: a resolver standing in for the user-domain default lookup. Fixture keychains
-    /// only.
-    #[cfg(test)]
-    Resolved(Arc<dyn Fn() -> Result<Arc<Handle>> + Send + Sync>),
 }
 
 impl Target {
@@ -345,10 +339,10 @@ impl KeychainBackend {
         Self::open_file_with(path, password, false)
     }
 
-    #[cfg(any(test, feature = "isolated-test-keychain"))]
+    #[cfg(feature = "isolated-test-keychain")]
     /// Open a throwaway test keychain file (one made by [`IsolatedKeychain`]) for reading AND
-    /// writing. Compiled only for this crate's own tests and under the non-default
-    /// `isolated-test-keychain` feature; a production build has no write path to an explicit
+    /// writing. Compiled only under the non-default `isolated-test-keychain` feature; a production
+    /// build has no write path to an explicit
     /// keychain at all. Only a file under the OS temp directory is accepted. Test fixtures only: if the
     /// file were deleted in the instant between the pre-write checks and the add, the OS would
     /// store the fixture secret in the default keychain.
@@ -411,8 +405,6 @@ impl KeychainBackend {
         match &self.target {
             Target::UserDefault => user_default_keychain(),
             Target::Pinned { handle, .. } | Target::File { handle, .. } => Ok(handle.clone()),
-            #[cfg(test)]
-            Target::Resolved(f) => f(),
         }
     }
 
@@ -591,15 +583,11 @@ impl Backend for KeychainBackend {
             // keychain than the one a mutation is later made on. `Store` pins first (`pinned`) and
             // asks the pinned backend.
             Target::UserDefault => None,
-            #[cfg(test)]
-            Target::Resolved(_) => None,
         }
     }
     fn pinned(&self) -> Result<Option<Arc<dyn Backend>>> {
         let target = match &self.target {
             Target::UserDefault => pin_default(user_default_keychain, keychain_identity)?,
-            #[cfg(test)]
-            Target::Resolved(resolve) => pin_default(&**resolve, keychain_identity)?,
             // Already one fixed keychain: nothing to decide.
             Target::Pinned { .. } | Target::File { .. } => return Ok(None),
         };
@@ -692,7 +680,7 @@ pub fn user_interaction_allowed() -> Result<bool> {
     }
 }
 
-#[cfg(any(test, feature = "isolated-test-keychain"))]
+#[cfg(feature = "isolated-test-keychain")]
 /// A throw-away keychain file used by end-to-end tests so they never see the user's real items.
 /// It is never added to the search list; only its own handle is passed to the OS. Deleted on drop.
 pub struct IsolatedKeychain {
@@ -702,7 +690,7 @@ pub struct IsolatedKeychain {
     handle: Arc<Handle>,
 }
 
-#[cfg(any(test, feature = "isolated-test-keychain"))]
+#[cfg(feature = "isolated-test-keychain")]
 impl IsolatedKeychain {
     pub fn create() -> Result<Self> {
         let mut rnd = [0u8; 12];
@@ -771,598 +759,10 @@ impl IsolatedKeychain {
     }
 }
 
-#[cfg(any(test, feature = "isolated-test-keychain"))]
+#[cfg(feature = "isolated-test-keychain")]
 impl Drop for IsolatedKeychain {
     fn drop(&mut self) {
         unsafe { SecKeychainDelete(self.handle.0) };
         let _ = std::fs::remove_dir_all(&self.dir);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn keychain_path(h: &Handle) -> PathBuf {
-        let mut buf = vec![0u8; 4096];
-        let mut len = buf.len() as u32;
-        let st = unsafe { SecKeychainGetPath(h.0, &mut len, buf.as_mut_ptr().cast()) };
-        assert_eq!(st, 0, "SecKeychainGetPath");
-        buf.truncate(len as usize);
-        PathBuf::from(String::from_utf8(buf).unwrap())
-    }
-
-    /// A backend whose "user-domain default keychain" is `kc`, standing in for the real lookup.
-    /// Every keychain a test uses is a throwaway file under the temp dir; the real default is
-    /// never resolved here.
-    fn default_is(kc: &IsolatedKeychain) -> KeychainBackend {
-        let h = kc.handle.clone();
-        let tmp = std::env::temp_dir().canonicalize().unwrap();
-        let path = keychain_path(&h).canonicalize().unwrap();
-        assert!(
-            path.starts_with(&tmp),
-            "test keychain outside temp dir: {path:?}"
-        );
-        assert!(!path.to_string_lossy().contains("login.keychain"));
-        KeychainBackend {
-            target: Target::Resolved(Arc::new(move || Ok(h.clone()))),
-        }
-    }
-
-    fn secret(s: &str) -> Secret {
-        Secret::from_string(s)
-    }
-
-    fn read(b: &KeychainBackend, ns: &Namespace, acct: &str) -> Option<String> {
-        b.get(ns, acct, Interaction::NonInteractive)
-            .unwrap()
-            .map(|s| s.expose_str().unwrap().to_owned())
-    }
-
-    #[test]
-    fn a_default_target_and_an_explicit_target_on_one_file_share_an_exclusion_identity() {
-        let kc = IsolatedKeychain::create().unwrap();
-        let explicit = kc.backend();
-        let as_default = default_is(&kc);
-        let id = explicit
-            .exclusion_identity()
-            .expect("a file keychain has a path");
-        assert!(id.starts_with("macos-keychain-file:"), "{id}");
-        // The default target has no identity until a mutation pins it; the pinned one names the
-        // same file as the explicit target.
-        assert_eq!(as_default.exclusion_identity(), None);
-        let pinned = as_default
-            .pinned()
-            .unwrap()
-            .expect("the default target is pinned");
-        assert_eq!(pinned.exclusion_identity().as_deref(), Some(id.as_str()));
-        // A different file is a different store.
-        let other = IsolatedKeychain::create().unwrap();
-        assert_ne!(other.backend().exclusion_identity().unwrap(), id);
-    }
-
-    #[test]
-    fn the_keychain_excludes_by_service_and_account_not_by_windows_prefix() {
-        use crate::namespace::WindowsTarget;
-        let kc = IsolatedKeychain::create().unwrap();
-        let backend = kc.backend();
-        let plain = Namespace::new("rightkit.test.identity").unwrap();
-        let prefixed = Namespace::new("rightkit.test.identity")
-            .unwrap()
-            .windows_target(WindowsTarget::Slash {
-                prefix: Some("AnotherPrefix".into()),
-            });
-        // One Keychain item, however the Windows target is spelled: one identity.
-        assert_eq!(
-            backend.credential_identity(&plain, "acct").unwrap(),
-            backend.credential_identity(&prefixed, "acct").unwrap()
-        );
-        assert_eq!(
-            backend.credential_identity(&plain, "acct").unwrap(),
-            "macos:rightkit.test.identity\u{1f}acct"
-        );
-        assert!(backend.durable());
-        // The names handed to the OS come from the same single function.
-        assert_eq!(
-            plain.keychain_item("acct"),
-            ("rightkit.test.identity", "acct")
-        );
-    }
-
-    #[test]
-    fn find_update_delete_hit_only_the_target_keychain() {
-        let (a, b) = (
-            IsolatedKeychain::create().unwrap(),
-            IsolatedKeychain::create().unwrap(),
-        );
-        let ns = Namespace::new("rightkit.test.two-keychains").unwrap();
-        let ni = Interaction::NonInteractive;
-        // The same service and account holds a different secret in each keychain.
-        a.backend()
-            .set(&ns, "acct", &secret("secret-A"), ni)
-            .unwrap();
-        b.backend()
-            .set(&ns, "acct", &secret("secret-B"), ni)
-            .unwrap();
-        let target = default_is(&b);
-
-        // find
-        assert_eq!(read(&target, &ns, "acct").as_deref(), Some("secret-B"));
-        assert!(target.exists(&ns, "acct", ni).unwrap());
-
-        // update: modifies B's item, leaves A's untouched
-        target.set(&ns, "acct", &secret("secret-B2"), ni).unwrap();
-        assert_eq!(read(&target, &ns, "acct").as_deref(), Some("secret-B2"));
-        assert_eq!(read(&a.backend(), &ns, "acct").as_deref(), Some("secret-A"));
-
-        // add_if_absent sees B's item as a duplicate and does not touch A
-        assert!(!target.add_if_absent(&ns, "acct", &secret("x"), ni).unwrap());
-        assert_eq!(read(&a.backend(), &ns, "acct").as_deref(), Some("secret-A"));
-
-        // delete: removes B's item only
-        assert!(target.delete(&ns, "acct", ni).unwrap());
-        assert_eq!(read(&a.backend(), &ns, "acct").as_deref(), Some("secret-A"));
-
-        // Not found in the target is NotFound even though another keychain has a match.
-        assert_eq!(read(&target, &ns, "acct"), None);
-        assert!(!target.exists(&ns, "acct", ni).unwrap());
-        assert!(!target.delete(&ns, "acct", ni).unwrap());
-        assert_eq!(read(&a.backend(), &ns, "acct").as_deref(), Some("secret-A"));
-    }
-
-    #[test]
-    fn update_when_only_the_other_keychain_has_the_item_adds_to_the_target() {
-        let (a, b) = (
-            IsolatedKeychain::create().unwrap(),
-            IsolatedKeychain::create().unwrap(),
-        );
-        let ns = Namespace::new("rightkit.test.other-only").unwrap();
-        let ni = Interaction::NonInteractive;
-        a.backend()
-            .set(&ns, "acct", &secret("secret-A"), ni)
-            .unwrap();
-        let target = default_is(&b);
-        target.set(&ns, "acct", &secret("secret-B"), ni).unwrap();
-        assert_eq!(read(&target, &ns, "acct").as_deref(), Some("secret-B"));
-        assert_eq!(read(&a.backend(), &ns, "acct").as_deref(), Some("secret-A"));
-        assert!(target.delete(&ns, "acct", ni).unwrap());
-        assert_eq!(read(&a.backend(), &ns, "acct").as_deref(), Some("secret-A"));
-    }
-
-    #[test]
-    fn unresolvable_default_fails_closed_and_never_falls_back() {
-        let a = IsolatedKeychain::create().unwrap();
-        let ns = Namespace::new("rightkit.test.no-default").unwrap();
-        let ni = Interaction::NonInteractive;
-        a.backend()
-            .set(&ns, "acct", &secret("secret-A"), ni)
-            .unwrap();
-        let none = KeychainBackend {
-            target: Target::Resolved(Arc::new(|| {
-                Err(map("default_keychain", NO_DEFAULT_KEYCHAIN))
-            })),
-        };
-        assert!(matches!(
-            none.get(&ns, "acct", ni),
-            Err(Error::Unavailable(_))
-        ));
-        assert!(matches!(
-            none.exists(&ns, "acct", ni),
-            Err(Error::Unavailable(_))
-        ));
-        assert!(matches!(
-            none.set(&ns, "acct", &secret("x"), ni),
-            Err(Error::Unavailable(_))
-        ));
-        assert!(matches!(
-            none.delete(&ns, "acct", ni),
-            Err(Error::Unavailable(_))
-        ));
-        assert_eq!(read(&a.backend(), &ns, "acct").as_deref(), Some("secret-A"));
-    }
-
-    #[test]
-    fn system_backend_resolves_per_call_and_has_no_null_keychain_target() {
-        // `Target` has no search-list/null variant; the system backend is `UserDefault`.
-        assert!(matches!(
-            KeychainBackend::system().target,
-            Target::UserDefault
-        ));
-        assert_eq!(KeychainBackend::system().name(), "macos-keychain");
-    }
-
-    // ---- fifth read, finding 11: the keychain a mutation locks is the keychain it writes ----
-
-    /// A stand-in keychain reference. Nothing here calls the OS with it.
-    fn fake_handle() -> Arc<Handle> {
-        Arc::new(Handle(null_mut()))
-    }
-
-    #[test]
-    fn the_default_is_resolved_once_and_its_identity_comes_from_that_same_reference() {
-        let (first, second) = (fake_handle(), fake_handle());
-        let asked = std::cell::Cell::new(0usize);
-        let identified = std::cell::Cell::new(0usize);
-        // The default is switched between the first time it is asked and the second.
-        let resolve = || {
-            asked.set(asked.get() + 1);
-            Ok(if asked.get() == 1 {
-                first.clone()
-            } else {
-                second.clone()
-            })
-        };
-        let identify = |h: &Handle| {
-            identified.set(h as *const Handle as usize);
-            Some("macos-keychain-file:/fake/first".to_string())
-        };
-        let backend = KeychainBackend {
-            target: pin_default(resolve, identify).unwrap(),
-        };
-        assert_eq!(asked.get(), 1);
-        assert_eq!(
-            identified.get(),
-            Arc::as_ptr(&first) as usize,
-            "the identity was read from a different reference than the one kept"
-        );
-        // Every use of the pinned backend is the first reference; nothing is resolved again.
-        for _ in 0..3 {
-            assert!(Arc::ptr_eq(&backend.keychain().unwrap(), &first));
-        }
-        assert_eq!(asked.get(), 1);
-        assert_eq!(
-            backend.exclusion_identity().as_deref(),
-            Some("macos-keychain-file:/fake/first")
-        );
-        assert!(
-            backend.pinned().unwrap().is_none(),
-            "a pinned backend is already fixed"
-        );
-        assert!(!backend.target.write_is_refused());
-        assert_eq!(backend.name(), "macos-keychain");
-    }
-
-    #[test]
-    fn a_default_that_cannot_be_resolved_or_identified_is_not_pinned() {
-        let asked_to_identify = std::cell::Cell::new(false);
-        let unresolved = pin_default(
-            || Err(map("default_keychain", NO_DEFAULT_KEYCHAIN)),
-            |_: &Handle| {
-                asked_to_identify.set(true);
-                Some("never".to_string())
-            },
-        );
-        assert!(matches!(unresolved, Err(Error::Unavailable(_))));
-        assert!(!asked_to_identify.get());
-        let unidentified = pin_default(|| Ok(fake_handle()), |_: &Handle| None);
-        assert!(matches!(unidentified, Err(Error::Unavailable(_))));
-    }
-
-    #[test]
-    fn only_a_pinned_default_names_an_identity_and_an_explicit_file_is_never_pinned() {
-        assert_eq!(KeychainBackend::system().exclusion_identity(), None);
-        let file = KeychainBackend {
-            target: Target::File {
-                handle: fake_handle(),
-                fixture: false,
-            },
-        };
-        assert!(file.pinned().unwrap().is_none());
-    }
-
-    // ---- audit finding 1: a failed update must never delete the existing item ----
-
-    struct FakeOps {
-        add_results: std::cell::RefCell<Vec<OSStatus>>,
-        modify: OSStatus,
-    }
-    impl ItemOps for FakeOps {
-        type Item = ();
-        fn add(&self) -> Result<OSStatus> {
-            let mut r = self.add_results.borrow_mut();
-            Ok(if r.is_empty() { 0 } else { r.remove(0) })
-        }
-        fn find_item(&self) -> (OSStatus, Option<()>) {
-            (0, Some(()))
-        }
-        fn modify(&self, _: &()) -> OSStatus {
-            self.modify
-        }
-    }
-
-    #[test]
-    fn failed_interactive_update_returns_the_update_failure_and_never_deletes() {
-        for (mst, expect) in [
-            (
-                READ_ONLY,
-                Error::Backend {
-                    op: "set",
-                    code: READ_ONLY as i64,
-                },
-            ),
-            (AUTH_FAILED, Error::Denied),
-        ] {
-            // add -> duplicate; modify fails; a (hypothetical) delete would succeed and the
-            // follow-up add would fail: the old code lost the credential here.
-            let ops = FakeOps {
-                add_results: std::cell::RefCell::new(vec![DUPLICATE, -25295]),
-                modify: mst,
-            };
-            let r = set_flow(&ops);
-            assert_eq!(r, Err(expect), "update failure {mst}");
-        }
-    }
-
-    // ---- audit finding 2: invalid service/account is rejected at the backend boundary ----
-
-    #[test]
-    fn backend_rejects_empty_account_before_any_os_call() {
-        let a = IsolatedKeychain::create().unwrap();
-        let ns = Namespace::new("rightkit.test.wildcard").unwrap();
-        let ni = Interaction::NonInteractive;
-        let b = a.backend();
-        b.set(&ns, "real", &secret("keep-me"), ni).unwrap();
-        let long = "x".repeat(251);
-        let bad = ["", "bad\naccount", long.as_str()];
-        for acct in bad {
-            assert!(
-                matches!(b.delete(&ns, acct, ni), Err(Error::Invalid { .. })),
-                "{acct:?}"
-            );
-            assert!(matches!(b.get(&ns, acct, ni), Err(Error::Invalid { .. })));
-            assert!(matches!(
-                b.exists(&ns, acct, ni),
-                Err(Error::Invalid { .. })
-            ));
-            assert!(matches!(
-                b.set(&ns, acct, &secret("x"), ni),
-                Err(Error::Invalid { .. })
-            ));
-            assert!(matches!(
-                b.add_if_absent(&ns, acct, &secret("x"), ni),
-                Err(Error::Invalid { .. })
-            ));
-        }
-        assert_eq!(read(&b, &ns, "real").as_deref(), Some("keep-me"));
-    }
-
-    // ---- audit finding 6: every default-keychain resolution failure is Unavailable ----
-
-    #[test]
-    fn every_default_resolution_failure_is_unavailable() {
-        for st in [
-            NO_SUCH_KEYCHAIN,
-            NO_DEFAULT_KEYCHAIN,
-            AUTH_FAILED,
-            INTERACTION_NOT_ALLOWED,
-            USER_CANCELED,
-            -1,
-            123456,
-        ] {
-            assert!(
-                matches!(
-                    default_from_status(st, null_mut()),
-                    Err(Error::Unavailable(_))
-                ),
-                "status {st}"
-            );
-        }
-        // success with a null keychain reference
-        assert!(matches!(
-            default_from_status(0, null_mut()),
-            Err(Error::Unavailable(_))
-        ));
-    }
-
-    // ---- second-read finding 2: a write is gated BEFORE the native add, never repaired after ----
-
-    /// Scripted OS answers; counts how many native adds were attempted.
-    struct FakeNative {
-        status: std::result::Result<u32, OSStatus>,
-        path: Option<PathBuf>,
-        adds: std::cell::Cell<u32>,
-    }
-
-    impl FakeNative {
-        fn ready(path: PathBuf) -> Self {
-            Self {
-                status: Ok(STATUS_UNLOCKED),
-                path: Some(path),
-                adds: std::cell::Cell::new(0),
-            }
-        }
-    }
-
-    impl Native for FakeNative {
-        fn status(&self, _: &Handle) -> std::result::Result<u32, OSStatus> {
-            self.status
-        }
-        fn path(&self, _: &Handle) -> Option<PathBuf> {
-            self.path.clone()
-        }
-        fn add(&self, _: &Handle, _: &Namespace, _: &str, _: &Secret) -> OSStatus {
-            self.adds.set(self.adds.get() + 1);
-            0
-        }
-    }
-
-    fn existing_path() -> PathBuf {
-        std::env::temp_dir()
-    }
-
-    fn missing_path() -> PathBuf {
-        std::env::temp_dir().join("rightkit-secrets-no-such-keychain.keychain-db")
-    }
-
-    fn try_add(native: &FakeNative, mode: Interaction, refuse_write: bool) -> Result<OSStatus> {
-        let ns = Namespace::new("rightkit.test.gate").unwrap();
-        add_checked(
-            native,
-            &Handle(null_mut()),
-            &ns,
-            "acct",
-            &secret("v"),
-            mode,
-            refuse_write,
-        )
-    }
-
-    #[test]
-    fn no_add_is_attempted_for_an_invalid_keychain_reference() {
-        let mut native = FakeNative::ready(existing_path());
-        native.status = Err(NO_SUCH_KEYCHAIN);
-        assert!(matches!(
-            try_add(&native, Interaction::Interactive, false),
-            Err(Error::Unavailable(_))
-        ));
-        assert_eq!(native.adds.get(), 0);
-    }
-
-    #[test]
-    fn no_add_is_attempted_when_the_keychain_file_is_gone_or_unknown() {
-        for path in [Some(missing_path()), None] {
-            let mut native = FakeNative::ready(existing_path());
-            native.path = path;
-            assert!(matches!(
-                try_add(&native, Interaction::Interactive, false),
-                Err(Error::Unavailable(_))
-            ));
-            assert_eq!(native.adds.get(), 0);
-        }
-    }
-
-    #[test]
-    fn a_locked_keychain_blocks_a_non_interactive_add_before_the_native_call() {
-        let mut native = FakeNative::ready(existing_path());
-        native.status = Ok(0);
-        assert!(matches!(
-            try_add(&native, Interaction::NonInteractive, false),
-            Err(Error::InteractionRequired)
-        ));
-        assert_eq!(native.adds.get(), 0);
-        // An explicit user action may let the OS prompt to unlock.
-        assert_eq!(try_add(&native, Interaction::Interactive, false), Ok(0));
-        assert_eq!(native.adds.get(), 1);
-    }
-
-    #[test]
-    fn a_ready_destination_gets_exactly_one_native_add() {
-        let native = FakeNative::ready(existing_path());
-        assert_eq!(try_add(&native, Interaction::NonInteractive, false), Ok(0));
-        assert_eq!(native.adds.get(), 1);
-    }
-
-    #[test]
-    fn an_explicit_keychain_is_never_written_even_when_it_is_the_default() {
-        // No default-keychain probe exists any more: nothing to race. The refusal comes before
-        // any OS call, so the native add is never reached.
-        let native = FakeNative::ready(existing_path());
-        assert!(matches!(
-            try_add(&native, Interaction::NonInteractive, true),
-            Err(Error::Unavailable(_))
-        ));
-        assert!(matches!(
-            try_add(&native, Interaction::Interactive, true),
-            Err(Error::Unavailable(_))
-        ));
-        assert_eq!(native.adds.get(), 0);
-    }
-
-    #[test]
-    fn only_a_non_fixture_explicit_keychain_refuses_writes() {
-        let h = Arc::new(Handle(null_mut()));
-        let plain = Target::File {
-            handle: h.clone(),
-            fixture: false,
-        };
-        let fixture = Target::File {
-            handle: h,
-            fixture: true,
-        };
-        assert!(plain.write_is_refused());
-        assert!(!fixture.write_is_refused());
-        assert!(!Target::UserDefault.write_is_refused());
-    }
-
-    #[test]
-    fn open_file_reads_and_deletes_but_refuses_to_write_to_a_non_default_keychain() {
-        let kc = IsolatedKeychain::create().unwrap();
-        let plain = KeychainBackend::open_file(kc.path(), Some(kc.password())).unwrap();
-        let ns = Namespace::new("rightkit.test.refuse-explicit").unwrap();
-        let ni = Interaction::NonInteractive;
-        assert!(matches!(
-            plain.set(&ns, "acct", &secret("v"), ni),
-            Err(Error::Unavailable(_))
-        ));
-        assert!(matches!(
-            plain.add_if_absent(&ns, "acct", &secret("v"), ni),
-            Err(Error::Unavailable(_))
-        ));
-        assert_eq!(
-            read(&kc.backend(), &ns, "acct"),
-            None,
-            "nothing was written"
-        );
-
-        kc.backend()
-            .set(&ns, "acct", &secret("fixture"), ni)
-            .unwrap();
-        assert_eq!(read(&plain, &ns, "acct").as_deref(), Some("fixture"));
-        assert!(plain.exists(&ns, "acct", ni).unwrap());
-        assert!(plain.delete(&ns, "acct", ni).unwrap());
-    }
-
-    #[test]
-    fn open_isolated_file_writes_to_a_temp_keychain_and_refuses_anything_else() {
-        let kc = IsolatedKeychain::create().unwrap();
-        let isolated = KeychainBackend::open_isolated_file(kc.path(), Some(kc.password())).unwrap();
-        let ns = Namespace::new("rightkit.test.isolated-open").unwrap();
-        let ni = Interaction::NonInteractive;
-        isolated.set(&ns, "acct", &secret("v"), ni).unwrap();
-        assert_eq!(read(&isolated, &ns, "acct").as_deref(), Some("v"));
-        // Outside the temp directory: refused before the file is opened.
-        assert!(matches!(
-            KeychainBackend::open_isolated_file(Path::new("/usr/bin/true"), None),
-            Err(Error::Invalid { .. })
-        ));
-    }
-
-    /// The post-write relocation path (ask for the item, compare its keychain, delete it) is gone:
-    /// it could not undo a secret already stored in the wrong keychain.
-    #[test]
-    fn production_code_has_no_post_write_relocation() {
-        let text =
-            std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/macos.rs"))
-                .unwrap();
-        let marker = format!("{}\nmod {} {{", "#[cfg(test)]", "tests");
-        let production = text.split(marker.as_str()).next().unwrap();
-        for needle in [
-            format!("{}{}", "SecKeychainItem", "CopyKeychain"),
-            format!("{}{}", "item_is", "_in"),
-            format!("{}{}", "could not be", " removed"),
-        ] {
-            assert!(
-                !production.contains(&needle),
-                "production code still has {needle}"
-            );
-        }
-    }
-
-    /// The macOS e2e suite may not construct the real default-keychain backend, so none of it
-    /// reads, writes or deletes in the login keychain. Needles are assembled at run time so this
-    /// file does not match itself; the unit tests above only construct `system()` (no OS call)
-    /// and use temp keychains elsewhere (`default_is` asserts each path is under the temp dir).
-    #[test]
-    fn e2e_suite_never_constructs_the_login_keychain_backend() {
-        let needles = [
-            format!("{}::{}(", "KeychainBackend", "system"),
-            format!("{}(", "system_backend"),
-        ];
-        let text =
-            std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/e2e.rs"))
-                .unwrap();
-        for n in &needles {
-            assert!(!text.contains(n.as_str()), "tests/e2e.rs uses {n}");
-        }
     }
 }

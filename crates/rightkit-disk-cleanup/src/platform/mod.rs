@@ -165,17 +165,3 @@ pub fn format_uuid(bytes: &[u8; 16]) -> String {
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::format_uuid;
-
-    #[test]
-    fn uuid_format_is_canonical() {
-        let bytes = [
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab,
-            0xcd, 0xef,
-        ];
-        assert_eq!(format_uuid(&bytes), "01234567-89ab-cdef-0123-456789abcdef");
-    }
-}

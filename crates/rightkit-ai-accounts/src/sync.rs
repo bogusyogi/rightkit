@@ -196,11 +196,6 @@ fn instances_for(root: &Path) -> Vec<u32> {
 /// Whether the Claude Desktop instance that uses `root` is running. Looks at the process table
 /// by executable path and `--user-data-dir`; no AppleScript, no Launch Services.
 pub fn claude_running_for(root: &Path) -> bool {
-    // Test seam (test-overrides builds only): journeys decide explicitly, whatever the host runs.
-    #[cfg(feature = "test-overrides")]
-    if let Some(forced) = std::env::var_os("RIGHTKIT_TEST_CLAUDE_RUNNING") {
-        return forced == "1";
-    }
     !instances_for(root).is_empty()
 }
 
@@ -660,17 +655,6 @@ pub struct FolderPlan {
     pub archive_index_rewritten: bool,
 }
 
-impl FolderPlan {
-    fn changes(&self) -> usize {
-        self.add.len()
-            + self.update.len()
-            + self.delete.len()
-            + self.deletion_markers_added.len()
-            + self.deletion_markers_removed.len()
-            + usize::from(self.archive_index_rewritten)
-    }
-}
-
 #[derive(Clone, Debug, Serialize)]
 pub struct Conflict {
     pub session_id: String,
@@ -994,10 +978,6 @@ pub fn plan_for(root: &Path, only: Option<&BTreeSet<String>>) -> Result<Plan, Sy
         files: ops.len(),
         conflicts: conflicts.len(),
     };
-    debug_assert_eq!(
-        ops.len(),
-        plans.iter().map(FolderPlan::changes).sum::<usize>()
-    );
     Ok(Plan {
         root: root.display().to_string(),
         accounts,

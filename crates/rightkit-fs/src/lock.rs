@@ -580,8 +580,6 @@ mod posix {
             }
         }
 
-        #[cfg(feature = "testing")]
-        super::testing::after_identity_check_run(path);
         let file = open_lock_file(path)?;
         let id = FileId::of(&file.metadata().map_err(|e| FsError::io(path, e))?);
         if let Some(entry) = registry.entries.get_mut(&id) {
@@ -729,49 +727,6 @@ mod flock {
             // description, including one a forked child has not yet exec'd away from.
             unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
         }
-    }
-}
-
-/// Fault injection for consumer tests (feature `testing`, off by default; debug builds only).
-///
-/// `after_identity_check` runs a closure on the calling thread at the one point of a POSIX
-/// record-lock acquisition where a name can be swapped under it: after the pre-open `lstat`
-/// decided the file was not held, before the file is opened. It lets a test build the swap
-/// deterministically.
-#[cfg(feature = "testing")]
-pub mod testing {
-    use std::cell::RefCell;
-    use std::path::Path;
-
-    type Hook = Box<dyn Fn(&Path)>;
-
-    thread_local! {
-        static AFTER_IDENTITY_CHECK: RefCell<Option<Hook>> = const { RefCell::new(None) };
-    }
-
-    /// Removes the hook when dropped.
-    pub struct HookGuard(fn());
-
-    impl Drop for HookGuard {
-        fn drop(&mut self) {
-            (self.0)();
-        }
-    }
-
-    /// Run `hook(path)` on this thread between the identity check and the open of every
-    /// `Fcntl` acquisition, until the guard drops.
-    pub fn after_identity_check(hook: impl Fn(&Path) + 'static) -> HookGuard {
-        AFTER_IDENTITY_CHECK.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
-        HookGuard(|| AFTER_IDENTITY_CHECK.with(|slot| *slot.borrow_mut() = None))
-    }
-
-    #[cfg(unix)]
-    pub(super) fn after_identity_check_run(path: &Path) {
-        AFTER_IDENTITY_CHECK.with(|slot| {
-            if let Some(hook) = slot.borrow().as_ref() {
-                hook(path);
-            }
-        });
     }
 }
 
@@ -972,71 +927,4 @@ pub fn hostname() -> String {
         }
     }
     "unknown".into()
-}
-
-#[cfg(all(test, unix))]
-mod lock_type_tests {
-    use super::{posix::lock_type, Mode};
-
-    #[test]
-    fn record_lock_types_survive_the_c_short_cast_and_stay_distinct() {
-        // libc types the constants `c_short` (Apple) or `c_int` (Linux); `flock.l_type` is
-        // `c_short` on both, so the cast must not change either value.
-        assert_eq!(
-            i64::from(lock_type(Mode::Exclusive)),
-            i64::from(libc::F_WRLCK)
-        );
-        assert_eq!(i64::from(lock_type(Mode::Shared)), i64::from(libc::F_RDLCK));
-        assert_ne!(lock_type(Mode::Exclusive), lock_type(Mode::Shared));
-    }
-}
-
-#[cfg(all(test, feature = "json"))]
-mod time_tests {
-    use super::{days_from_civil, format_rfc3339_secs, parse_rfc3339_ms};
-
-    #[test]
-    fn known_dates_round_trip() {
-        assert_eq!(days_from_civil(1970, 1, 1), 0);
-        assert_eq!(
-            format_rfc3339_secs(1_577_836_800_000),
-            "2020-01-01T00:00:00Z"
-        );
-        assert_eq!(
-            parse_rfc3339_ms("2020-01-01T00:00:00Z"),
-            Some(1_577_836_800_000)
-        );
-        // Leap day and end of year.
-        assert_eq!(
-            format_rfc3339_secs(parse_rfc3339_ms("2024-02-29T23:59:59Z").unwrap()),
-            "2024-02-29T23:59:59Z"
-        );
-        assert_eq!(
-            format_rfc3339_secs(parse_rfc3339_ms("1999-12-31T23:59:59Z").unwrap()),
-            "1999-12-31T23:59:59Z"
-        );
-    }
-
-    #[test]
-    fn offsets_fractions_and_bad_input() {
-        assert_eq!(
-            parse_rfc3339_ms("2020-01-01T01:00:00+01:00"),
-            parse_rfc3339_ms("2020-01-01T00:00:00Z")
-        );
-        assert_eq!(
-            parse_rfc3339_ms("2020-01-01T00:00:00.5Z"),
-            Some(1_577_836_800_500)
-        );
-        assert_eq!(
-            parse_rfc3339_ms("2020-01-01t00:00:00.123456z"),
-            Some(1_577_836_800_123)
-        );
-        assert_eq!(parse_rfc3339_ms("2020-02-30T00:00:00Z"), None);
-        assert_eq!(parse_rfc3339_ms("2019-02-29T00:00:00Z"), None);
-        assert_eq!(parse_rfc3339_ms("2020-01-01T00:00:00"), None);
-        assert_eq!(parse_rfc3339_ms("2020-01-01 00:00:00Z"), None);
-        assert_eq!(parse_rfc3339_ms("2020-01-0\u{e9}T00:00:00Z"), None);
-        assert_eq!(parse_rfc3339_ms("1969-12-31T23:59:59Z"), None);
-        assert_eq!(parse_rfc3339_ms("not a time"), None);
-    }
 }

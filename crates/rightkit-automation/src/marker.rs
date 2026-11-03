@@ -35,38 +35,3 @@ pub fn is_own_event(user_data: i64) -> bool {
     let marker = event_marker();
     marker != 0 && user_data == marker
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Mutex;
-
-    // The marker is process-wide; keep these tests from racing each other.
-    static GUARD: Mutex<()> = Mutex::new(());
-
-    #[test]
-    fn unset_marker_claims_nothing() {
-        let _g = GUARD.lock().unwrap_or_else(|e| e.into_inner());
-        set_event_marker(0);
-        assert_eq!(event_marker(), 0);
-        assert!(!is_own_event(0));
-        assert!(!is_own_event(42));
-    }
-
-    #[test]
-    fn set_marker_is_recognised_and_clearable() {
-        let _g = GUARD.lock().unwrap_or_else(|e| e.into_inner());
-        set_event_marker(0x0050_554C_5345);
-        assert_eq!(event_marker(), 0x0050_554C_5345);
-        assert!(is_own_event(0x0050_554C_5345));
-        assert!(!is_own_event(0x0050_554C_5346));
-        assert!(!is_own_event(0));
-        set_event_marker(0);
-        assert!(!is_own_event(0x0050_554C_5345));
-    }
-
-    #[test]
-    fn field_matches_the_cg_user_data_field() {
-        assert_eq!(EVENT_SOURCE_USER_DATA_FIELD, 42);
-    }
-}

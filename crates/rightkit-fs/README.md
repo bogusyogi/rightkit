@@ -24,7 +24,7 @@ Do not use it as a substitute for a database transaction. It guards single files
 
 ## Cargo features
 
-No feature is on by default (0.4.0). Name `fs`, `lock`, `json`, `digest`, `blake3` & `zip` as you use them (the 0.3.x default was all four); `testing` is never default.
+No feature is on by default (0.4.0). Name `fs`, `lock`, `json`, `digest`, `blake3` & `zip` as you use them (the 0.3.x default was all four).
 
 - `blake3`: `digest::{Blake3Hasher, blake3_bytes, blake3_reader, blake3_file, blake3_file_with_len, blake3_file_with_progress}`. Depends only on `blake3`; does not enable SHA-256 or `fs`.
 - `zip`: names the `zip` module (`zip::{write_zip, read_zip, crc_table, crc32_update}` beside `StoredZipWriter`). The module is compiled without any feature; `zip` is an empty alias that adds no code, no dependency and does not enable `fs`.
@@ -35,8 +35,6 @@ No feature is on by default (0.4.0). Name `fs`, `lock`, `json`, `digest`, `blake
 - `json`: identity ledger (`IdentityStore`), lock owner records, and the `rightkit-clonefile` binary. Depends on `lock`, `serde`, and `serde_json`.
 
 Without `json`, locks write no owner file, so `recovered_stale` and `current_owner` return `None`. The lock itself behaves the same. `rightkit-db` uses `features = ["fs"]`. Digest-only callers use `features = ["digest"]`. Every integration test names the features it imports (`required-features`), so `--no-default-features` and each single feature compile.
-- `testing` (debug builds only): fault and event seams for consumer tests: `atomic::testing`, `state::testing`, `clone::testing`, `lock::testing`. It implies `test-seams`.
-- `test-seams` (allowed in release builds): `atomic::seams` and, with `transaction`, `transaction::seams` (`on_step`: a per-thread hook at every commit and recovery boundary that can fail the step or block it to stand in for a kill; `force_aside_backup`: keep the prior file by rename aside as on a volume without hard links), for a consumer's tests that run in the release profile. `fail_write_after(bytes, kind)` makes this thread's `AtomicWriter::write_all` / `AtomicWriter::writer()` writes fail after `bytes` bytes (the bytes up to the limit are written first); `sync_counts()`, `take_sync_counts()` and `reset_sync_counts()` count the file flushes and directory syncs this thread attempted. Per thread, inert until installed. It does not see a write made through `AtomicWriter::file_mut()` or the `File` an `atomic_write_with*` closure receives.
 
 ## State directories (`StateDir`)
 

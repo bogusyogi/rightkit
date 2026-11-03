@@ -8,10 +8,8 @@ use super::lock;
 use super::{ServerAuthError, TokenStore, TokenStoreGuard};
 use crate::TokenSet;
 use rightkit_credentials::Secret as CredSecret;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use zeroize::Zeroizing;
 
 /// Keyed by `(account, provider)`: one credential per pair, named by the lower-case hex
 /// SHA-256 of the JSON tuple (so no delimiter collisions, no case-folding collisions on

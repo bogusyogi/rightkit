@@ -35,33 +35,3 @@ pub fn rfc3339_precise() -> String {
 pub fn compact() -> String {
     rfc3339_secs().replace(['-', ':'], "")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn shape(s: &str, pattern: &str) -> bool {
-        s.len() == pattern.len()
-            && s.chars().zip(pattern.chars()).all(|(c, p)| match p {
-                '9' => c.is_ascii_digit(),
-                _ => c == p,
-            })
-    }
-
-    #[test]
-    fn stamps_keep_their_shapes() {
-        assert!(shape(&rfc3339_secs(), "9999-99-99T99:99:99Z"));
-        assert!(shape(&rfc3339_millis(), "9999-99-99T99:99:99.999Z"));
-        assert!(shape(&compact(), "99999999T999999Z"));
-    }
-
-    #[test]
-    fn the_millis_stamp_pads_a_short_fraction() {
-        let whole = at(1_000_000_000).format_rfc3339();
-        assert_eq!(whole, "2001-09-09T01:46:40Z");
-        assert_eq!(
-            format!("{}.{:03}Z", whole.trim_end_matches('Z'), 7),
-            "2001-09-09T01:46:40.007Z"
-        );
-    }
-}

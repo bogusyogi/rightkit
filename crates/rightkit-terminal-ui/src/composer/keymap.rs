@@ -22,26 +22,12 @@
 use super::key_hint::KeyBinding;
 use super::key_hint::{ctrl, plain, shift};
 use crossterm::event::KeyCode;
-#[cfg(test)]
-use crossterm::event::KeyEvent;
-#[cfg(test)]
-use crossterm::event::KeyEventKind;
 use crossterm::event::KeyModifiers;
-#[cfg(test)]
-use std::collections::HashSet;
 use std::sync::Arc;
-#[cfg(test)]
-use std::time::Duration;
-
-/// Pending chords expire after one second or when their active context changes.
-#[cfg(test)]
-pub(crate) const KEY_CHORD_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Internal function-key range used for completed-chord dispatch tokens.
 /// Donor `codex_config::types::MAX_FUNCTION_KEY` is 24; tokens live above it.
 const FIRST_DISPATCH_FUNCTION_KEY: u8 = 25;
-#[cfg(test)]
-const LAST_DISPATCH_FUNCTION_KEY: u8 = u8::MAX;
 
 /// Runtime context in which a keymap action is active.
 ///
@@ -57,39 +43,7 @@ pub(crate) enum KeymapContext {
     VimTextObject,
 }
 
-impl KeymapContext {
-    #[cfg(test)]
-    pub(crate) fn overlaps(self, other: Self) -> bool {
-        if self == other {
-            return true;
-        }
-
-        matches!(
-            (self, other),
-            (Self::VimSearch, Self::VimNormal | Self::VimOperator)
-                | (Self::VimNormal | Self::VimOperator, Self::VimSearch)
-        ) || self.is_shared_main() && other.is_main_editor()
-            || other.is_shared_main() && self.is_main_editor()
-            || self.is_shared_main() && other.is_shared_main()
-    }
-
-    #[cfg(test)]
-    const fn is_shared_main(self) -> bool {
-        matches!(self, Self::Composer)
-    }
-
-    #[cfg(test)]
-    const fn is_main_editor(self) -> bool {
-        matches!(
-            self,
-            Self::Editor
-                | Self::VimNormal
-                | Self::VimOperator
-                | Self::VimSearch
-                | Self::VimTextObject
-        )
-    }
-}
+impl KeymapContext {}
 
 /// Stable identity for one configurable action.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -158,47 +112,6 @@ pub(crate) fn keymap_action_ids() -> impl Iterator<Item = KeymapActionId> {
     .into_iter()
 }
 
-/// Compact set of keymap contexts that share one active input path.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-#[cfg(test)]
-pub(crate) struct KeymapContextSet(u32);
-
-#[cfg(test)]
-const fn context_bit(context: KeymapContext) -> u32 {
-    1 << match context {
-        KeymapContext::Composer => 2,
-        KeymapContext::Editor => 3,
-        KeymapContext::VimNormal => 4,
-        KeymapContext::VimOperator => 5,
-        KeymapContext::VimTextObject => 6,
-        KeymapContext::VimSearch => 11,
-    }
-}
-
-#[cfg(test)]
-impl KeymapContextSet {
-    #[cfg(test)]
-    pub(crate) const fn new(context: KeymapContext) -> Self {
-        Self(context_bit(context))
-    }
-
-    /// Whether this input path can dispatch the action.
-    #[cfg(test)]
-    pub(crate) fn contains_action(self, action: KeymapActionId) -> bool {
-        self.contains(action.context)
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn with(self, context: KeymapContext) -> Self {
-        Self(self.0 | context_bit(context))
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn contains(self, context: KeymapContext) -> bool {
-        self.0 & context_bit(context) != 0
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct KeyChord {
     pub(crate) prefix: KeyBinding,
@@ -218,115 +131,7 @@ pub(crate) struct RuntimeChordKeymap {
     pub(crate) bindings: Vec<RuntimeChordBinding>,
 }
 
-impl RuntimeChordKeymap {
-    #[cfg(test)]
-    fn binding_for_completion(
-        &self,
-        prefix: KeyBinding,
-        event: KeyEvent,
-        contexts: KeymapContextSet,
-    ) -> Option<&RuntimeChordBinding> {
-        self.bindings.iter().find(|binding| {
-            contexts.contains_action(binding.action)
-                && binding.chord.prefix == prefix
-                && chord_stroke_matches(binding.chord.completion, event)
-        })
-    }
-}
-
-/// Outcome of routing one physical key through the chord state machine.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg(test)]
-pub(crate) enum KeyChordMatch {
-    PassThrough,
-    Pending(KeyBinding),
-    Completed(KeyEvent),
-    Cancelled,
-    Ignored,
-}
-
-#[derive(Clone, Copy, Debug)]
-#[cfg(test)]
-struct PendingChord {
-    started_at: std::time::Instant,
-    prefix: KeyBinding,
-    contexts: KeymapContextSet,
-}
-
-/// Tracks one pending two-stroke chord without buffering ordinary input.
-#[derive(Clone, Debug, Default)]
-#[cfg(test)]
-pub(crate) struct KeyChordMatcher {
-    pending: Option<PendingChord>,
-}
-
-#[cfg(test)]
-impl KeyChordMatcher {
-    #[cfg(test)]
-    pub(crate) fn expire(&mut self, contexts: KeymapContextSet) -> bool {
-        if self.pending.is_some_and(|pending| {
-            pending.contexts != contexts || pending.started_at.elapsed() >= KEY_CHORD_TIMEOUT
-        }) {
-            self.pending = None;
-            return true;
-        }
-        false
-    }
-
-    #[cfg(test)]
-    pub(crate) fn advance(
-        &mut self,
-        key_event: KeyEvent,
-        keymap: &RuntimeChordKeymap,
-        contexts: KeymapContextSet,
-    ) -> KeyChordMatch {
-        if is_dispatch_token_event(key_event) {
-            return KeyChordMatch::Ignored;
-        }
-
-        self.expire(contexts);
-
-        if self.pending.is_some() && key_event.kind != KeyEventKind::Press {
-            return KeyChordMatch::Ignored;
-        }
-        if key_event.kind != KeyEventKind::Press {
-            return KeyChordMatch::PassThrough;
-        }
-
-        if let Some(pending) = self.pending.take() {
-            if plain(KeyCode::Esc).is_press(key_event) {
-                return KeyChordMatch::Cancelled;
-            }
-            if let Some(binding) =
-                keymap.binding_for_completion(pending.prefix, key_event, contexts)
-            {
-                let Some(dispatch_event) = dispatch_event(binding.action) else {
-                    return KeyChordMatch::Ignored;
-                };
-                return KeyChordMatch::Completed(dispatch_event);
-            }
-        }
-
-        if let Some(prefix) = keymap
-            .bindings
-            .iter()
-            .find(|binding| {
-                contexts.contains_action(binding.action)
-                    && chord_stroke_matches(binding.chord.prefix, key_event)
-            })
-            .map(|binding| binding.chord.prefix)
-        {
-            self.pending = Some(PendingChord {
-                started_at: std::time::Instant::now(),
-                prefix,
-                contexts,
-            });
-            return KeyChordMatch::Pending(prefix);
-        }
-
-        KeyChordMatch::PassThrough
-    }
-}
+impl RuntimeChordKeymap {}
 
 fn dispatch_binding(action: KeymapActionId) -> Option<KeyBinding> {
     let index = keymap_action_ids().position(|candidate| candidate == action)?;
@@ -335,30 +140,6 @@ fn dispatch_binding(action: KeymapActionId) -> Option<KeyBinding> {
         KeyCode::F(function_key),
         KeyModifiers::NONE,
     ))
-}
-
-#[cfg(test)]
-fn dispatch_event(action: KeymapActionId) -> Option<KeyEvent> {
-    let (code, modifiers) = dispatch_binding(action)?.parts();
-    Some(KeyEvent::new(code, modifiers))
-}
-
-#[cfg(test)]
-pub(crate) fn is_dispatch_token_event(event: KeyEvent) -> bool {
-    matches!(
-        event.code,
-        KeyCode::F(FIRST_DISPATCH_FUNCTION_KEY..=LAST_DISPATCH_FUNCTION_KEY)
-    )
-}
-
-#[cfg(test)]
-fn chord_stroke_matches(binding: KeyBinding, key_event: KeyEvent) -> bool {
-    let ctrl_slash = ctrl(KeyCode::Char('/'));
-    let ctrl_seven = ctrl(KeyCode::Char('7'));
-
-    binding.is_press(key_event)
-        || binding.parts() == ctrl_slash.parts() && ctrl_seven.is_press(key_event)
-        || binding.parts() == ctrl_seven.parts() && ctrl_slash.is_press(key_event)
 }
 
 /// Composer-level keybindings.
@@ -516,33 +297,9 @@ pub(crate) struct RuntimeKeymap {
     pub(crate) vim_search: VimSearchKeymap,
     pub(crate) vim_text_object: VimTextObjectKeymap,
     pub(crate) chords: Arc<RuntimeChordKeymap>,
-    /// Actions explicitly present in configuration, restoring the donor's
-    /// `TuiKeymap` Option-presence provenance that resolved `Vec` values
-    /// alone cannot express. Empty unless `mark_configured` was called.
-    #[cfg(test)]
-    pub(crate) configured: HashSet<KeymapActionId>,
 }
 
 impl RuntimeKeymap {
-    /// Record that `action` was explicitly present in configuration (donor
-    /// `RuntimeKeymap::from_config` Option-presence semantics). Unknown
-    /// action identities — anything outside [`keymap_action_ids`] — are
-    /// rejected rather than recorded.
-    #[cfg(test)]
-    pub(crate) fn mark_configured(&mut self, action: KeymapActionId) {
-        if keymap_action_ids().any(|candidate| candidate == action) {
-            self.configured.insert(action);
-        }
-    }
-
-    /// Whether `action` was explicitly configured, distinguishing "set to
-    /// its default value" from "absent" the way the donor's Option presence
-    /// did.
-    #[cfg(test)]
-    pub(crate) fn is_configured(&self, action: KeymapActionId) -> bool {
-        self.configured.contains(&action)
-    }
-
     /// Built-in keymap defaults, verbatim from the donor's
     /// `built_in_defaults` for the composer surfaces.
     pub(crate) fn defaults() -> Self {
@@ -699,8 +456,6 @@ impl RuntimeKeymap {
                 cancel: vec![plain(KeyCode::Esc)],
             },
             chords: Arc::new(RuntimeChordKeymap::default()),
-            #[cfg(test)]
-            configured: HashSet::new(),
         };
 
         // Donor `RuntimeChordKeymap::from_config` installs the built-in

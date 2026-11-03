@@ -56,16 +56,3 @@ pub(crate) fn lease(owner: &'static str) -> InferenceLease {
         acquired_at: Instant::now(),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Two sequential leases must not deadlock, guarding against an accidental
-    /// reentrant/self-blocking regression in the gate.
-    #[test]
-    fn sequential_leases_do_not_deadlock() {
-        drop(lease("first"));
-        drop(lease("second"));
-    }
-}

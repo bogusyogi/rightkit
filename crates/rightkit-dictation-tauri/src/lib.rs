@@ -39,8 +39,6 @@ pub mod history {
 /// Settings the runtime reads from the host.
 pub mod settings {
     use crate::host::host;
-    use rightkit_dictation_core::settings::SettingsBlob;
-    use rightkit_transcript_library::history::HistoryRetention;
 
     pub(crate) fn snapshot() -> SettingsBlob {
         host().settings_snapshot()
@@ -64,8 +62,6 @@ pub mod license {
 
 pub mod vocabulary {
     use crate::host::host;
-    use rightkit_text_polish::vocab_learn::Suggestion;
-    use rightkit_text_polish::vocabulary::VocabularyEntry;
 
     pub(crate) fn list() -> Vec<VocabularyEntry> {
         host().vocabulary_list()

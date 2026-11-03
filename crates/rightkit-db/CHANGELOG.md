@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.5.4 (unpublished)
 
 rightkit#1180: `relocation_reuses_only_same_configured_key_store_arc` failed once on the hosted `windows-2025` runner (`NotRelocated` or `RelocatedCleanupPending`; the assertion did not print the report), and a second hosted failure with the message `backup operation timeout expired` hit three `tests/restore.rs` tests. The root cause of the relocation failure is not proven: the failing job showed a runner-wide stall (the test binary took 62 s against 29 s in two passing runs), and no log line names a Windows error code. The changes below close the paths listed below that fail, or leave a blocking journal, because of a delay or a transient Windows refusal. Requires rightkit-fs 0.4.8.

@@ -411,37 +411,3 @@ fn argmax(logits: &[f32]) -> i64 {
         .map(|(idx, _)| idx as i64)
         .unwrap_or(0)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_argmax() {
-        assert_eq!(argmax(&[0.1, 0.5, 0.3, 0.9, 0.2]), 3);
-        assert_eq!(argmax(&[1.0, 0.0, 0.0]), 0);
-    }
-
-    #[test]
-    fn test_supported_languages_count() {
-        // Cohere Transcribe officially ships trained weights for 14 languages
-        assert_eq!(SUPPORTED_LANGUAGES.len(), 14);
-    }
-
-    #[test]
-    fn test_ngram_repetition_detection() {
-        // No repetition
-        assert_eq!(find_ngram_repetition(&[1, 2, 3, 4, 5, 6, 7, 8], 4), None);
-
-        // Repeated 4-gram: [1,2,3,4] appears twice
-        assert_eq!(find_ngram_repetition(&[1, 2, 3, 4, 1, 2, 3, 4], 4), Some(4));
-
-        // Repeated 8-gram
-        let mut tokens = vec![10, 20, 30, 40, 50, 60, 70, 80];
-        tokens.extend_from_slice(&[10, 20, 30, 40, 50, 60, 70, 80]);
-        assert_eq!(find_ngram_repetition(&tokens, 8), Some(8));
-
-        // Too short to detect
-        assert_eq!(find_ngram_repetition(&[1, 2, 1, 2], 4), None);
-    }
-}

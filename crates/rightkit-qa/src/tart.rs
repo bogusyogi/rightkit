@@ -251,36 +251,3 @@ impl Drop for CleanVm {
         );
     }
 }
-
-#[cfg(all(test, any(target_os = "macos", windows)))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ssh_arguments_name_the_user_and_address_and_never_prompt() {
-        let vm = CleanVm {
-            tart: PathBuf::from("/usr/local/bin/tart"),
-            name: "qa-1".into(),
-            ssh_user: "admin".into(),
-            run: None,
-            destroyed: true,
-        };
-        let args = vm.ssh_args("192.168.64.9");
-        assert!(args.contains(&"BatchMode=yes".to_string()));
-        assert_eq!(args.last().unwrap(), "admin@192.168.64.9");
-        assert_eq!(vm.name(), "qa-1");
-    }
-
-    #[test]
-    fn dropping_a_vm_with_a_missing_tart_binary_returns_promptly() {
-        let started = std::time::Instant::now();
-        drop(CleanVm {
-            tart: PathBuf::from("/nonexistent/tart"),
-            name: "qa-drop".into(),
-            ssh_user: "admin".into(),
-            run: None,
-            destroyed: false,
-        });
-        assert!(started.elapsed() < Duration::from_secs(30));
-    }
-}

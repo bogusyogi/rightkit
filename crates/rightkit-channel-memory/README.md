@@ -39,7 +39,7 @@ Pure Rust with no platform-specific code. It reads a JSON string and needs no OS
 
 ## Usage
 
-Assembled from the calls in `tests/consumers.rs`:
+Assembled from the calls a consumer makes:
 
 ```rust
 use rightkit_channel_memory::{parse, MemoryError, Scope};
@@ -67,16 +67,7 @@ fn check(text: &str) -> Result<(), MemoryError> {
 }
 ```
 
-The examples in `tests/` run against `contracts/fixtures/channel-memory/`. A lookup for `kids-cartoon` returns `ForeignScope`, a citation of `1420.00` returns `E_NUMBER_MISMATCH`, and a withdrawn proof returns `E_PROOF_WITHDRAWN`.
-
-## Tests
-
-- `tests/fixtures.rs`: every fixture lands in the stage its name promises (schema, semantic, or version).
-- `tests/consumers.rs`: scope isolation, the citation match for each field, validity windows, open conflicts, and the rule that website observations never become facts.
-- `tests/proof_rules.rs`: status transitions, the revision chain, controlled writes by author and intent, conflict records, and banned-move phrases.
-- `tests/record_rules.rs`: `validate_proof` and `check_proof_write` for each rule they cover, and the document and record paths returning the same error for the same defect.
-- `src/unit.rs`: accepted and refused unit text, including the 32-character base limit.
-- `src/decimal.rs`: exact decimal equality and the accepted text form.
+The fixtures in `contracts/fixtures/channel-memory/` cover the rules: A lookup for `kids-cartoon` returns `ForeignScope`, a citation of `1420.00` returns `E_NUMBER_MISMATCH`, and a withdrawn proof returns `E_PROOF_WITHDRAWN`.
 
 ## Version
 

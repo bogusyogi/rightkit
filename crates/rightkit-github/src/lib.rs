@@ -90,16 +90,3 @@ impl std::fmt::Display for GitHubAppError {
 }
 
 impl std::error::Error for GitHubAppError {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn denial_is_serializable_without_secret_material() {
-        let denial = GitHubDenial::RepositoryOutOfScope { repository_id: 42 };
-        let json = serde_json::to_string(&denial).unwrap();
-        assert!(json.contains("repository_out_of_scope"));
-        assert!(json.contains("42"));
-    }
-}

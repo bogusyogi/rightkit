@@ -69,9 +69,6 @@ pub mod runtime;
 pub mod supervisor;
 pub mod workspace;
 
-#[cfg(test)]
-pub(crate) mod test_support;
-
 pub use binding::{
     transition_is_valid, BindingMetadataStore, BindingStoreError, ClaudeHarnessBindingRecord,
     HarnessBindingStatus, InMemoryBindingMetadataStore, JsonFileBindingMetadataStore,
@@ -155,33 +152,5 @@ impl From<DriverHostError> for HarnessError {
                 HarnessError::Parse(format!("unknown required vendor event: {method}"))
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn harness_errors_render_actionable_messages() {
-        let trust = HarnessError::Trust("workspace root must be absolute".to_string());
-        assert!(trust.to_string().contains("trust boundary"));
-        let transport = HarnessError::Transport {
-            code: "cli_process_spawn".to_string(),
-            message: "failed to start claude".to_string(),
-        };
-        assert!(transport.to_string().contains("cli_process_spawn"));
-        let parse = HarnessError::from(DriverHostError::UnknownRequiredEvent {
-            driver: crate::driver_host::contracts::DriverKind::Claude,
-            method: "system:future_subtype".to_string(),
-        });
-        assert!(parse.to_string().contains("system:future_subtype"));
-    }
-
-    #[test]
-    fn now_unix_ms_is_monotonic_within_reason() {
-        let first = now_unix_ms();
-        let second = now_unix_ms();
-        assert!(second >= first, "unix-ms clock must not run backwards");
     }
 }

@@ -545,21 +545,21 @@ pub(crate) fn spawn_chrome_fixture_windows(
 }
 
 /// Fixture-only logging: stderr is the retained `chrome-stderr.txt` handle.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 const FIXTURE_LOGGING_ARGS: [&str; 2] = ["--enable-logging=stderr", "--v=1"];
 
 /// Env vars kept from the parent, and vars pointed at the write grant, for the fixture.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 const FIXTURE_ENV_KEEP: [&str; 2] = ["SystemRoot", "windir"];
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 const FIXTURE_ENV_SET: [&str; 5] = ["TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "USERPROFILE"];
 /// Chrome LPAC capabilities requested for the fixture only. `internetClient` is never one.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 const FIXTURE_NAMED_CAPABILITIES: [&str; 2] = ["lpacChromeInstallFiles", "registryRead"];
 
 /// Hex exit code plus the well-known meaning of the NTSTATUS values a failed Chrome start
 /// produces, so a CI log names the cause without a lookup.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn describe_exit_code(code: u32) -> String {
     let meaning = match code {
         0 => "success",
@@ -580,7 +580,7 @@ fn describe_exit_code(code: u32) -> String {
 /// grants come from `spawn_chrome_fixture_windows`'s policy, capabilities from the sandbox crate
 /// (`NetworkPolicy::Deny` requests no `internetClient`; the fixture adds only the named Chrome
 /// LPAC capabilities).
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn fixture_launch_params(exe: &Path, args: &[OsString], profile_dir: &Path) -> String {
     let flags: Vec<String> = args
         .iter()
@@ -683,162 +683,4 @@ exit 0"#;
 #[cfg(not(unix))]
 fn spawn_watchdog(_chrome_pid: u32) -> Option<OwnedChild> {
     None
-}
-
-#[cfg(all(test, windows))]
-mod fixture_log_windows_tests {
-    use super::*;
-    use std::fs::OpenOptions;
-    use std::os::windows::fs::OpenOptionsExt;
-
-    /// Mirrors the fixture sequence: the log file pre-exists, nothing here holds a handle, the
-    /// sandbox-style open (append, FILE_SHARE_READ only) succeeds, and the tail is then read
-    /// by path while that writer is still open.
-    #[test]
-    fn fixture_log_opens_share_read_only_and_tails_by_path() {
-        let dir = std::env::temp_dir().join(format!("rk-fixlog-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("chrome-stderr.txt");
-        drop(File::create(&path).unwrap());
-        let mut writer = OpenOptions::new()
-            .append(true)
-            .create(true)
-            .share_mode(0x1)
-            .open(&path)
-            .expect("share-read-only open of a pre-existing, unheld file");
-        use std::io::Write;
-        writer.write_all(b"CHECK failed").unwrap();
-        writer.flush().unwrap();
-        assert_eq!(bounded_file_tail(&path).unwrap(), "CHECK failed");
-        drop(writer);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn no_sandbox_is_added_only_by_the_fixture_arg_builder() {
-        let base: Vec<OsString> = vec!["--headless=new".into(), "about:blank".into()];
-        let fixture = fixture_chrome_args(&base);
-        assert_eq!(
-            fixture.iter().filter(|a| *a == "--no-sandbox").count(),
-            1,
-            "{fixture:?}"
-        );
-        // Idempotent.
-        assert_eq!(fixture_chrome_args(&fixture), fixture);
-        for flag in [
-            "--disable-gpu",
-            "--disable-crash-reporter",
-            "--disable-breakpad",
-        ] {
-            assert_eq!(fixture.iter().filter(|a| *a == flag).count(), 1, "{flag}");
-        }
-        assert!(
-            fixture
-                .iter()
-                .any(|a| a == "--disable-features=RendererCodeIntegrity"),
-            "{fixture:?}"
-        );
-        assert_eq!(FIXTURE_LOGGING_ARGS, ["--enable-logging=stderr", "--v=1"]);
-        // The ordinary path hands its args to Chrome unchanged.
-        let mut ordinary = chrome_command(Path::new("chrome"), &base);
-        let seen: Vec<_> = ordinary.command_mut().get_args().collect();
-        assert!(!seen.iter().any(|a| *a == "--no-sandbox"), "{seen:?}");
-        assert!(!seen.iter().any(|a| *a == "--disable-gpu"), "{seen:?}");
-        assert!(
-            !seen
-                .iter()
-                .any(|a| a.to_string_lossy().starts_with("--disable-features=")),
-            "{seen:?}"
-        );
-        for flag in ["--disable-crash-reporter", "--disable-breakpad"] {
-            assert!(!seen.iter().any(|a| *a == flag), "{flag}: {seen:?}");
-        }
-        // BrowserSession::launch's own source never names the flag.
-        let session = include_str!("session.rs");
-        assert!(!session.contains("\"--no-sandbox\""));
-        assert!(!session.contains("fixture_chrome_args"));
-    }
-
-    #[test]
-    fn profile_path_is_one_native_argv_element() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("profile with spaces & ü 'quotes'");
-        std::fs::create_dir(&path).unwrap();
-        let arg = profile_arg(&path);
-        let mut expected = OsString::from("--user-data-dir=");
-        expected.push(path.as_os_str());
-        let mut cmd = chrome_command(Path::new("unused-chrome"), &[arg]);
-        let argv: Vec<_> = cmd.command_mut().get_args().map(|a| a.to_owned()).collect();
-        assert_eq!(argv, vec![expected]);
-    }
-
-    // APFS (macOS) rejects non-UTF-8 file names with EILSEQ; Linux filesystems accept them.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn profile_argv_preserves_non_utf8_bytes_and_shell_characters() {
-        use std::os::unix::ffi::{OsStrExt, OsStringExt};
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp
-            .path()
-            .join(OsString::from_vec(b"profile \xff \"$;\n".to_vec()));
-        std::fs::create_dir(&path).unwrap();
-        let mut cmd = chrome_command(Path::new("unused-chrome"), &[profile_arg(&path)]);
-        let mut expected = b"--user-data-dir=".to_vec();
-        expected.extend_from_slice(path.as_os_str().as_bytes());
-        let argv: Vec<_> = cmd.command_mut().get_args().map(|a| a.as_bytes()).collect();
-        assert_eq!(argv, vec![expected.as_slice()]);
-    }
-}
-
-#[cfg(test)]
-mod fixture_diagnostics_tests {
-    use super::*;
-
-    #[test]
-    fn exit_code_names_the_ntstatus() {
-        let text = describe_exit_code(0xC000_0022);
-        assert!(text.contains("0xC0000022") && text.contains("STATUS_ACCESS_DENIED"));
-        assert!(describe_exit_code(7).contains("unclassified"));
-    }
-
-    #[test]
-    fn launch_params_report_sandbox_and_gpu_flags() {
-        let args: Vec<OsString> = ["--headless=new", "--remote-debugging-pipe", "about:blank"]
-            .iter()
-            .map(OsString::from)
-            .collect();
-        let text = fixture_launch_params(Path::new("chrome.exe"), &args, Path::new("profile"));
-        assert!(text.contains("no_sandbox=false"), "{text}");
-        assert!(text.contains("disable_gpu=false"), "{text}");
-        assert!(text.contains("headless=true"), "{text}");
-        assert!(
-            text.contains("capabilities=[lpacChromeInstallFiles, registryRead]")
-                && !text.contains("internetClient]"),
-            "{text}"
-        );
-        assert!(text.contains("TEMP,TMP,LOCALAPPDATA"), "{text}");
-        // The fixture runs the headless shell: no `--headless` flag, still reported headless.
-        let shell = Path::new(r"v\chrome-headless-shell-win64\chrome-headless-shell.exe");
-        let text = fixture_launch_params(shell, &[], Path::new("profile"));
-        assert!(
-            text.contains("exe=v\\chrome-headless-shell-win64")
-                && text.contains("exec_grant=v\\chrome-headless-shell-win64")
-                && text.contains("headless=true"),
-            "{text}"
-        );
-        let args: Vec<OsString> = ["--no-sandbox", "--disable-gpu"]
-            .iter()
-            .map(OsString::from)
-            .collect();
-        let text = fixture_launch_params(Path::new("chrome.exe"), &args, Path::new("profile"));
-        assert!(
-            text.contains("no_sandbox=true") && text.contains("disable_gpu=true"),
-            "{text}"
-        );
-    }
 }

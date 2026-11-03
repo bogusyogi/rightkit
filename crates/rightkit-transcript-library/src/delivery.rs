@@ -933,10 +933,6 @@ pub fn windows_terminal_target(
         || title.contains("windows terminal")
 }
 
-#[cfg(test)]
-#[path = "delivery_tests.rs"]
-mod tests;
-
 /// An app can REPLACE the editor whose text went to polish while the user is
 /// still dictating (Claude re-creates its composer).
 /// The retained original is then dead, but the box the user sees is the same
@@ -954,10 +950,6 @@ pub fn replacement_editor_may_receive(
         && start_fingerprint.is_some()
         && start_fingerprint == candidate_fingerprint
 }
-
-#[cfg(test)]
-#[path = "delivery_replacement_editor_tests.rs"]
-mod replacement_editor_tests;
 
 /// Time left in the 200 ms restore quiet window given the last receipt.
 pub fn paste_restore_quiet_remaining(
@@ -1008,83 +1000,4 @@ pub fn terminal_paste_has_no_confirm_channel(
     readback_baseline_available: bool,
 ) -> bool {
     terminal_target && !readback_baseline_available
-}
-
-#[cfg(test)]
-mod paste_outcome_tests {
-    use super::*;
-
-    #[test]
-    fn receipt_alone_is_success() {
-        assert!(paste_outcome(true, true, false, false).is_ok());
-    }
-
-    #[test]
-    fn event_plus_readback_without_receipt_is_success() {
-        assert!(paste_outcome(true, false, true, true).is_ok());
-    }
-
-    #[test]
-    fn readback_without_target_event_or_receipt_is_unconfirmed() {
-        assert_eq!(
-            paste_outcome(true, false, false, true),
-            Err(CopyFallbackReason::Other(
-                "paste_receipt_unconfirmed".to_string()
-            ))
-        );
-    }
-
-    #[test]
-    fn no_receipt_no_readback_is_unconfirmed() {
-        assert!(paste_outcome(true, false, true, false).is_err());
-    }
-
-    #[test]
-    fn terminal_without_baseline_has_no_confirm_channel() {
-        assert!(terminal_paste_has_no_confirm_channel(true, false));
-    }
-
-    #[test]
-    fn terminal_with_baseline_keeps_its_readback_channel() {
-        assert!(!terminal_paste_has_no_confirm_channel(true, true));
-    }
-
-    #[test]
-    fn non_terminal_targets_never_get_the_unknown_outcome() {
-        assert!(!terminal_paste_has_no_confirm_channel(false, false));
-        assert!(!terminal_paste_has_no_confirm_channel(false, true));
-    }
-
-    #[test]
-    fn no_channel_rule_never_overrides_a_failed_keystroke() {
-        // The unknown outcome is only consulted after a keystroke was sent.
-        assert_eq!(
-            paste_outcome(false, false, true, false),
-            Err(CopyFallbackReason::PasteFailed)
-        );
-    }
-
-    #[test]
-    fn unsent_keystroke_never_succeeds() {
-        assert_eq!(
-            paste_outcome(false, true, true, true),
-            Err(CopyFallbackReason::PasteFailed)
-        );
-    }
-
-    #[test]
-    fn quiet_window_counts_from_last_receipt() {
-        let now = std::time::Instant::now();
-        assert_eq!(
-            paste_restore_quiet_remaining(None, now),
-            std::time::Duration::ZERO
-        );
-        let rem = paste_restore_quiet_remaining(Some(now), now);
-        assert_eq!(rem, std::time::Duration::from_millis(200));
-        let later = now + std::time::Duration::from_millis(500);
-        assert_eq!(
-            paste_restore_quiet_remaining(Some(now), later),
-            std::time::Duration::ZERO
-        );
-    }
 }

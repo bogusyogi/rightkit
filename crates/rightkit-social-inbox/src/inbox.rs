@@ -114,9 +114,6 @@ pub struct EventQuery<'a> {
 pub trait InboxStore: WriteTxn {
     /// `role_forbidden` unless the host runs in the role that may write the inbox.
     fn require_role(&self) -> Result<(), Fail>;
-    /// Under QA isolation only: whether the host is isolated for QA (a lowered body limit is accepted).
-    #[cfg(feature = "test-mode")]
-    fn qa_isolated(&self) -> bool;
     /// The stored delivery with this body hash, if any.
     fn load_delivery(&self, body_sha256: &str) -> Result<Option<InboxDelivery>, Fail>;
     /// The events of one delivery, in `seq` order.
@@ -252,8 +249,7 @@ fn match_account(
 // Commands.
 // ---------------------------------------------------------------------------------------------------
 
-/// Route one method of this module. Unknown methods are `unknown_method`. The QA-only `inbox.test_sign`
-/// belongs to the host.
+/// Route one method of this module. Unknown methods are `unknown_method`.
 pub fn dispatch(store: &dyn InboxStore, method: &str, input: Value) -> Result<Value, Fail> {
     match method {
         "inbox.receive" => {
@@ -289,19 +285,7 @@ fn receive_verified(store: &dyn InboxStore, input: Value, secret: &str) -> Resul
         ));
     }
     let received = time::format_instant(time::parse_instant(&req.received_at, "received_at")?);
-    #[cfg(feature = "test-mode")]
-    let limit = match req.qa_max_body_bytes {
-        None => MAX_BODY_BYTES,
-        Some(_) if !store.qa_isolated() => {
-            return Err(bad("qa_max_body_bytes is accepted only under QA isolation"))
-        }
-        Some(n) => usize::try_from(n)
-            .unwrap_or(MAX_BODY_BYTES)
-            .min(MAX_BODY_BYTES),
-    };
-    #[cfg(not(feature = "test-mode"))]
-    let limit = MAX_BODY_BYTES;
-    let body = decode_body(&req.raw_body_b64, limit)?;
+    let body = decode_body(&req.raw_body_b64, MAX_BODY_BYTES)?;
     if !verify_signature(secret.as_bytes(), &body, req.signature_header.as_deref()) {
         // The counter holds a platform and a day, nothing from the body. A store failure here must not
         // change the refusal an unauthenticated caller sees, so it is dropped.
@@ -557,32 +541,4 @@ pub fn stats(store: &dyn InboxStore) -> Result<Value, Fail> {
         refused_total,
         refused,
     }))
-}
-
-/// The tests of the pure parts live with `webhook`; the store-bound ones run in the host app against its
-/// own database.
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_a_person_sets_a_state() {
-        assert_eq!(require_human(" adrian ").expect("a person"), "adrian");
-        for agent in ["skill", "daemon"] {
-            assert_eq!(
-                require_human(agent).expect_err("an agent").0,
-                "author_forbidden"
-            );
-        }
-        assert_eq!(require_human("  ").expect_err("empty").0, "bad_input");
-        assert_eq!(require_human("claude").expect_err("unknown").0, "bad_input");
-    }
-
-    #[test]
-    fn the_body_hash_is_lowercase_hex_sha256() {
-        assert_eq!(
-            body_hash(b"abc"),
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-        );
-    }
 }

@@ -113,7 +113,7 @@ pub trait Runner: Send + Sync {
 pub struct ProcessRunner {
     engine: PathBuf,
     timeout: Duration,
-    #[cfg(any(test, feature = "fake-engine"))]
+    #[cfg(feature = "fake-engine")]
     env: Vec<(String, String)>,
 }
 
@@ -122,7 +122,7 @@ impl ProcessRunner {
         Self {
             engine: engine.into(),
             timeout: Duration::from_secs(60),
-            #[cfg(any(test, feature = "fake-engine"))]
+            #[cfg(feature = "fake-engine")]
             env: Vec::new(),
         }
     }
@@ -133,7 +133,7 @@ impl ProcessRunner {
     }
 
     /// Extra environment for the child (used by tests).
-    #[cfg(any(test, feature = "fake-engine"))]
+    #[cfg(feature = "fake-engine")]
     pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env.push((key.into(), value.into()));
         self
@@ -167,7 +167,7 @@ impl Runner for ProcessRunner {
             })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        #[cfg(any(test, feature = "fake-engine"))]
+        #[cfg(feature = "fake-engine")]
         for (k, v) in &self.env {
             cmd.command_mut().env(k, v);
         }

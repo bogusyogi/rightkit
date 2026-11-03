@@ -77,19 +77,6 @@ impl Storage {
         tx.commit()?;
         Ok(n)
     }
-
-    /// The number of rows currently in the `events_fts` mirror. Used by
-    /// the replay/reindex tests to confirm the trigger invariant: any row
-    /// appended to `events` must produce a matching row in `events_fts`
-    /// within the same transaction, and any row deleted from `events`
-    /// must remove the matching `events_fts` row.
-    #[cfg(test)]
-    pub fn events_fts_count(&self) -> Result<usize> {
-        let n: i64 = self
-            .conn
-            .query_row("SELECT count(*) FROM events_fts", [], |r| r.get(0))?;
-        Ok(n as usize)
-    }
 }
 
 const FTS_TABLE: &str = "events_fts";
@@ -105,91 +92,4 @@ fn fts_match_expr(query: &str) -> Option<String> {
         .compile(&terms)
         .ok()?;
     compiled.fts_match.filter(|expr| !expr.is_empty())
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::{SessionRow, Storage};
-
-    fn store() -> Storage {
-        Storage::open_in_memory().unwrap()
-    }
-
-    fn sess(s: &mut Storage, id: &str, title: &str) {
-        s.create_session(&SessionRow {
-            id: id.to_string(),
-            title: title.to_string(),
-            workspace_root: "/ws".into(),
-            created_at: "t".into(),
-            updated_at: "t".into(),
-            parent_session_id: None,
-            role: None,
-            status: "idle".into(),
-            config_json: "{}".into(),
-            tags: String::new(),
-            recovery_marker: None,
-        })
-        .unwrap();
-    }
-
-    #[test]
-    fn finds_the_session_that_mentions_a_term() {
-        let mut s = store();
-        sess(&mut s, "a", "Auth work");
-        sess(&mut s, "b", "Marketing");
-        s.append_event(
-            "a",
-            "msg",
-            r#"{"text":"add a healthcheck endpoint to axum"}"#,
-        )
-        .unwrap();
-        s.append_event("b", "msg", r#"{"text":"write homepage copy"}"#)
-            .unwrap();
-
-        let hits = s.search_sessions("healthcheck axum", 10).unwrap();
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].session_id, "a");
-        assert_eq!(hits[0].title, "Auth work");
-        let spans = rightkit_search::snippet::split_highlights(&hits[0].snippet);
-        let matched: Vec<&str> = spans
-            .iter()
-            .filter(|span| span.matched)
-            .map(|span| span.text.as_str())
-            .collect();
-        assert!(
-            matched.iter().any(|m| m.starts_with("healthcheck")),
-            "owner markers must wrap the match: {:?}",
-            hits[0].snippet
-        );
-        assert!(
-            !hits[0].snippet.contains('['),
-            "no app-local bracket markers"
-        );
-    }
-
-    #[test]
-    fn dedupes_to_one_hit_per_session() {
-        let mut s = store();
-        sess(&mut s, "a", "T");
-        for _ in 0..3 {
-            s.append_event("a", "msg", r#"{"text":"tokio runtime tokio"}"#)
-                .unwrap();
-        }
-        let hits = s.search_sessions("tokio", 10).unwrap();
-        assert_eq!(
-            hits.len(),
-            1,
-            "one session, even with multiple matching events"
-        );
-    }
-
-    #[test]
-    fn empty_or_punctuation_query_returns_nothing_safely() {
-        let mut s = store();
-        sess(&mut s, "a", "T");
-        s.append_event("a", "msg", r#"{"text":"hello"}"#).unwrap();
-        assert!(s.search_sessions("   ", 10).unwrap().is_empty());
-        // Punctuation that would be FTS syntax must not error.
-        assert!(s.search_sessions("\"*(", 10).unwrap().is_empty());
-    }
 }

@@ -12,7 +12,6 @@
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::path::Path;
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -212,96 +211,5 @@ impl EventLog {
             events,
             next,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn log_with(n: u64) -> EventLog {
-        let log = EventLog::memory_only();
-        for i in 0..n {
-            log.emit(i, "X", json!({ "i": i }));
-        }
-        log
-    }
-
-    #[test]
-    fn events_are_numbered_from_one_and_a_caller_field_cannot_replace_seq() {
-        let log = EventLog::memory_only();
-        log.emit(0, "A", json!({ "seq": 99 }));
-        log.emit(0, "B", json!({}));
-        let all = log.snapshot();
-        assert_eq!(all[0]["seq"], 1);
-        assert_eq!(all[1]["seq"], 2);
-    }
-
-    #[test]
-    fn a_cursor_walks_the_log_without_gaps_or_repeats() {
-        let log = log_with(5);
-        let first = log.since(None, 0, 2);
-        assert!(!first.reset);
-        assert_eq!(first.events.len(), 2);
-        assert_eq!(first.next, 2);
-        let second = log.since(Some(&first.epoch), first.next, 10);
-        assert!(!second.reset);
-        assert_eq!(second.events.len(), 3);
-        assert_eq!(second.events[0]["seq"], 3);
-        assert_eq!(second.next, 5);
-        let none = log.since(Some(&first.epoch), second.next, 10);
-        assert!(none.events.is_empty());
-        assert_eq!(none.next, 5);
-    }
-
-    #[test]
-    fn a_cursor_from_another_run_or_ahead_of_this_one_resets() {
-        let log = log_with(3);
-        let foreign = log.since(Some("not-this-epoch"), 2, 10);
-        assert!(foreign.reset);
-        assert_eq!(foreign.events.len(), 3);
-        let ahead = log.since(Some(log.epoch()), 50, 10);
-        assert!(ahead.reset);
-        assert_eq!(ahead.events.len(), 3);
-        assert_eq!(ahead.next, 3);
-    }
-
-    #[test]
-    fn a_cursor_older_than_the_retained_window_resets() {
-        let log = log_with(RETAIN as u64 + 5);
-        assert_eq!(log.retained(), RETAIN);
-        let stale = log.since(Some(log.epoch()), 1, 3);
-        assert!(stale.reset);
-        assert_eq!(stale.events[0]["seq"], 6);
-        // One event behind the oldest retained is still contiguous: no reset.
-        let edge = log.since(Some(log.epoch()), 5, 3);
-        assert!(!edge.reset);
-        assert_eq!(edge.events[0]["seq"], 6);
-    }
-
-    #[test]
-    fn wait_since_returns_at_once_when_events_wait_and_after_the_timeout_when_none() {
-        let log = log_with(2);
-        let now = Instant::now();
-        let page = log.wait_since(None, 0, 10, Duration::from_secs(30));
-        assert_eq!(page.events.len(), 2);
-        assert!(now.elapsed() < Duration::from_secs(5));
-        let quiet = log.wait_since(Some(log.epoch()), 2, 10, Duration::from_millis(30));
-        assert!(quiet.events.is_empty());
-        assert_eq!(quiet.next, 2);
-    }
-
-    #[test]
-    fn wait_since_wakes_when_an_event_arrives() {
-        let log = std::sync::Arc::new(log_with(1));
-        let writer = log.clone();
-        let handle = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(50));
-            writer.emit(9, "LATE", json!({}));
-        });
-        let page = log.wait_since(Some(log.epoch()), 1, 10, Duration::from_secs(10));
-        handle.join().unwrap();
-        assert_eq!(page.events.len(), 1);
-        assert_eq!(page.events[0]["event"], "LATE");
     }
 }

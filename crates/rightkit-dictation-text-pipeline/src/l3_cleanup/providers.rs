@@ -4,11 +4,7 @@
 //! and OpenRouter dormant behind a validation marker.
 
 use super::overrides;
-#[cfg(test)]
-use super::overrides::env_string;
 use super::policy;
-#[cfg(test)]
-use super::prompts::DEFAULT_CEREBRAS_MODEL;
 use super::prompts::{
     is_app_prompt_version, DEFAULT_GROQ_MODEL, DEFAULT_NVIDIA_MODEL, L1_GROQ_PRIMARY,
     L1_GROQ_SAME_PROVIDER_FALLBACK, L1_OPENROUTER_FALLBACK, L2_GROQ_PRIMARY,
@@ -51,8 +47,6 @@ pub(crate) fn provider_specs(prompt_version: &str) -> Vec<ProviderSpec> {
     // Keep old provider-spec fixtures executable for unit-test coverage while
     // excluding Cerebras from every release build. Live evaluation has its
     // own explicit candidate path and does not use this product ladder.
-    #[cfg(test)]
-    let cerebras_key = env_string("CEREBRAS_API_KEY").filter(|k| !k.trim().is_empty());
     let has_groq = groq_key.is_some();
 
     let mut specs = Vec::new();
@@ -64,10 +58,6 @@ pub(crate) fn provider_specs(prompt_version: &str) -> Vec<ProviderSpec> {
             primary,
             groq_key.as_ref().unwrap(),
         ));
-    }
-    #[cfg(test)]
-    if let Some(api_key) = cerebras_key.as_ref() {
-        specs.push(cerebras_spec(prompt_version, api_key));
     }
     if has_groq {
         let same_provider = overrides::groq_fallback_model(prompt_version)
@@ -158,29 +148,6 @@ fn groq_spec(_prompt_version: &str, model: String, api_key: &str) -> ProviderSpe
         api_key: api_key.to_string(),
         model,
     }
-}
-
-#[cfg(test)]
-fn cerebras_spec(prompt_version: &str, api_key: &str) -> ProviderSpec {
-    ProviderSpec {
-        provider: Provider::Cerebras,
-        base_url: env_string("RIGHTKIT_L3_CEREBRAS_BASE_URL")
-            .unwrap_or_else(|| "https://api.cerebras.ai/v1".to_string()),
-        api_key: api_key.to_string(),
-        model: cerebras_model(prompt_version),
-    }
-}
-
-#[cfg(test)]
-fn cerebras_model(prompt_version: &str) -> String {
-    let specific = if prompt_version == SUMMARY_PROMPT_VERSION {
-        "RIGHTKIT_L3_CEREBRAS_SUMMARY_MODEL"
-    } else {
-        "RIGHTKIT_L3_CEREBRAS_CLEANUP_MODEL"
-    };
-    env_string(specific)
-        .or_else(|| env_string("RIGHTKIT_L3_CEREBRAS_MODEL"))
-        .unwrap_or_else(|| DEFAULT_CEREBRAS_MODEL.to_string())
 }
 
 pub(crate) fn default_groq_primary_model(prompt_version: &str) -> &'static str {

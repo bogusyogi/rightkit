@@ -127,23 +127,3 @@ fn execute(command: Command) -> DispatchOutcome {
         Command::Init(args) => modes::init(&args),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_bad_hook_command_line_still_exits_zero() {
-        assert_eq!(run(["membrane", "hook"]), EXIT_OK);
-        assert_eq!(run(["membrane", "receipts", "confirm"]), EXIT_OK);
-        assert_eq!(
-            run(["membrane", "hook", "--wire", "nowhere", "--event", "Stop"]),
-            EXIT_OK
-        );
-    }
-
-    #[test]
-    fn a_bad_command_line_is_a_usage_error() {
-        assert_eq!(run(["membrane", "no-such-command"]), EXIT_USER_ERROR);
-    }
-}

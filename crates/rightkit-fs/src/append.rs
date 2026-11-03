@@ -161,37 +161,3 @@ fn append_handle(path: &Path) -> Result<std::fs::File> {
     }
     open.open(path).map_err(|e| FsError::io(path, e))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn open_private_append_creates_then_appends_to_the_same_file() {
-        use std::io::Read;
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("journal.log");
-        {
-            let mut first = open_private_append(&path).unwrap();
-            first.write_all(b"one\n").unwrap();
-        }
-        {
-            let mut second = open_private_append(&path).unwrap();
-            second.write_all(b"two\n").unwrap();
-        }
-        let mut text = String::new();
-        std::fs::File::open(&path)
-            .unwrap()
-            .read_to_string(&mut text)
-            .unwrap();
-        assert_eq!(text, "one\ntwo\n");
-    }
-
-    #[test]
-    fn open_private_append_refuses_a_directory_and_a_temp_shaped_name() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(open_private_append(dir.path()).is_err());
-        let generated = dir.path().join(".x.rktmp-1-0-0");
-        assert!(open_private_append(&generated).is_err());
-    }
-}

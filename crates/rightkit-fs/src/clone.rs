@@ -308,14 +308,6 @@ enum StepResult {
 }
 
 fn run_step(step: Step, src: &Path, dst: &Path, options: &CloneOptions) -> StepResult {
-    #[cfg(feature = "testing")]
-    if let Some(result) = testing::overridden(step, src, dst) {
-        return match result {
-            Ok(()) => StepResult::Done,
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => StepResult::Exists,
-            Err(_) => StepResult::Unavailable,
-        };
-    }
     match step {
         Step::Clone => clone_step(src, dst, options),
         Step::Link => match std::fs::hard_link(src, dst) {
@@ -564,53 +556,4 @@ fn is_link(meta: &std::fs::Metadata) -> bool {
         }
     }
     false
-}
-
-/// Step seam for tests (feature `testing`, off by default; debug builds only). Replaces the clone
-/// or the hard-link primitive on the calling thread, so each [`CloneOutcome`] can be produced
-/// deterministically on any filesystem.
-#[cfg(feature = "testing")]
-pub mod testing {
-    use super::Step;
-    use std::cell::RefCell;
-    use std::io;
-    use std::path::Path;
-
-    type StepFn = Box<dyn Fn(&Path, &Path) -> io::Result<()>>;
-
-    thread_local! {
-        static CLONE: RefCell<Option<StepFn>> = const { RefCell::new(None) };
-        static LINK: RefCell<Option<StepFn>> = const { RefCell::new(None) };
-    }
-
-    /// Removes the override when dropped.
-    pub struct HookGuard(fn());
-
-    impl Drop for HookGuard {
-        fn drop(&mut self) {
-            (self.0)();
-        }
-    }
-
-    /// Stand in for the clone step on this thread until the guard drops. `Ok(())` means the
-    /// closure created the destination itself (it is a clone); `Err` of kind `AlreadyExists` is a
-    /// destination that appeared first; any other `Err` is "this step is unavailable here".
-    pub fn override_clone(step: impl Fn(&Path, &Path) -> io::Result<()> + 'static) -> HookGuard {
-        CLONE.with(|slot| *slot.borrow_mut() = Some(Box::new(step)));
-        HookGuard(|| CLONE.with(|slot| *slot.borrow_mut() = None))
-    }
-
-    /// Stand in for the hard-link step, with the same meaning of the closure's result.
-    pub fn override_link(step: impl Fn(&Path, &Path) -> io::Result<()> + 'static) -> HookGuard {
-        LINK.with(|slot| *slot.borrow_mut() = Some(Box::new(step)));
-        HookGuard(|| LINK.with(|slot| *slot.borrow_mut() = None))
-    }
-
-    pub(super) fn overridden(step: Step, src: &Path, dst: &Path) -> Option<io::Result<()>> {
-        let slot = match step {
-            Step::Clone => &CLONE,
-            Step::Link => &LINK,
-        };
-        slot.with(|slot| slot.borrow().as_ref().map(|step| step(src, dst)))
-    }
 }

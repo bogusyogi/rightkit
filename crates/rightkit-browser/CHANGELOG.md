@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.3.7 (unpublished)
 
 - Dependencies (Windows): `async-tungstenite` 0.32.1 -> 0.35 (tungstenite 0.30) and `getrandom` 0.3.4 -> 0.4; no source change. (rightkit#1284)

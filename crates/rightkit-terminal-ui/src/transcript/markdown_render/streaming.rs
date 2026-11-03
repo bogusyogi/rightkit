@@ -20,15 +20,6 @@ use std::path::Path;
 pub(crate) struct StreamingMarkdownRender {
     /// Styled output produced by the same parser pass that collected the metadata below.
     pub(crate) lines: Vec<HyperlinkLine>,
-    /// Source line containing an unfinished display equation, which must not enter scrollback.
-    #[cfg(test)]
-    pub(crate) pending_math_start: Option<usize>,
-    /// Byte offset of the final top-level block when at least one earlier block exists.
-    #[cfg(test)]
-    pub(crate) last_top_level_block_start: Option<usize>,
-    /// Transformable fences in the final block stay mutable, including within a list or quote.
-    #[cfg(test)]
-    pub(crate) mutable_fence_start: Option<usize>,
 }
 
 /// Render `input` while tracking the final mutable top-level block.
@@ -68,23 +59,7 @@ pub(crate) fn render_streaming_markdown_lines_with_width_and_cwd(
     let mut parser = parser;
     writer.list_spacing = list_spacing;
     writer.run(&mut parser);
-    StreamingMarkdownRender {
-        lines: writer.text,
-        #[cfg(test)]
-        pending_math_start: math.pending_start,
-        #[cfg(test)]
-        last_top_level_block_start: (parser.block_count > 1)
-            .then_some(parser.last_start)
-            .filter(|start| math.pending_start.is_none_or(|pending| *start <= pending))
-            .filter(|start| {
-                !math
-                    .display_ranges
-                    .iter()
-                    .any(|range| range.start < *start && *start < range.end)
-            }),
-        #[cfg(test)]
-        mutable_fence_start: parser.mutable_fence_start,
-    }
+    StreamingMarkdownRender { lines: writer.text }
 }
 
 /// Records top-level block boundaries without adding a second parser traversal.

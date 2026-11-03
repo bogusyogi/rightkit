@@ -11,7 +11,7 @@ homepage = "https://github.com/bogusyogi/rightkit/tree/main/crates/rightkit-type
 documentation = "https://docs.rs/rightkit-typeset"
 keywords = ["typst", "typesetting", "math", "captions"]
 categories = ["text-processing", "multimedia::images"]
-include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE", "THIRD-PARTY.md"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE", "THIRD-PARTY.md"]
 
 [lib]
 name = "rightkit_typeset"

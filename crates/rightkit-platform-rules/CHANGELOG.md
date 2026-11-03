@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.0 (2026-10-17)
 
 - Hashtag maximum (Orthic-Labs/rightkit#460): `Catalog::hashtag_max` / `hashtag_max_at` read the `caption.hashtags` rule (unit `hashtags`) as a `u32`. Seeded `instagram.caption.hashtags` (30) and `instagram.caption.mentions` (20).

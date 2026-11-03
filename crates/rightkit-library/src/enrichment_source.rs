@@ -23,34 +23,6 @@ pub(super) fn extract_shortcode(url: &str) -> Option<String> {
     rightkit_media_fetch::detect::instagram_shortcode(url)
 }
 
-#[cfg(test)]
-mod source_tests {
-    use super::*;
-
-    #[test]
-    fn domain_drops_www_port_and_requires_a_dot() {
-        assert_eq!(
-            extract_domain("https://www.Example.com:8443/a"),
-            Some("example.com".into())
-        );
-        assert_eq!(extract_domain("https://localhost/a"), None);
-        assert_eq!(extract_domain("ftp://example.com/"), None);
-    }
-
-    #[test]
-    fn shortcode_uses_the_shared_rule_including_reels() {
-        assert_eq!(
-            extract_shortcode("https://www.instagram.com/reels/Abc1/"),
-            Some("Abc1".into())
-        );
-        assert_eq!(
-            extract_shortcode("https://www.instagram.com/p/Zz9/"),
-            Some("Zz9".into())
-        );
-        assert_eq!(extract_shortcode("https://www.instagram.com/u/"), None);
-    }
-}
-
 pub(super) fn build_tags(enrichment: &Enrichment) -> String {
     let mut tags: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();

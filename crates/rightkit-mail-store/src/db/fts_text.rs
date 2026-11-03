@@ -130,28 +130,3 @@ fn decode_entity(name: &str) -> Option<char> {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::html_to_text;
-
-    #[test]
-    fn keeps_visible_text_only() {
-        let html = "<html><head><title>Hidden</title><style>.x{color:red}</style></head>\
-            <body class=\"zebra\"><p style=\"a>b\">Hello <b>wor</b>ld</p>\
-            <script>var secret = 1;</script><!-- note --><a href=\"http://e.test/q\">Pay&nbsp;now</a>\
-            <br/>caf&#233; &amp; &lt;tea&gt; 1 < 2</body></html>";
-        let t = html_to_text(html);
-        assert_eq!(t, "Hello world Pay now café & <tea> 1 < 2");
-    }
-
-    #[test]
-    fn tolerates_unterminated_markup() {
-        assert_eq!(html_to_text("a <b"), "a");
-        assert_eq!(html_to_text("x <script>never closed"), "x");
-        assert_eq!(
-            html_to_text("fish & chips &bogus; &#xZZ;"),
-            "fish & chips &bogus; &#xZZ;"
-        );
-    }
-}

@@ -37,7 +37,7 @@ Published version: see `INDEX.md` at the repository root. Release notes for the 
 
 ## Example
 
-Illustrative; not compiled as a doctest. The integration tests in `tests/` exercise the same APIs: `tests/e2e.rs`, `tests/typed.rs`, `tests/options.rs`, and `tests/directory_options.rs`.
+Illustrative; not compiled as a doctest.
 
 ## Also (0.3.1)
 

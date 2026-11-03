@@ -38,24 +38,3 @@ pub use source::{discover_open, DiscoveredTranscript};
 
 /// Canonical parser version tag.
 pub const PARSER_VERSION: &str = "membrane.transcript-event.v1";
-
-#[cfg(test)]
-mod lib_tests {
-    use super::*;
-
-    #[test]
-    fn parser_version_is_stable() {
-        assert_eq!(PARSER_VERSION, "membrane.transcript-event.v1");
-    }
-
-    #[test]
-    fn parser_digest_is_content_bound() {
-        let d1 = canonical::parser_digest();
-        let d2 = canonical::parser_digest();
-        assert_eq!(d1, d2, "digest must be deterministic within a build");
-        assert_eq!(d1.len(), 64);
-        assert!(d1
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()));
-    }
-}

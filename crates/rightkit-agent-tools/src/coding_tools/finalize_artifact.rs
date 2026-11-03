@@ -67,38 +67,3 @@ impl FinalizeArtifactTool {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
-    use tempfile::tempdir;
-
-    fn ctx_no_store() -> ToolContext {
-        let dir = tempdir().unwrap();
-        ToolContext::new(
-            "s1",
-            dir.path(),
-            PermissionMode::Bypass,
-            WorkspaceTrust::Trusted,
-        )
-    }
-
-    #[tokio::test]
-    async fn finalize_artifact_no_store_returns_error() {
-        let tool = FinalizeArtifactTool;
-        let result = tool
-            .execute(json!({"artifact_id": "art1"}), &ctx_no_store())
-            .await;
-        assert!(result.is_error);
-        assert!(result.content.contains("trust store"));
-    }
-
-    #[tokio::test]
-    async fn finalize_artifact_missing_id_returns_error() {
-        let tool = FinalizeArtifactTool;
-        let result = tool.execute(json!({}), &ctx_no_store()).await;
-        assert!(result.is_error);
-        assert!(result.content.contains("artifact_id"));
-    }
-}

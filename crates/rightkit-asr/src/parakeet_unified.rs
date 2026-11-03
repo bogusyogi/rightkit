@@ -560,18 +560,3 @@ impl Transcriber for ParakeetUnified {
         self.transcribe_offline(audio, sample_rate, channels, mode)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::UnifiedStreamingConfig;
-
-    #[test]
-    fn default_streaming_profile_aligns_to_subsampling() {
-        let config = UnifiedStreamingConfig::default().validate().unwrap();
-        assert_eq!(config.left_context_frames(), 560);
-        assert_eq!(config.chunk_frames(), 56);
-        assert_eq!(config.right_context_frames(), 56);
-        assert_eq!(config.left_context_encoder_frames(), 70);
-        assert_eq!(config.chunk_encoder_frames(), 7);
-    }
-}

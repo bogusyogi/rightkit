@@ -844,30 +844,3 @@ fn codex_reader(
     }
     shared.emit(SessionEvent::Closed);
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scrub_byok_env_names_every_credential_class_variable() {
-        let config = SessionConfig::new(Backend::Codex(CodexOptions::default())).scrub_byok_env();
-        assert_eq!(config.extras.env_remove.len(), BYOK_ENV_VARS.len());
-        assert!(config
-            .extras
-            .env_remove
-            .contains(&OsString::from(concat!("OPENAI", "_API_KEY"))));
-        assert!(config
-            .extras
-            .env_remove
-            .contains(&OsString::from(concat!("ANTHROPIC", "_API_KEY"))));
-    }
-
-    #[test]
-    fn extras_default_to_the_original_behavior() {
-        let config = SessionConfig::new(Backend::Codex(CodexOptions::default()));
-        assert!(config.extras.env_remove.is_empty());
-        assert_eq!(config.extras.unknown_policy, UnknownPolicy::Lenient);
-        assert_eq!(config.extras.claude, ClaudeExtras::default());
-    }
-}

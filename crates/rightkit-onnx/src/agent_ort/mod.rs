@@ -179,18 +179,3 @@ fn exe_candidates() -> Vec<PathBuf> {
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn installed_sidecar_parent_layout_is_represented() {
-        let exe = std::env::current_exe().expect("test executable path");
-        let sidecar_dir = exe.parent().expect("test executable directory");
-        let app_root = sidecar_dir.parent().expect("sidecar app parent");
-        let filename = ort_dylib_filename();
-
-        assert!(exe_candidates().contains(&app_root.join("runtime").join(filename)));
-    }
-}

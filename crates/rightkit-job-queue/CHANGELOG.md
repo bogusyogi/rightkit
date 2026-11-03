@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.5.1 — unpublished
 
 All additive. A supervisor with no launch frame configured writes and behaves exactly as in 0.5.0.

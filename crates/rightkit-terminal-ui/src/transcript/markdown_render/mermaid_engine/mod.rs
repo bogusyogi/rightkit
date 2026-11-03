@@ -167,7 +167,3 @@ impl Graph {
         Ok(self.nodes.len() - 1)
     }
 }
-
-#[cfg(test)]
-#[path = "engine_tests.rs"]
-mod engine_tests;

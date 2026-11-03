@@ -435,21 +435,3 @@ impl Component for BotsPanel {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn selection_survives_a_daemon_profile_refresh() {
-        let mut panel = BotsPanel::default();
-        panel.set_bots(vec![BotProjection {
-            id: "reviewer".into(),
-            name: "Reviewer".into(),
-            model: "openai/gpt-5.6".into(),
-            state: "enabled".into(),
-            next_run: Some("tomorrow".into()),
-        }]);
-        assert_eq!(panel.selected().unwrap().id, "reviewer");
-    }
-}

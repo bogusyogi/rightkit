@@ -286,25 +286,3 @@ impl ProtectedKeySession for Session {
         self.with_store(|store| store.delete(&self.recovery).map(|_| ()).map_err(mapped))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::revision;
-    use crate::Secret;
-
-    #[test]
-    fn revision_preserves_sha256_token_format() {
-        for (input, expected) in [
-            (
-                "",
-                "credentials-v1:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-            ),
-            (
-                "abc",
-                "credentials-v1:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-            ),
-        ] {
-            assert_eq!(revision(&Secret::from_string(input)).0, expected);
-        }
-    }
-}

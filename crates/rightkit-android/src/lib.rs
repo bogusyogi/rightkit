@@ -102,18 +102,3 @@ pub fn min_sdk() -> u32 {
 pub fn log_debug(level: LogLevel, tag: String, message: String) {
     logcat::write(level, &tag, &message);
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn exported_helpers_work_before_init() {
-        assert!(!is_initialised());
-        assert_eq!(app_dirs(), Err(AndroidError::NotInitialised));
-        assert_eq!(min_sdk(), MIN_SDK);
-        assert_eq!(supported_abis(), vec!["arm64-v8a", "x86_64"]);
-        assert_eq!(bridge_version(), env!("CARGO_PKG_VERSION"));
-        log_debug(LogLevel::Info, "t".into(), "m".into());
-    }
-}

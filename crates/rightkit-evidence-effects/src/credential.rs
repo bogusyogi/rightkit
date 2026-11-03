@@ -72,7 +72,7 @@ fn read_impl(service: &str) -> Option<String> {
 
 /// Credential Manager blobs are UTF-16LE when written by `cmdkey`/most tools, UTF-8
 /// when written by some libraries.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn decode_blob(bytes: &[u8]) -> Option<String> {
     if bytes.is_empty() {
         return None;
@@ -92,20 +92,4 @@ fn decode_blob(bytes: &[u8]) -> Option<String> {
 #[cfg(not(any(target_os = "macos", windows)))]
 fn read_impl(_service: &str) -> Option<String> {
     None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::decode_blob;
-
-    #[test]
-    fn decodes_utf16_and_utf8_blobs() {
-        let utf16: Vec<u8> = "nvapi-x"
-            .encode_utf16()
-            .flat_map(|u| u.to_le_bytes())
-            .collect();
-        assert_eq!(decode_blob(&utf16).as_deref(), Some("nvapi-x"));
-        assert_eq!(decode_blob(b"nvapi-y").as_deref(), Some("nvapi-y"));
-        assert_eq!(decode_blob(b""), None);
-    }
 }

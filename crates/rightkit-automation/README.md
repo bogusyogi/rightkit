@@ -72,7 +72,7 @@ let snap = automation.snapshot(Target::app(pid), Limits { max_depth: 14, max_nod
 
 ## Platform support
 
-- macOS: the accessibility (AX) backend. `tests/e2e_mac.rs` and `examples/mac_proof.rs` exercise it on real apps; no run result is recorded here.
+- macOS: the accessibility (AX) backend. `examples/mac_proof.rs` exercises it on real apps; no run result is recorded here.
 - Windows: the UI Automation backend in `src/win/`. Verify it on a Windows host before you rely on it: `rustright cargo test -p rightkit-automation --test e2e_win -- --nocapture`.
 - Threading (macOS): NSWorkspace publishes the app list and frontmost app through the main run loop. Call from the main thread of a CLI or test, or from any thread of an app whose main loop runs.
 - `launch` uses the system `open` command on macOS. Window capture tries `CGWindowListCreateImage` first and falls back to `screencapture` whenever that returns no image (`src/macos/capture.rs:54-57`). Both `open` and `screencapture` run as waited children, so a strict zero-child profile should call neither `launch` nor window capture.
@@ -95,14 +95,8 @@ let snap = automation.snapshot(Target::app(pid), Limits { max_depth: 14, max_nod
 - Other OS: always `Unknown`.
 - The focus checks describe the app's focus, not a single window's. Web content that does not expose its inner focus gives `Unknown`.
 
-## Tests and examples
+## Examples
 
-- `tests/e2e_mac.rs`: real TextEdit and Calculator, launched in the background. The frontmost app is verified unchanged, and everything opened is closed afterwards. `harness = false`, so it runs on the main thread. It needs Accessibility and Screen Recording for the test host. Without them it prints `SKIP e2e_mac` and returns; `RIGHTKIT_REQUIRE_ASSETS=1` makes it fail instead (`tests/e2e_mac.rs:4-5`, `:177-183`). A managed-broker run lacks both, so run the built binary from a granted shell.
-- `tests/e2e_win.rs`: real Notepad on Windows. It is type-checked on every OS.
-- `tests/engine.rs`: the engine against a simulated desktop (`mock::MockPlatform`). It covers states that no harmless real app exposes: secure field, recreated editor, lossy clipboard, and a native write that reports success falsely.
-- `tests/kill.rs`: kill-switch behaviour, including the control plane and `launch_offscreen`.
-- `tests/control_plane.rs`, `tests/durable_lease.rs`: the EFF-001 gate and the PTY-002 lease (in-memory and file-backed). They use fake targets and temp directories only.
-- `tests/frontmost_macos.rs`: the macOS frontmost-application reader (macOS only).
 - `examples/mac_proof.rs` and `examples/win_smoke.rs`: evidence-producing proofs.
 
 ## Version and changes

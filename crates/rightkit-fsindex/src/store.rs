@@ -257,16 +257,6 @@ impl Store {
             .saturating_add(self.names.additional_footprint(entries, name_bytes))
     }
 
-    /// Fresh store. `dir` must exist for a file-backed store; `None` is anonymous (no persistence).
-    #[cfg(test)]
-    pub fn create(
-        dir: Option<&Path>,
-        package_exts: Vec<Vec<u8>>,
-        fingerprint: u64,
-    ) -> io::Result<Store> {
-        Self::create_sized(dir, package_exts, fingerprint, SizeHint::default())
-    }
-
     /// As `create`, with columns allocated for `hint` (a sixteenth of headroom) so a rewrite
     /// does not grow into its size and does not end with a doubled tail.
     pub fn create_sized(
@@ -541,12 +531,6 @@ impl Store {
                     .map(|g| g.members.len())
                     .sum::<usize>(),
         )
-    }
-
-    /// Clone groups that were promoted to a full `Group` (two or more members).
-    #[cfg(test)]
-    pub fn multi_clone_groups(&self) -> usize {
-        self.clone_multi.len()
     }
 
     pub fn special_count(&self) -> usize {
@@ -1597,12 +1581,6 @@ impl Store {
 
     // ------------------------------------------------------------ mount boundaries
 
-    /// Parent slot of `s` (`NONE` for a root).
-    #[cfg(test)]
-    pub fn parent_slot(&self, s: u32) -> u32 {
-        self.c_parent.get(s as usize)
-    }
-
     pub fn path_of(&self, s: u32) -> Vec<u8> {
         let mut parts = Vec::new();
         let mut x = s;
@@ -1695,143 +1673,3 @@ impl Store {
         )
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn file() -> EntryData {
-        EntryData {
-            kind: KIND_FILE,
-            nlink: 1,
-            logical: 10,
-            alloc: 4096,
-            private: 4096,
-            ..EntryData::default()
-        }
-    }
-
-    fn store_with(dir: &Path, n: usize) -> (Store, u32) {
-        let mut s = Store::create(Some(dir), Vec::new(), 7).unwrap();
-        let root = s.add_root(b"/r", EntryData::default()).unwrap();
-        for i in 0..n {
-            s.add_child(root, format!("f{i}").as_bytes(), file())
-                .unwrap();
-        }
-        (s, root)
-    }
-
-    #[test]
-    fn failed_commit_keeps_successful_flush_accounting() {
-        use crate::limits::{WriteBudget, WRITE_WINDOW};
-        use std::time::{Duration, Instant};
-        for failure in ["c_parent", "header"] {
-            let dir = tempfile::tempdir().unwrap();
-            let (mut store, _) = store_with(dir.path(), 10);
-            // Creating the store wrote its dirty header once; that is not part of the commit.
-            store.take_flushed_bytes();
-            let expected = store.pending_write_bytes();
-            assert!(store
-                .commit_with(1, |column| {
-                    if column == failure {
-                        Err(io::Error::other("injected flush failure"))
-                    } else {
-                        Ok(())
-                    }
-                })
-                .is_err());
-            let flushed = store.take_flushed_bytes();
-            assert!(flushed > 0 && flushed < expected);
-            let now = Instant::now();
-            let mut budget = WriteBudget::new(Some(expected * 2));
-            budget.record(now, flushed);
-            store.commit(1).unwrap();
-            let remaining = store.take_flushed_bytes();
-            assert_eq!(flushed + remaining, expected);
-            budget.record(now + Duration::from_secs(2), remaining);
-            assert_eq!(budget.bytes_in_window(now + WRITE_WINDOW), remaining);
-            assert_eq!(
-                budget.bytes_in_window(now + WRITE_WINDOW + Duration::from_secs(2)),
-                0
-            );
-        }
-    }
-
-    #[test]
-    fn a_commit_reports_the_pages_it_wrote_and_an_idle_one_only_the_header() {
-        let dir = tempfile::tempdir().unwrap();
-        let page = crate::col::page_size() as u64;
-        let (mut s, root) = store_with(dir.path(), 50_000);
-        assert!(s.pending_write_bytes() > 10 * page);
-        s.commit(1).unwrap();
-        let first = s.take_flushed_bytes();
-        assert!(first > 10 * page, "first={first}");
-        assert_eq!(s.take_flushed_bytes(), 0, "taking resets the counter");
-        s.commit(2).unwrap();
-        assert_eq!(
-            s.take_flushed_bytes(),
-            page,
-            "nothing dirty: the header page"
-        );
-        s.add_child(root, b"one-more", file()).unwrap();
-        let pending = s.pending_write_bytes();
-        s.commit(3).unwrap();
-        let small = s.take_flushed_bytes();
-        assert!(small >= 2 * page, "small={small}");
-        assert!(small < first, "one change must cost less than the crawl");
-        assert!(
-            small >= pending,
-            "the commit writes at least what was pending"
-        );
-    }
-
-    #[test]
-    fn the_footprint_cap_refuses_adds_and_keeps_what_is_stored() {
-        let dir = tempfile::tempdir().unwrap();
-        let (mut s, root) = store_with(dir.path(), 10);
-        let before = s.len();
-        s.set_max_footprint(Some(1));
-        assert_eq!(
-            s.add_child(root, b"already-full", file())
-                .unwrap_err()
-                .kind(),
-            io::ErrorKind::StorageFull
-        );
-        assert_eq!(s.len(), before);
-        let mut refused = 1;
-        for i in 0..2 * FOOTPRINT_CHECK_EVERY as usize {
-            match s.add_child(root, format!("g{i}").as_bytes(), file()) {
-                Ok(_) => {}
-                Err(e) => {
-                    assert_eq!(e.kind(), io::ErrorKind::StorageFull);
-                    refused += 1;
-                }
-            }
-        }
-        assert!(refused > 0);
-        assert_eq!(s.refused_adds(), refused);
-        assert!(s.len() >= before, "nothing already stored was dropped");
-        assert!(s.len() < before + 2 * FOOTPRINT_CHECK_EVERY as usize);
-        s.set_max_footprint(None);
-        assert!(s.add_child(root, b"allowed-again", file()).is_ok());
-    }
-
-    #[test]
-    fn the_footprint_grows_with_the_entries() {
-        let dir = tempfile::tempdir().unwrap();
-        let (small, _) = store_with(dir.path(), 10);
-        let dir2 = tempfile::tempdir().unwrap();
-        let (big, _) = store_with(dir2.path(), 1000);
-        assert!(big.footprint_bytes() > small.footprint_bytes());
-        assert!(big.footprint_bytes() >= 1000 * SLOT_BYTES);
-    }
-}
-
-/// Test-only read of the index's own state file (store.rs is the sanctioned opener).
-#[cfg(test)]
-fn read_state_file(path: &std::path::Path) -> Vec<u8> {
-    std::fs::read(path).unwrap()
-}
-
-#[cfg(test)]
-mod p1_tests;

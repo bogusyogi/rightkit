@@ -19,14 +19,12 @@
 //! there is no plaintext fallback.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpStream};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -35,7 +33,6 @@ use serde_json::{json, Value};
 use super::frame::{
     c2s_line, open_s2c, DEAD_AFTER_SECS, HEARTBEAT_SECS, H_LINK_ID, H_LINK_KEY, MAX_LINE,
 };
-use crate::record::write_atomic;
 use crate::remote::client::{DeviceKey, DeviceSession, Error, ErrorCode, Refusal};
 use crate::remote::util::{hex, random_bytes, unhex};
 

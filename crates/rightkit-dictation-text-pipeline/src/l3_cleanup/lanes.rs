@@ -6,8 +6,6 @@
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-#[cfg(test)]
-use parking_lot::Mutex;
 use serde_json::Value;
 
 use super::acceptance::{
@@ -20,16 +18,10 @@ use super::ops::{
     trace_attempt, trace_budget_exceeded, trace_result, trace_skip, trace_skip_with_operation,
 };
 use super::policy;
-#[cfg(test)]
-use super::prompts::PROMPT_VERSION;
 use super::prompts::{PROMPT_POLISH_VERSION, SUMMARY_PROMPT_VERSION};
 use super::providers::provider_specs;
-#[cfg(test)]
-use super::state::{CachedCleanup, CLEANUP_CACHE, CLEANUP_CACHE_MAX};
 use super::state::{CleanupOutcome, PolishContext, Provider, ProviderSpec, ATTEMPTS, FAILURES};
 use super::transport::{call_provider, emit_runtime_diagnostic};
-#[cfg(test)]
-use super::wire::build_payload;
 use super::wire::{
     app_prompt_version, build_app_payload, build_prompt_payload, build_summary_payload,
     sanitize_context,
@@ -38,27 +30,6 @@ use super::wire::{
 // Test-only entry point for the shared transform machinery (provider fallback,
 // circuit breaker, cache). Not reachable from the product — the live lanes are
 // app_polish_outcome / prompt_polish_outcome / summarize_outcome.
-#[cfg(test)]
-pub fn cleanup_outcome(input: &str) -> CleanupOutcome {
-    let input = match preflight_input(input) {
-        Ok(input) => input,
-        Err(outcome) => return outcome,
-    };
-    if let Some(cleaned) = cached_cleanup(input) {
-        trace_skip("cache_hit", "closed");
-        return CleanupOutcome::Cleaned(cleaned);
-    }
-
-    transform_outcome(
-        input,
-        PROMPT_VERSION,
-        "l3_cleanup_no_provider_available",
-        "l3_cleanup_all_providers_failed",
-        build_payload,
-        normalize_output,
-        store_cleanup,
-    )
-}
 
 pub fn app_polish_outcome(input: &str, context: &PolishContext) -> CleanupOutcome {
     app_polish_outcome_with_receipts(input, context, None, None)
@@ -427,10 +398,6 @@ fn mark_original_binding_from_payload(
     }
 }
 
-#[cfg(test)]
-#[path = "lanes_context_receipt_tests.rs"]
-mod context_receipt_tests;
-
 pub(crate) fn is_material_summary(input: &str, output: &str) -> bool {
     let input_words = input.split_whitespace().count();
     if input_words <= 24 {
@@ -483,58 +450,4 @@ pub(crate) fn preflight_input(input: &str) -> Result<&str, CleanupOutcome> {
         });
     }
     Ok(input)
-}
-
-#[cfg(test)]
-pub(crate) fn cached_cleanup(input: &str) -> Option<String> {
-    CLEANUP_CACHE
-        .get()
-        .and_then(|cache| {
-            cache
-                .lock()
-                .iter()
-                .find(|entry| entry.input == input)
-                .cloned()
-        })
-        .map(|entry| entry.cleaned)
-}
-
-#[cfg(test)]
-pub fn cached_prefix(input: &str) -> Option<(usize, String)> {
-    CLEANUP_CACHE
-        .get()
-        .and_then(|cache| {
-            cache
-                .lock()
-                .iter()
-                .filter(|entry| entry.input.len() < input.len())
-                .filter(|entry| input.starts_with(&entry.input))
-                .filter(|entry| {
-                    input[entry.input.len()..]
-                        .chars()
-                        .next()
-                        .is_some_and(|ch| ch.is_whitespace() || ch.is_ascii_punctuation())
-                })
-                .max_by_key(|entry| entry.input.len())
-                .cloned()
-        })
-        .map(|entry| (entry.input.len(), entry.cleaned))
-}
-
-#[cfg(test)]
-pub(crate) fn store_cleanup(input: &str, cleaned: &str) {
-    let cache = CLEANUP_CACHE.get_or_init(|| Mutex::new(Vec::new()));
-    let mut guard = cache.lock();
-    if let Some(entry) = guard.iter_mut().find(|entry| entry.input == input) {
-        entry.cleaned = cleaned.to_string();
-        return;
-    }
-    guard.push(CachedCleanup {
-        input: input.to_string(),
-        cleaned: cleaned.to_string(),
-    });
-    if guard.len() > CLEANUP_CACHE_MAX {
-        let overflow = guard.len() - CLEANUP_CACHE_MAX;
-        guard.drain(0..overflow);
-    }
 }

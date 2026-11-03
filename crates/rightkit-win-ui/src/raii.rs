@@ -30,7 +30,6 @@ pub fn create_overlay_unlayered(
     style: OverlayStyle,
     instance: HINSTANCE,
 ) -> Result<HWND, Error> {
-    debug_assert!(!style.click_through);
     // SAFETY: every class is a NUL-terminated constant that outlives the call.
     let name = unsafe { class.to_string() }.map_err(|_| Error::from(E_INVALIDARG))?;
     let rect = OverlayRect {

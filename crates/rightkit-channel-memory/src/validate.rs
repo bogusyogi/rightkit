@@ -8,7 +8,6 @@ use serde_json::Value;
 
 use crate::model::{ChannelMemory, ConflictRecord, ConflictStatus, Proof, ProofStatus};
 use crate::proof::{conflicts_with, supersession_rule};
-use crate::ReasonCode;
 use crate::{schema, MemoryError};
 
 /// Parses and validates one channel-memory revision.

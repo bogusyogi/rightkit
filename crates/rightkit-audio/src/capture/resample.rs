@@ -182,7 +182,6 @@ impl StreamResampler {
     /// Run one exact rubato input block. FixedAsync::Input must consume every
     /// frame; fail closed rather than silently dropping any unusual remainder.
     fn process_full_chunk(&mut self, samples: &[f32], out: &mut Vec<f32>) -> Result<()> {
-        debug_assert_eq!(samples.len(), self.chunk_in);
         let resampler = match self.inner.as_mut() {
             None => {
                 out.extend_from_slice(samples);

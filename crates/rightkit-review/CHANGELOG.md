@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.4.2 (unreleased)
 
 - New, additive (feature `render-qa`, off by default): the `render_qa` module and the `rightkit-render-critic` binary, moved from CutRight's `cutright-qa`. `run_qa` probes a final render with ffmpeg into a typed `QaReport` bound to the render's BLAKE3; `qa_gate` records the report and a content-addressed receipt; `package_render` builds per-platform packages (YouTube, Shorts, Reels, TikTok) and refuses a render whose QA is missing, failed or unverifiable; `CriticRunner` runs the deterministic critic out of process. The speech re-transcription check takes a host `Retranscriber` instead of a bundled speech engine. On-disk kinds (`cutright.qa.receipt`, `cutright.social-package`, `cutright.qa.geometry`) are kept so existing receipts verify. `RIGHTKIT_CRITIC_BIN` (feature `test-mode`) replaces `CUTRIGHT_CRITIC_BIN`.

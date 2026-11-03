@@ -112,43 +112,6 @@ impl Composer {
         (InputResult::None, true)
     }
 
-    /// Apply incoming draft changes behind an active search, preserving its
-    /// query and preview — donor `edit_stored_draft`, reduced to the
-    /// composer-owned draft/vim state fields.
-    #[cfg(test)]
-    pub(super) fn edit_stored_draft(&mut self, edit: impl FnOnce(&mut Self)) {
-        let Some(mut search) = self.history_search.take() else {
-            edit(self);
-            return;
-        };
-        search
-            .preview_draft
-            .get_or_insert_with(|| search.original_draft.clone());
-        let preview = self.snapshot_draft();
-        let preview_vim_history = std::mem::take(&mut self.vim_history);
-        let mut preview_vim_state = super::textarea::VimPersistentState::default();
-        self.draft
-            .textarea
-            .swap_vim_persistent_state(&mut preview_vim_state);
-        self.restore_draft_snapshot(search.original_draft.clone());
-        self.draft
-            .textarea
-            .swap_vim_persistent_state(&mut search.original_vim_state);
-        self.vim_history = search.original_vim_history;
-        edit(self);
-        search.original_draft = self.snapshot_draft();
-        search.original_vim_history = std::mem::take(&mut self.vim_history);
-        self.draft
-            .textarea
-            .swap_vim_persistent_state(&mut search.original_vim_state);
-        self.restore_draft_snapshot(preview);
-        self.draft
-            .textarea
-            .swap_vim_persistent_state(&mut preview_vim_state);
-        self.vim_history = preview_vim_history;
-        self.history_search = Some(search);
-    }
-
     /// Handles every key while the footer is acting as the history search input.
     ///
     /// The method consumes search-mode keys before normal composer editing sees

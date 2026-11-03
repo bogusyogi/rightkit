@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.2.3 — unpublished staging
 
 - Added `prefix::fnv1a_64`: standard FNV-1a 64 (offset basis 14695981039346656037), checked against the FNV reference vectors. `prefix::fnv1a` used a non-standard offset basis (1469598103934665603, last digit missing); it is unchanged, so existing cache-slot names and persisted keys keep their values, and is now `#[deprecated]` with that explanation. New keys use `fnv1a_64` (PostRight #M15 gap).

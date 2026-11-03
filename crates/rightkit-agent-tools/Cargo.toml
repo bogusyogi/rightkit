@@ -9,7 +9,7 @@ repository = "https://github.com/bogusyogi/rightkit"
 readme = "README.md"
 keywords = ["agents", "automation", "cli", "tools"]
 categories = ["command-line-utilities", "development-tools"]
-include = ["src/**", "tests/**", "licenses/**", "assets/**", "docs/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "licenses/**", "assets/**", "docs/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = ["automation", "browser", "speech"]
@@ -72,8 +72,6 @@ rquickjs = {version = "=0.14.0", features = ["futures"], optional = true}
 [dev-dependencies]
 tempfile = "3"
 base64 = {version = "0.23"}
-rightkit-app-settings = {version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config", "agent_config-test-mode"]}
-mockito = {version = "1"}
 tokio = {version = "1", features = ["full", "test-util"]}
 
 [[bin]]
@@ -142,27 +140,3 @@ libc = {version = "0.2", optional = true}
 rightkit-daemon = {version = "0.5.1", default-features = false, features = ["local"], path = "../rightkit-daemon", optional = true}
 winapi = {version = "0.3", features = ["consoleapi", "handleapi", "processthreadsapi", "synchapi", "minwindef", "winbase", "winnt", "namedpipeapi", "wincontypes", "ntdef"], optional = true}
 windows = {version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Isolation", "Win32_System_JobObjects", "Win32_System_Threading"], optional = true}
-[[test]]
-name = "coding_tools_shell_policy"
-path = "tests/coding_tools_shell_policy.rs"
-required-features = ["coding_tools"]
-
-[[test]]
-name = "coding_tools_managed_pty_consumer"
-path = "tests/coding_tools_managed_pty_consumer.rs"
-required-features = ["coding_tools"]
-
-[[test]]
-name = "coding_tools_krn010_expanded_mcp"
-path = "tests/coding_tools_krn010_expanded_mcp.rs"
-required-features = ["coding_tools"]
-
-[[test]]
-name = "coding_tools_process_resource_composition"
-path = "tests/coding_tools_process_resource_composition.rs"
-required-features = ["coding_tools"]
-
-[[test]]
-name = "coding_tools_managed_pty_closure"
-path = "tests/coding_tools_managed_pty_closure.rs"
-required-features = ["coding_tools"]

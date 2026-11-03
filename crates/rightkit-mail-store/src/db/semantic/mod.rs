@@ -21,15 +21,10 @@
 //!     embeddinggemma2-q4).
 
 pub mod embedder;
-use rightkit_mail::fusion;
 pub mod index;
 mod index_commit;
 pub(crate) mod invalidate;
-#[cfg(test)]
-mod label_change_tests;
 pub mod model_install;
-#[cfg(test)]
-mod pipeline_tests;
 pub mod query;
 mod query_scope;
 pub mod resolve;
@@ -131,38 +126,4 @@ pub fn shared_embedder(
     EMBEDDER
         .get_or_init(|| FastEmbedder::load(&dir, &dylib).map(Arc::new))
         .clone()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn enabled_flag_round_trips() {
-        let conn = crate::db::test_conn();
-        assert!(!is_enabled(&conn));
-        set_enabled(&conn, true).unwrap();
-        assert!(is_enabled(&conn));
-        set_enabled(&conn, false).unwrap();
-        assert!(!is_enabled(&conn));
-    }
-
-    #[test]
-    fn configured_model_id_defaults_to_shipped_gemma() {
-        let conn = crate::db::test_conn();
-        assert_eq!(configured_model_id_with(&conn, None), "embeddinggemma2-q4");
-        assert_eq!(
-            configured_model_id_with(&conn, Some(String::new())),
-            "embeddinggemma2-q4"
-        );
-    }
-
-    #[test]
-    fn configured_model_id_honors_the_test_run_selector() {
-        let conn = crate::db::test_conn();
-        assert_eq!(
-            configured_model_id_with(&conn, Some("bge-small-en-v1.5".to_string())),
-            "bge-small-en-v1.5"
-        );
-    }
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.6.2 (unreleased)
 
 - Feature `execution`: agent execution backends registry, local effect performer and denial reports (moved from CodeRight `coderight-execution`).

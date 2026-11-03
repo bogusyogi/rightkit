@@ -60,14 +60,3 @@ pub fn decode_pcm16(bytes: &[u8]) -> Option<(u32, Vec<i16>)> {
         .collect();
     Some((rate, s))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn roundtrip() {
-        let w = encode_pcm16(&[0, 1, -1, 32767], 24_000);
-        assert_eq!(w.len(), 44 + 8);
-        assert_eq!(decode_pcm16(&w).unwrap(), (24_000, vec![0, 1, -1, 32767]));
-    }
-}

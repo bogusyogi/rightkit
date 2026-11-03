@@ -20,9 +20,6 @@ pub(crate) fn brand_homophones() -> Option<&'static BrandHomophones<'static>> {
     BRAND_HOMOPHONES.get()
 }
 
-#[cfg(test)]
-mod bench;
-
 pub(crate) use local::*;
 
 /// Warm the deterministic polish path (one throwaway pass) so the FIRST real

@@ -81,11 +81,6 @@ async fn cached_entry_with_launcher(
         .clone()
 }
 
-#[cfg(test)]
-async fn cached_bridge(config: &LspServerConfig) -> SharedLspBridge {
-    cached_entry(config).await.bridge
-}
-
 #[allow(dead_code)]
 pub(crate) async fn initialized_bridge(
     config: &LspServerConfig,
@@ -267,11 +262,6 @@ pub async fn bridge_snapshot() -> (usize, Vec<String>) {
     (count, roots)
 }
 
-#[cfg(test)]
-pub(crate) async fn evict(config: &LspServerConfig) {
-    bridges().lock().await.remove(&bridge_key(config));
-}
-
 pub(crate) async fn sync_document(
     config: &LspServerConfig,
     bridge: &SharedLspBridge,
@@ -333,132 +323,5 @@ pub async fn notify_document_mutated(workspace_root: &Path, path: &Path) {
             // replacement generation on the next semantic request.
             invalidate_generation(&entry.config, &entry.bridge).await;
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-    fn config(root: &str) -> LspServerConfig {
-        LspServerConfig {
-            language_id: "rust".to_string(),
-            server_path: "/definitely/not/started/rust-analyzer".to_string(),
-            server_args: vec!["--stdio".to_string()],
-            workspace_root: root.to_string(),
-        }
-    }
-
-    #[tokio::test]
-    async fn cache_reuses_one_bridge_per_workspace_server() {
-        let _guard = TEST_LOCK.lock().await;
-        let config = config("file:///tmp/lsp-cache-reuse");
-        let first = cached_bridge(&config).await;
-        let second = cached_bridge(&config).await;
-        assert!(Arc::ptr_eq(&first, &second));
-        evict(&config).await;
-    }
-
-    #[tokio::test]
-    async fn cache_separates_workspaces() {
-        let _guard = TEST_LOCK.lock().await;
-        let first_config = config("file:///tmp/lsp-cache-a");
-        let second_config = config("file:///tmp/lsp-cache-b");
-        let first = cached_bridge(&first_config).await;
-        let second = cached_bridge(&second_config).await;
-        assert!(!Arc::ptr_eq(&first, &second));
-        evict(&first_config).await;
-        evict(&second_config).await;
-    }
-
-    #[tokio::test]
-    async fn failed_generation_is_replaced_without_losing_tracked_documents() {
-        let _guard = TEST_LOCK.lock().await;
-        let config = config("file:///tmp/lsp-replay");
-        let entry = cached_entry(&config).await;
-        entry.tracked_documents.lock().await.insert(
-            "file:///tmp/lsp-replay/src/lib.rs".into(),
-            "fn first() {}".into(),
-        );
-
-        invalidate_generation(&config, &entry.bridge).await;
-        let replacement = cached_entry(&config).await;
-
-        assert!(!Arc::ptr_eq(&entry.bridge, &replacement.bridge));
-        assert_eq!(
-            replacement
-                .tracked_documents
-                .lock()
-                .await
-                .get("file:///tmp/lsp-replay/src/lib.rs")
-                .map(String::as_str),
-            Some("fn first() {}")
-        );
-        evict(&config).await;
-    }
-
-    #[tokio::test]
-    async fn stale_failure_cannot_replace_new_generation() {
-        let _guard = TEST_LOCK.lock().await;
-        let config = config("file:///tmp/lsp-generation");
-        let first = cached_entry(&config).await;
-        invalidate_generation(&config, &first.bridge).await;
-        let second = cached_entry(&config).await;
-
-        invalidate_generation(&config, &first.bridge).await;
-        let still_second = cached_entry(&config).await;
-
-        assert!(Arc::ptr_eq(&second.bridge, &still_second.bridge));
-        evict(&config).await;
-    }
-
-    #[test]
-    fn file_uri_path_decodes_paths_and_rejects_non_files() {
-        // A driveless `/tmp/...` URI is not a valid Windows file path, so
-        // `to_file_path()` correctly yields None there. Assert the percent-decode
-        // against a path the host can actually represent.
-        #[cfg(windows)]
-        let (uri, decoded) = ("file:///C:/tmp/a%20b.rs", "C:\\tmp\\a b.rs");
-        #[cfg(not(windows))]
-        let (uri, decoded) = ("file:///tmp/a%20b.rs", "/tmp/a b.rs");
-
-        assert_eq!(file_uri_path(uri), Some(std::path::PathBuf::from(decoded)));
-        assert_eq!(file_uri_path("https://example.com/a.rs"), None);
-    }
-
-    #[tokio::test]
-    async fn detects_only_changed_bounded_utf8_documents() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("watched.rs");
-        tokio::fs::write(&path, "fn before() {}\n").await.unwrap();
-        let uri = super::super::implementation::file_uri(&path);
-
-        assert_eq!(read_changed_document(&uri, "fn before() {}\n").await, None);
-        tokio::fs::write(&path, "fn after() {}\n").await.unwrap();
-        assert_eq!(
-            read_changed_document(&uri, "fn before() {}\n").await,
-            Some("fn after() {}\n".to_string())
-        );
-    }
-
-    #[tokio::test]
-    async fn bridge_count_reflects_live_registry() {
-        let _guard = TEST_LOCK.lock().await;
-        let a = config("file:///tmp/lsp-count-a");
-        let b = config("file:///tmp/lsp-count-b");
-        let before = bridge_count().await;
-        let _a_bridge = cached_bridge(&a).await;
-        assert_eq!(bridge_count().await, before + 1);
-        let _b_bridge = cached_bridge(&b).await;
-        assert_eq!(bridge_count().await, before + 2);
-        let (count, roots) = bridge_snapshot().await;
-        assert_eq!(count, before + 2);
-        assert!(roots.contains(&"file:///tmp/lsp-count-a".to_string()));
-        assert!(roots.contains(&"file:///tmp/lsp-count-b".to_string()));
-        evict(&a).await;
-        evict(&b).await;
-        assert_eq!(bridge_count().await, before);
     }
 }

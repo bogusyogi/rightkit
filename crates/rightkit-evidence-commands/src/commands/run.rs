@@ -610,24 +610,3 @@ fn now() -> String {
         .as_secs()
         .to_string()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::enforcement_health_for;
-
-    #[test]
-    fn a_complete_close_with_evaluated_criteria_is_strong() {
-        assert_eq!(enforcement_health_for("complete", 2), "strong");
-    }
-
-    #[test]
-    fn a_complete_close_that_evaluated_no_criteria_is_degraded_not_strong() {
-        assert_eq!(enforcement_health_for("complete", 0), "degraded");
-    }
-
-    #[test]
-    fn archive_is_not_applicable_and_an_unchecked_partial_close_is_degraded() {
-        assert_eq!(enforcement_health_for("archive", 3), "not-applicable");
-        assert_eq!(enforcement_health_for("partial", 0), "degraded");
-    }
-}

@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 
-use crate::quant::QuantizedVector;
 use crate::registry::MemoryRegistry;
 use crate::types::MemoryEntry;
 use rightkit_embed::cosine_similarity;

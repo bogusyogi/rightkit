@@ -308,8 +308,6 @@ fn read_secret() -> Result<String, ProviderError> {
         .map_err(|e| ProviderError::NoKey(format!("secret store unavailable: {e}")))?
         .windows_target(WindowsTarget::KeyringCompat);
     let config = Config::new(ns).guard_mode(rightkit_credentials::GuardMode::Deny);
-    #[cfg(test)]
-    let config = config.guard_when(true, rightkit_credentials::GuardMode::Deny);
     let secret = Store::open(config)
         .get(SECRET_ACCOUNT)
         .map_err(|e| ProviderError::NoKey(format!("secret store error: {e}")))?;

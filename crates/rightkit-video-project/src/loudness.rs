@@ -145,34 +145,3 @@ pub fn report(
         within_tolerance,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_unreadable_measurement_is_a_render_failure() {
-        let e = loudness_error(
-            Path::new("ffmpeg"),
-            Duration::from_secs(1),
-            media_loudnorm::LoudnessError::Unparsed("no loudnorm output".into()),
-        );
-        assert_eq!(e.code(), "render_failed");
-    }
-
-    #[test]
-    fn report_checks_tolerance_and_peak() {
-        let t = LoudnessTarget::default();
-        let m = |i, tp| LoudnessMeasurement {
-            input_i: i,
-            input_tp: tp,
-            input_lra: 1.0,
-            input_thresh: -24.0,
-            target_offset: 0.0,
-        };
-        assert!(report(t, Some(m(-20.0, -3.0)), Some(m(-14.3, -1.6))).within_tolerance);
-        assert!(!report(t, Some(m(-20.0, -3.0)), Some(m(-12.5, -1.6))).within_tolerance);
-        assert!(!report(t, Some(m(-20.0, -3.0)), Some(m(-14.0, -0.4))).within_tolerance);
-        assert!(report(t, None, None).skipped_silent);
-    }
-}

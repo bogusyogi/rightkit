@@ -71,16 +71,3 @@ pub fn iso8601_utc(unix_ms: u64) -> String {
         secs % 60
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn formats_known_instants() {
-        assert_eq!(iso8601_utc(0), "1970-01-01T00:00:00Z");
-        assert_eq!(iso8601_utc(951_782_400_000), "2000-02-29T00:00:00Z");
-        assert_eq!(iso8601_utc(951_868_800_999), "2000-03-01T00:00:00Z");
-        assert_eq!(iso8601_utc(1_791_417_600_000), "2026-10-08T00:00:00Z");
-    }
-}

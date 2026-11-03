@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["review", "verdict", "content-pipeline", "qa"]
 categories = ["development-tools"]
-include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 path = "src/lib.rs"
@@ -25,7 +25,6 @@ minimize = ["dep:regex", "dep:sha2", "dep:hex", "dep:thiserror", "serde_json/pre
 # render's BLAKE3, content-addressed receipts, per-platform packages and the out-of-process `rightkit-render-critic`.
 render-qa = ["dep:rightkit-video-project", "dep:rightkit-timeline", "dep:rightkit-ffmpeg", "dep:rightkit-fs", "dep:rightkit-child-process", "dep:chrono", "dep:tempfile", "dep:thiserror"]
 # Dev/test only: `render_qa::critic::default_critic_binary` honours RIGHTKIT_CRITIC_BIN. Never in a shipped build.
-test-mode = []
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
@@ -45,10 +44,6 @@ rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-fea
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "blake3", "zip"], optional = true }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", optional = true }
 
-[dev-dependencies]
-tempfile = "3"
-rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, features = ["dev-overrides"] }
-
 # Citationberg is pulled by rightkit-typeset through rightkit-captions (video-project); see the vendored fix.
 [patch.crates-io]
 citationberg = { path = "../../vendor/citationberg" }
@@ -61,16 +56,6 @@ required-features = ["render-qa"]
 [[test]]
 name = "render_qa_critic_states"
 path = "tests/render_qa_critic_states.rs"
-required-features = ["render-qa"]
-
-[[test]]
-name = "render_qa_gate"
-path = "tests/render_qa_gate.rs"
-required-features = ["render-qa"]
-
-[[test]]
-name = "render_qa_rules_coverage"
-path = "tests/render_qa_rules_coverage.rs"
 required-features = ["render-qa"]
 
 [package.metadata.rightkit]

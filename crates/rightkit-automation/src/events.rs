@@ -3,10 +3,7 @@
 //! element values or screenshots, and nothing is ever uploaded: the host decides
 //! where events go.
 
-use crate::json::Obj;
-use crate::model::now_ms;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
 
 /// Which gate refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

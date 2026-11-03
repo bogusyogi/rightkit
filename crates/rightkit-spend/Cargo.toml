@@ -15,10 +15,6 @@ include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "
 rightkit-db = { version = "0.5.3", path = "../rightkit-db", default-features = false }
 thiserror = "2"
 
-[dev-dependencies]
-rightkit-db = { version = "0.5.3", path = "../rightkit-db", default-features = false, features = ["bundled"] }
-tempfile = "3"
-
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "SQLite spend ledger called per reservation; no network, no background work, spawns no continuous work, no pattern in the runtime-budgets.mjs set matches non-test src"

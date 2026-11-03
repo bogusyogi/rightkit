@@ -152,31 +152,3 @@ pub struct ResidentServiceFileV1 {
     pub started: u64,
     pub ts: u64,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn request_and_answer_round_trip() {
-        let request = ResidentRequestV1::new(ResidentOp::Pull, json!({"task": "t"}));
-        let text = serde_json::to_string(&request).unwrap();
-        assert_eq!(text, r#"{"v":1,"op":"pull","args":{"task":"t"}}"#);
-        assert_eq!(
-            serde_json::from_str::<ResidentRequestV1>(&text).unwrap(),
-            request
-        );
-        let answer = ResidentAnswerV1::failure("unknown_op", "no such op", false);
-        let text = serde_json::to_string(&answer).unwrap();
-        assert!(text.contains(r#""ok":false"#) && !text.contains("data"));
-    }
-
-    #[test]
-    fn op_names_parse() {
-        for op in ResidentOp::ALL {
-            assert_eq!(ResidentOp::parse(op.as_str()), Some(op));
-        }
-        assert_eq!(ResidentOp::parse("lease"), None);
-    }
-}

@@ -200,25 +200,3 @@ fn provider_api_key(ctx: &ToolContext, provider: &str) -> Option<String> {
         .cloned()
         .or_else(|| load_api_key(provider))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
-
-    #[test]
-    fn session_image_key_is_selected_without_keychain_or_environment_lookup() {
-        let context = ToolContext::new(
-            "image-session",
-            ".",
-            PermissionMode::Bypass,
-            WorkspaceTrust::Trusted,
-        )
-        .with_image_provider_key("openai", "session-only-key");
-
-        assert_eq!(
-            provider_api_key(&context, "openai").as_deref(),
-            Some("session-only-key")
-        );
-    }
-}

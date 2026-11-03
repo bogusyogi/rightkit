@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.1 (unreleased)
 
 - Feature `coding` (+ `coding-host`, `coding-os-keyring`): module `coding`, multi-agent orchestration for coding agents (registry, router, conductor, jury, governance, teams, recovery, proof harnesses) moved from CodeRight `coderight-orchestration`. Off by default; the existing API is unchanged.

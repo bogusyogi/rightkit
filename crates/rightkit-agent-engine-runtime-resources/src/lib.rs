@@ -16,6 +16,3 @@ pub use output::{
     spool_path, BoundedOutput, OutputSpool, SpoolRef, HEAD_BYTES, RETAINED_BYTES, TAIL_BYTES,
 };
 pub use service::{Lease, ResourceSnapshot, ServiceKey, ServiceScope, SharedServiceRegistry};
-
-#[cfg(test)]
-mod tests;

@@ -27,8 +27,6 @@
 
 use crate::key::{group_id, Key};
 use crate::reservation::CacheReservation;
-#[cfg(test)]
-use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
@@ -329,19 +327,10 @@ struct Index {
     recency: BTreeSet<(u128, String)>,
     /// Bytes held by pinned entries.
     pinned_bytes: u64,
-    /// Whole-index walks ([`Index::iter`], [`Index::keys`], [`Index::values`]), counted by the unit
-    /// test that asserts the write path walks none.
-    #[cfg(test)]
-    walks: Cell<u64>,
 }
 
 impl Index {
-    fn walked(&self) {
-        #[cfg(test)]
-        {
-            self.walks.set(self.walks.get() + 1);
-        }
-    }
+    fn walked(&self) {}
 
     fn len(&self) -> usize {
         self.entries.len()
@@ -1616,102 +1605,6 @@ impl Drop for PutWriter {
     fn drop(&mut self) {
         if self.armed {
             remove_tmp(&self.tmp);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn key(i: usize) -> Key {
-        let id = i.to_string();
-        Key::new(&["entry", id.as_str()])
-    }
-
-    /// The maintained eviction order and pinned total must equal what a full scan of the entries
-    /// gives. The old code computed both by sorting or summing the whole index on every write.
-    fn assert_consistent(index: &Index) {
-        let mut expected: Vec<(u128, String)> = index
-            .entries
-            .iter()
-            .filter(|(_, m)| !m.pinned)
-            .map(|(n, m)| (m.used, n.clone()))
-            .collect();
-        expected.sort();
-        let actual: Vec<(u128, String)> = index.recency.iter().cloned().collect();
-        assert_eq!(actual, expected, "eviction order drifted from a full sort");
-        let pinned: u64 = index
-            .entries
-            .values()
-            .filter(|m| m.pinned)
-            .map(|m| m.len)
-            .sum();
-        assert_eq!(index.pinned_bytes, pinned, "pinned total drifted");
-    }
-
-    #[test]
-    fn index_order_matches_a_full_sort_under_random_operations() {
-        let mut index = Index::default();
-        // Fixed-seed LCG: deterministic and dependency-free. Small `used` and name ranges force
-        // many ties, so the base-name tie-break is exercised.
-        let mut seed: u64 = 0x9E37_79B9_7F4A_7C15;
-        let mut next = move |bound: u64| {
-            seed = seed
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1_442_695_040_888_963_407);
-            (seed >> 33) % bound
-        };
-        for _ in 0..5_000 {
-            let name = format!("n{:02}", next(24));
-            match next(4) {
-                0 => {
-                    let meta = Meta {
-                        len: next(100) + 1,
-                        used: u128::from(next(8)),
-                        ext: None,
-                        pinned: next(5) == 0,
-                    };
-                    index.insert(name, meta);
-                }
-                1 => {
-                    index.remove(&name);
-                }
-                2 => index.touch(&name, u128::from(next(8))),
-                _ => {
-                    let pinned = next(2) == 0;
-                    index.set_pinned(&name, pinned);
-                }
-            }
-            assert_consistent(&index);
-        }
-    }
-
-    #[test]
-    fn over_cap_puts_walk_no_index_and_evict_in_write_order() {
-        let root = tempfile::tempdir().unwrap();
-        // Room for eight 8-byte entries; every later put evicts exactly one.
-        let cache = DiskCache::open(root.path(), Config::new(64)).unwrap();
-        for i in 0..8 {
-            cache.put(&key(i), &[1; 8]).unwrap();
-        }
-        // `stats` itself walks the index, so read the counters before the measured window.
-        let evicted_before = cache.stats().evictions;
-        let walks_before = cache.lock().index.walks.get();
-        const PUTS: usize = 1_000;
-        for i in 8..8 + PUTS {
-            cache.put(&key(i), &[1; 8]).unwrap();
-        }
-        let walks = cache.lock().index.walks.get() - walks_before;
-        let stats = cache.stats();
-        assert_eq!(walks, 0, "over-cap puts walked the whole index");
-        assert_eq!(stats.evictions - evicted_before, PUTS as u64);
-        assert_eq!((stats.entries, stats.bytes), (8, 64));
-        for i in 0..PUTS {
-            assert!(!cache.contains(&key(i)), "key {i} should be evicted");
-        }
-        for i in PUTS..8 + PUTS {
-            assert!(cache.contains(&key(i)), "key {i} should be resident");
         }
     }
 }

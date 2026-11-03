@@ -221,32 +221,3 @@ fn exe_dirs() -> Vec<PathBuf> {
         .into_iter()
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn errors_keep_their_text_and_take_a_code_from_the_prefix() {
-        let e = error_from_message("unknown_job: j9".to_string());
-        assert_eq!(
-            (e.code.as_str(), e.message.as_str()),
-            ("unknown_job", "unknown_job: j9")
-        );
-        assert_eq!(
-            error_from_message("Disk full: x".to_string()).code,
-            "local_image_error"
-        );
-        assert_eq!(
-            error_from_message("no colon".to_string()).code,
-            "local_image_error"
-        );
-    }
-
-    #[test]
-    fn only_prefixed_names_are_local_image_commands() {
-        assert!(is_command("local_image.profiles"));
-        assert!(is_command("local_image.unload"));
-        assert!(!is_command("settings.get"));
-    }
-}

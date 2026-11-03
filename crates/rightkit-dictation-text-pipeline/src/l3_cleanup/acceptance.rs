@@ -3,11 +3,6 @@
 //! dash scrubbing, focused-field echo stripping, and the numeric-value
 //! preservation checks. `guardrail_replay.rs` replays this exact chain.
 
-#[cfg(test)]
-pub(crate) fn accept_output(input: &str, output: &str) -> bool {
-    normalize_output(input, output).is_some()
-}
-
 pub(crate) fn normalize_output(input: &str, output: &str) -> Option<String> {
     normalize_output_with_extra(input, output, 160)
 }

@@ -32,10 +32,6 @@ pub fn media_tools(env: &Env) -> Result<MediaTools, ProjectError> {
 
 /// Title font from the engine bundle (`test-mode` builds also honour `RIGHTKIT_FONT`).
 pub fn title_font(env: &Env) -> Option<PathBuf> {
-    #[cfg(feature = "test-mode")]
-    if let Some(p) = std::env::var_os("RIGHTKIT_FONT").filter(|v| !v.is_empty()) {
-        return Some(PathBuf::from(p));
-    }
     // Only a font that exists: on Windows the resource dir is the exe's folder even for a
     // bare dev binary, and a missing path would fail every render while hashing it. With no
     // font, a render that needs one reports the missing bundle font instead.

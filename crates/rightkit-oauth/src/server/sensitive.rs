@@ -57,17 +57,3 @@ fn wipe_json(value: &mut Value) {
         _ => {}
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn wipes_nested_json_strings_and_keys() {
-        let mut value = serde_json::json!({"echoed-secret-key": ["access-secret", {"refresh": "refresh-secret"}]});
-        wipe_json(&mut value);
-        assert_eq!(value, serde_json::json!({}));
-        let mut value = serde_json::json!(["access-secret", ["refresh-secret"]]);
-        wipe_json(&mut value);
-        assert_eq!(value, serde_json::json!(["", [""]]));
-    }
-}

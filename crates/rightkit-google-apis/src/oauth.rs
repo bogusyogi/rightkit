@@ -175,23 +175,3 @@ fn email_from_sign_in(client_id: &str, tokens: &TokenSet) -> Result<String, Stri
         .filter(|email| !email.is_empty())
         .ok_or_else(|| "sign-in identity carries no email address".to_string())
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn scope_set_splits_into_individual_google_scopes() {
-        let scopes: Vec<&str> = super::SCOPE.split(' ').collect();
-        assert!(scopes.iter().all(|s| !s.is_empty()));
-        assert_eq!(scopes[0], "openid");
-        assert!(scopes.contains(&"https://www.googleapis.com/auth/gmail.modify"));
-    }
-
-    #[test]
-    fn scopes_make_the_id_token_carry_the_email() {
-        // The account email is read from the ID token: `openid` yields the token and
-        // `userinfo.email` puts the email claim in it.
-        let scopes: Vec<&str> = super::SCOPE.split(' ').collect();
-        assert!(scopes.contains(&"openid"));
-        assert!(scopes.contains(&"https://www.googleapis.com/auth/userinfo.email"));
-    }
-}

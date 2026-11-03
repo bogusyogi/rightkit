@@ -13,16 +13,8 @@
 //! argv lists so the byte-equivalence tests fail if the transports
 //! ever drift.
 
-#[cfg(test)]
-pub(crate) mod _argv_snapshot;
 pub mod acp;
 pub mod claude_stream_json;
 pub mod codex_app_server;
 pub mod process;
 pub mod resumable_ndjson;
-
-// Re-export the byte-equivalence snapshots so tests in
-// `claude_stream_json` and `codex_app_server` can import them as
-// `super::argv_snapshot::CLAUDE_BASELINE_ARGV` etc.
-#[cfg(test)]
-pub(crate) use _argv_snapshot as argv_snapshot;

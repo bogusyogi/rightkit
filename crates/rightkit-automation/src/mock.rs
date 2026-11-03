@@ -5,7 +5,6 @@
 use crate::model::*;
 use crate::platform::*;
 use crate::proof::{FieldText, TextSource};
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]

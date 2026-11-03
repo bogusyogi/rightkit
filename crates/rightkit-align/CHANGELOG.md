@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.0 - 2026-10-11
 
 Breaking changes to the alignment API (unpublished crate, no compatibility shim). Implements RK4 items a-e of `docs/plans/2026-10-11-cutright-contract-asks-c2-rk9-rk3-rk4.md`.

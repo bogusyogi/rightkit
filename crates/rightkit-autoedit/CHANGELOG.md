@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.1 (unreleased)
 
 - New, additive (feature `engine-commands`, off by default): the `cmd` module, engine command handlers moved from CutRight's `cutright-engine`: `cmd::autoedit` (auto-edit analysis, plans and apply), `cmd::autonomy` (persistent autonomy levels), `cmd::rules` (scoped editing rules and resolution), `cmd::style` (`style.measure`) and `cmd::mic` (`mic.align`). Adds optional dependencies on `rightkit-engine-host` (feature `project-cmd`) and `chrono`.

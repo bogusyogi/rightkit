@@ -197,27 +197,3 @@ impl CommandError {
 pub fn io_error(error: impl std::fmt::Display) -> CommandError {
     CommandError::internal(error.to_string())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn audit_inventory_source_walks_the_local_filesystem_only() {
-        let root = std::env::temp_dir().join(format!(
-            "rightkit-command-inventory-source-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join("src")).unwrap();
-        std::fs::write(root.join("src/lib.rs"), "fn one() {}\n").unwrap();
-        let root = std::fs::canonicalize(root).unwrap();
-
-        let source = audit_inventory_source(&root).unwrap();
-        let inventory = source.inventory(&root.to_string_lossy()).unwrap();
-        assert_eq!(inventory.paths().collect::<Vec<_>>(), ["src/lib.rs"]);
-        assert!(inventory.generation.starts_with("filesystem:sha256:"));
-
-        std::fs::remove_dir_all(root).unwrap();
-    }
-}

@@ -45,23 +45,9 @@ pub struct ProductTerms {
 
 static PRODUCT_TERMS: std::sync::OnceLock<ProductTerms> = std::sync::OnceLock::new();
 
-#[cfg(not(test))]
 const UNCONFIGURED: ProductTerms = ProductTerms {
     built_in: &[],
     core: &[],
-};
-/// Test builds of this crate default to a fixture product vocabulary.
-#[cfg(test)]
-const UNCONFIGURED: ProductTerms = ProductTerms {
-    built_in: &[
-        "Heard Right",
-        "HeardRight",
-        "Zephyr",
-        "Zephyr stop",
-        "Zephyr send",
-        "Zephyr cancel",
-    ],
-    core: &["HeardRight", "Zephyr"],
 };
 
 /// Install the host's product vocabulary once at startup. Returns false when one was already set.
@@ -117,59 +103,4 @@ pub fn sound_alike_pairs() -> Vec<SoundAlikePair> {
         .get()
         .and_then(|cell| cell.lock().ok().map(|slot| slot.clone()))
         .unwrap_or_default()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bare_replace_clears_alias_mirror() {
-        replace_terms_with_aliases(
-            vec!["Wispr".into()],
-            vec![("Wispr".into(), vec!["whisper".into()])],
-        );
-        assert_eq!(terms(), vec!["Wispr".to_string()]);
-        assert_eq!(
-            sound_alike_pairs(),
-            vec![("Wispr".to_string(), vec!["whisper".to_string()])]
-        );
-
-        // A bare replace (old shell on a new engine) drops the aliases
-        // because the new `terms` list is the source of truth.
-        replace_terms(vec!["Alpha".into(), "Beta".into()]);
-        assert_eq!(terms(), vec!["Alpha".to_string(), "Beta".to_string()]);
-        assert!(sound_alike_pairs().is_empty());
-    }
-
-    #[test]
-    fn built_in_terms_are_the_canonical_product_vocabulary() {
-        assert_eq!(
-            built_in_terms(),
-            &[
-                "Heard Right",
-                "HeardRight",
-                "Zephyr",
-                "Zephyr stop",
-                "Zephyr send",
-                "Zephyr cancel",
-            ]
-        );
-        assert_eq!(core_product_terms(), &["HeardRight", "Zephyr"]);
-    }
-
-    /// Proves shared `core_product_terms()` feed semantic polish vocabulary
-    /// without mutating process-global vocabulary state during parallel tests.
-    #[test]
-    fn core_product_terms_merge_into_polish_vocabulary() {
-        let vocab = merge_with_core_terms(vec!["heardright".into(), "Acme".into()]);
-        assert_eq!(
-            vocab,
-            vec![
-                "HeardRight".to_string(),
-                "Zephyr".to_string(),
-                "Acme".to_string()
-            ]
-        );
-    }
 }

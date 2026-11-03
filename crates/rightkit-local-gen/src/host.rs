@@ -64,15 +64,3 @@ pub fn env_var(suffix: &str) -> Option<String> {
         .ok()
         .or_else(|| std::env::var(format!("RIGHTKIT_{suffix}")).ok())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn defaults_are_product_neutral() {
-        let c = HostConfig::default();
-        assert_eq!(c.env_prefix, "RIGHTKIT");
-        assert_eq!(c.settings_namespace, "rightkit");
-    }
-}

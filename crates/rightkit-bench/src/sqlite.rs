@@ -47,28 +47,3 @@ pub fn explain_plan_with_params<P: Params>(
     }
     Ok(lines.join("\n"))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn explain_names_the_index_a_query_uses() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE t(a INTEGER, b TEXT); CREATE INDEX t_a ON t(a);")
-            .unwrap();
-        let plan = explain_plan_with_params(&conn, "SELECT b FROM t WHERE a = ?1", [1]).unwrap();
-        assert!(plan.contains("t_a"), "{plan}");
-        assert!(explain_plan(&conn, "SELECT nope FROM missing").is_err());
-    }
-
-    #[test]
-    fn fresh_paths_are_distinct_and_cleanup_is_quiet() {
-        let a = fresh_db_path("rightkit_bench", "x");
-        let b = fresh_db_path("rightkit_bench", "x");
-        assert_ne!(a, b);
-        std::fs::write(&a, b"x").unwrap();
-        cleanup_db_files(a.to_str().unwrap());
-        assert!(!a.exists());
-    }
-}

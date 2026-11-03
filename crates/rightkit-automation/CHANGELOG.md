@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.6.4 (unreleased)
 
 - New `desktop-context` feature and `desktop` module, moved from HeardRight `heardright_platform`: stop-time focus continuity capture and validation, clipboard staging with exact generation tracking and full-format restore, frontmost-window identity through an isolated helper, window text harvest and native text writes (macOS, Windows). `macos::set_own_window_owner_prefix` names the host's own windows. Existing API unchanged.

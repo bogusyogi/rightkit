@@ -274,28 +274,3 @@ fn read_full(r: &mut impl Read, buf: &mut [u8]) -> std::io::Result<bool> {
     }
     Ok(true)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn probe_parsing_applies_rotation() {
-        let info = parse_probe(
-            r#"{"streams":[{"width":1920,"height":1080,"r_frame_rate":"30/1",
-                "avg_frame_rate":"30000/1001","side_data_list":[{"rotation":-90}]}],
-                "format":{"duration":"12.5"}}"#,
-        )
-        .unwrap();
-        assert_eq!((info.width, info.height), (1080, 1920));
-        assert!((info.fps - 29.97).abs() < 0.01);
-        assert_eq!(info.duration_ms, 12_500);
-    }
-
-    #[test]
-    fn analysis_size_never_upscales() {
-        assert_eq!(analysis_size(1920, 1080, 640), (640, 360));
-        assert_eq!(analysis_size(320, 240, 640), (320, 240));
-        assert_eq!(analysis_size(1080, 1920, 640), (360, 640));
-    }
-}

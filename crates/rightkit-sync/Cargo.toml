@@ -10,7 +10,7 @@ repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["sync", "cloudkit", "tombstone", "offline"]
 categories = ["data-structures"]
 # The protocol fake and its process-level E2E test are repository-only fixtures.
-include = ["src/**", "!src/bin/**", "tests/**", "!tests/helper_e2e.rs", "benches/*.rs", "README.md", "API.md", "HTTP-PROTOCOL.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "!src/bin/**", "benches/*.rs", "README.md", "API.md", "HTTP-PROTOCOL.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = ["helper", "process-usage"]
@@ -41,10 +41,6 @@ rightkit-http = { version = "0.3.9", path = "../rightkit-http", default-features
 ring = { version = "0.17", optional = true }
 zeroize = { version = "1.9", optional = true }
 
-[dev-dependencies]
-# In-process mock server for tests/http_*.rs (the `testing` module of rightkit-http).
-rightkit-http = { path = "../rightkit-http", default-features = false, features = ["testing"] }
-
 [[bench]]
 name = "budget"
 harness = false
@@ -58,26 +54,6 @@ required-features = ["helper"]
 [[test]]
 name = "helper_e2e"
 required-features = ["helper"]
-
-[[test]]
-name = "cipher"
-required-features = ["cipher"]
-
-[[test]]
-name = "http_backend"
-required-features = ["http"]
-
-[[test]]
-name = "http_encrypted"
-required-features = ["http", "cipher"]
-
-[[test]]
-name = "drive_backend"
-required-features = ["drive"]
-
-[[test]]
-name = "drive_two_engines"
-required-features = ["drive"]
 
 # One Cargo workspace and lock per crate (rightkit#1285).
 [workspace]

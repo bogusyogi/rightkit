@@ -9,7 +9,7 @@ repository = "https://github.com/bogusyogi/rightkit"
 readme = "README.md"
 keywords = ["scenario", "state-machine", "journal", "lease", "idempotency"]
 categories = ["development-tools"]
-include = ["src/**", "tests/**", "fixtures/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "fixtures/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_workflow"

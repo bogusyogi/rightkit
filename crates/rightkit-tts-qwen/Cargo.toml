@@ -47,8 +47,6 @@ rustfft = "6.4.1"
 prost = "0.14"
 rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.9", features = ["tracing"] }
 
-
-
 [package.metadata.rightkit]
 continuous = "held-resource"
 
@@ -87,13 +85,6 @@ holds = ["memory"]
 scale = "one vocabulary and merge table read from the GGUF file, sized by the model; fixed per engine"
 release = "Drop of the owning Qwen3TtsEngine"
 static_note = "REVERSE is one OnceLock<HashMap<char, u8>> with at most 256 byte-to-char entries, built once; it holds no thread and cannot grow"
-
-[[package.metadata.rightkit.resources]]
-api = "TestGguf"
-file = "src/model/test_fixture.rs"
-holds = ["memory"]
-scale = "test-only fixture module, compiled under cfg(test); one 1 MiB ggml context and a temp GGUF file per test"
-release = "function return"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
 [workspace]

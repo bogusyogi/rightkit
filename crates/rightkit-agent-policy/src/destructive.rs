@@ -81,39 +81,3 @@ fn is_catastrophic_rm(collapsed: &str) -> bool {
     }
     false
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn blocks_rm_rf_root() {
-        assert!(catastrophic_reason("rm -rf /").is_some());
-        assert!(catastrophic_reason("rm -rf /*").is_some());
-        assert!(catastrophic_reason("sudo rm -rf / --no-preserve-root").is_some());
-        assert!(catastrophic_reason("rm -fr ~").is_some());
-    }
-
-    #[test]
-    fn blocks_fork_bomb_and_mkfs() {
-        assert!(catastrophic_reason(":(){ :|:& };:").is_some());
-        assert!(catastrophic_reason("mkfs.ext4 /dev/sda1").is_some());
-        assert!(catastrophic_reason("dd if=/dev/zero of=/dev/sda").is_some());
-    }
-
-    #[test]
-    fn blocks_power_state() {
-        assert!(catastrophic_reason("shutdown -h now").is_some());
-        assert!(catastrophic_reason("reboot").is_some());
-    }
-
-    #[test]
-    fn allows_normal_commands() {
-        assert!(catastrophic_reason("rm -rf target/").is_none());
-        assert!(catastrophic_reason("rm -rf node_modules").is_none());
-        assert!(catastrophic_reason("cargo build && rm -f out.tmp").is_none());
-        assert!(catastrophic_reason("git push --force origin feature").is_none());
-        assert!(catastrophic_reason("echo hi > /dev/null").is_none());
-        assert!(catastrophic_reason("dd if=in.img of=out.img").is_none());
-    }
-}

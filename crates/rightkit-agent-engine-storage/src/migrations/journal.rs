@@ -49,24 +49,3 @@ pub fn read_pending_journal(db_path: &Path) -> Option<PendingMigrationJournal> {
     let started_at = rightkit_db::pending_marker_started_at(db_path).unwrap_or(0);
     Some(PendingMigrationJournal::from_marker(marker, started_at))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn write_then_read_round_trips() {
-        let dir = tempfile::tempdir().unwrap();
-        let db_path = dir.path().join("agent.db");
-
-        assert!(read_pending_journal(&db_path).is_none());
-
-        rightkit_db::write_pending_marker(&db_path, 3, 5).unwrap();
-        let journal = read_pending_journal(&db_path).expect("marker must be present");
-        assert_eq!(journal.from_version, 3);
-        assert_eq!(journal.to_version, 5);
-        assert_eq!(journal.pending_versions, vec![4, 5]);
-        assert_eq!(journal.pid, std::process::id());
-        assert!(journal.started_at_unix > 0);
-    }
-}

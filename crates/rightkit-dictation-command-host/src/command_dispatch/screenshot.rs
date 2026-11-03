@@ -752,7 +752,3 @@ fn is_rightkit_dictation_pill_window(hwnd: windows_sys::Win32::Foundation::HWND)
                 .any(|candidate| title.eq_ignore_ascii_case(candidate))
     }
 }
-
-#[cfg(test)]
-#[path = "screenshot_tests.rs"]
-mod tests;

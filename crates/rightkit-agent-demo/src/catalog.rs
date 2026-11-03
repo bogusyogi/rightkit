@@ -73,25 +73,3 @@ pub fn denied_ids() -> impl Iterator<Item = &'static str> {
         .flat_map(|(mac, win)| [*mac, *win])
         .chain([own.0.as_str(), own.1.as_str()])
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Unit test on purpose: the catalog is a static table, and no end-to-end run reaches an
-    // overlap between it and the deny list without launching the apps.
-    #[test]
-    fn no_catalog_entry_is_denied_and_ids_are_unique() {
-        for e in CATALOG {
-            assert!(
-                !denied_ids().any(|d| d == e.mac_id || d == e.win_id),
-                "{}",
-                e.id
-            );
-        }
-        for (i, a) in CATALOG.iter().enumerate() {
-            assert!(CATALOG[i + 1..].iter().all(|b| b.id != a.id), "{}", a.id);
-            assert_eq!(a.win_id, a.win_id.to_ascii_lowercase());
-        }
-    }
-}

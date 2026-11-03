@@ -667,22 +667,3 @@ impl Drop for RawHandle {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::build_windows_command_line;
-
-    #[test]
-    fn windows_argv_is_quoted_without_shell_interpretation() {
-        let args = vec![
-            "plain".to_string(),
-            "two words".to_string(),
-            r#"say "hi""#.to_string(),
-            r#"C:\path with space\"#.to_string(),
-        ];
-        assert_eq!(
-            build_windows_command_line(r#"C:\Program Files\tool.exe"#, &args),
-            r#""C:\Program Files\tool.exe" plain "two words" "say \"hi\"" "C:\path with space\\""#,
-        );
-    }
-}

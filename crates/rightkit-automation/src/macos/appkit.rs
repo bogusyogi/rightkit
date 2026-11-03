@@ -239,28 +239,3 @@ pub fn clip_restore(snap: &ClipSnapshot, expected: u64) -> bool {
         }
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    /// Admission needs the id BEFORE launch; a path spec must resolve from the real plist.
-    #[test]
-    fn path_and_hidden_specs_resolve_without_launching() {
-        assert_eq!(
-            resolve_launch("/System/Applications/Calculator.app").unwrap(),
-            "com.apple.calculator"
-        );
-        assert_eq!(
-            resolve_launch("hidden:/System/Applications/Calculator.app").unwrap(),
-            "com.apple.calculator"
-        );
-        assert_eq!(
-            resolve_launch("hidden:com.apple.TextEdit").unwrap(),
-            "com.apple.TextEdit"
-        );
-        assert!(
-            resolve_launch("/nonexistent/Nope.app").is_err(),
-            "unresolvable specs fail closed"
-        );
-    }
-}

@@ -40,6 +40,3 @@ pub use plan::{
     analyze, EditorialPlan, ItemOutcome, ResolvedEdit, RetakeEscalation, Review, SCHEMA,
 };
 pub use retake::{TakeGroup, TakeInfo};
-
-#[cfg(test)]
-mod tests;

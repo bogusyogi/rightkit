@@ -325,8 +325,3 @@ fn summarize_panel(
     }
     out
 }
-
-#[cfg(test)]
-#[cfg(test)]
-#[path = "review_panel_tests.rs"]
-mod review_panel_tests;

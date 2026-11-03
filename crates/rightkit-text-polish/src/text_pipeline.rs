@@ -5,14 +5,10 @@
 //! [`parse_control_command`] and [`parse_ai_transform_command`].
 
 mod control;
-#[cfg(test)]
-mod control_tests;
 mod inline;
 mod normalize;
 mod number_words;
 mod polish;
-#[cfg(test)]
-mod tests;
 
 pub use control::{
     has_trailing_control_wake, is_bare_summarize_trigger, looks_like_wake_word,

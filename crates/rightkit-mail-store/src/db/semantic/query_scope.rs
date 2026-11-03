@@ -8,7 +8,6 @@ use rightkit_db::rusqlite::types::Value;
 use rightkit_db::rusqlite::{params_from_iter, Connection};
 
 use super::fusion::Hit;
-use crate::db::ALL_MAIL;
 
 /// SQL fragment (starting with ` AND`) over alias `m` plus its `?` values.
 fn scope_clause(

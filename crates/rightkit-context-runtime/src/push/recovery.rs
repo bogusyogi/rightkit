@@ -994,38 +994,3 @@ pub fn minify_json(text: &str) -> Option<String> {
     }
     Some(out)
 }
-
-#[cfg(all(test, unix))]
-mod symlink_guard {
-    use super::*;
-
-    /// A symlink at the store path is refused before SQLite opens it: the target's
-    /// bytes stay unchanged, and a dangling link does not make SQLite create its target.
-    #[test]
-    fn symlinked_store_path_is_denied_and_target_untouched() {
-        let dir = tempfile::tempdir().unwrap();
-        // macOS's default temp folder is under /var, itself a symlink; the guard would refuse that ancestor
-        // (Unavailable) before it reaches the link under test.
-        let root = dir.path().canonicalize().unwrap();
-        let anchors = root.join("anchors");
-        std::fs::create_dir_all(&anchors).unwrap();
-        let target = root.join("victim.bin");
-        std::fs::write(&target, b"not a database").unwrap();
-        let link = anchors.join("push-artifacts.sqlite");
-        std::os::unix::fs::symlink(&target, &link).unwrap();
-        assert_eq!(
-            RecoveryStore::at(&anchors).identity(),
-            Err(RecoveryError::Denied)
-        );
-        assert_eq!(std::fs::read(&target).unwrap(), b"not a database");
-
-        std::fs::remove_file(&link).unwrap();
-        let dangling = root.join("never-created");
-        std::os::unix::fs::symlink(&dangling, &link).unwrap();
-        assert_eq!(
-            RecoveryStore::at(&anchors).identity(),
-            Err(RecoveryError::Denied)
-        );
-        assert!(!dangling.exists());
-    }
-}

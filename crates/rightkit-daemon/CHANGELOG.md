@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.5.1 (unreleased)
 
 - Features `agent_daemon_core` (source-trust authority, daemon discovery) and `agent_daemon_runtime` moved from CodeRight `coderight-daemon-core` and `coderight-daemon-runtime`.

@@ -106,33 +106,3 @@ impl AcpError {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn error_codes_match_spec_integers() {
-        assert_eq!(AcpErrorCode::ParseError.code(), -32700);
-        assert_eq!(AcpErrorCode::InvalidRequest.code(), -32600);
-        assert_eq!(AcpErrorCode::MethodNotFound.code(), -32601);
-        assert_eq!(AcpErrorCode::InvalidParams.code(), -32602);
-        assert_eq!(AcpErrorCode::InternalError.code(), -32603);
-        assert_eq!(AcpErrorCode::RequestCancelled.code(), -32800);
-        assert_eq!(AcpErrorCode::AuthRequired.code(), -32000);
-        assert_eq!(AcpErrorCode::ResourceNotFound.code(), -32002);
-    }
-
-    #[test]
-    fn method_not_found_includes_method_name() {
-        let error = AcpError::method_not_found("acp/bogus");
-        assert!(error.message.contains("acp/bogus"));
-        assert_eq!(error.code, -32601);
-    }
-
-    #[test]
-    fn resource_not_found_attaches_uri_data() {
-        let error = AcpError::resource_not_found(Some("file:///missing.txt"));
-        assert_eq!(error.data.unwrap()["uri"], "file:///missing.txt");
-    }
-}

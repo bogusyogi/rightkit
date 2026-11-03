@@ -22,8 +22,7 @@ pub const INBOX_STATES: [&str; 3] = ["open", "handled", "ignored"];
 
 /// `inbox.receive` input (besides the secret, which the engine takes out of the raw input first).
 /// `raw_body_b64` is the exact request body, standard base64 with padding. `signature_header` is the
-/// `X-Hub-Signature-256` header value; absent is refused as `signature_invalid`. `qa_max_body_bytes`
-/// lowers the body limit; it exists only in test-mode builds (a release build has no such field).
+/// `X-Hub-Signature-256` header value; absent is refused as `signature_invalid`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct InboxReceiveInput {
     pub platform: String,
@@ -31,19 +30,6 @@ pub struct InboxReceiveInput {
     #[serde(default)]
     pub signature_header: Option<String>,
     pub received_at: String,
-    #[cfg(feature = "test-mode")]
-    #[serde(default)]
-    pub qa_max_body_bytes: Option<u64>,
-}
-
-/// `inbox.test_sign` input (test-mode builds only). Exactly one of `raw_body_b64` or `body_text`.
-#[cfg(feature = "test-mode")]
-#[derive(Debug, Clone, Deserialize)]
-pub struct InboxTestSignInput {
-    #[serde(default)]
-    pub raw_body_b64: Option<String>,
-    #[serde(default)]
-    pub body_text: Option<String>,
 }
 
 /// A scope filter. `account` is optional: omitted means every account of the channel.

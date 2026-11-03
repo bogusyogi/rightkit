@@ -1,6 +1,5 @@
 use super::{ClientAuth, ServerAuthError};
 use crate::OAuthConfig;
-use rightkit_http::Secret;
 
 /// Server-only policy wrapped around the existing desktop provider descriptor.
 #[derive(Clone)]

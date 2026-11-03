@@ -16,15 +16,3 @@ fn epoch_seconds_to_iso(secs: u64) -> String {
         .map(|dt| dt.format_rfc3339())
         .unwrap_or_default()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn epoch_seconds_format_as_utc_iso() {
-        assert_eq!(epoch_seconds_to_iso(0), "1970-01-01T00:00:00Z");
-        assert_eq!(epoch_seconds_to_iso(1_704_067_199), "2023-12-31T23:59:59Z");
-        assert_eq!(epoch_seconds_to_iso(1_704_067_200), "2024-01-01T00:00:00Z");
-    }
-}

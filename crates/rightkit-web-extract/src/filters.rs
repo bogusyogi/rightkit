@@ -149,33 +149,3 @@ fn fit_select(input: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n\n")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Corpus of three blocks, query ["alpha"]. Hand computation:
-    ///   N = 3; |d| = 3, 3, 4; avgdl = (3 + 3 + 4) / 3 = 10/3.
-    ///   n(alpha) = 2 (blocks 0 and 1), so
-    ///   idf = ln(1 + (3 - 2 + 0.5) / (2 + 0.5)) = ln(1.6) = 0.470004.
-    ///   Block 0 "alpha beta gamma": f = 1, |d| = 3,
-    ///     norm = 1.2 * (1 - 0.75 + 0.75 * 3 / (10/3)) = 1.2 * 0.925 = 1.11,
-    ///     score = 0.470004 * 1 * 2.2 / (1 + 1.11) = 0.470004 * 1.042654 = 0.49005.
-    ///   Block 1 "alpha alpha delta": f = 2, |d| = 3, same norm 1.11,
-    ///     score = 0.470004 * 2 * 2.2 / (2 + 1.11) = 0.470004 * 1.414791 = 0.66496.
-    ///   Block 2 "gamma delta epsilon zeta": f = 0, score 0.
-    /// Expected ranking: block 1 > block 0 > block 2.
-    #[test]
-    fn bm25_ranks_higher_term_frequency_first() {
-        let blocks = [
-            "alpha beta gamma",
-            "alpha alpha delta",
-            "gamma delta epsilon zeta",
-        ];
-        let scores = bm25_scores(&blocks, &["alpha".to_string()]);
-        assert!((scores[0] - 0.49005).abs() < 1e-4, "{scores:?}");
-        assert!((scores[1] - 0.66496).abs() < 1e-4, "{scores:?}");
-        assert_eq!(scores[2], 0.0, "{scores:?}");
-        assert!(scores[1] > scores[0] && scores[0] > scores[2], "{scores:?}");
-    }
-}

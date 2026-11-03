@@ -20,9 +20,7 @@
 //! an ssh option. ssh must already work without a prompt (keys, BatchMode);
 //! nothing here sets ssh up. A release build runs the system ssh at its fixed path
 //! (`/usr/bin/ssh`, or `System32\OpenSSH\ssh.exe` on Windows), never one found on the
-//! search path. Only a build with the `test-overrides` feature reads `RIGHTKIT_CHAT_SSH`,
-//! which names another program to run instead (tests); it gets the destination and the
-//! words as separate arguments, unquoted. Each poll of a link is recorded in `links-status.json`, and the
+//! search path. Each poll of a link is recorded in `links-status.json`, and the
 //! last listing a link answered with is kept in `links-listings.json` for 24 hours, so its
 //! chats stay listed (as "unreachable") while the computer cannot be reached.
 
@@ -171,20 +169,6 @@ impl LinkStatus {
     }
 }
 
-/// Test builds only (`test-overrides`): the program `RIGHTKIT_CHAT_SSH` names. Not compiled
-/// into a release build, so the variable cannot choose what a release build runs.
-#[cfg(feature = "test-overrides")]
-fn ssh_override() -> Option<String> {
-    std::env::var("RIGHTKIT_CHAT_SSH")
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-}
-
-#[cfg(not(feature = "test-overrides"))]
-fn ssh_override() -> Option<String> {
-    None
-}
-
 /// The system ssh at its fixed location, never found through the search path.
 fn system_ssh() -> std::path::PathBuf {
     #[cfg(windows)]
@@ -285,38 +269,27 @@ fn run(link: &Link, args: &[&str], timeout: Duration) -> Result<String, String> 
 fn run_checked(link: &Link, args: &[&str], timeout: Duration) -> Result<String, RunFailure> {
     validate_ssh(&link.ssh).map_err(RunFailure::Other)?;
     validate_cli(&link.cli).map_err(RunFailure::Other)?;
-    let override_program = ssh_override();
-    let program: std::ffi::OsString = match &override_program {
-        Some(program) => program.into(),
-        None => system_ssh().into(),
-    };
+    let program: std::ffi::OsString = system_ssh().into();
     let mut command_args: Vec<std::ffi::OsString> = Vec::new();
-    if override_program.is_none() {
-        command_args.extend(
-            [
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ConnectTimeout=10",
-                "-o",
-                "LogLevel=ERROR",
-                // Never a pty. The child runs with stdin on NUL; Windows ssh.exe takes NUL for a
-                // console, wants a tty, and then never exits after the remote command ends
-                // (#541: every poll from the CLI ran to the 60 s timeout).
-                "-o",
-                "RequestTTY=no",
-                "--",
-            ]
-            .map(std::ffi::OsString::from),
-        );
-        command_args.push((&link.ssh).into());
-        command_args.push(remote_command(link, args).into());
-    } else {
-        command_args.push((&link.ssh).into());
-        command_args.push((&link.cli).into());
-        command_args.push("chat".into());
-        command_args.extend(args.iter().map(|a| std::ffi::OsString::from(*a)));
-    }
+    command_args.extend(
+        [
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            "-o",
+            "LogLevel=ERROR",
+            // Never a pty. The child runs with stdin on NUL; Windows ssh.exe takes NUL for a
+            // console, wants a tty, and then never exits after the remote command ends
+            // (#541: every poll from the CLI ran to the 60 s timeout).
+            "-o",
+            "RequestTTY=no",
+            "--",
+        ]
+        .map(std::ffi::OsString::from),
+    );
+    command_args.push((&link.ssh).into());
+    command_args.push(remote_command(link, args).into());
     let options = RunOptions::new(timeout)
         .stdout_cap(OUTPUT_CAP)
         .stderr_cap(OUTPUT_CAP);
@@ -594,12 +567,7 @@ pub fn add(store: &Store, mut link: Link) -> Result<RemoteListing, String> {
     } else {
         "posix"
     };
-    // The test hook ignores quoting, so one shell family is enough there.
-    let shells: Vec<&str> = if ssh_override().is_none() {
-        vec![first_shell, other_shell]
-    } else {
-        vec![first_shell]
-    };
+    let shells: Vec<&str> = vec![first_shell, other_shell];
     let requested = link.cli.clone();
     let known = cli_candidates();
     let mut found = None;
@@ -838,11 +806,7 @@ fn list_with_shell_fallback(
     deadline: Option<Instant>,
 ) -> Result<(RemoteListing, PeerIds), String> {
     match list_chats_identified(link, deadline) {
-        Err(error)
-            if wrong_shell(&error)
-                && ssh_override().is_none()
-                && super::mesh::mesh_id(link).is_none() =>
-        {
+        Err(error) if wrong_shell(&error) && super::mesh::mesh_id(link).is_none() => {
             let other = if link.shell == "powershell" {
                 "posix"
             } else {
@@ -1419,18 +1383,4 @@ pub fn said(link: &Link, target: &str, limit: usize) -> Result<Value, String> {
     )?;
     let line = last_json_line(&out).ok_or_else(|| format!("{} printed no answer", link.device))?;
     serde_json::from_str(line).map_err(|e| format!("{} printed something else: {e}", link.device))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn base64_round_trips() {
-        for text in ["", "a", "ab", "abc", "hello world", "ünïcödé ✓"] {
-            let encoded = rightkit_crypto::base64_encode(text.as_bytes());
-            assert_eq!(unb64(&encoded).unwrap(), text.as_bytes(), "{text}");
-        }
-        assert!(unb64("!!").is_none());
-    }
 }

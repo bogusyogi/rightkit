@@ -4,7 +4,6 @@
 //!
 //! This module only reads. Nothing here writes a trust file or an exception record.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -18,7 +17,6 @@ use crate::gitio;
 use crate::json::{field, is_hex64, items, str_of, truthy};
 use crate::keyauth::AuthorityEnv;
 use crate::keylog::{parse_public_key, PublicKey};
-use crate::scan::TrustLoaderFn;
 
 const WINDOWS_TRUSTED_SIDS: [&str; 2] = ["S-1-5-18", "S-1-5-32-544"];
 const TRUSTED_INSTALLER: &str = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
@@ -383,25 +381,5 @@ pub fn production_authority_env() -> AuthorityEnv {
     AuthorityEnv {
         trust_file: trusted_path().ok(),
         audit: Box::new(|path| protected_location(path, true)),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn windows_acl_accepts_trusted_owner_and_read_only_users() {
-        let info = json!({"ownerSID": "S-1-5-18", "attributes": "Directory", "elevated": false, "directory": true, "nonempty": true,
-            "access": [{"identitySID": "S-1-5-32-545", "type": "Allow", "mask": 0x0012_00a9u32, "propagationFlags": 0}]});
-        assert!(evaluate_windows_acl(&info, r"C:\ProgramData\Orthic Labs", true).is_empty());
-    }
-
-    #[test]
-    fn windows_acl_refuses_user_owner_write_and_elevation() {
-        let info = json!({"ownerSID": "S-1-5-21-1-2-3-1001", "attributes": "Directory", "elevated": true,
-            "access": [{"identitySID": "S-1-5-32-545", "type": "Allow", "mask": 0x4000_0000u32, "propagationFlags": 0}]});
-        let problems = evaluate_windows_acl(&info, r"C:\x", true);
-        assert_eq!(problems.len(), 3, "{problems:?}");
     }
 }

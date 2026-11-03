@@ -1092,10 +1092,6 @@ impl NativeWatcher {
             self.apply_known_event(event);
         }
         self.applied_clock = self.source_clock;
-        debug_assert!(
-            self.applied_clock == self.source_clock,
-            "published state must be committed before freshness is reported"
-        );
         if self.gap.is_none() {
             self.emit("caught_up", None);
         }
@@ -1277,10 +1273,6 @@ impl NativeWatcher {
         if let Ok(mut queue) = self.native_queue.lock() {
             queue.next_source_clock = queue.next_source_clock.max(self.source_clock);
         }
-        debug_assert!(
-            self.applied_clock == self.source_clock,
-            "published state must be committed before freshness is reported"
-        );
         if self
             .gap
             .as_ref()

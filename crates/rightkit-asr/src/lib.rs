@@ -55,9 +55,6 @@
 #[allow(unused_macros)]
 macro_rules! dev_var {
     ($name:expr) => {{
-        #[cfg(any(test, feature = "test-mode"))]
-        let value = ::std::env::var($name);
-        #[cfg(not(any(test, feature = "test-mode")))]
         let value: ::std::result::Result<::std::string::String, ::std::env::VarError> =
             ::std::result::Result::Err(::std::env::VarError::NotPresent);
         value
@@ -66,9 +63,6 @@ macro_rules! dev_var {
 #[allow(unused_macros)]
 macro_rules! dev_var_os {
     ($name:expr) => {{
-        #[cfg(any(test, feature = "test-mode"))]
-        let value = ::std::env::var_os($name);
-        #[cfg(not(any(test, feature = "test-mode")))]
         let value: ::std::option::Option<::std::ffi::OsString> = ::std::option::Option::None;
         value
     }};

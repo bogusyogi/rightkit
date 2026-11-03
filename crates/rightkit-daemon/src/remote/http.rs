@@ -2,11 +2,11 @@
 //! route's bound, converts to a [`Request`], and runs [`Daemon::handle`] on the
 //! blocking pool (the core does file I/O and rightkit-http calls).
 
+use rustls::pki_types::pem::PemObject;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,13 +17,10 @@ use axum::response::Response as AxumResponse;
 use axum::Router;
 use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
-use hyper_util::service::TowerToHyperService;
-use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, Semaphore};
-use tokio_rustls::TlsAcceptor;
 
 use crate::link::frame::{
     DEAD_AFTER_SECS, HEARTBEAT_SECS, H_LINK_ID, H_LINK_KEY, LINK_PATH, MAX_LINE, UPGRADE_TOKEN,

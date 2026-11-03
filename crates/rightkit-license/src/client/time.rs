@@ -82,30 +82,3 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146_097 + doe - 719_468
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rfc3339_known_values() {
-        assert_eq!(parse_rfc3339("1970-01-01T00:00:00Z"), Some(0));
-        assert_eq!(parse_rfc3339("2024-02-29T12:00:00Z"), Some(1_709_208_000));
-        assert_eq!(
-            parse_rfc3339("2026-10-16T02:00:00+02:00"),
-            parse_rfc3339("2026-10-16T00:00:00Z")
-        );
-        assert_eq!(
-            parse_rfc3339("2026-10-16T00:00:00.123Z"),
-            Some(1_792_108_800)
-        );
-        assert_eq!(parse_rfc3339("2026-02-29T00:00:00Z"), None);
-        assert_eq!(parse_rfc3339("garbage"), None);
-    }
-
-    #[test]
-    fn milliseconds_saturate() {
-        assert_eq!(to_ms(2), 2000);
-        assert_eq!(to_ms(i64::MAX), i64::MAX);
-    }
-}

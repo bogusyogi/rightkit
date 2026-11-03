@@ -6,12 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use sha1::Sha1;
 use sha2::{Digest, Sha256};
 
 use crate::error::{Res, ScanError};
 use crate::gitio::{self, dev_null, native_git, protected_env};
-use crate::json::locale_compare;
 
 const MAX_TREE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_TOTAL_BLOB_BYTES: u64 = 128 * 1024 * 1024;

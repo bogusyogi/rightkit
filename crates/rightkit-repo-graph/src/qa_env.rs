@@ -4,22 +4,10 @@
 
 use std::ffi::OsString;
 
-#[cfg(debug_assertions)]
-pub(crate) fn scip_index() -> Option<OsString> {
-    std::env::var_os("RIGHTKIT_REPO_GRAPH_SCIP_INDEX")
-}
-
-#[cfg(not(debug_assertions))]
 pub(crate) fn scip_index() -> Option<OsString> {
     None
 }
 
-#[cfg(debug_assertions)]
-pub(crate) fn embed_model_dir() -> Option<OsString> {
-    std::env::var_os("RIGHTKIT_CONTEXT_EMBED_MODEL_DIR")
-}
-
-#[cfg(not(debug_assertions))]
 pub(crate) fn embed_model_dir() -> Option<OsString> {
     None
 }

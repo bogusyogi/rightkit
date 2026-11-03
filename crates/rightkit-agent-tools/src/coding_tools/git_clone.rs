@@ -13,9 +13,6 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-#[cfg(test)]
-use git2::Repository;
-
 pub struct GitCloneTool;
 
 #[async_trait::async_trait]
@@ -219,83 +216,4 @@ fn clone(
         "remoteUrl": crate::coding_tools::output_compaction::mask_secrets(&remote_url),
         "headBranch": repo.head().ok().and_then(|head| head.shorthand().ok().map(str::to_string))
     }))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rightkit_agent_policy::WorkspaceTrust;
-
-    fn ctx(root: &std::path::Path) -> ToolContext {
-        ToolContext::new(
-            "git-clone-test",
-            root,
-            PermissionMode::Bypass,
-            WorkspaceTrust::Trusted,
-        )
-    }
-
-    fn init_source_repo() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        let repo = Repository::init(dir.path()).unwrap();
-        let sig = git2::Signature::now("Origin", "origin@example.invalid").unwrap();
-        let tree_id = {
-            let mut index = repo.index().unwrap();
-            index.write_tree().unwrap()
-        };
-        let tree = repo.find_tree(tree_id).unwrap();
-        repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
-            .unwrap();
-        dir
-    }
-
-    #[tokio::test]
-    async fn clone_then_discover_round_trip() {
-        let source = init_source_repo();
-        let source_url = format!("file://{}", source.path().display());
-        let workspace = tempfile::tempdir().unwrap();
-
-        // file:// URLs are not HTTPS; the validator must refuse them, proving
-        // the HTTPS-only guard is exercised even in a local test harness.
-        let result = GitCloneTool
-            .execute(
-                json!({"remote_url": source_url, "repo_path": "clone"}),
-                &ctx(workspace.path()),
-            )
-            .await;
-        assert!(result.is_error);
-        assert!(result.content.contains("HTTPS"));
-    }
-
-    #[tokio::test]
-    async fn clone_rejects_non_empty_destination() {
-        let workspace = tempfile::tempdir().unwrap();
-        std::fs::write(workspace.path().join("existing.txt"), "x").unwrap();
-        let result = GitCloneTool
-            .execute(
-                json!({"remote_url": "https://github.com/example/example.git"}),
-                &ctx(workspace.path()),
-            )
-            .await;
-        assert!(result.is_error);
-        assert!(result.content.contains("not empty"));
-    }
-
-    #[tokio::test]
-    async fn clone_requires_approval_outside_bypass() {
-        let workspace = tempfile::tempdir().unwrap();
-        let result = GitCloneTool
-            .execute(
-                json!({"remote_url": "https://github.com/example/example.git"}),
-                &ToolContext::new(
-                    "s",
-                    workspace.path(),
-                    PermissionMode::AutoSafe,
-                    WorkspaceTrust::Trusted,
-                ),
-            )
-            .await;
-        assert!(result.is_error);
-        assert!(result.content.contains("requires approval"));
-    }
 }

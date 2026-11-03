@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["ffmpeg", "audio", "media", "process"]
 categories = ["multimedia::audio"]
-include = ["src/**", "tests/**", "catalog/**", "recipes/**", "third-party/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "catalog/**", "recipes/**", "third-party/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = ["native"]
@@ -31,14 +31,6 @@ serde_json = "1.0.154"
 rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy", optional = true}
 rightkit-ocr = {version = "0.2.3", default-features = false, features = ["native"], path = "../rightkit-ocr", optional = true}
 tokio = {version = "1", features = ["io-util", "macros", "process", "sync", "time"], optional = true}
-
-[dev-dependencies]
-tempfile = "3"
-tokio = {version = "1", features = ["full", "test-util"]}
-
-[[test]]
-name = "native_catalog_e2e"
-required-features = ["native"]
 
 [package.metadata.rightkit]
 continuous = false

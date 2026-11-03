@@ -216,37 +216,3 @@ pub struct AuthenticateRequest {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct AuthenticateResponse {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn initialize_response_advertises_v1_and_session_capabilities() {
-        let response = default_initialize_response();
-        assert_eq!(response.protocol_version, 1);
-        assert!(response.agent_capabilities.session_capabilities.load);
-        assert!(response.agent_capabilities.session_capabilities.list);
-        assert!(response.agent_capabilities.session_capabilities.delete);
-        assert!(response.agent_capabilities.session_capabilities.resume);
-        assert!(response.agent_capabilities.session_capabilities.close);
-        assert_eq!(
-            response.agent_info.as_ref().map(|i| i.name.as_str()),
-            Some(ACP_AGENT_NAME)
-        );
-    }
-
-    #[test]
-    fn negotiate_protocol_version_always_answers_v1() {
-        assert_eq!(negotiate_protocol_version(0), 1);
-        assert_eq!(negotiate_protocol_version(1), 1);
-        assert_eq!(negotiate_protocol_version(99), 1);
-    }
-
-    #[test]
-    fn agent_methods_list_matches_dispatch_surface() {
-        assert_eq!(AGENT_METHODS.len(), 11);
-        assert!(AGENT_METHODS.contains(&METHOD_SESSION_PROMPT));
-        assert!(AGENT_METHODS.contains(&METHOD_SESSION_LIST));
-    }
-}

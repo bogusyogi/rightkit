@@ -180,8 +180,7 @@ impl RuntimeReceiptV2 {
                 "installed"
             }
             // A release build only ever runs from the installed layout (`runtime_from_installed_exe`).
-            _ if !cfg!(debug_assertions) => "installed",
-            _ => "development",
+            _ => "installed",
         };
         let (stable_install_root, resolved_version_root) = if runtime_origin == "installed" {
             let (stable, version) = installed_code_roots().ok_or_else(|| {

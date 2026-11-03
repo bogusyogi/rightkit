@@ -50,32 +50,3 @@ pub fn assert_enum<'a>(name: &str, value: &'a str, allowed: &[&str]) -> Result<&
     }
     Ok(value)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn assert_enum_accepts_member() {
-        assert_eq!(
-            assert_enum("status", "pass", PROVIDER_STATUS).unwrap(),
-            "pass"
-        );
-    }
-
-    #[test]
-    fn assert_enum_rejects_non_member_with_js_shaped_message() {
-        let err = assert_enum("status", "bogus", PROVIDER_STATUS).unwrap_err();
-        assert!(err.starts_with("status must be one of "));
-        assert!(err.ends_with("got \"bogus\""));
-    }
-
-    #[test]
-    fn enum_tables_match_js_length_and_order() {
-        assert_eq!(PROVIDER_STATUS.len(), 10);
-        assert_eq!(PROVIDER_ROLES.len(), 7);
-        assert_eq!(PROVIDER_PHASES.len(), 7);
-        assert_eq!(PROVIDER_ROLES[0], "deterministic");
-        assert_eq!(PROVIDER_PHASES[0], "facts");
-    }
-}

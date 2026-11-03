@@ -218,6 +218,3 @@ pub fn partition_outcome(
     }
     (messages, skipped)
 }
-
-#[cfg(test)]
-mod tests;

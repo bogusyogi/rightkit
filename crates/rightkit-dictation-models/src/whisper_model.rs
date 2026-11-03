@@ -439,7 +439,3 @@ pub fn download_whisper_model_blocking(host: &dyn WhisperHost) -> Result<(), Str
     emit(host, "installed", received, total, "Model ready.");
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "whisper_model_tests.rs"]
-mod tests;

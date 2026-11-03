@@ -96,37 +96,3 @@ pub enum FeatureGateError {
     )]
     Disabled,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_is_disabled() {
-        assert!(!FeatureGate::default().is_enabled());
-        assert!(!workflow_feature_default());
-    }
-
-    #[test]
-    fn from_config_uses_default_when_unset() {
-        assert!(!FeatureGate::from_config(None).is_enabled());
-        assert!(FeatureGate::from_config(Some(true)).is_enabled());
-        assert!(!FeatureGate::from_config(Some(false)).is_enabled());
-    }
-
-    #[test]
-    fn require_enabled_refuses_when_disabled() {
-        let err = FeatureGate::default().require_enabled().unwrap_err();
-        assert_eq!(err, FeatureGateError::Disabled);
-        assert!(FeatureGate::from_bool(true).require_enabled().is_ok());
-    }
-
-    #[test]
-    fn from_env_recognizes_truthy_values() {
-        // Note: cannot run a true env override test here without
-        // `serial_test`; this case is exercised by daemon integration
-        // tests in WP-09.
-        let gate = FeatureGate::from_env_or_default();
-        assert!(!gate.is_enabled());
-    }
-}

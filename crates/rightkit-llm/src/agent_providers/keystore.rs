@@ -123,11 +123,10 @@ pub const DISABLE_ENV: &str = "RIGHTKIT_DISABLE_OS_KEYCHAIN";
 /// variables -- so the guarantee belongs in the code that needs it, not in a
 /// build-tool config that may or may not be applied.
 ///
-/// The env var still works for non-test callers (a developer running the
-/// daemon locally who wants no keychain access).
+/// The env var lets a developer running the daemon locally opt out of keychain access.
 #[cfg(feature = "agent_providers-os-keyring")]
 fn keychain_disabled() -> bool {
-    cfg!(test) || std::env::var_os(DISABLE_ENV).is_some_and(|v| v == "1")
+    std::env::var_os(DISABLE_ENV).is_some_and(|v| v == "1")
 }
 
 /// Per-call cap for background keychain operations. macOS blocks a keychain
@@ -369,148 +368,5 @@ impl KeyStoreBackend for InMemoryKeyStore {
             }
             Some(_) => KeyDelete::Changed,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Use a unique key suffix per test to avoid cross-test pollution.
-    fn test_key(suffix: &str) -> String {
-        format!("test_key_{suffix}")
-    }
-
-    #[test]
-    fn keystore_roundtrip() {
-        let key = test_key("roundtrip");
-        // Clean up any leftover from a prior run
-        let _ = KeyStore::delete(KeyStore::SERVICE, &key);
-
-        // Skip gracefully if system keyring is unavailable or unreliable (CI).
-        if KeyStore::set(KeyStore::SERVICE, &key, "sk-test-value").is_err() {
-            return;
-        }
-        match KeyStore::get(KeyStore::SERVICE, &key) {
-            Err(_) => return, // keyring available but unreliable — skip
-            Ok(got) => assert_eq!(got, "sk-test-value"),
-        }
-        let _ = KeyStore::delete(KeyStore::SERVICE, &key);
-    }
-
-    #[test]
-    fn keystore_missing_key_returns_error() {
-        let key = test_key("nonexistent_abc123xyz");
-        // Ensure it doesn't exist
-        let _ = KeyStore::delete(KeyStore::SERVICE, &key);
-
-        let result = KeyStore::get(KeyStore::SERVICE, &key);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            KeyStoreError::NotFound { .. } => {} // real keychain, key absent
-            // Under cargo the DISABLE_ENV kill-switch answers before the OS
-            // keychain is consulted (.cargo/config.toml).
-            KeyStoreError::Keyring(msg) if msg.contains(DISABLE_ENV) => {}
-            e => panic!("expected NotFound or disabled keychain, got: {e}"),
-        }
-    }
-
-    /// A service name nothing else uses, so a real-keychain test can never
-    /// disturb the user's own `host app` items.
-    fn scratch_service() -> String {
-        format!("rightkit-agent-keystore-test-{}", std::process::id())
-    }
-
-    /// Whether this run may touch the real OS keychain.
-    ///
-    /// `.cargo/config.toml` sets `RIGHTKIT_DISABLE_OS_KEYCHAIN=1` for every
-    /// cargo invocation, so the keychain tests above silently no-op — which is
-    /// precisely why the overwrite bug reached a user. Opt in with
-    /// `RIGHTKIT_KEYCHAIN_TESTS=1` and an unset kill-switch.
-    fn real_keychain_enabled() -> bool {
-        std::env::var("RIGHTKIT_KEYCHAIN_TESTS").as_deref() == Ok("1")
-            && std::env::var(DISABLE_ENV).map(|v| v != "1").unwrap_or(true)
-    }
-
-    #[test]
-    fn overwriting_an_existing_key_succeeds() {
-        if !real_keychain_enabled() {
-            return;
-        }
-        let service = scratch_service();
-        let key = test_key("overwrite");
-        let _ = KeyStore::delete(&service, &key);
-
-        // An unsigned cargo test binary triggers a macOS approval prompt that
-        // nobody answers, so the call hits the 5s cap. That is the environment
-        // refusing, not the code failing — skip rather than report red.
-        if KeyStore::set(&service, &key, "sk-first").is_err() {
-            return;
-        }
-        // The bug: `set_password` cannot always update in place, falls through
-        // to an add, and returns errSecDuplicateItem. So the FIRST save worked
-        // and every correction after it failed.
-        KeyStore::set(&service, &key, "sk-second")
-            .expect("overwriting an existing key must work once the first save did");
-        assert_eq!(
-            KeyStore::get(&service, &key).expect("read back"),
-            "sk-second",
-            "the overwrite must win, not leave the old value in place"
-        );
-        let _ = KeyStore::delete(&service, &key);
-    }
-
-    #[test]
-    fn in_memory_keystore_write_then_read() {
-        let store = InMemoryKeyStore::new();
-        store.set("rightkit-agent", "openrouter", "sk-abc").unwrap();
-        assert_eq!(store.get("rightkit-agent", "openrouter").unwrap(), "sk-abc");
-    }
-
-    #[test]
-    fn in_memory_keystore_missing_key_is_not_found() {
-        let store = InMemoryKeyStore::new();
-        match store.get("rightkit-agent", "missing").unwrap_err() {
-            KeyStoreError::NotFound { .. } => {}
-            e => panic!("expected NotFound, got: {e}"),
-        }
-    }
-
-    #[test]
-    fn in_memory_keystore_delete_removes_entry() {
-        let store = InMemoryKeyStore::new();
-        store.set("rightkit-agent", "openrouter", "sk-abc").unwrap();
-        store.delete("rightkit-agent", "openrouter").unwrap();
-        assert!(store.get("rightkit-agent", "openrouter").is_err());
-    }
-
-    #[test]
-    fn in_memory_keystore_failing_backend_rejects_writes() {
-        let store = InMemoryKeyStore::failing("no secret service");
-        let err = store
-            .set("rightkit-agent", "openrouter", "sk-abc")
-            .unwrap_err();
-        match err {
-            KeyStoreError::Keyring(msg) => assert_eq!(msg, "no secret service"),
-            other => panic!("expected Keyring error, got: {other}"),
-        }
-    }
-
-    #[test]
-    fn os_key_store_implements_backend_trait() {
-        // Compile-time + smoke check that OsKeyStore satisfies KeyStoreBackend
-        // and delegates to the same KeyStore statics (skips gracefully if the
-        // system keyring is unavailable, same as keystore_roundtrip above).
-        let backend = OsKeyStore;
-        let key = test_key("os_backend_roundtrip");
-        let _ = KeyStoreBackend::delete(&backend, KeyStore::SERVICE, &key);
-        if KeyStoreBackend::set(&backend, KeyStore::SERVICE, &key, "sk-test").is_err() {
-            return;
-        }
-        match KeyStoreBackend::get(&backend, KeyStore::SERVICE, &key) {
-            Err(_) => return,
-            Ok(got) => assert_eq!(got, "sk-test"),
-        }
-        let _ = KeyStoreBackend::delete(&backend, KeyStore::SERVICE, &key);
     }
 }

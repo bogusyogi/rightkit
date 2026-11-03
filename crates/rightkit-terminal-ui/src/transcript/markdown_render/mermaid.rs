@@ -99,7 +99,3 @@ pub(super) fn render(source: &str, width: Option<usize>, theme: &Theme) -> Vec<L
         })
         .collect()
 }
-
-#[cfg(test)]
-#[path = "mermaid_tests.rs"]
-mod tests;

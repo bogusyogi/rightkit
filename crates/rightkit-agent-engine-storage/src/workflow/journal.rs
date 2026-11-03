@@ -715,36 +715,6 @@ impl<'a> WorkflowJournalWriter<'a> {
         tx.commit()?;
         Ok(WorkflowCommandApplyOutcome::Applied(applied))
     }
-
-    #[cfg(test)]
-    pub(crate) fn apply_command_with_fault(
-        &self,
-        command: &WorkflowCommandRow,
-        outcome_json: &str,
-        event: &JournalAppend<'_>,
-        projection: &ProjectionUpdate<'_>,
-        queue: Option<&WorkflowQueueRow>,
-        wait: Option<&WorkflowWaitRow>,
-        approval: Option<&WorkflowApprovalRow>,
-        effect: Option<&WorkflowEffectRow>,
-        attention: Option<&WorkflowAttentionRow>,
-        outbox: Option<&WorkflowOutboxRow>,
-        fail_at: WorkflowCommandBoundary,
-    ) -> Result<WorkflowCommandApplyOutcome> {
-        self.apply_command_at_boundary(
-            command,
-            outcome_json,
-            event,
-            projection,
-            queue,
-            wait,
-            approval,
-            effect,
-            attention,
-            outbox,
-            Some(fail_at),
-        )
-    }
 }
 
 fn fail_if(

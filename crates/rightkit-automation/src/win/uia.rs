@@ -9,7 +9,6 @@ use crate::uia_text::{
     FocusedFieldText, RowPush, TerminalLimits, TerminalRowCollector, TerminalRows, TextRead,
 };
 use std::cell::Cell;
-use std::mem::ManuallyDrop;
 use std::sync::OnceLock;
 use std::time::Instant;
 use windows::core::{IUnknown, Interface, BSTR};

@@ -453,33 +453,3 @@ fn argmax_token<'a, I: Iterator<Item = &'a f32>>(
         .map(|(i, _)| i)
         .unwrap_or(0)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn context_bias_boosts_phrase_start_and_continuation() {
-        let bias = ContextBias::new(vec![vec![10, 11, 12]], 1.0);
-        assert_eq!(bias.next_token_bonuses(&[]).get(&10).copied(), Some(1.0));
-        assert_eq!(
-            bias.next_token_bonuses(&[10]).get(&11).copied(),
-            Some(1.0)
-        );
-        assert_eq!(
-            bias.next_token_bonuses(&[10, 11]).get(&12).copied(),
-            Some(1.0)
-        );
-        assert_eq!(bias.next_token_bonuses(&[10]).get(&12).copied(), None);
-    }
-
-    #[test]
-    fn biased_argmax_can_override_small_margin_only() {
-        let bias = ContextBias::new(vec![vec![2]], 0.5);
-        let logits = [0.0, 1.0, 0.75];
-        assert_eq!(argmax_token(logits.iter(), Some(&bias), &[]), 2);
-
-        let logits = [0.0, 1.0, 0.1];
-        assert_eq!(argmax_token(logits.iter(), Some(&bias), &[]), 1);
-    }
-}

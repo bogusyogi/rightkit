@@ -115,20 +115,3 @@ impl RouteDecision {
         self
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn new_stamps_current_schema_version() {
-        let decision = RouteDecision::new(
-            "deepseek/deepseek-v4-flash",
-            ModelTier::Cheap,
-            "test",
-            0.9,
-            EnforcementMode::None,
-        );
-        assert_eq!(decision.schema_version, ROUTE_DECISION_SCHEMA_VERSION);
-    }
-}

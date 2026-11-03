@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["hooks", "claude", "codex", "agents"]
 categories = ["development-tools"]
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
@@ -66,5 +66,3 @@ opt-level = 0
 agent_hooks-host-env = ["agent_hooks"]
 agent_hooks = ["dep:async-trait", "dep:rightkit-agent-engine-protocol", "dep:rightkit-sandbox", "dep:regex", "dep:rightkit-child-process", "dep:thiserror", "dep:tokio"]
 
-[dev-dependencies]
-tokio = {version = "1", features = ["full"]}

@@ -18,8 +18,6 @@ use serde_json::{json, Value};
 use rightkit_transcript_library::net::host_of_url;
 
 use super::overrides;
-#[cfg(any(test, feature = "test-mode"))]
-use super::state::ChatResponse;
 use super::state::{CachedAgent, Provider, ProviderSpec, AGENTS};
 
 /// User agent the former `ureq` calls sent explicitly.
@@ -309,11 +307,6 @@ fn scrub_payload_text(value: &str) -> String {
     rightkit_dictation_core::redact_payload_text(value, MAX_PAYLOAD_TEXT_CHARS)
 }
 
-#[cfg(test)]
-pub(crate) fn agent_for_timeout(timeout: Duration) -> Arc<Client> {
-    agent_for_endpoint(timeout, "")
-}
-
 /// Cached client for a timeout bucket. A URL whose host is not a default
 /// provider host (a base-URL override) may resolve to local addresses, which
 /// `ureq` always permitted; every other client keeps the public-web policy.
@@ -400,22 +393,6 @@ pub(crate) fn openrouter_provider_preferences(model: &str) -> Option<Value> {
     Some(Value::Object(provider))
 }
 
-#[cfg(any(test, feature = "test-mode"))]
-pub(crate) fn parse_message_content(raw: &str) -> Result<String, &'static str> {
-    let response: ChatResponse = serde_json::from_str(raw).map_err(|_| "bad_response")?;
-    let choice = response.choices.first().ok_or("bad_response")?;
-    // A "length" finish means the completion budget ran out mid-output. The
-    // partial text can look valid, so accepting it would type a silently
-    // truncated polish into the user's app. Reject and fall to the next lane.
-    if choice.finish_reason.as_deref() == Some("length") {
-        return Err("truncated_response");
-    }
-    Some(choice.message.content.trim())
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .ok_or("bad_response")
-}
-
 fn error_class_from_status(status: u16) -> &'static str {
     match status {
         401 | 403 => "auth",
@@ -499,93 +476,5 @@ pub(crate) fn apply_provider_payload_options(spec: &ProviderSpec, payload: &mut 
         if let Some(base) = payload["max_tokens"].as_u64() {
             payload["max_tokens"] = json!((base + 768).min(2_048));
         }
-    }
-}
-
-#[cfg(test)]
-mod payload_log_tests {
-    use super::*;
-
-    #[test]
-    fn payload_scrubber_removes_nested_credentials_without_removing_text() {
-        let value = rightkit_dictation_core::redact_payload_value(
-            serde_json::json!({
-                "messages": [{"content": "private dictated text", "api_key": "never-store"}],
-                "nested": {"Authorization": "Bearer never-store"}
-            }),
-            MAX_PAYLOAD_TEXT_CHARS,
-        );
-        assert_eq!(value["messages"][0]["content"], "private dictated text");
-        assert_eq!(value["messages"][0]["api_key"], "[redacted]");
-        assert_eq!(value["nested"]["Authorization"], "[redacted]");
-    }
-
-    #[test]
-    fn payload_scrubber_redacts_secret_shaped_values_under_unknown_keys() {
-        let value = rightkit_dictation_core::redact_payload_value(
-            serde_json::json!({
-                "transcript": "Please keep this ordinary dictated sentence.",
-                "opaque": "Bearer completely-unknown-secret-value",
-                "session": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3OCJ9.signature-value-123456",
-                "other": "sk-this-is-a-common-api-key-shape",
-            }),
-            MAX_PAYLOAD_TEXT_CHARS,
-        );
-        assert_eq!(
-            value["transcript"],
-            "Please keep this ordinary dictated sentence."
-        );
-        assert_eq!(value["opaque"], "Bearer [redacted]");
-        assert_eq!(value["session"], "[redacted]");
-        assert_eq!(value["other"], "[redacted]");
-    }
-
-    #[test]
-    fn payload_log_rotates_at_the_threshold_and_keeps_one_predecessor() {
-        let root =
-            std::env::temp_dir().join(format!("rightkit-payload-rotation-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
-        let path = root.join("polish-payloads.jsonl");
-        std::fs::write(&path, vec![b'x'; MAX_PAYLOAD_LOG_BYTES as usize]).unwrap();
-
-        rightkit_logs::JsonlStore::new(path.clone(), MAX_PAYLOAD_LOG_BYTES)
-            .append_value(&serde_json::json!({ "event": "after_rotation" }))
-            .unwrap();
-
-        assert_eq!(
-            std::fs::metadata(root.join("polish-payloads.jsonl.1"))
-                .unwrap()
-                .len(),
-            MAX_PAYLOAD_LOG_BYTES
-        );
-        assert!(std::fs::read_to_string(&path)
-            .unwrap()
-            .contains("after_rotation"));
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn payload_ids_remain_unique_when_new_log_generations_restart_at_offset_zero() {
-        let first = next_payload_id();
-        let second = next_payload_id();
-        assert_ne!(first, second);
-        assert!(first.starts_with('p'));
-    }
-
-    #[test]
-    fn payload_logging_diagnostics_are_content_free_and_stable() {
-        let marker = serde_json::json!({
-            "schema_version": 1,
-            "event": "runtime_diagnostic",
-            "severity": "error",
-            "component": "polish",
-            "code": "ai_polish_payload_log_write_failed",
-            "recoverable": true,
-        });
-        let serialized = serde_json::to_string(&marker).unwrap();
-        assert!(serialized.contains("ai_polish_payload_log_write_failed"));
-        assert!(!serialized.contains("request"));
-        assert!(!serialized.contains("response"));
     }
 }

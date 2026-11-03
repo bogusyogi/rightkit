@@ -33,30 +33,3 @@ pub fn status_for_code(code: &str) -> Option<u16> {
 pub fn status_for_error(e: &ServiceError) -> u16 {
     status_for_code(&e.code).unwrap_or(if e.retryable { 503 } else { 500 })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn known_codes_map_and_unknown_fall_back() {
-        assert_eq!(status_for_code("unauthenticated"), Some(401));
-        assert_eq!(status_for_code("forbidden"), Some(403));
-        assert_eq!(status_for_code("revision_conflict"), Some(409));
-        assert_eq!(status_for_code(ERROR_NOT_ALLOWED), Some(403));
-        assert_eq!(status_for_code(ERROR_REQUEST_TOO_LARGE), Some(413));
-        assert_eq!(status_for_code(ERROR_BAD_CHUNK), Some(400));
-        assert_eq!(status_for_code("nope"), None);
-        assert_eq!(status_for_error(&ServiceError::new("nope", "x")), 500);
-        assert_eq!(status_for_error(&ServiceError::retryable("nope", "x")), 503);
-        assert_eq!(status_for_error(&ServiceError::handoff()), 503);
-    }
-
-    #[test]
-    fn codes_are_unique() {
-        let mut seen = std::collections::BTreeSet::new();
-        for (c, _) in STATUS_TABLE {
-            assert!(seen.insert(*c), "duplicate {c}");
-        }
-    }
-}

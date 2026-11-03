@@ -100,7 +100,7 @@ For a credential-backed anti-rollback ledger, configure `LicenseClientConfig::wi
 
 ## Cargo features
 
-`client` (native licence client, adds `rightkit-http`, `rightkit-credentials`, `zeroize`), `update-auth` (implies `client`, adds `url`; updater request authorization), `client-testing` (implies `client`; test-only loopback origin, never shipped), `subject-entitlement` (Google-subject entitlement client, adds `rightkit-http`) and `engine-gate` (engine startup gate: Allowed / Grace / Denied verdict, exit codes, messages; implies `subject-entitlement`; see CHANGELOG 0.2.2). All are off by default. Dependencies: `ed25519-dalek` 3, `base64` 0.23, `serde`, `serde_json` (0.2.0 moved from dalek 2 and base64 0.22; verification semantics are pinned by `test-vectors/dalek-parity-v1.json`, see `CHANGELOG.md`).
+`client` (native licence client, adds `rightkit-http`, `rightkit-credentials`, `zeroize`), `update-auth` (implies `client`, adds `url`; updater request authorization), `subject-entitlement` (Google-subject entitlement client, adds `rightkit-http`) and `engine-gate` (engine startup gate: Allowed / Grace / Denied verdict, exit codes, messages; implies `subject-entitlement`; see CHANGELOG 0.2.2). All are off by default. Dependencies: `ed25519-dalek` 3, `base64` 0.23, `serde`, `serde_json` (0.2.0 moved from dalek 2 and base64 0.22; verification semantics are pinned by `test-vectors/dalek-parity-v1.json`, see `CHANGELOG.md`).
 
 ## Usage
 

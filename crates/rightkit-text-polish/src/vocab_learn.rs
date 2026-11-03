@@ -463,7 +463,3 @@ fn strsim_levenshtein(a: &str, b: &str) -> usize {
     }
     prev[b.len()]
 }
-
-#[cfg(test)]
-#[path = "vocab_learn_tests.rs"]
-mod tests;

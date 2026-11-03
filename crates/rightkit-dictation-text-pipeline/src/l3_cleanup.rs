@@ -10,9 +10,6 @@ mod acceptance;
 mod lanes;
 // The harness reads evaluation selectors and provider-key variables, so it exists only in test
 // and `test-mode` builds. A release build gets the inert stand-in with the same public surface.
-#[cfg(any(test, feature = "test-mode"))]
-mod live_eval;
-#[cfg(not(any(test, feature = "test-mode")))]
 #[path = "l3_cleanup/live_eval_release.rs"]
 mod live_eval;
 mod ops;
@@ -26,16 +23,11 @@ mod state;
 mod transport;
 mod wire;
 
-#[cfg(test)]
-mod tests;
-
 // Public API.
 pub use lanes::{
     app_polish_outcome, app_polish_outcome_with_receipts, cleanup_enabled, prompt_polish_outcome,
     prompt_polish_outcome_with_receipts, summarize_outcome, summarize_outcome_with_receipts,
 };
-#[cfg(test)]
-pub use lanes::{cached_prefix, cleanup_outcome};
 pub use live_eval::{
     live_eval_enabled, live_eval_suppresses_delivery, render_prompt_convergence_payloads_json,
     run_live_evaluation, LiveEvalLane,
@@ -51,21 +43,3 @@ pub use state::{CleanupHealth, CleanupOutcome, PolishContext};
 // `#[cfg(test)]` subtree (`tests.rs` / `tests/more.rs` via `use super::*`),
 // so they are test-only and would warn as unused in the lib target.
 pub(crate) use acceptance::*;
-#[cfg(test)]
-pub(crate) use lanes::*;
-#[cfg(test)]
-pub(crate) use live_eval::*;
-#[cfg(test)]
-pub(crate) use ops::*;
-#[cfg(test)]
-pub(crate) use overrides::env_string;
-#[cfg(test)]
-pub(crate) use prompts::*;
-#[cfg(test)]
-pub(crate) use providers::*;
-#[cfg(test)]
-pub(crate) use state::*;
-#[cfg(test)]
-pub(crate) use transport::*;
-#[cfg(test)]
-pub(crate) use wire::*;

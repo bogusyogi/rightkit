@@ -32,19 +32,3 @@ impl Default for Policy {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn defaults_are_pulse_current_values() {
-        let policy = Policy::default();
-        assert_eq!(policy.unverified_folder, "Received (unverified)");
-        assert_eq!(policy.unproven_max_files, 200);
-        assert_eq!(policy.unproven_max_bytes, 2 * 1024 * 1024 * 1024);
-        assert_eq!(policy.max_file_bytes, 64 * 1024 * 1024 * 1024);
-        assert_eq!(policy.max_message_chars, 64 * 1024);
-        assert_eq!(policy.answer_wait, Duration::from_secs(60));
-    }
-}

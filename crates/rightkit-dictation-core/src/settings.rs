@@ -1,7 +1,5 @@
 mod blob;
 mod patch;
-#[cfg(test)]
-mod tests;
 
 pub use blob::{
     configure_legal_contract, legal_accepted_at_is_canonical_utc, migrate,

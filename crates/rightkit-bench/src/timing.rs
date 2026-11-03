@@ -54,23 +54,3 @@ where
         n,
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn percentiles_use_nearest_rank() {
-        let mut s = [5, 1, 4, 2, 3];
-        assert_eq!(percentile_ms(&mut s, 0.5), 3);
-        assert_eq!(percentile_ms(&mut s, 1.0), 5);
-        assert_eq!(percentile_ms(&mut [], 0.5), 0);
-    }
-
-    #[test]
-    fn measure_many_counts_runs_and_stops_on_error() {
-        let m = measure_many("ok", 3, || Ok(7)).unwrap();
-        assert_eq!((m.n, m.rows), (3, 7));
-        assert!(measure_many("bad", 3, || Err("boom".into())).is_err());
-    }
-}

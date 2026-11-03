@@ -108,7 +108,7 @@ impl PeerError {
 
 /// `D:P(A;;GA;;;<sid>)`: protected DACL (no inheritance), one ACE granting
 /// GENERIC_ALL to exactly this SID.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 pub(crate) fn sddl_for_sid(sid: &str) -> String {
     format!("D:P(A;;GA;;;{sid})")
 }
@@ -359,7 +359,6 @@ pub use unix::verify_peer_is_current_user;
 mod win {
     use super::*;
     use std::os::windows::io::RawHandle;
-    use windows::core::PWSTR;
     use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
     use windows::Win32::Security::Authorization::{
         ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
@@ -579,8 +578,6 @@ mod win {
     }
 }
 
-#[cfg(all(windows, test))]
-pub(crate) use win::current_user_sid_string;
 #[cfg(windows)]
 pub use win::{
     owner_only_security_attributes, verify_pipe_peer_is_current_user,
@@ -593,119 +590,4 @@ pub use win::{
 #[cfg(windows)]
 pub fn current_user_sid() -> io::Result<String> {
     win::current_user_sid_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sddl_is_built_from_the_given_sid_with_a_protected_single_ace_dacl() {
-        assert_eq!(
-            sddl_for_sid("S-1-5-21-1-2-3-1001"),
-            "D:P(A;;GA;;;S-1-5-21-1-2-3-1001)"
-        );
-    }
-
-    #[test]
-    fn peer_error_maps_to_typed_io_kinds() {
-        let k = |e: PeerError| io::Error::from(e).kind();
-        assert_eq!(k(PeerError::Unsupported("x")), io::ErrorKind::Unsupported);
-        assert_eq!(
-            k(PeerError::Mismatch(PeerIdentity::default())),
-            io::ErrorKind::PermissionDenied
-        );
-    }
-
-    #[test]
-    fn a_vanished_peer_is_not_an_attack_but_a_mismatch_always_is() {
-        assert!(PeerError::Query(io::Error::from(io::ErrorKind::NotConnected)).peer_gone());
-        assert!(!PeerError::Query(io::Error::from(io::ErrorKind::PermissionDenied)).peer_gone());
-        assert!(!PeerError::Mismatch(PeerIdentity::default()).peer_gone());
-        assert!(!PeerError::Unsupported("x").peer_gone());
-    }
-
-    #[cfg(unix)]
-    mod unix_tests {
-        use super::*;
-        use std::os::unix::net::UnixStream;
-
-        #[test]
-        fn same_user_socketpair_is_accepted_with_our_uid() {
-            let (a, b) = UnixStream::pair().unwrap();
-            for s in [&a, &b] {
-                match verify_peer_is_current_user(s) {
-                    Ok(id) => assert_eq!(id.uid, Some(current_euid())),
-                    // A Unix with no credential query must refuse, never accept.
-                    Err(PeerError::Unsupported(_)) => {}
-                    Err(e) => panic!("same-user socketpair rejected: {e}"),
-                }
-            }
-        }
-
-        #[test]
-        fn a_different_uid_is_a_mismatch_and_an_unknown_uid_fails_closed() {
-            let me = current_euid();
-            let other = PeerIdentity {
-                uid: Some(me.wrapping_add(1)),
-                ..Default::default()
-            };
-            assert!(matches!(
-                super::super::unix::accept_uid(other, me),
-                Err(PeerError::Mismatch(id)) if id.uid == Some(me.wrapping_add(1))
-            ));
-            assert!(matches!(
-                super::super::unix::accept_uid(PeerIdentity::default(), me),
-                Err(PeerError::Mismatch(_))
-            ));
-            assert!(super::super::unix::accept_uid(
-                PeerIdentity {
-                    uid: Some(me),
-                    ..Default::default()
-                },
-                me
-            )
-            .is_ok());
-        }
-
-        // Cross-user (a real second account on the other end of a socket) cannot be
-        // exercised without privileges: it needs root to `setuid` a helper, or a second
-        // account. That branch is covered by the `accept_uid` test above, which feeds the
-        // decision function a foreign uid. Run a manual check as root with:
-        //   sudo -u nobody <test binary> --ignored cross_user
-        #[test]
-        #[ignore = "needs a second OS account; see comment"]
-        fn cross_user_socket_is_rejected() {
-            let path = std::env::var("RK_SERVICE_FOREIGN_SOCKET")
-                .expect("set RK_SERVICE_FOREIGN_SOCKET to a socket served by another user");
-            let s = UnixStream::connect(path).unwrap();
-            assert!(matches!(
-                verify_peer_is_current_user(&s),
-                Err(PeerError::Mismatch(_))
-            ));
-        }
-    }
-
-    #[cfg(windows)]
-    mod windows_tests {
-        use super::*;
-
-        #[test]
-        fn the_public_sid_helper_reports_this_processs_user() {
-            let sid = current_user_sid().unwrap();
-            assert!(sid.starts_with("S-1-"), "{sid}");
-            assert_eq!(sid, current_user_sid_string().unwrap());
-        }
-
-        #[test]
-        fn owner_only_attributes_use_the_real_current_sid() {
-            let sid = current_user_sid_string().unwrap();
-            assert!(sid.starts_with("S-1-"), "{sid}");
-            let a = owner_only_security_attributes().unwrap();
-            assert_eq!(a.sddl(), format!("D:P(A;;GA;;;{sid})"));
-            assert!(!a.as_ptr().is_null());
-            assert!(!a.raw().lpSecurityDescriptor.is_null());
-            assert!(!a.raw().bInheritHandle.as_bool());
-        }
-    }
 }

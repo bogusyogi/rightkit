@@ -95,7 +95,3 @@ fn read_options(pane: Option<&str>, mut run: impl FnMut(&[&str]) -> Option<Vec<u
     }
     options
 }
-
-#[cfg(test)]
-#[path = "tmux_tests.rs"]
-mod tests;

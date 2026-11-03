@@ -5,7 +5,6 @@
 //! `metric_import.preview` reads and writes nothing. `metric_import.commit` stores every value or none.
 //! `metric_import.list` reads the imports in scope. A value is an exact non-negative decimal string, never
 //! a float.
-use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 

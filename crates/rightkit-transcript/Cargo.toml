@@ -12,7 +12,7 @@ homepage = "https://github.com/bogusyogi/rightkit/tree/main/crates/rightkit-tran
 documentation = "https://docs.rs/rightkit-transcript"
 keywords = ["transcript", "captions", "subtitles", "srt", "webvtt"]
 categories = ["multimedia", "text-processing"]
-include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [lib]
 name = "rightkit_transcript"
